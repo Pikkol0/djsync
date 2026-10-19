@@ -13,7 +13,7 @@ import threading
 import unicodedata
 from typing import Any, Dict, Iterable, List, Optional, Union
 
-from .models import SearchMode, TrackResult
+from ..models import SearchMode, TrackResult
 
 log = logging.getLogger(__name__)
 

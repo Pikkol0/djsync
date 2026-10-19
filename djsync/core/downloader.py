@@ -16,7 +16,7 @@ from typing import Callable, Optional
 
 import yt_dlp
 
-from .models import DownloadedTrack, DownloadProgress, TrackResult
+from ..models import DownloadedTrack, DownloadProgress, TrackResult
 from .tagger import tag_audio
 
 log = logging.getLogger(__name__)
@@ -26,8 +26,11 @@ ProgressCallback = Callable[[DownloadProgress], None]
 # Caractères interdits sous Windows (et sur FAT32/exFAT, formats courants des clés USB)
 _FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
-# Flux m4a (AAC) natif, sans aucune conversion
-_NATIVE_FORMAT = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
+# Flux natif SANS conversion. YouTube / YouTube Music : AAC (m4a). SoundCloud et autres : on
+# accepte aussi le MP3 d'origine (une conversion MP3 -> AAC serait une perte inutile).
+_YT_NATIVE = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
+_ANY_NATIVE = "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=flac]/bestaudio[ext=wav]"
+_READABLE = (".m4a", ".mp3", ".flac", ".wav", ".aiff")  # lisibles par Rekordbox
 
 
 def sanitize_filename(name: str, max_len: int = 150) -> str:
@@ -63,7 +66,8 @@ class Downloader:
 
         try:
             try:
-                path = self._run(track, dest, base, {"format": _NATIVE_FORMAT}, notify)
+                native = _YT_NATIVE if track.source in ("ytmusic", "youtube") else _ANY_NATIVE
+                path = self._run(track, dest, base, {"format": native}, notify)
             except yt_dlp.utils.DownloadError as exc:
                 if "format is not available" not in str(exc).lower():
                     raise
@@ -118,7 +122,7 @@ class Downloader:
         downloads = (info or {}).get("requested_downloads") or []
         final = Path(downloads[0]["filepath"]) if downloads and downloads[0].get("filepath") else None
         if final is None or not final.exists():
-            final = dest / f"{base}.m4a"
-        if not final.exists():
-            raise FileNotFoundError(f"Fichier attendu introuvable : {final}")
+            final = next((dest / f"{base}{ext}" for ext in _READABLE if (dest / f"{base}{ext}").exists()), None)
+        if final is None:
+            raise FileNotFoundError(f"Fichier attendu introuvable dans {dest}")
         return final

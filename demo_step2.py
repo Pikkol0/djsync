@@ -5,9 +5,7 @@
 """
 import sys
 
-from djsync.core.errors import AmbiguousDriveError
-from djsync.core.usb_library import RekordboxUsbLibrary
-from djsync.core.usb import find_usb_drives, resolve_drive
+from djsync.db import AmbiguousDriveError, RekordboxUsbLibrary, find_usb_drives, resolve_drive
 
 
 def main() -> None:

@@ -10,7 +10,7 @@ import requests
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, ID3NoHeaderError
 from mutagen.mp4 import MP4, MP4Cover
 
-from .models import TrackResult
+from ..models import TrackResult
 
 log = logging.getLogger(__name__)
 

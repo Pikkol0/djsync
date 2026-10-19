@@ -39,7 +39,7 @@ from .errors import (
     TrackNotFoundError,
     UnsupportedFormatError,
 )
-from .models import FOLDER_KIND, PLAYLIST_KIND, LibraryTrack, PlaylistInfo
+from ..models import FOLDER_KIND, PLAYLIST_KIND, LibraryTrack, PlaylistInfo
 from .usb import UsbDrive, drive_from_letter
 
 log = logging.getLogger(__name__)
@@ -49,7 +49,10 @@ FILE_TYPES = {".mp3": 1, ".m4a": 4, ".aac": 4, ".flac": 5, ".wav": 11, ".aiff": 
 REQUIRED_TABLES = {"content", "playlist", "playlist_content", "artist", "album", "property"}
 # Tables annexes qui référencent un son : nettoyées à la suppression d'un son
 _CONTENT_REFS = ("cue", "history_content", "myTag_content")
-_VIDEO_ID = re.compile(r"(?:v=|youtu\.be/|/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])")
+_VIDEO_ID = re.compile(
+    r"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^#\s]*&)?v=|embed/|shorts/|live/)|youtu\.be/)"
+    r"([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])"
+)
 
 _TRACK_SELECT = """
     SELECT c.content_id, c.title, COALESCE(a.name, ''), al.name, COALESCE(c.length, 0), c.path,
@@ -335,13 +338,17 @@ class RekordboxUsbLibrary(LibraryBackend):
         return self._track(rows[0])
 
     def find_by_source_url(self, url_or_video_id: str) -> Optional[LibraryTrack]:
-        """Doublon exact : le son a déjà été téléchargé depuis cette vidéo YouTube."""
+        """Doublon exact : le son a déjà été téléchargé depuis cette vidéo YouTube (id) ou
+        cette URL (SoundCloud…)."""
         vid = extract_video_id(url_or_video_id)
-        if not vid:
-            return None
-        rows = self._read(
-            _TRACK_SELECT + " WHERE instr(c.djComment, ?) > 0 ORDER BY c.content_id LIMIT 1", (vid,)
-        )
+        if vid:
+            sql, arg = " WHERE instr(c.djComment, ?) > 0", vid
+        else:
+            arg = (url_or_video_id or "").strip().split("?")[0].split("#")[0]
+            if not arg.startswith("http"):
+                return None
+            sql = " WHERE c.djComment = ?"
+        rows = self._read(_TRACK_SELECT + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
         return self._track(rows[0]) if rows else None
 
     def track_count(self) -> int:
@@ -608,7 +615,8 @@ class RekordboxUsbLibrary(LibraryBackend):
         artist = (artist or "").strip()
         album = (album or "").strip() or None
         vid = extract_video_id(source_url or "")
-        comment = f"https://www.youtube.com/watch?v={vid}" if vid else (source_url or "")
+        comment = (f"https://www.youtube.com/watch?v={vid}" if vid
+                   else (source_url or "").split("?")[0].split("#")[0])
         audio = self._probe_audio(file_path)
         today = date.today().isoformat()
 

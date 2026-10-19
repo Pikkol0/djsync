@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterable, List, Optional, Protocol, Tuple
 
 from rapidfuzz import fuzz
 
-from .models import TrackResult
+from ..models import TrackResult
 
 # Mentions parasites entre () ou [] : "(Official Video)", "[Remastered 2011]"...
 _BRACKETS = re.compile(r"[\(\[][^\)\]]*[\)\]]")
@@ -107,7 +107,7 @@ class DuplicateChecker:
         for r in results:
             match: Optional[str] = None
             if self._exact is not None:
-                hit = self._exact(r.video_id)
+                hit = self._exact(r.url)
                 if hit is not None:
                     match = getattr(hit, "display_name", None) or str(hit)
             match = match or self.find_duplicate(r.title, r.artist)

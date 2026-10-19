@@ -5,12 +5,13 @@ import threading
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Union
 
+from ..models import Candidate, DownloadedTrack, ResolvedUrl, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind
 from .downloader import Downloader, ProgressCallback
 from .duplicates import DuplicateChecker, FakeLibrary, LibraryProvider
-from .matcher import Candidate, SpotifyMatcher
-from .models import DownloadedTrack, SearchMode, TrackResult
+from .matcher import SpotifyMatcher
 from .search import ExcludeFilter, MusicSearcher
-from .spotify import SpotifyTrack
+from .spotify import fetch_spotify
+from .urlimport import classify_url, resolve_direct
 
 
 class MusicService:
@@ -72,6 +73,21 @@ class MusicService:
         candidates = SpotifyMatcher(self.searcher).find_candidates(source, per_type=per_type)
         annotated = self._duplicates.annotate([c.track for c in candidates])
         return [Candidate(t, c.score) for t, c in zip(annotated, candidates)]
+
+    # ---- import par URL
+    @staticmethod
+    def classify_url(url: str) -> UrlKind:
+        return classify_url(url)
+
+    def fetch_spotify(self, url: str) -> SpotifyPlaylist:
+        """Playlist / album / titre Spotify (réseau : hors thread UI)."""
+        return fetch_spotify(url)
+
+    def resolve_direct(self, url: str) -> ResolvedUrl:
+        """YouTube / SoundCloud : morceaux listés par yt-dlp, doublons marqués, SANS recherche."""
+        resolved = resolve_direct(url)
+        resolved.tracks = self._duplicates.annotate(resolved.tracks)
+        return resolved
 
     # ---- téléchargement
     def download(

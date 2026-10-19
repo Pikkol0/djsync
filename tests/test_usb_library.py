@@ -22,6 +22,7 @@ DDL = [
     "CREATE TABLE playlist_content(playlist_id integer, content_id integer, sequenceNo integer)",
     "CREATE TABLE artist(artist_id integer primary key, name varchar, nameForSearch varchar)",
     "CREATE TABLE album(album_id integer primary key, name varchar, artist_id integer, image_id integer, isComplation integer, nameForSearch varchar)",
+    "CREATE TABLE image(image_id integer primary key, path varchar)",
     "CREATE TABLE property(deviceName varchar, dbVersion varchar, numberOfContents integer, createdDate varchar, backGroundColorType integer, myTagMasterDBID integer)",
 ]
 
@@ -149,3 +150,75 @@ def test_rollback_on_error(lib):
     with pytest.raises(LibraryError):
         lib.add_track(f, "r", "R", playlist_ids=[999])  # playlist inexistante -> tout est annulé
     assert lib.track_count() == 0
+
+
+# ------------------------------------------------ backups avant chaque modification
+def _backups(usb, kind):
+    return sorted((usb / "DJSync_Backups").glob(f"exportLibrary-*-{kind}.db"))
+
+
+def test_backup_before_every_write_with_session_backup_kept(usb):
+    with RekordboxUsbLibrary(drive_from_letter(str(usb)), backup_keep=3) as lib:
+        for i in range(6):
+            lib.create_playlist(f"p{i}")
+        assert len(_backups(usb, "session")) == 1      # état d'origine, jamais écrasé
+        assert len(_backups(usb, "auto")) == 3          # rotation des « avant modification »
+        # la sauvegarde « session » contient l'état AVANT la 1re écriture (3 playlists d'origine)
+        c = sqlcipher.connect(str(_backups(usb, "session")[0]))
+        c.execute("PRAGMA key = '%s'" % get_default_key())
+        assert c.execute("SELECT COUNT(*) FROM playlist").fetchone()[0] == 3
+        c.close()
+        # la plus récente « auto » contient l'état juste avant la dernière écriture (3 + 5)
+        c = sqlcipher.connect(str(_backups(usb, "auto")[-1]))
+        c.execute("PRAGMA key = '%s'" % get_default_key())
+        assert c.execute("SELECT COUNT(*) FROM playlist").fetchone()[0] == 8
+        c.close()
+
+
+def test_batch_makes_a_single_backup(lib, usb):
+    lib.create_playlist("seed")                         # -> 1 sauvegarde « session »
+    before = len(list((usb / "DJSync_Backups").glob("*.db")))
+    ids = [lib.add_track(make_wav(lib, "B", n), n, "B").content_id for n in "abcd"]
+    mid = len(list((usb / "DJSync_Backups").glob("*.db")))
+    assert mid - before == 4                            # 4 écritures isolées = 4 sauvegardes
+    removed, failures = lib.delete_tracks(ids)          # 4 suppressions en lot = 1 sauvegarde
+    assert (removed, failures) == (4, 0)
+    assert len(list((usb / "DJSync_Backups").glob("*.db"))) - mid == 1
+    assert lib.track_count() == 0
+
+
+def test_failed_backup_cancels_the_write(lib, usb):
+    lib.create_playlist("ok")
+    (usb / "DJSync_Backups").rename(usb / "gone")
+    (usb / "DJSync_Backups").write_text("je suis un fichier, pas un dossier")
+    with pytest.raises(LibraryError):
+        lib.create_playlist("refusée")
+    assert "refusée" not in [p.name for p in lib.list_playlists()]
+
+
+# ------------------------------------------------------------------ ordre, pochettes
+def test_set_playlist_order_and_sequence_field(lib):
+    ids = [lib.add_track(make_wav(lib, "O", n), n, "O", playlist_ids=[1]).content_id for n in "abc"]
+    lib.set_playlist_order(1, [ids[2], ids[0], ids[1]])
+    tracks = lib.get_playlist_tracks(1)
+    assert [t.content_id for t in tracks] == [ids[2], ids[0], ids[1]]
+    assert [t.sequence for t in tracks] == [1, 2, 3]
+    with pytest.raises(LibraryError):                    # liste incomplète : refus, rien n'est modifié
+        lib.set_playlist_order(1, [ids[0]])
+    assert [t.content_id for t in lib.get_playlist_tracks(1)] == [ids[2], ids[0], ids[1]]
+    with pytest.raises(LibraryError):
+        lib.set_playlist_order(3, [])                    # 3 = dossier
+
+
+def test_artwork_path_and_absolute_path(lib, usb):
+    t = lib.add_track(make_wav(lib, "Art", "x"), "x", "Art")
+    assert lib.absolute_path(t) == usb / "Contents" / "Art" / "UnknownAlbum" / "x.wav"
+    assert t.artwork_path is None and lib.artwork_file(t) is None
+    art = usb / "PIONEER" / "Artwork" / "00001"
+    art.mkdir(parents=True)
+    (art / "b1.jpg").write_bytes(b"jpg")
+    lib._db().execute("INSERT INTO image (image_id, path) VALUES (1, '/PIONEER/Artwork/00001/b1.jpg')")
+    lib._db().execute("UPDATE content SET image_id = 1")
+    t = lib.get_track(t.content_id)
+    assert t.artwork_path == "/PIONEER/Artwork/00001/b1.jpg"
+    assert lib.artwork_file(t) == art / "b1.jpg"
