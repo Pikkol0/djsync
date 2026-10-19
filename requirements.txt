@@ -1,0 +1,21 @@
+# --- Étape 1 : recherche, doublons, téléchargement, tags ---
+ytmusicapi>=1.8.0      # Recherche YouTube Music (sans authentification)
+yt-dlp>=2025.1.1       # Téléchargement audio (à garder à jour : YouTube change souvent)
+mutagen>=1.47.0        # Tags ID3 + lecture des propriétés audio (durée, débit)
+rapidfuzz>=3.6.0       # Détection de doublons par similarité floue
+requests>=2.31.0       # Téléchargement de la pochette
+
+# --- Étape 2 : base exportLibrary.db (chiffrée SQLCipher 4, mode WAL) ---
+sqlcipher3-wheels>=0.5.5   # remplace sqlite3 : le module standard ne peut PAS ouvrir cette base
+
+# --- Tests (optionnel) ---
+# pytest>=8.0
+
+# --- Étapes suivantes (à installer plus tard) ---
+# customtkinter>=5.2.2  # Étape 3 : interface sombre
+# pygame>=2.5.0         # Étape 3 : lecteur audio intégré
+# pyinstaller>=6.0.0    # Compilation en .exe
+
+# NOTE : FFmpeg (ffmpeg.exe + ffprobe.exe) est requis par yt-dlp pour la
+# conversion en MP3. Ce n'est pas un paquet pip : à placer dans le PATH
+# ou à embarquer à côté du .exe final.
