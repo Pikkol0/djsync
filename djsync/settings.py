@@ -64,6 +64,9 @@ class Settings:
     # ---- V1.1-A3
     pdb_sync: str = "auto"             # "auto" : met aussi à jour export.pdb s'il existe | "off"
     pdb_allow_growth: bool = False     # autorise l'ajout de pages à export.pdb (non validé sur platine)
+    # ---- V1.1-A4
+    analyze_on_add: bool = True        # BPM, tonalité, formes d'onde (ANLZ) et pochette à chaque ajout
+    key_notation: str = "auto"         # auto (celle de la clé) | camelot (« 8A ») | musical (« Am »)
 
     @classmethod
     def path(cls) -> Path:
@@ -91,6 +94,7 @@ class Settings:
         self.zoom = clamp_zoom(self.zoom)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
+        self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
         return self
 

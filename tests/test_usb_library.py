@@ -73,7 +73,8 @@ def test_add_track_and_playlists(lib):
     f = make_wav(lib, "Leto", "Leto - Macaroni")
     t = lib.add_track(f, "Macaroni", "Leto", "100 visages", "https://music.youtube.com/watch?v=BBBBBBBBBBB", [1, 2])
     assert t.path == "/Contents/Leto/UnknownAlbum/Leto - Macaroni.wav"
-    assert t.file_type == 11 and not t.is_analysed
+    assert t.file_type == 11 and t.is_analysed          # V1.1-A4 : analysé à l'ajout (ANLZ écrits)
+    assert (lib.drive.root / lib._read("SELECT analysisDataFilePath FROM content")[0][0].lstrip("/")).is_file()
     assert [p.track_count for p in lib.list_playlists()][:2] == [1, 1]
     assert lib.find_by_source_url("BBBBBBBBBBB").content_id == t.content_id
     assert lib._read("SELECT numberOfContents FROM property")[0][0] == 1

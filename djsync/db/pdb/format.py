@@ -34,6 +34,7 @@ class T:
     COLORS = 6
     PLAYLIST_TREE = 7
     PLAYLIST_ENTRIES = 8
+    ARTWORK = 13
 
 
 class PdbError(Exception):

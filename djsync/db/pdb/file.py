@@ -82,10 +82,29 @@ class Page:
     def used(self) -> int:
         return self.u16(0x1E)
 
+    def _packed(self) -> int:
+        return int.from_bytes(self.data[self.base + 0x18: self.base + 0x1B], "little")
+
     @property
     def num_slots(self) -> int:
-        small, large = self.data[self.base + 0x18], self.u16(0x22)
-        return large if (large > small and large != 0x1FFF) else small
+        """Nombre d'emplacements de ligne (bits 0-12 du champ 24 bits à 0x18)."""
+        return self._packed() & 0x1FFF
+
+    @property
+    def num_valid(self) -> int:
+        """Nombre de lignes valides (bits 13-23 du même champ)."""
+        return self._packed() >> 13
+
+    def _set_counts(self, slots: int, valid: int) -> None:
+        self.data[self.base + 0x18: self.base + 0x1B] = (slots | (valid << 13)).to_bytes(3, "little")
+
+    def _mark(self, slot: int) -> None:
+        """Marqueur « dernière ligne touchée » (constaté sur export réel : u2 à 0x20 = 1, u2 à 0x22 =
+        numéro de la ligne, bit correspondant dans le 2e mot du groupe d'index, les autres groupes à 0)."""
+        self.set_u16(0x20, 1)
+        self.set_u16(0x22, slot)
+        for g in range((self.num_slots + 15) // 16):
+            self.set_u16(self._flags_pos(g) + 2, (1 << (slot % 16)) if g == slot // 16 else 0)
 
     def is_blank(self) -> bool:
         return not any(self.data[self.base: self.base + PAGE_SIZE])
@@ -120,10 +139,16 @@ class Page:
         n = self.num_slots
         if self.is_index:
             raise PdbFormatError(f"page {self.index} : page d'index, pas de données")
+        if self.flags not in (0x24, 0x34):
+            raise PdbFormatError(f"page {self.index} : drapeaux de page inconnus ({self.flags:#x})")
         if n > MAX_SLOTS or self.heap_end % 4:
             raise PdbFormatError(f"page {self.index} : compteurs incohérents")
-        if self.heap_end + index_size(n) > PAGE_SIZE:
-            raise PdbFormatError(f"page {self.index} : le tas déborde sur l'index des lignes")
+        if self.heap_end + self.free + index_size(n) != PAGE_SIZE:      # vrai sur les 40 pages d'un export réel
+            raise PdbFormatError(f"page {self.index} : tailles libre/utilisée incohérentes")
+        valid = sum(1 for i in range(n) if self.present(i))
+        if valid != self.num_valid:
+            raise PdbFormatError(f"page {self.index} : nombre de lignes valides incohérent")
+
         for i in range(n):
             off = self.row_offset(i)
             if self.present(i) and (not (HEADER <= off < self.heap_end) or off % 4):
@@ -145,11 +170,10 @@ class Page:
             self.set_u16(self._flags_pos(g) + 2, 0)
         self.set_u16(self._slot_pos(n), start - HEADER)
         self.set_u16(self._flags_pos(g), self.u16(self._flags_pos(g)) | (1 << k))
-        self.data[self.base + 0x18] = n + 1
-        if self.u16(0x22) not in (0, 0x1FFF):        # compteur « large » déjà utilisé : on le suit
-            self.set_u16(0x22, n + 1)
+        self._set_counts(n + 1, self.num_valid + 1)
         self.set_u16(0x1E, self.used + len(row))
         self.set_u16(0x1C, PAGE_SIZE - index_size(n + 1) - (HEADER + self.used))
+        self._mark(n)
         self.set_u32(0x10, seq)
         return n
 
@@ -157,6 +181,9 @@ class Page:
         """Marque la ligne supprimée (comme Rekordbox : bit de présence à 0, octets conservés)."""
         g, k = divmod(i, 16)
         self.set_u16(self._flags_pos(g), self.u16(self._flags_pos(g)) & ~(1 << k) & 0xFFFF)
+        self._set_counts(self.num_slots, self.num_valid - 1)
+        self.data[self.base + 0x1B] = self.flags | 0x10      # 0x24 -> 0x34 : « contient des lignes supprimées »
+        self._mark(i)
         self.set_u32(0x10, seq)
 
 
@@ -175,7 +202,9 @@ class PdbFile:
         if not 1 <= count <= 64 or FILE_TABLES_AT + 16 * count > PAGE_SIZE:
             raise PdbFormatError(f"nombre de tables invraisemblable : {count}")
         self.next_unused = u32(self.data, 0x0C)
-        if not 2 <= self.next_unused <= self.n_pages:
+        # Constaté sur un vrai export : next_unused = nombre de pages + 1 (la page « vide candidate » de
+        # la dernière table n'existe pas encore physiquement : le fichier s'arrête à la dernière page écrite).
+        if not 2 <= self.next_unused <= self.n_pages + 8:
             raise PdbFormatError("prochaine page libre hors du fichier")
         self.seq = u32(self.data, 0x14)
         self.tables: Dict[int, TableRef] = {}
@@ -281,93 +310,52 @@ class PdbFile:
 
     # ------------------------------------------------------------ agrandir une table
     def _grow(self, ttype: int, data_pages: List[int]) -> int:
-        """Ajoute une page de données à la table. Toutes les hypothèses du modèle sont vérifiées
-        AVANT la moindre écriture ; au moindre doute : PdbFormatError (fichier intact)."""
+        """Ajoute une page de données à la table (comme Rekordbox : la « page vide candidate » devient la
+        dernière page, une nouvelle candidate est réservée à `next_unused`). Constaté sur un export réel :
+        la page d'index d'une table NE liste PAS les pages de données (seulement certaines pages avec
+        lignes supprimées) : elle n'est donc pas modifiée. Toutes les hypothèses sont vérifiées AVANT la
+        moindre écriture ; au moindre doute : PdbFormatError (fichier intact)."""
         tab = self.table(ttype)
         chain = self.chain(ttype)
         last = self.page(chain[-1])
         if last.next_page != tab.empty_candidate:
             raise PdbFormatError(f"table {ttype} : la dernière page ne pointe pas sur la page vide candidate")
         new = tab.empty_candidate
-        if new < 1 or new in chain:
-            raise PdbFormatError(f"table {ttype} : page vide candidate invalide ({new})")
         spare = max(self.next_unused, new + 1)       # future page vide candidate de la table
-        for idx in (new, spare):
-            if idx < self.n_pages:
-                pg_i = self.page(idx)
-                if not pg_i.is_blank() and not (idx == new and pg_i.type == ttype and pg_i.num_slots == 0):
-                    raise PdbFormatError(f"page {idx} censée être libre mais non vide")
+        if new < 1 or new in chain or new > self.n_pages + 64:
+            raise PdbFormatError(f"table {ttype} : page vide candidate invalide ({new})")
+        if new < self.n_pages and not self.page(new).is_blank():
+            raise PdbFormatError(f"page {new} censée être vide mais non vide")
+        if spare < self.n_pages and not self.page(spare).is_blank():
+            raise PdbFormatError(f"page {spare} censée être libre mais non vide")
         indexes = [p for p in chain if self.page(p).is_index]
         if len(indexes) > 1 or (indexes and chain[0] != indexes[0]):
             raise PdbFormatError(f"table {ttype} : organisation des pages d'index non reconnue")
-        if indexes:
-            self._check_index_registration(indexes[0], data_pages)   # lève AVANT d'écrire
 
-        # --- toutes les vérifications sont passées : on écrit
-        template: Optional[Page] = self.page(data_pages[-1]) if data_pages else None
-        while self.n_pages < spare + 1:
-            self.data.extend(b"\x00" * PAGE_SIZE)
+        # --- vérifications passées : on écrit
+        while self.n_pages <= new:                   # la candidate n'existe pas encore dans le fichier :
+            self.data.extend(b"\x00" * PAGE_SIZE)   # pages intermédiaires à zéro, comme dans un export réel
             self.n_pages += 1
         self.next_unused = spare + 1
         struct.pack_into("<I", self.data, 0x0C, self.next_unused)
         base = new * PAGE_SIZE
         self.data[base: base + PAGE_SIZE] = b"\x00" * PAGE_SIZE
         pg = Page(self.data, new)
-        if template is not None:       # mêmes champs « inconnus » que les pages sœurs
-            for a, b in ((0x14, 0x18), (0x19, 0x1B), (0x20, 0x22), (0x24, 0x28)):
-                self.data[pg.base + a: pg.base + b] = self.data[template.base + a: template.base + b]
-        if template is not None and template.u16(0x22) == 0x1FFF:   # « compteur large inutilisé »
-            pg.set_u16(0x22, 0x1FFF)
         pg.set_u32(0x04, new)
         pg.set_u32(0x08, ttype)
         pg.set_u32(0x0C, spare)
         pg.set_u32(0x10, self.seq)
-        self.data[pg.base + 0x1B] = template.flags if template is not None else 0x34
+        self.data[pg.base + 0x1B] = 0x24
         pg.set_u16(0x1C, PAGE_SIZE - HEADER)
         pg.set_u16(0x1E, 0)
+        pg.set_u16(0x20, 0x1FFF)
+        pg.set_u16(0x22, 0x1FFF)
         last.set_u32(0x0C, new)
         last.set_u32(0x10, self.seq)
         tab.last_page, tab.empty_candidate = new, spare
         self._save_table(tab)
         self.touched.update((new, last.index))
-        if indexes:
-            self._register_in_index(indexes[0], data_pages, new)
         return new
-
-    def _locate_index_run(self, index_page: int, data_pages: List[int]) -> Tuple[int, int]:
-        """Cherche dans la page d'index la suite d'entrées (page << 3) des pages de données, suivie
-        d'une entrée libre. Renvoie (offset de la 1re entrée, offset du couple de compteurs)."""
-        if not data_pages:
-            raise PdbFormatError("page d'index sans page de données : organisation non reconnue")
-        pg = self.page(index_page)
-        run = b"".join(struct.pack("<I", p << 3) for p in data_pages)
-        raw = pg.raw()
-        start = raw.find(run, HEADER)
-        while start != -1 and start % 4:
-            start = raw.find(run, start + 1)
-        if start == -1:
-            raise PdbFormatError(f"page d'index {index_page} : entrées des pages de données introuvables")
-        after = start + len(run)
-        if after + 4 > PAGE_SIZE or u32(raw, after) != EMPTY_ENTRY:
-            raise PdbFormatError(f"page d'index {index_page} : pas d'entrée libre après la dernière page")
-        pair = struct.pack("<HH", len(data_pages), len(data_pages))
-        hits = [o for o in range(HEADER, start, 2) if raw[o:o + 4] == pair]
-        if len(hits) != 1:
-            raise PdbFormatError(f"page d'index {index_page} : compteurs d'entrées non reconnus")
-        return start, hits[0]
-
-    def _check_index_registration(self, index_page: int, data_pages: List[int]) -> None:
-        self._locate_index_run(index_page, data_pages)
-
-    def _register_in_index(self, index_page: int, data_pages: List[int], new_page: int) -> None:
-        start, counters = self._locate_index_run(index_page, data_pages)
-        pg = self.page(index_page)
-        n = len(data_pages)
-        pg.set_u32(start + 4 * n, new_page << 3)
-        pg.set_u16(counters, n + 1)
-        pg.set_u16(counters + 2, n + 1)
-        pg.set_u32(0x10, self.seq)
-        self.touched.add(index_page)
 
     # ------------------------------------------------------------------ contrôle
     def to_bytes(self) -> bytes:

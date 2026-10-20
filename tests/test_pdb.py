@@ -185,7 +185,7 @@ def test_full_page_without_growth_raises_and_changes_nothing(tmp_path):
     assert path.read_bytes() == data and not (tmp_path / "bk").exists()
 
 
-def test_growth_adds_page_and_registers_it_in_the_index():
+def test_growth_adds_a_page_and_leaves_the_index_page_alone():
     data, n = fill_tracks_page()
     f0 = PdbFile(data)
     db = PdbDatabase(data, allow_growth=True)
@@ -196,28 +196,39 @@ def test_growth_adds_page_and_registers_it_in_the_index():
     new = db.to_bytes()
     f = PdbFile(new)
     assert len(f.data_pages(T.TRACKS)) == len(f0.data_pages(T.TRACKS)) + 1
-    assert f.tables[T.TRACKS].last_page == f0.tables[T.TRACKS].empty_candidate      # l'ancienne page « vide candidate » sert
-    assert f.tables[T.TRACKS].empty_candidate == f0.next_unused                     # une nouvelle est réservée
-    assert f.next_unused == f0.next_unused + 1 and f.n_pages == f0.n_pages + 1
-    idx = f.page(f.index_pages(T.TRACKS)[0])
-    raw = idx.raw()
-    for p in f.data_pages(T.TRACKS):
-        assert struct.pack("<I", p << 3) in raw
+    assert f.tables[T.TRACKS].last_page == f0.tables[T.TRACKS].empty_candidate       # l'ancienne candidate sert
+    assert f.tables[T.TRACKS].empty_candidate == f0.next_unused                      # une nouvelle est réservée
+    assert f.next_unused == f0.next_unused + 1
+    idx = f0.index_pages(T.TRACKS)[0]
+    assert new[idx * PAGE_SIZE:(idx + 1) * PAGE_SIZE] == data[idx * PAGE_SIZE:(idx + 1) * PAGE_SIZE]
     assert PdbDatabase(new).track_count == n + added
-    touched = f.chain(T.TRACKS)
-    validate_against(data, new, set(touched) | {f0.tables[T.TRACKS].empty_candidate, f0.next_unused})
+    touched = set(f.chain(T.TRACKS)) | {f0.tables[T.TRACKS].empty_candidate}
+    validate_against(data, new, touched | set(db.file.touched))
 
 
-def test_growth_refused_when_index_page_is_not_recognised():
+def test_growth_refused_when_the_candidate_page_is_not_empty():
     data, _ = fill_tracks_page()
     f = PdbFile(data)
-    idx = f.page(f.index_pages(T.TRACKS)[0])
+    cand = f.tables[T.TRACKS].empty_candidate
     broken = bytearray(data)
-    struct.pack_into("<I", broken, idx.base + 0x4C, 0x12345678)       # l'entrée de la page de données disparaît
+    broken[cand * PAGE_SIZE + 100] = 1
     db = PdbDatabase(bytes(broken), allow_growth=True)
     with pytest.raises(PdbFormatError):
         for i in range(30):
             db.add_track(sample_track(2000 + i))
+
+
+def test_page_counters_marker_and_flags_follow_the_real_conventions():
+    db = PdbDatabase(base_pdb())
+    page = db.file.page(db.file.data_pages(T.TRACKS)[-1])
+    n0 = page.num_slots
+    db.add_track(sample_track(10))
+    assert (page.num_slots, page.num_valid) == (n0 + 1, n0 + 1)
+    assert page.u16(0x20) == 1 and page.u16(0x22) == n0 and page.flags == 0x24
+    assert page.free + page.used + 0x28 + (4 + 2 * ((n0 + 1) % 16)) == PAGE_SIZE
+    db.delete_track(P1)
+    page = db.file.page(db.file.data_pages(T.TRACKS)[0])
+    assert page.flags == 0x34 and page.num_valid == page.num_slots - 1
 
 
 # ---------------------------------------------------------------- fail-closed
@@ -284,3 +295,36 @@ def test_store_failure_in_the_middle_leaves_file_untouched(tmp_path):
     with pytest.raises(PdbError):
         PdbStore(tmp_path, tmp_path / "bk").apply([lambda db: db.add_track(sample_track(9)), boom])
     assert path.read_bytes() == data
+
+
+# ---------------------------------------------------------------- fichier RÉEL (Pioneer/Rekordbox)
+REAL = Path(__file__).parent / "data" / "real_export.pdb"
+
+
+def test_real_rekordbox_export_is_recognised_and_editable():
+    if not REAL.is_file():
+        pytest.skip("tests/data/real_export.pdb absent")
+    data = REAL.read_bytes()
+    db = PdbDatabase(data)
+    assert db.track_count > 0 and db.playlist_count() > 0
+    first = sorted(db._tracks)[0]
+    meta = sample_track(1, artist="Leto", album="100 visages", title="Macaroni – é")
+    db.add_track(meta)
+    db.playlist_add((next(t.name for t in db._trees.values() if not t.folder),), [meta.path])
+    db.delete_track(first)
+    new = db.to_bytes()
+    again = PdbDatabase(new)
+    assert again.has_track(meta.path) and not again.has_track(first) and again.track_count == len(db._tracks)
+    changed = [i for i in range(len(data) // PAGE_SIZE) if data[i * PAGE_SIZE:(i + 1) * PAGE_SIZE] != new[i * PAGE_SIZE:(i + 1) * PAGE_SIZE]]
+    assert 0 in changed and len(changed) < 12                # en-tête + quelques pages seulement
+
+
+def test_real_export_growth_beyond_end_of_file_candidate():
+    if not REAL.is_file():
+        pytest.skip("tests/data/real_export.pdb absent")
+    data = REAL.read_bytes()
+    db = PdbDatabase(data, allow_growth=True)
+    for i in range(300):
+        db.add_track(sample_track(i, artist=f"Art{i}", album=f"Alb{i}"))
+    again = PdbDatabase(db.to_bytes())
+    assert again.track_count == PdbDatabase(data).track_count + 300

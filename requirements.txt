@@ -9,6 +9,7 @@ pygame>=2.5.0              # lecteur audio intégré (mixer uniquement)
 ytmusicapi>=1.8.0          # recherche YouTube Music (sans authentification)
 yt-dlp[default]>=2025.1.1  # téléchargement ; l'extra [default] apporte yt-dlp-ejs (obligatoire pour YouTube)
 mutagen>=1.47.0            # tags m4a/mp3 et propriétés audio
+numpy>=1.24                # analyse audio locale V1.1-A4 : BPM, tonalité, formes d'onde ANLZ (seule dépendance ajoutée)
 rapidfuzz>=3.6.0           # doublons + correspondance Spotify -> YouTube Music
 requests>=2.31.0           # pochettes, page publique Spotify
 
@@ -28,4 +29,6 @@ sqlcipher3-wheels>=0.5.5   # remplace sqlite3 : le module standard ne peut PAS o
 #    Sans lui, certains téléchargements YouTube échouent. https://deno.com
 
 # NOTE V1.1-A3 : export.pdb est écrit par djsync/db/pdb (Python pur) : aucune dépendance en plus.
+# NOTE V1.1-A4 : l'analyse (djsync/analysis) n'utilise QUE numpy + FFmpeg (déjà requis) : pas de
+#   librosa/scipy/numba (~150 Mo) ; l'exécutable portable grossit d'environ 15-20 Mo (numpy).
 # Mode portable : voir djsync/portable.py et packaging/DJSync.spec.

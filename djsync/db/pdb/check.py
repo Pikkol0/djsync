@@ -19,7 +19,7 @@ from .format import PAGE_SIZE, PdbError, PdbFormatError, T
 
 NAMES = {T.TRACKS: "pistes", T.GENRES: "genres", T.ARTISTS: "artistes", T.ALBUMS: "albums", T.LABELS: "labels",
          T.KEYS: "tonalités", T.COLORS: "couleurs", T.PLAYLIST_TREE: "arbre des playlists",
-         T.PLAYLIST_ENTRIES: "contenu des playlists"}
+         T.PLAYLIST_ENTRIES: "contenu des playlists", T.ARTWORK: "pochettes"}
 WRITABLE = (T.TRACKS, T.ARTISTS, T.ALBUMS, T.PLAYLIST_TREE, T.PLAYLIST_ENTRIES)
 
 
@@ -77,9 +77,9 @@ def _growth_state(f: PdbFile, ttype: int) -> str:
         chain = f.chain(ttype)
         if f.page(chain[-1]).next_page != tab.empty_candidate:
             return "non (page vide candidate non reconnue)"
-        idx = [p for p in chain if f.page(p).is_index]
-        if idx:
-            f._locate_index_run(idx[0], [p for p in chain if p != idx[0]])
+        new = tab.empty_candidate
+        if new < f.n_pages and not f.page(new).is_blank():
+            return f"non (page {new} non vide)"
         return "possible"
     except PdbError as exc:
         return f"non ({exc})"

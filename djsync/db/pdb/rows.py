@@ -5,7 +5,9 @@ Disposition des lignes (analyse Deep Symmetry) :
   artiste  : [0x60][décalage][id u4][0x03][offset du nom u1] nom ;
   album    : [0x80][décalage][?][artist_id u4][id u4][?][0x03][offset du nom u1] nom ;
   arbre    : parent u4, 0, ordre u4, id u4, dossier u4, nom ;
-  entrée   : numéro u4, piste u4, playlist u4.
+  entrée   : numéro u4, piste u4, playlist u4 ;
+  tonalité : id u4, id u4 (identique, constaté sur export réel), nom (« Am », « F#m », « 7A »…) ;
+  pochette : id u4, chemin (« /PIONEER/Artwork/00001/a1.jpg »).
 Les octets « inconnus » d'une nouvelle piste sont recopiés d'une piste existante du même fichier
 (modèle), faute de quoi on utilise les valeurs les plus courantes.
 """
@@ -45,6 +47,11 @@ class TrackMeta:
     track_no: int = 0
     disc_no: int = 0
     year: int = 0
+    # ---- V1.1-A4 : analyse et pochette (vides = son non analysé, comme avant)
+    key: str = ""             # nom de tonalité tel qu'écrit dans la table des tonalités (« Am », « 8A »…)
+    artwork_path: str = ""    # « /PIONEER/Artwork/00001/a1.jpg »
+    analyze_path: str = ""    # « /PIONEER/USBANLZ/P0xx/xxxxxxxx/ANLZ0000.DAT »
+    analyze_date: str = ""    # AAAA-MM-JJ
 
     @property
     def file_name(self) -> str:
@@ -68,6 +75,7 @@ def read_track(data, pos: int) -> Dict[str, object]:
     return {
         "id": u32(data, pos + 0x48), "artist_id": u32(data, pos + 0x44), "album_id": u32(data, pos + 0x40),
         "path": strings["file_path"], "title": strings["title"], "strings": strings,
+        "artwork_id": u32(data, pos + 0x1C), "key_id": u32(data, pos + 0x20), "bpmx100": u32(data, pos + 0x38),
         "fixed": bytes(data[pos: pos + TRACK_FIXED]),
     }
 
@@ -77,7 +85,7 @@ def make_template(row: Dict[str, object]) -> TrackTemplate:
 
 
 def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, index_shift: int,
-                template: Optional[TrackTemplate] = None) -> bytes:
+                template: Optional[TrackTemplate] = None, key_id: int = 0, artwork_id: int = 0) -> bytes:
     fx = bytearray(template.fixed if template else bytes(TRACK_FIXED))
     if not template:
         struct.pack_into("<I", fx, 0x04, DEFAULT_BITMASK)
@@ -87,7 +95,7 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     struct.pack_into("<I", fx, 0x08, meta.sample_rate)
     struct.pack_into("<I", fx, 0x0C, 0)                       # compositeur
     struct.pack_into("<I", fx, 0x10, meta.file_size)
-    struct.pack_into("<IIIII", fx, 0x1C, 0, 0, 0, 0, 0)      # pochette, tonalité, artiste orig., label, remixeur
+    struct.pack_into("<IIIII", fx, 0x1C, artwork_id, key_id, 0, 0, 0)  # pochette, tonalité, artiste orig., label, remixeur
     struct.pack_into("<I", fx, 0x30, meta.bitrate)
     struct.pack_into("<I", fx, 0x34, meta.track_no)
     struct.pack_into("<I", fx, 0x38, meta.bpmx100)
@@ -98,8 +106,8 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     fx[0x58], fx[0x59] = 0, 0                                  # couleur, note
     struct.pack_into("<H", fx, 0x5A, meta.file_type)
 
-    own = {"isrc": "", "date_added": meta.date_added, "release_date": "", "analyze_path": "",
-           "analyze_date": "", "comment": meta.comment, "title": meta.title,
+    own = {"isrc": "", "date_added": meta.date_added[:10], "release_date": "", "analyze_path": meta.analyze_path,
+           "analyze_date": meta.analyze_date[:10] if meta.analyze_path else "", "comment": meta.comment, "title": meta.title,
            "filename": meta.file_name, "file_path": meta.path, "mix_name": ""}
     body = bytearray()
     for k, name in enumerate(STR_NAMES):
@@ -129,6 +137,26 @@ def read_album(data, pos: int) -> Dict[str, object]:
     sub = u16(data, pos)
     ofs = u16(data, pos + 0x16) if sub & 0x04 else data[pos + 0x15]
     return {"id": u32(data, pos + 0x0C), "artist_id": u32(data, pos + 8), "name": decode_string(data, pos + ofs)}
+
+
+# --------------------------------------------------------------- tonalités / pochettes
+def build_key(key_id: int, name: str) -> bytes:
+    """Ligne de la table des tonalités (5) : id, id répété, nom. Relevé sur un export réel : 24 lignes
+    « 01000000 01000000 07 436d » = id 1, id 1, « Cm »."""
+    return pad4(struct.pack("<II", key_id, key_id) + encode_string(name))
+
+
+def read_key(data, pos: int) -> Dict[str, object]:
+    return {"id": u32(data, pos), "name": decode_string(data, pos + 8)}
+
+
+def build_artwork(art_id: int, path: str) -> bytes:
+    """Ligne de la table des pochettes (13) : id, chemin."""
+    return pad4(struct.pack("<I", art_id) + encode_string(path))
+
+
+def read_artwork(data, pos: int) -> Dict[str, object]:
+    return {"id": u32(data, pos), "path": decode_string(data, pos + 4)}
 
 
 # ------------------------------------------------------------------------ playlists
@@ -169,6 +197,10 @@ def row_end(ttype: int, data, pos: int) -> int:
         end = pos + 0x14 + string_span(data, pos + 0x14)
     elif ttype == T.PLAYLIST_ENTRIES:
         end = pos + 12
+    elif ttype == T.KEYS:
+        end = pos + 8 + string_span(data, pos + 8)
+    elif ttype == T.ARTWORK:
+        end = pos + 4 + string_span(data, pos + 4)
     else:
         raise PdbFormatError(f"table {ttype} non prise en charge")
     return end + (-(end - pos) % 4)

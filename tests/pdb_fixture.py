@@ -28,10 +28,10 @@ def _data_page(index: int, ttype: int, next_page: int, rowbytes: List[bytes], se
     idx_size = 0x24 * (n // 16) + ((4 + 2 * (n % 16)) if n % 16 else 0)
     assert 0x28 + len(heap) + idx_size <= L, "trop de lignes pour une page"
     struct.pack_into("<IIIIII", page, 0, 0, index, ttype, next_page, seq, 0)
-    page[0x18] = n
-    page[0x1B] = 0x34
+    page[0x18:0x1B] = (n | (n << 13)).to_bytes(3, "little")        # 13 bits d'emplacements + 11 bits de lignes valides
+    page[0x1B] = 0x24                                                # 0x34 = la page contient des lignes supprimées
     struct.pack_into("<HH", page, 0x1C, L - idx_size - 0x28 - len(heap), len(heap))
-    struct.pack_into("<HHHH", page, 0x20, 1, 0x1FFF, 0, 0)
+    struct.pack_into("<HHHH", page, 0x20, 1 if n else 0x1FFF, (n - 1) if n else 0x1FFF, 0, 0)
     page[0x28:0x28 + len(heap)] = heap
     for g in range(groups):
         base = L - g * 0x24
@@ -39,24 +39,20 @@ def _data_page(index: int, ttype: int, next_page: int, rowbytes: List[bytes], se
         for k in range(min(16, n - g * 16)):
             struct.pack_into("<H", page, base - 6 - 2 * k, offsets[g * 16 + k])
             mask |= 1 << k
-        struct.pack_into("<HH", page, base - 4, mask, 0)
+        marker = (1 << ((n - 1) % 16)) if (n and g == groups - 1) else 0
+        struct.pack_into("<HH", page, base - 4, mask, marker)
     return bytes(page)
 
 
 def _index_page(index: int, ttype: int, next_page: int, data_pages: List[int], seq: int = 7) -> bytes:
+    """Page d'index telle que constatée sur un export réel : aucune entrée pour les pages saines."""
     page = bytearray(L)
     struct.pack_into("<IIIIII", page, 0, 0, index, ttype, next_page, seq, 0)
     page[0x1B] = 0x64
-    struct.pack_into("<HHIIIIII", page, 0x28, 0x1FFF, 0x1FFF, 0x03EC0000, index, next_page, 0x03FFFFFF, 0, 0)
-    n = len(data_pages)
-    struct.pack_into("<HH", page, 0x48, n, n)           # compteurs puis entrées
-    pos = 0x4C
-    for p in data_pages:
-        struct.pack_into("<I", page, pos, p << 3)
-        pos += 4
-    while pos < 0x1F0:
+    struct.pack_into("<HHHH", page, 0x20, 0x1FFF, 0x1FFF, 1004, 0)
+    struct.pack_into("<IIIIHH", page, 0x28, index, next_page, 0x03FFFFFF, 0, 0, 0x1FFF)
+    for pos in range(0x3C, 0x1F0, 4):
         struct.pack_into("<I", page, pos, EMPTY_ENTRY)
-        pos += 4
     return bytes(page)
 
 
@@ -129,10 +125,11 @@ def build_pdb(tracks: Optional[List[rows.TrackMeta]] = None, playlists: Optional
         for k, (no, rws) in enumerate(zip(data_nos, packed)):
             nxt = data_nos[k + 1] if k + 1 < len(data_nos) else empty
             pages.append(_data_page(no, t, nxt, rws))
-        pages.append(bytes(L))       # page vide candidate : zéros
+        pages.append(bytes(L))       # page vide candidate : zéros (comme dans un export réel)
         last = data_nos[-1] if data_nos else index_no
         tables.append((t, empty, index_no, last))
     head = bytearray(L)
+    pages.pop()                      # export réel : la dernière page vide candidate n'existe pas encore physiquement
     struct.pack_into("<IIIIIII", head, 0, 0, L, len(ALL_TABLES), next_free, 5, 6, 0)
     for k, (t, empty, first, last) in enumerate(tables):
         struct.pack_into("<IIII", head, 0x1C + 16 * k, t, empty, first, last)

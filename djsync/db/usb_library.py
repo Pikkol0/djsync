@@ -10,6 +10,10 @@ Points clés, vérifiés sur une vraie base de clé USB :
   * color_id et artist_id_lyricist valent 0 (et non NULL) pour un son sans valeur : c'est la
     convention des sons créés par Rekordbox lui-même (constaté sur une vraie clé : 213 sons natifs
     sur 213 ont 0). La V1.1-A les mettait à NULL par erreur ; rétabli ;
+  * V1.1-A4 : chaque son ajouté est ANALYSÉ localement (djsync/analysis : BPM + grille, tonalité,
+    formes d'onde ANLZ écrites dans PIONEER/USBANLZ) et reçoit sa POCHETTE (PIONEER/Artwork) ; la
+    date d'ajout suit le format des sons natifs de la clé. analysisDataFilePath, bpmx100, key_id et
+    image_id sont donc renseignés ; en cas d'échec de l'analyse, le son est ajouté comme avant ;
   * V1.1-A3 : si la clé contient aussi l'ancien format (PIONEER/rekordbox/export.pdb, lu par les
     platines CDJ/XDJ « historiques »), chaque écriture est répercutée dans ce fichier APRÈS le commit de
     exportLibrary.db (voir djsync/db/pdb/). export.pdb n'est jamais créé, seulement mis à jour s'il est
@@ -27,9 +31,10 @@ import logging
 import re
 import shutil
 import threading
+from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
@@ -47,7 +52,9 @@ from .errors import (
     TrackNotFoundError,
     UnsupportedFormatError,
 )
+from ..core.camelot import to_camelot
 from ..models import FOLDER_KIND, PLAYLIST_KIND, LibraryTrack, PlaylistInfo
+from . import artwork as _art
 from .pdb import PdbDatabase, PdbError, PdbStore, Summary as PdbSummary, TrackMeta
 from .usb import UsbDrive, drive_from_letter
 
@@ -75,13 +82,65 @@ LEGACY_DB_NAMES = ("export.pdb", "exportExt.pdb")
 PdbOp = Callable[[PdbDatabase], None]
 PdbPath = Tuple[str, ...]
 
-_META_SELECT = (
-    "SELECT c.content_id, COALESCE(c.title,''), COALESCE(a.name,''), COALESCE(al.name,''), COALESCE(c.length,0), "
-    "COALESCE(c.bpmx100,0), COALESCE(c.fileSize,0), COALESCE(c.bitrate,0), COALESCE(c.bitDepth,16), "
-    "COALESCE(c.samplingRate,44100), COALESCE(c.fileType,0), COALESCE(c.dateAdded,''), COALESCE(c.djComment,''), "
-    "COALESCE(c.trackNo,0), COALESCE(c.discNo,0), COALESCE(c.releaseYear,0), c.path FROM content c "
-    "LEFT JOIN artist a ON a.artist_id = c.artist_id_artist LEFT JOIN album al ON al.album_id = c.album_id"
-)
+def _meta_select(has_key: bool, has_image: bool) -> str:
+    """SELECT des métadonnées utiles à export.pdb. Colonnes 0..16 comme en V1.1-A3, puis
+    17 = tonalité, 18 = chemin de la pochette, 19 = chemin d'analyse (V1.1-A4)."""
+    return (
+        "SELECT c.content_id, COALESCE(c.title,''), COALESCE(a.name,''), COALESCE(al.name,''), COALESCE(c.length,0), "
+        "COALESCE(c.bpmx100,0), COALESCE(c.fileSize,0), COALESCE(c.bitrate,0), COALESCE(c.bitDepth,16), "
+        "COALESCE(c.samplingRate,44100), COALESCE(c.fileType,0), COALESCE(c.dateAdded,''), COALESCE(c.djComment,''), "
+        "COALESCE(c.trackNo,0), COALESCE(c.discNo,0), COALESCE(c.releaseYear,0), c.path, "
+        + ("COALESCE(k.name,'')" if has_key else "''") + ", "
+        + ("COALESCE(im.path,'')" if has_image else "''") + ", COALESCE(c.analysisDataFilePath,'') FROM content c "
+        "LEFT JOIN artist a ON a.artist_id = c.artist_id_artist LEFT JOIN album al ON al.album_id = c.album_id "
+        + ("LEFT JOIN key k ON k.key_id = c.key_id " if has_key else "")
+        + ("LEFT JOIN image im ON im.image_id = c.image_id " if has_image else "")
+    )
+
+
+# Formats de date relevés : « 2024-10-18 » (date seule) ou horodatage complet
+# « 2025-04-12 19:11:29.274 +00:00 » (format des bases OneLibrary d'après pyrekordbox).
+_DATE_FULL = re.compile(r"^(\d{4}-\d{2}-\d{2})([ T])(\d{2}:\d{2}:\d{2})(\.\d+)?(\s*)(Z|[+-]\d{2}:?\d{2})?")
+_CAMELOT_NAME = re.compile(r"^(0?[1-9]|1[0-2])[AB]$", re.I)
+
+
+def format_date_like(sample: Optional[str], now: Optional[datetime] = None) -> str:
+    """Date d'ajout « maintenant », dans la même forme que `sample` (une date d'un son natif).
+
+    sample None (base sans son natif) : horodatage complet UTC « AAAA-MM-JJ HH:MM:SS.mmm +00:00 »."""
+    now = now or datetime.now(timezone.utc)
+    if sample is not None and len(sample.strip()) == 10:
+        return now.astimezone().strftime("%Y-%m-%d")
+    m = _DATE_FULL.match(sample.strip()) if sample else None
+    if sample is not None and m is None:
+        return now.astimezone().strftime("%Y-%m-%d")
+    sep, frac, space, tz = (m.group(2), m.group(4) or "", m.group(5) or "", m.group(6)) if m else (" ", ".000", " ", "+00:00")
+    if tz in ("Z", "+00:00", "+0000", "-00:00"):
+        moment = now.astimezone(timezone.utc)
+    else:
+        moment = now.astimezone()
+    text = moment.strftime(f"%Y-%m-%d{sep}%H:%M:%S")
+    if frac:
+        digits = len(frac) - 1
+        text += "." + f"{moment.microsecond:06d}"[:digits].ljust(digits, "0")
+    if tz is not None:
+        if tz == "Z":
+            text += "Z"
+        else:
+            off = moment.strftime("%z") or "+0000"
+            text += space + (off if ":" not in tz else f"{off[:3]}:{off[3:]}")
+    return text
+
+
+@dataclass
+class _Extras:
+    """Résultat de l'analyse et de la pochette, préparé AVANT la transaction (calcul long)."""
+
+    analysis: Any = None                    # djsync.analysis.AnalysisResult
+    anlz_path: Optional[str] = None
+    jpegs: Optional[Dict[str, bytes]] = None
+    problems: List[str] = field(default_factory=list)
+    written: List[Path] = field(default_factory=list)   # fichiers créés (supprimés si la base refuse)
 
 
 @dataclass
@@ -140,6 +199,10 @@ class RekordboxUsbLibrary(LibraryBackend):
         busy_timeout_ms: int = 5000,
         pdb_sync: str = "auto",
         pdb_allow_growth: bool = False,
+        analyze: bool = True,
+        artwork: bool = True,
+        ffmpeg_location: Optional[str] = None,
+        key_notation: str = "auto",
     ) -> None:
         self.drive = drive if isinstance(drive, UsbDrive) else drive_from_letter(str(drive))
         self.read_only = read_only
@@ -165,6 +228,15 @@ class RekordboxUsbLibrary(LibraryBackend):
         self.pdb_last_summary: Optional[PdbSummary] = None
         self._pdb_queue: List[PdbOp] = []           # opérations validées en base, pas encore écrites dans export.pdb
         self._txn_ops: List[PdbOp] = []             # opérations de la transaction en cours
+        # ---- analyse / pochettes (V1.1-A4)
+        self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
+        self.artwork = artwork                      # pochette intégrée -> PIONEER/Artwork
+        self.ffmpeg_location = ffmpeg_location or None
+        self.key_notation = key_notation            # auto | camelot | musical
+        self.last_problems: List[str] = []          # ce qui n'a pas pu être fait au dernier ajout
+        self._has_image = False
+        self._date_sample: Optional[str] = None     # date d'un son natif (sert de modèle de format)
+        self._date_probed = False
 
     # ------------------------------------------------------------------ connexion
     @property
@@ -234,6 +306,8 @@ class RekordboxUsbLibrary(LibraryBackend):
             self._tables = set(tables)
             self._has_key = "key" in tables and any(
                 c[1] == "key_id" for c in conn.execute('PRAGMA table_info("key")'))
+            self._has_image = "image" in tables and any(
+                c[1] == "path" for c in conn.execute('PRAGMA table_info("image")'))
             self._conn = conn
             log.info("Bibliothèque ouverte : %s (journal=%s)", self.db_path, self.journal_mode)
         try:                      # état de export.pdb (lecture seule) : n'empêche jamais la connexion
@@ -411,16 +485,21 @@ class RekordboxUsbLibrary(LibraryBackend):
 
     @staticmethod
     def _meta(row: Tuple[Any, ...]) -> TrackMeta:
+        added = (row[11] or "")[:10]
         return TrackMeta(
             path=row[16] or "", title=row[1], artist=row[2], album=row[3], length=int(row[4]), bpmx100=int(row[5]),
             file_size=int(row[6]), bitrate=int(row[7]), bit_depth=int(row[8]), sample_rate=int(row[9]),
-            file_type=int(row[10]), date_added=row[11], comment=row[12], track_no=int(row[13]),
-            disc_no=int(row[14]), year=int(row[15]))
+            file_type=int(row[10]), date_added=added, comment=row[12], track_no=int(row[13]),
+            disc_no=int(row[14]), year=int(row[15]), key=row[17] or "", artwork_path=row[18] or "",
+            analyze_path=row[19] or "", analyze_date=added if row[19] else "")
+
+    def _meta_sql(self) -> str:
+        return _meta_select(self._has_key, self._has_image)
 
     def _metas(self, conn: Any, content_ids: Sequence[int]) -> List[TrackMeta]:
         out: List[TrackMeta] = []
         for cid in dict.fromkeys(content_ids):
-            row = conn.execute(_META_SELECT + " WHERE c.content_id = ?", (cid,)).fetchone()
+            row = conn.execute(self._meta_sql() + " WHERE c.content_id = ?", (cid,)).fetchone()
             if row is not None and row[16]:
                 out.append(self._meta(row))
         return out
@@ -443,7 +522,7 @@ class RekordboxUsbLibrary(LibraryBackend):
         """Sons et playlists (chemin, dossier ?, chemins des sons dans l'ordre) de exportLibrary.db."""
         with self._lock:
             conn = self._db()
-            metas = [self._meta(r) for r in conn.execute(_META_SELECT + " ORDER BY c.content_id") if r[16]]
+            metas = [self._meta(r) for r in conn.execute(self._meta_sql() + " ORDER BY c.content_id") if r[16]]
             nodes = {r[0]: r for r in conn.execute(
                 "SELECT playlist_id, name, COALESCE(playlist_id_parent,0), COALESCE(attribute,0), COALESCE(sequenceNo,0) FROM playlist")}
             members: Dict[int, List[str]] = {}
@@ -868,6 +947,142 @@ class RekordboxUsbLibrary(LibraryBackend):
             (name, *extra_params)).fetchone()
         return row[0] if row else conn.execute(insert_sql, insert_params).lastrowid
 
+    # ------------------------------------------------- analyse, pochette, date (V1.1-A4)
+    def _probe_date_style(self, conn: Any) -> None:
+        """Modèle de date : un son NATIF (exporté par Rekordbox : masterDbId renseigné, ce que DJSync ne
+        fait jamais) ; à défaut n'importe quel son déjà présent ; sinon format complet OneLibrary."""
+        if self._date_probed:
+            return
+        self._date_probed = True
+        for where in ("masterDbId IS NOT NULL AND", ""):
+            row = conn.execute(
+                f"SELECT dateAdded FROM content WHERE {where} dateAdded IS NOT NULL AND dateAdded != '' "
+                "ORDER BY content_id DESC LIMIT 1").fetchone()
+            if row:
+                self._date_sample = str(row[0])
+                return
+
+    def now_date(self, conn: Any = None) -> str:
+        """« Maintenant » au format des dates d'ajout de CETTE clé."""
+        self._probe_date_style(conn if conn is not None else self._db())
+        return format_date_like(self._date_sample)
+
+    @staticmethod
+    def _native_analysed_bits(conn: Any) -> Optional[int]:
+        """Valeur la plus courante de analysedBits chez les sons analysés par Rekordbox (NULL s'il n'y
+        en a pas) : on s'aligne sur les sons natifs plutôt que d'inventer une valeur."""
+        rows = [r[0] for r in conn.execute(
+            "SELECT analysedBits FROM content WHERE masterDbId IS NOT NULL AND analysisDataFilePath IS NOT NULL "
+            "AND analysedBits IS NOT NULL LIMIT 500")]
+        return Counter(rows).most_common(1)[0][0] if rows else None
+
+    def _prepare_extras(self, file_path: Path, db_path: str, audio: Dict[str, int],
+                        analysis: bool = True, cover: bool = True) -> _Extras:
+        """Analyse (BPM, grille, tonalité, ANLZ) + pochette, HORS transaction (plusieurs secondes).
+        Ne lève jamais : un échec est noté dans `problems` et le son est ajouté sans ce détail."""
+        ex = _Extras()
+        if self.analyze and analysis:
+            try:
+                from ..analysis import analyze_file, write_anlz   # import tardif : numpy
+
+                ex.analysis = analyze_file(file_path, self.ffmpeg_location)
+                if not self.read_only:
+                    ex.anlz_path = write_anlz(self.drive.root, db_path, ex.analysis, audio["fileType"],
+                                              audio["samplingRate"] or 44100)
+                    folder = self.drive.root / ex.anlz_path.lstrip("/")
+                    ex.written += [folder, folder.with_suffix(".EXT")]
+                log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
+                         ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
+            except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
+                log.warning("Analyse impossible (%s) : %s", file_path.name, exc)
+                ex.problems.append(f"analyse : {exc}")
+        if self.artwork and cover and self._has_image:
+            try:
+                from ..audio.covers import extract_embedded_cover
+
+                data = extract_embedded_cover(file_path)
+                ex.jpegs = _art.make_jpegs(data) if data else None
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Pochette illisible (%s) : %s", file_path.name, exc)
+                ex.problems.append(f"pochette : {exc}")
+        return ex
+
+    @staticmethod
+    def _key_style(name: str) -> str:
+        return "camelot" if _CAMELOT_NAME.match(name.strip()) else "musical"
+
+    def _key_id_for(self, conn: Any, musical: str) -> Optional[int]:
+        """Ligne de la table `key` pour une tonalité détectée (« Am »). Notation : celle demandée, ou en
+        « auto » celle déjà majoritaire sur la clé (Camelot si la table est vide) ; une ligne équivalente
+        existante dans cette notation est toujours réutilisée (« Am » ≡ « 8A »)."""
+        if not self._has_key:
+            return None
+        code = to_camelot(musical)
+        if not code:
+            return None
+        rows = conn.execute("SELECT key_id, name FROM key WHERE name IS NOT NULL").fetchall()
+        style = self.key_notation
+        if style not in ("camelot", "musical"):
+            styles = Counter(self._key_style(n) for _k, n in rows if to_camelot(n))
+            style = styles.most_common(1)[0][0] if styles else "camelot"
+        for kid, name in rows:
+            if to_camelot(name) == code and self._key_style(name) == style:
+                return kid
+        wanted = code if style == "camelot" else musical
+        for kid, name in rows:                       # même nom, casse différente (colonne UNIQUE)
+            if name.strip().casefold() == wanted.casefold():
+                return kid
+        return conn.execute("INSERT INTO key (name) VALUES (?)", (wanted,)).lastrowid
+
+    def _known_artwork_paths(self, conn: Any) -> List[str]:
+        paths = [r[0] for r in conn.execute("SELECT path FROM image WHERE path IS NOT NULL")]
+        if self._pdb_enabled():
+            try:
+                paths += self._pdb_store().load().artwork_paths()
+            except PdbError:
+                pass
+        return paths
+
+    def _store_artwork(self, conn: Any, ex: _Extras, album_id: Optional[int]) -> Optional[int]:
+        """Écrit la pochette et sa ligne `image` ; réutilise celle de l'album si elle existe déjà."""
+        if not ex.jpegs or not self._has_image:
+            return None
+        if album_id:
+            row = conn.execute(
+                "SELECT c.image_id, im.path FROM content c JOIN image im ON im.image_id = c.image_id "
+                "WHERE c.album_id = ? AND c.image_id IS NOT NULL LIMIT 1", (album_id,)).fetchone()
+            if row and row[1] and self.absolute_path(row[1]).is_file():
+                return row[0]
+        number = _art.next_number(self.drive.root, self._known_artwork_paths(conn))
+        ex.written += _art.write(self.drive.root, number, ex.jpegs)
+        return conn.execute("INSERT INTO image (path) VALUES (?)", (_art.rel_path(number),)).lastrowid
+
+    def _extra_columns(self, conn: Any, ex: _Extras, album_id: Optional[int]) -> Dict[str, Any]:
+        cols: Dict[str, Any] = {}
+        if ex.analysis is not None:
+            if ex.analysis.bpm > 0:
+                cols["bpmx100"] = ex.analysis.bpmx100
+            if ex.analysis.key.name:
+                kid = self._key_id_for(conn, ex.analysis.key.name)
+                if kid is not None:
+                    cols["key_id"] = kid
+        if ex.anlz_path:
+            cols["analysisDataFilePath"] = ex.anlz_path
+            cols["analysedBits"] = self._native_analysed_bits(conn)
+        image_id = self._store_artwork(conn, ex, album_id)
+        if image_id is not None:
+            cols["image_id"] = image_id
+        return cols
+
+    @staticmethod
+    def _discard(paths: Sequence[Path]) -> None:
+        for p in paths:
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    # ------------------------------------------------------------- ajout / analyse
     def add_track(
         self,
         file_path: Path,
@@ -877,11 +1092,13 @@ class RekordboxUsbLibrary(LibraryBackend):
         source_url: Optional[str] = None,
         playlist_ids: Sequence[int] = (),
     ) -> LibraryTrack:
-        """Insère une entrée « minimale » (titre, artiste, chemin) et l'ajoute aux playlists.
+        """Insère le son (titre, artiste, chemin, date d'ajout) et l'ajoute aux playlists.
 
-        Pas de BPM, de tonalité ni de waveform : l'analyse se fera dans Rekordbox.
-        Idempotent : si le fichier est déjà référencé, on réutilise l'entrée et on
-        l'ajoute simplement aux playlists demandées.
+        V1.1-A4 : le son est analysé avant insertion (BPM, grille, tonalité, formes d'onde ANLZ) et sa
+        pochette intégrée est copiée dans PIONEER/Artwork : il est prêt pour les platines sans passer
+        par Rekordbox. `last_problems` liste ce qui n'a pas pu être fait (le son est ajouté quand même).
+        Idempotent : si le fichier est déjà référencé, on réutilise l'entrée (complétée si elle n'était
+        pas analysée) et on l'ajoute simplement aux playlists demandées.
         """
         file_path = Path(file_path)
         if not file_path.is_file():
@@ -899,60 +1116,144 @@ class RekordboxUsbLibrary(LibraryBackend):
         comment = (f"https://www.youtube.com/watch?v={vid}" if vid
                    else (source_url or "").split("?")[0].split("#")[0])
         audio = self._probe_audio(file_path)
-        today = date.today().isoformat()
+        if self.read_only:
+            raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
 
-        with self._write() as conn:
-            for pid in playlist_ids:
-                self._require_playlist(conn, pid, editable=True)
+        with self._lock:
+            existing = self._db().execute(
+                "SELECT content_id, analysisDataFilePath, image_id FROM content WHERE path = ? COLLATE NOCASE",
+                (db_path,)).fetchone()
+        # son déjà présent ET déjà analysé (Rekordbox ou DJSync) : on ne réanalyse rien
+        ex = self._prepare_extras(file_path, db_path, audio,
+                                  analysis=existing is None or not existing[1],
+                                  cover=existing is None or existing[2] is None)
+        self.last_problems = list(ex.problems)
 
-            existing = conn.execute(
-                "SELECT content_id FROM content WHERE path = ? COLLATE NOCASE", (db_path,)).fetchone()
-            if existing:
-                content_id = existing[0]
-            else:
-                artist_id = None
-                if artist:
-                    artist_id = self._get_or_create(
-                        conn, "artist", "artist_id", artist,
-                        insert_sql="INSERT INTO artist (name, nameForSearch) VALUES (?, ?)",
-                        insert_params=(artist, artist))
-                album_id = None
-                if album:
-                    album_id = self._get_or_create(
-                        conn, "album", "album_id", album,
-                        extra_match="AND (artist_id IS ? OR artist_id IS NULL)", extra_params=(artist_id,),
-                        insert_sql="INSERT INTO album (name, artist_id, image_id, isComplation, nameForSearch) "
-                                   "VALUES (?, ?, NULL, 0, ?)",
-                        insert_params=(album, artist_id, album))
+        try:
+            with self._write() as conn:
+                for pid in playlist_ids:
+                    self._require_playlist(conn, pid, editable=True)
 
-                cols: Dict[str, Any] = {
-                    "title": title, "titleForSearch": title, "subtitle": "", "bpmx100": 0,
-                    "length": audio["length"], "trackNo": 0, "discNo": 0, "artist_id_artist": artist_id,
-                    "artist_id_lyricist": 0, "album_id": album_id, "color_id": 0, "djComment": comment, "rating": 0,
-                    "releaseYear": 0, "releaseDate": "", "dateCreated": today, "dateAdded": today,
-                    "path": db_path, "fileName": file_path.name, "fileSize": file_path.stat().st_size,
-                    "fileType": audio["fileType"], "bitrate": audio["bitrate"],
-                    "bitDepth": audio["bitDepth"], "samplingRate": audio["samplingRate"],
-                    "isrc": "", "djPlayCount": 0, "isHotCueAutoLoadOn": 1, "isKuvoDeliverStatusOn": 1,
-                    "kuvoDeliveryComment": "", "hasModified": 0, "cueUpdateCount": 0,
-                    "analysisDataUpdateCount": 0, "informationUpdateCount": 0,
-                    # NULL volontaires (son non analysé, absent de la base PC) :
-                    # analysisDataFilePath, analysedBits, masterDbId, masterContentId, contentLink,
-                    # et les clés étrangères optionnelles (remixer, genre, label, key_id, image_id).
-                    # color_id / artist_id_lyricist = 0 : convention des sons natifs (voir en-tête).
-                }
-                content_id = conn.execute(
-                    f"INSERT INTO content ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-                    tuple(cols.values())).lastrowid
-                conn.execute("UPDATE property SET numberOfContents = (SELECT COUNT(*) FROM content)")
+                row = conn.execute(
+                    "SELECT content_id, album_id, image_id FROM content WHERE path = ? COLLATE NOCASE",
+                    (db_path,)).fetchone()
+                if row:
+                    content_id = row[0]
+                    extra = self._extra_columns(conn, ex, row[1]) if (ex.analysis or ex.jpegs) else {}
+                    if row[2] is not None:
+                        extra.pop("image_id", None)
+                    if extra:
+                        conn.execute(
+                            f"UPDATE content SET {', '.join(f'{k} = ?' for k in extra)} WHERE content_id = ?",
+                            (*extra.values(), content_id))
+                else:
+                    artist_id = None
+                    if artist:
+                        artist_id = self._get_or_create(
+                            conn, "artist", "artist_id", artist,
+                            insert_sql="INSERT INTO artist (name, nameForSearch) VALUES (?, ?)",
+                            insert_params=(artist, artist))
+                    album_id = None
+                    if album:
+                        album_id = self._get_or_create(
+                            conn, "album", "album_id", album,
+                            extra_match="AND (artist_id IS ? OR artist_id IS NULL)", extra_params=(artist_id,),
+                            insert_sql="INSERT INTO album (name, artist_id, image_id, isComplation, nameForSearch) "
+                                       "VALUES (?, ?, NULL, 0, ?)",
+                            insert_params=(album, artist_id, album))
+                    added = self.now_date(conn)
+                    cols: Dict[str, Any] = {
+                        "title": title, "titleForSearch": title, "subtitle": "", "bpmx100": 0,
+                        "length": audio["length"], "trackNo": 0, "discNo": 0, "artist_id_artist": artist_id,
+                        "artist_id_lyricist": 0, "album_id": album_id, "color_id": 0, "djComment": comment, "rating": 0,
+                        "releaseYear": 0, "releaseDate": "", "dateCreated": added, "dateAdded": added,
+                        "path": db_path, "fileName": file_path.name, "fileSize": file_path.stat().st_size,
+                        "fileType": audio["fileType"], "bitrate": audio["bitrate"],
+                        "bitDepth": audio["bitDepth"], "samplingRate": audio["samplingRate"],
+                        "isrc": "", "djPlayCount": 0, "isHotCueAutoLoadOn": 1, "isKuvoDeliverStatusOn": 1,
+                        "kuvoDeliveryComment": "", "hasModified": 0, "cueUpdateCount": 0,
+                        "analysisDataUpdateCount": 0, "informationUpdateCount": 0,
+                        # NULL volontaires : masterDbId, masterContentId, contentLink (son absent de la base
+                        # PC) et clés étrangères optionnelles (remixer, genre, label). Sans analyse/pochette,
+                        # key_id, image_id, analysisDataFilePath, analysedBits restent NULL comme avant.
+                        # color_id / artist_id_lyricist = 0 : convention des sons natifs (voir en-tête).
+                    }
+                    cols.update(self._extra_columns(conn, ex, album_id))
+                    content_id = conn.execute(
+                        f"INSERT INTO content ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                        tuple(cols.values())).lastrowid
+                    conn.execute("UPDATE property SET numberOfContents = (SELECT COUNT(*) FROM content)")
 
-            for pid in playlist_ids:
-                self._append(conn, pid, [content_id])
-            paths = self._stage_tracks(conn, [content_id])
-            for pid in playlist_ids:
-                pl_path = self._pl_path(conn, pid)
-                self._stage(lambda db, p=pl_path, t=paths: db.playlist_add(p, t))
+                for pid in playlist_ids:
+                    self._append(conn, pid, [content_id])
+                paths = self._stage_tracks(conn, [content_id])
+                for pid in playlist_ids:
+                    pl_path = self._pl_path(conn, pid)
+                    self._stage(lambda db, p=pl_path, t=paths: db.playlist_add(p, t))
+        except BaseException:
+            self._discard(ex.written)            # rien en base : pas de fichiers orphelins
+            raise
         return self.get_track(content_id)
+
+    def analyze_track(self, content_id: int, force: bool = False) -> LibraryTrack:
+        """Analyse (ou réanalyse avec force=True) un son déjà présent : BPM, tonalité, ANLZ, pochette.
+
+        Sans `force`, un son déjà analysé (par Rekordbox ou DJSync) n'est pas modifié. Avec `force`,
+        seuls les sons ajoutés par DJSync (masterDbId vide) sont réanalysés : jamais un son natif."""
+        row = self._read("SELECT path, analysisDataFilePath, image_id, masterDbId, album_id, fileType, samplingRate "
+                         "FROM content WHERE content_id = ?", (content_id,))
+        if not row:
+            raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+        db_path, anlz, image_id, master, album_id, ftype, rate = row[0]
+        if master is not None or (anlz and not force):
+            return self.get_track(content_id)
+        file_path = self.absolute_path(db_path)
+        if not file_path.is_file():
+            raise LibraryError(f"Fichier introuvable : {file_path}")
+        ex = self._prepare_extras(file_path, db_path, {"fileType": int(ftype or 0), "samplingRate": int(rate or 44100)},
+                                  analysis=force or not anlz, cover=image_id is None)
+        self.last_problems = list(ex.problems)
+        if ex.analysis is None and not ex.jpegs:
+            return self.get_track(content_id)
+        try:
+            with self._write() as conn:
+                extra = self._extra_columns(conn, ex, album_id)
+                if ex.anlz_path:
+                    extra["analysisDataUpdateCount"] = (conn.execute(
+                        "SELECT COALESCE(analysisDataUpdateCount,0) FROM content WHERE content_id = ?",
+                        (content_id,)).fetchone()[0] or 0) + 1
+                if extra:
+                    conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in extra)} WHERE content_id = ?",
+                                 (*extra.values(), content_id))
+                self._stage_tracks(conn, [content_id])
+        except BaseException:
+            self._discard([p for p in ex.written if "Artwork" in p.as_posix()])
+            raise
+        return self.get_track(content_id)
+
+    def unanalysed_tracks(self) -> List[LibraryTrack]:
+        """Sons ajoutés par DJSync (avant la V1.1-A4) sans analyse : candidats à `analyze_missing`."""
+        return [self._track(r) for r in self._read(
+            _track_select(self._has_key) + " WHERE c.analysisDataFilePath IS NULL AND c.masterDbId IS NULL "
+            "ORDER BY c.content_id")]
+
+    def analyze_missing(self, on_progress: Optional[Callable[[int, int, LibraryTrack], None]] = None) -> Tuple[int, int]:
+        """Analyse tous les sons DJSync non analysés (une sauvegarde, une réécriture d'export.pdb).
+        Renvoie (sons analysés, échecs)."""
+        todo = self.unanalysed_tracks()
+        done = failed = 0
+        with self.batch():
+            for i, track in enumerate(todo, start=1):
+                try:
+                    t = self.analyze_track(track.content_id)
+                    done += 1 if t.is_analysed else 0
+                    failed += 0 if t.is_analysed else 1
+                except LibraryError as exc:
+                    log.warning("Analyse de « %s » impossible : %s", track.title, exc)
+                    failed += 1
+                if on_progress:
+                    on_progress(i, len(todo), track)
+        return done, failed
 
     def delete_track(self, content_id: int, delete_file: bool = True) -> bool:
         """Retire le son de la bibliothèque et de toutes les playlists.
@@ -962,10 +1263,11 @@ class RekordboxUsbLibrary(LibraryBackend):
         de la base, le fichier est simplement orphelin) et on renvoie False.
         """
         with self._write() as conn:
-            row = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
+            row = conn.execute("SELECT path, analysisDataFilePath, masterDbId FROM content WHERE content_id = ?",
+                               (content_id,)).fetchone()
             if row is None:
                 raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
-            path = row[0]
+            path, anlz_path, master = row
             affected = [r[0] for r in conn.execute(
                 "SELECT DISTINCT playlist_id FROM playlist_content WHERE content_id = ?", (content_id,))]
             conn.execute("DELETE FROM playlist_content WHERE content_id = ?", (content_id,))
@@ -982,7 +1284,30 @@ class RekordboxUsbLibrary(LibraryBackend):
 
         if not delete_file or shared or not path:
             return False
+        if anlz_path and master is None:
+            self._delete_analysis(anlz_path, path)
         return self._delete_physical_file(path)
+
+    def _delete_analysis(self, anlz_path: str, track_path: str) -> None:
+        """Supprime les fichiers ANLZ d'un son DJSync supprimé (seulement s'ils lui appartiennent :
+        balise PPTH = chemin du son) ; la pochette est conservée (elle peut servir à l'album)."""
+        from ..analysis.anlz import read_path
+
+        dat = (self.drive.root / anlz_path.lstrip("/")).resolve()
+        root = (self.drive.root / "PIONEER" / "USBANLZ").resolve()
+        if root not in dat.parents or dat.name.upper() != "ANLZ0000.DAT":
+            return
+        try:
+            if read_path(dat.read_bytes()).casefold() != track_path.casefold():
+                return
+            for ext in (".DAT", ".EXT", ".2EX"):
+                dat.with_suffix(ext).unlink(missing_ok=True)
+            folder = dat.parent
+            while folder != root and root in folder.parents and not any(folder.iterdir()):
+                folder.rmdir()
+                folder = folder.parent
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            log.warning("Fichiers d'analyse non supprimés (%s) : %s", dat, exc)
 
     def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
         """Supprime plusieurs sons sous une seule sauvegarde.

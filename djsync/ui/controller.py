@@ -166,6 +166,8 @@ class AppController:
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
                 pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
+                analyze=self.settings.analyze_on_add, artwork=self.settings.analyze_on_add,
+                ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             self.service.set_library(lib)
             if old is not None:
@@ -269,6 +271,13 @@ class AppController:
         lib = self.library
         if lib is not None:
             self.dispatcher.submit(lambda: lib.get_playlist_tracks(playlist_id), ok, self._on_error, pool="db")
+
+    # -------------------------------------------------------- analyse (V1.1-A4)
+    def analyze_missing(self, ok: Optional[Callback] = None) -> None:
+        """Analyse les sons ajoutés par une ancienne version de DJSync (sans BPM/tonalité/ANLZ).
+        Point d'entrée prêt pour l'interface (Étape B) ; long : quelques secondes par son."""
+        self._write(lambda lib: lib.analyze_missing(), ok,
+                    success="Analyse terminée : BPM, tonalités, formes d'onde et pochettes à jour.")
 
     # -------------------------------------------------------- bibliothèque (écriture)
     def _write(self, fn: Callable[[RekordboxUsbLibrary], Any], ok: Optional[Callback] = None,
@@ -479,6 +488,9 @@ class AppController:
             )
             self.service.refresh_library()
             job.file_path, job.content_id, job.status = result.file_path, added.content_id, "done"
+            if lib.last_problems:
+                self.dispatcher.post(self.message, "warn",
+                                     f"« {track.title} » ajouté, mais : {' ; '.join(lib.last_problems)[:200]}")
             if lib.pdb_state == "stale" and lib.pdb_problem:
                 self.dispatcher.post(self.message, "warn",
                                      f"« {track.title} » est dans exportLibrary.db mais pas dans export.pdb : {lib.pdb_problem}")
@@ -550,6 +562,9 @@ class AppController:
             self.library.backup_keep = s.backup_keep
             self.library.pdb_sync = s.pdb_sync
             self.library.pdb_allow_growth = s.pdb_allow_growth
+            self.library.analyze = self.library.artwork = s.analyze_on_add
+            self.library.ffmpeg_location = s.ffmpeg_location or None
+            self.library.key_notation = s.key_notation
         s.save()
 
     @staticmethod

@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .file import PdbFile, validate_against
-from .format import PAGE_SIZE, PdbFormatError, T
+from .format import PAGE_SIZE, PdbCapacityError, PdbFormatError, T
 from . import rows
+from ...core.camelot import to_camelot
 
 log = logging.getLogger(__name__)
 PlaylistPath = Tuple[str, ...]
@@ -55,6 +56,9 @@ class Summary:
     playlists_removed: int = 0
     entries_added: int = 0
     entries_removed: int = 0
+    tracks_updated: int = 0                             # V1.1-A4 : analyse/pochette ajoutée à une piste existante
+    keys_added: int = 0
+    artworks_added: int = 0
     skipped: List[str] = field(default_factory=list)   # éléments ignorés (piste absente d'export.pdb…)
 
 
@@ -68,7 +72,10 @@ class PdbDatabase:
         self._albums: Dict[Tuple[str, int], int] = {}
         self._trees: Dict[int, _Tree] = {}
         self._entries: Dict[int, List[_Entry]] = {}
-        self._max = {"track": 0, "artist": 0, "album": 0, "playlist": 0}
+        self._keys: Dict[str, int] = {}                     # nom exact (casefold) -> id
+        self._key_codes: Dict[str, int] = {}                # code Camelot -> id (« Am » et « 8A » = même clé)
+        self._artworks: Dict[str, int] = {}                 # chemin (casefold) -> id
+        self._max = {"track": 0, "artist": 0, "album": 0, "playlist": 0, "key": 0, "artwork": 0}
         self._template: Optional[rows.TrackTemplate] = None
         self._load()
 
@@ -89,6 +96,19 @@ class PdbDatabase:
             r = rows.read_album(d, p * PAGE_SIZE + off)
             self._albums.setdefault((_key(r["name"]), r["artist_id"]), r["id"])   # type: ignore[arg-type]
             self._max["album"] = max(self._max["album"], r["id"])            # type: ignore[type-var]
+        if T.KEYS in f.tables:
+            for p, slot, off in f.iter_rows(T.KEYS):
+                r = rows.read_key(d, p * PAGE_SIZE + off)
+                self._keys.setdefault(_key(r["name"]), r["id"])               # type: ignore[arg-type]
+                code = to_camelot(r["name"])                                 # type: ignore[arg-type]
+                if code:
+                    self._key_codes.setdefault(code, r["id"])                # type: ignore[arg-type]
+                self._max["key"] = max(self._max["key"], r["id"])            # type: ignore[type-var]
+        if T.ARTWORK in f.tables:
+            for p, slot, off in f.iter_rows(T.ARTWORK):
+                r = rows.read_artwork(d, p * PAGE_SIZE + off)
+                self._artworks.setdefault(_key(r["path"]), r["id"])           # type: ignore[arg-type]
+                self._max["artwork"] = max(self._max["artwork"], r["id"])    # type: ignore[type-var]
         for p, slot, off in f.iter_rows(T.PLAYLIST_TREE):
             r = rows.read_tree(d, p * PAGE_SIZE + off)
             self._trees[r["id"]] = _Tree(r["id"], p, slot, off, r["parent"], r["sort"], r["folder"], r["name"])  # type: ignore[arg-type]
@@ -154,22 +174,113 @@ class PdbDatabase:
         self._albums[(_key(name), artist_id)] = new_id
         return new_id
 
+    # ------------------------------------------------------------- tonalités / pochettes
+    def key_id(self, name: str) -> int:
+        """Id de la tonalité si elle existe déjà (même nom, ou même code Camelot : « Am » = « 8A »), sinon 0."""
+        name = (name or "").strip()
+        if not name:
+            return 0
+        if _key(name) in self._keys:
+            return self._keys[_key(name)]
+        code = to_camelot(name)
+        return self._key_codes.get(code, 0) if code else 0
+
+    def _ensure_key(self, name: str) -> int:
+        """Réutilise la tonalité équivalente existante, sinon ajoute une ligne. 0 si la table est pleine
+        (la piste est quand même ajoutée, sans tonalité : jamais d'échec pour un détail)."""
+        name = (name or "").strip()
+        found = self.key_id(name)
+        if found or not name or T.KEYS not in self.file.tables:
+            return found
+        new_id = self._max["key"] + 1
+        try:
+            self.file.insert_row(T.KEYS, rows.build_key(new_id, name))
+        except PdbCapacityError as exc:
+            self.summary.skipped.append(f"tonalité « {name} » non ajoutée : {exc}")
+            return 0
+        self._max["key"] = new_id
+        self._keys[_key(name)] = new_id
+        code = to_camelot(name)
+        if code:
+            self._key_codes.setdefault(code, new_id)
+        self.summary.keys_added += 1
+        return new_id
+
+    def artwork_id(self, path: str) -> int:
+        return self._artworks.get(_key(path or ""), 0)
+
+    def _ensure_artwork(self, path: str) -> int:
+        path = (path or "").strip()
+        found = self.artwork_id(path)
+        if found or not path or T.ARTWORK not in self.file.tables:
+            return found
+        new_id = self._max["artwork"] + 1
+        try:
+            self.file.insert_row(T.ARTWORK, rows.build_artwork(new_id, path))
+        except PdbCapacityError as exc:
+            self.summary.skipped.append(f"pochette non ajoutée : {exc}")
+            return 0
+        self._max["artwork"] = new_id
+        self._artworks[_key(path)] = new_id
+        self.summary.artworks_added += 1
+        return new_id
+
+    def artwork_paths(self) -> List[str]:
+        return sorted(self._artworks)
+
     # ------------------------------------------------------------------- pistes
+    def track_row(self, path: str) -> Optional[Dict[str, object]]:
+        """Champs décodés de la piste (None si absente)."""
+        ref = self._tracks.get(_key(path))
+        if ref is None:
+            return None
+        return rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+
     def add_track(self, meta: rows.TrackMeta) -> int:
-        """Ajoute la piste (idempotent : même chemin = rien à faire). Renvoie son id dans export.pdb."""
+        """Ajoute la piste. Renvoie son id dans export.pdb.
+
+        Idempotent : même chemin = rien à faire, SAUF si la piste existante n'a pas d'analyse
+        (`analyze_path` vide : piste ajoutée par une version précédente de DJSync) et que `meta` en
+        apporte une ; la ligne est alors réécrite avec le MÊME id (les playlists restent valides).
+        Les pistes analysées par Rekordbox ne sont jamais réécrites."""
         existing = self._tracks.get(_key(meta.path))
         if existing:
+            if meta.analyze_path or meta.artwork_path:
+                self._upgrade_track(existing, meta)
             return existing.id
+        return self._insert_track(meta, self._max["track"] + 1)
+
+    def _insert_track(self, meta: rows.TrackMeta, track_id: int) -> int:
         artist_id = self._ensure_artist(meta.artist)
         album_id = self._ensure_album(meta.album, artist_id)
-        new_id = self._max["track"] + 1
-        row = rows.build_track(meta, new_id, artist_id, album_id, self._shift(T.TRACKS), self._template)
+        key_id = self._ensure_key(meta.key)
+        art_id = self._ensure_artwork(meta.artwork_path)
+        row = rows.build_track(meta, track_id, artist_id, album_id, self._shift(T.TRACKS), self._template,
+                               key_id=key_id, artwork_id=art_id)
         page, slot = self.file.insert_row(T.TRACKS, row)
         off = self.file.page(page).row_offset(slot)
-        self._tracks[_key(meta.path)] = _Ref(new_id, page, slot, off)
-        self._max["track"] = new_id
+        self._tracks[_key(meta.path)] = _Ref(track_id, page, slot, off)
+        self._max["track"] = max(self._max["track"], track_id)
         self.summary.tracks_added += 1
-        return new_id
+        return track_id
+
+    def _upgrade_track(self, ref: _Ref, meta: rows.TrackMeta) -> None:
+        row = rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+        strings = row["strings"]                                             # type: ignore[index]
+        if strings["analyze_path"]:                                          # type: ignore[index]
+            return                                                           # déjà analysée (Rekordbox ou DJSync)
+        if not meta.analyze_path and (row["artwork_id"] or not meta.artwork_path):
+            return
+        # Nouvelle ligne d'abord (si la page est pleine : exception AVANT toute suppression)
+        self._tracks.pop(_key(meta.path))
+        try:
+            self._insert_track(meta, ref.id)
+        except Exception:
+            self._tracks[_key(meta.path)] = ref
+            raise
+        self.file.delete_row(ref.page, ref.slot)
+        self.summary.tracks_added -= 1
+        self.summary.tracks_updated += 1
 
     def delete_track(self, path: str) -> bool:
         ref = self._tracks.pop(_key(path), None)
