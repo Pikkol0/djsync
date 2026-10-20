@@ -285,6 +285,7 @@ STRINGS = {
 
     # ---- éditeur de grille
     "grid.title": "Grille de temps",
+    "grid.back": "Retour",
     "grid.loading": "Chargement de la grille…",
     "grid.not_analysed": "Analysez d'abord ce titre (Outils ▸ Analyser).",
     "grid.view": "Vue",

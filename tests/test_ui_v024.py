@@ -144,12 +144,19 @@ def test_player_buttons_and_dialog_sizes(demo_grid):
     target = next(r.data for r in lib.table.all_rows() if r.data.title == "Grid Test")
     lib._play(str(target.content_id))
     assert pump(app, 4, lambda: bar.grid_btn.cget("state") == "normal")
+    app.show("search")
     bar._edit_grid()
-    assert pump(app, 4, lambda: _find(app, GridEditor) is not None)
-    ed = _find(app, GridEditor)
+    assert pump(app, 4, lambda: app.grid_editor is not None)
+    ed = app.grid_editor
+    assert isinstance(ed, GridEditor) and ed.winfo_toplevel() is app      # une page, pas une fenêtre
     assert pump(app, 4, lambda: bool(ed.beats))
-    assert app.grab_current() is None                       # non modale : l'appli reste utilisable
-    ed.close()
+    assert app.grab_current() is None
+    ed._shift(10)
+    app.show("library")                                     # changer d'onglet cache la page…
+    bar._edit_grid()                                        # …la rouvrir garde les modifications
+    assert pump(app, 2, lambda: app.grid_editor is ed) and ed.beats != ed.original
+    ed.close()                                              # retour à l'onglet d'avant
+    assert app.grid_editor is None and app.current == "search"
     app.ctrl.player.stop()
 
     # « Afficher dans la bibliothèque »

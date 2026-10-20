@@ -105,6 +105,7 @@ class DJSyncApp(ctk.CTk):
         self.ctrl.on("rebuild_ui", self.rebuild_ui)
         self.ctrl.on("zoom", self._apply_zoom)
         self.ctrl.on("analysis", self._analysis_changed)
+        self.ctrl.on("open_grid", self.open_grid_editor)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()
@@ -184,6 +185,7 @@ class DJSyncApp(ctk.CTk):
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
         self.views = {}
+        self.grid_editor = None
         for key, _label, _icon, cls in TABS:
             view = cls(self.content, self.ctrl, self.loader)
             view.grid(row=0, column=0, sticky="nsew")
@@ -455,6 +457,28 @@ class DJSyncApp(ctk.CTk):
         view = self.views.get(self._current or "")
         if view is not None:
             view.focus_filter()
+
+    # ------------------------------------------------------- éditeur de grille (V0.2.4 : une page)
+    def open_grid_editor(self, track: Any) -> None:
+        """Ouvre la page « Grille de temps » dans la zone de contenu. Changer d'onglet la cache sans la
+        fermer : la rouvrir pour le même son retrouve les modifications en cours."""
+        from .grid_editor import GridEditor
+
+        ed = getattr(self, "grid_editor", None)
+        if ed is not None and ed.winfo_exists():
+            if ed.track.content_id == track.content_id:
+                ed.tkraise()
+                return
+            ed._on_close = None
+            ed.close()
+        self._grid_return = self._current or "library"
+        self.grid_editor = GridEditor(self.content, self.ctrl, track, on_close=self._grid_closed)
+        self.grid_editor.grid(row=0, column=0, sticky="nsew")
+        self.grid_editor.tkraise()
+
+    def _grid_closed(self) -> None:
+        self.grid_editor = None
+        self.show(getattr(self, "_grid_return", None) or "library")
 
     def open_help(self) -> None:
         from .help_dialog import HelpDialog

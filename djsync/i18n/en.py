@@ -283,6 +283,7 @@ STRINGS = {
 
     # ---- beat grid editor
     "grid.title": "Beat grid",
+    "grid.back": "Back",
     "grid.loading": "Loading the grid…",
     "grid.not_analysed": "Analyse this track first (Tools ▸ Analyse).",
     "grid.view": "View",
