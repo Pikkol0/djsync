@@ -85,7 +85,7 @@ def test_old_v010_settings_file_still_loads(tmp_path):
     assert s.forced_drive == "E" and s.language == "en" and s.zoom == 100
 
 
-@pytest.mark.parametrize("raw, expected", [(50, 100), (100, 100), (149.6, 150), (999, 200), ("120", 120), (None, 100), ("x", 100)])
+@pytest.mark.parametrize("raw, expected", [(50, 80), (85, 85), (100, 100), (149.6, 150), (999, 200), ("120", 120), (None, 100), ("x", 100)])
 def test_clamp_zoom(raw, expected):
     assert clamp_zoom(raw) == expected
 
@@ -110,10 +110,29 @@ def test_px_vs_tkpx():
     from djsync.ui import theme
 
     try:
-        theme.set_zoom(100)
+        theme.set_zoom(100, auto=False)
         assert theme.px(32) == 32 and theme.tkpx(32) == 32
         theme.set_zoom(200)
         assert theme.px(32) == 32 and theme.tkpx(32) == 64    # px : CTk met à l'échelle lui-même
-        assert theme.set_zoom(999) == 2.0 and theme.set_zoom(10) == 1.0
+        assert theme.set_zoom(999) == 2.0 and theme.set_zoom(10) == 0.8   # bornes 80-200 %
     finally:
-        theme.set_zoom(100)
+        theme.set_zoom(100, auto=True)
+
+
+def test_auto_scale_follows_window_size():
+    pytest.importorskip("customtkinter")
+    from djsync.ui import theme
+
+    assert theme.auto_factor_for(1280, 800) == 1.0
+    assert theme.auto_factor_for(860, 560) == 0.85            # petite fenêtre : un peu plus petit, borné
+    assert theme.auto_factor_for(1680, 1050) == 1.3           # arrondi au pas de 0,05
+    assert theme.auto_factor_for(4000, 3000) == 1.45
+    try:
+        theme.set_zoom(150, auto=True)
+        theme.update_auto(1680, 1050)
+        assert abs(theme.ui_factor() - 1.5 * 1.3) < 1e-9
+        theme.set_zoom(150, auto=False)
+        assert theme.ui_factor() == 1.5
+    finally:
+        theme.set_zoom(100, auto=True)
+        theme.update_auto(1280, 800)

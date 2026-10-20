@@ -102,6 +102,24 @@ def test_key_survives_detuned_upload():
     assert res.name == "Am" and 25 <= res.tuning_cents <= 45
 
 
+@needs_ffmpeg
+def test_mp3_priming_is_restored_like_rekordbox(tmp_path):
+    """Rekordbox/les platines comptent le silence d'amorçage MP3 (FFmpeg le retire) : mesuré à 24,6 ms
+    sur 102 MP3 réels. La grille d'un MP3 doit donc tomber ~25 ms après celle du WAV d'origine."""
+    import subprocess
+    from djsync.analysis.decode import decode, mp3_priming_samples
+
+    wav = write_wav(tmp_path / "s.wav", song(128, 0.37, 30, ["A", "F", "E", "A"], [1, 0, 0, 1]))
+    mp3 = tmp_path / "s.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-c:a", "libmp3lame", "-b:a", "192k", str(mp3)],
+                   check=True)
+    priming = mp3_priming_samples(mp3)
+    assert priming == 576 + 529                                         # en-tête LAME standard
+    g_wav = analyze_tempo(decode(wav).samples, 22050)
+    g_mp3 = analyze_tempo(decode(mp3).samples, 22050)
+    assert abs((g_mp3.first_beat - g_wav.first_beat) - priming / 44100) <= 0.004
+
+
 def test_silence_gives_no_tempo_no_key():
     y = np.zeros(22050 * 10, dtype=np.float32)
     assert analyze_tempo(y, 22050).bpm == 0 and analyze_key(y, 22050).name is None
@@ -260,14 +278,16 @@ def test_added_track_is_cdj_ready_in_both_databases(tmp_path):
     assert bits == 7                                              # convention des sons natifs recopiée
     assert len(added) == len("2026-10-20 11:23:45.123 +00:00") and added.endswith("+00:00") and added == created
     # pochettes : numérotation après les 136 de l'export réel, 80 et 240 px
-    assert art == "/PIONEER/Artwork/00007/a137.jpg"
-    assert Image.open(usb / art.lstrip("/")).size == (80, 80)
-    assert Image.open(usb / art.lstrip("/").replace(".jpg", "_m.jpg")).size == (240, 240)
+    # (comme sur la vraie clé : bN.jpg pour exportLibrary.db, aN.jpg pour export.pdb, mêmes octets)
+    assert art == "/PIONEER/Artwork/00007/b137.jpg"
+    for name, size in (("a137.jpg", 80), ("a137_m.jpg", 240), ("b137.jpg", 80), ("b137_m.jpg", 240)):
+        assert Image.open(usb / "PIONEER" / "Artwork" / "00007" / name).size == (size, size)
+    assert (usb / art.lstrip("/")).read_bytes() == (usb / art.lstrip("/").replace("/b137", "/a137")).read_bytes()
     assert (usb / anlz_path.lstrip("/")).is_file() and (usb / anlz_path.lstrip("/")).with_suffix(".EXT").is_file()
     # export.pdb : même chemin d'analyse, tonalité « Am » existante (id 10), pochette 137, BPM, date
     pdb = PdbDatabase((usb / "PIONEER" / "rekordbox" / "export.pdb").read_bytes())
     r = pdb.track_row(t.path)
-    assert r["bpmx100"] == 12800 and r["key_id"] == 10 and r["artwork_id"] == pdb.artwork_id(art) == 137
+    assert r["bpmx100"] == 12800 and r["key_id"] == 10 and r["artwork_id"] == pdb.artwork_id("/PIONEER/Artwork/00007/a137.jpg") == 137
     assert r["strings"]["analyze_path"] == anlz_path and r["strings"]["date_added"] == added[:10]
     assert r["strings"]["analyze_date"] == added[:10]
 

@@ -85,7 +85,7 @@ def test_search_download_reorder_and_backup(app, usb):
     search = app.views["search"]
     search.entry.insert(0, "artiste")
     search.run_search()
-    assert pump(app, 5, lambda: search.table.count == 3)
+    assert pump(app, 5, lambda: search.table.count == 3), (search.info.cget("text"), app.errors, app.status.cget("text"))
 
     # téléchargement vers une nouvelle playlist (popup réel)
     search.table.select(search.table.displayed_iids())

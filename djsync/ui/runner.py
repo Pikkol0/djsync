@@ -2,9 +2,16 @@
 
 Tkinter n'est PAS thread-safe : les threads de travail ne touchent jamais un widget. Ils
 déposent un résultat dans une file ; un timer Tk (`after`) la vide dans le thread UI.
+
+Ramasse-miettes (V0.2.0) : un widget détruit forme des cycles de références (polices, variables,
+images Tk). Si le ramasse-miettes automatique de Python les libère dans un thread de travail, leur
+`__del__` appelle Tcl depuis ce thread : blocage possible (constaté : téléchargement figé pendant un
+import). Le ramassage automatique est donc coupé tant que l'interface tourne, et fait ici, dans le
+thread UI, toutes les ~2 s.
 """
 from __future__ import annotations
 
+import gc
 import logging
 import queue
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +20,7 @@ from typing import Any, Callable, Dict, Optional
 log = logging.getLogger(__name__)
 
 # Un pool par nature de travail : la base est sérialisée (1 thread), le reste en parallèle.
-_POOLS = {"net": 6, "db": 1, "dl": 2, "cover": 4, "match": 3}
+_POOLS = {"net": 6, "db": 1, "dl": 2, "cover": 4, "match": 3, "analysis": 1}
 
 
 class UiDispatcher:
@@ -26,6 +33,9 @@ class UiDispatcher:
         }
         self._interval = interval_ms
         self._closed = False
+        self._ticks = 0
+        self._gc_was_enabled = gc.isenabled()
+        gc.disable()
         self._root.after(self._interval, self._drain)
 
     # ---- thread-safe : appelable depuis n'importe quel thread
@@ -69,10 +79,16 @@ class UiDispatcher:
                 job()
             except Exception:  # noqa: BLE001
                 log.exception("Erreur dans un callback d'interface")
+        self._ticks += 1
+        if self._ticks % 80 == 0:               # ~2 s : jeunes générations ; ~20 s : tout
+            gc.collect(2 if self._ticks % 800 == 0 else 1)
         if not self._closed:
             self._root.after(self._interval, self._drain)
 
     def shutdown(self) -> None:
         self._closed = True
+        gc.collect()
+        if self._gc_was_enabled:
+            gc.enable()
         for pool in self._pools.values():
             pool.shutdown(wait=False, cancel_futures=True)

@@ -289,6 +289,7 @@ class LibraryTrack:
     artwork_path: Optional[str] = None   # pochette Rekordbox (ex. "/PIONEER/Artwork/00001/b1.jpg")
     sequence: int = 0                    # position dans la playlist (0 hors vue playlist)
     key: Optional[str] = None            # tonalité Rekordbox brute ("Am", "F#m"…), None si non analysé
+    analysis_path: Optional[str] = None  # ".../ANLZ0000.DAT" (formes d'onde du lecteur, éditeur de grille)
 
     @property
     def camelot(self) -> Optional[str]:

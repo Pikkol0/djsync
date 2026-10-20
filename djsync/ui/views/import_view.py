@@ -15,13 +15,15 @@ from ...models import (
     PREFERENCE_LABELS, Candidate, MatchPreference, MatchResult, ResolvedUrl, SpotifyPlaylist, TrackResult,
     UrlKind, format_duration,
 )
+from ...i18n import LazyLabels, plural, t
 from .. import theme
 from ..covers import url_cover
 from ..dialogs import BaseDialog
 from ..widgets import Column, Row, TrackTable
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
-STATUS_TEXT = {"ok": "✓ Trouvé", "review": "⚠ À vérifier", "missing": "✗ Introuvable", "duplicate": "✓ Déjà en bibliothèque"}
+STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
+                                  "duplicate": "import.st_duplicate"})
 STATUS_TAG = {"ok": (), "review": ("dim",), "missing": ("err",), "duplicate": ("dup",)}
 
 
@@ -29,16 +31,16 @@ class PasteListDialog(BaseDialog):
     """Repli quand Spotify refuse la lecture : une ligne par morceau « Artiste - Titre »."""
 
     def __init__(self, parent: Any, on_ok: Any) -> None:
-        super().__init__(parent, "Coller une liste", 520, 420)
+        super().__init__(parent, t("import.paste_list_title"), 520, 420)
         self._on_ok = on_ok
-        self.footer("Analyser la liste", self._ok)
-        theme.label(self, "Coller une liste de morceaux", 15, theme.TEXT, "bold", anchor="w").pack(
-            fill="x", padx=theme.px(20), pady=(theme.px(18), 2))
-        theme.label(self, "Une ligne par morceau : « Artiste - Titre ». Chaque ligne sera cherchée sur YouTube Music.",
-                    11, theme.DIM, anchor="w", wraplength=theme.px(470), justify="left").pack(fill="x", padx=theme.px(20))
+        self.footer(t("import.analyse_list"), self._ok)
+        theme.label(self, t("import.paste_list_title"), 15, theme.TEXT, "bold", anchor="w").pack(
+            fill="x", padx=(20), pady=((18), 2))
+        theme.label(self, t("import.paste_list_hint"),
+                    11, theme.DIM, anchor="w", wraplength=(470), justify="left").pack(fill="x", padx=(20))
         self.box = ctk.CTkTextbox(self, fg_color=theme.SURFACE, text_color=theme.TEXT, border_color=theme.BORDER,
                                   border_width=1, font=theme.font(12), corner_radius=8)
-        self.box.pack(fill="both", expand=True, padx=theme.px(20), pady=10)
+        self.box.pack(fill="both", expand=True, padx=(20), pady=10)
         self.after(150, self.box.focus_set)
 
     def _ok(self) -> None:
@@ -49,7 +51,6 @@ class PasteListDialog(BaseDialog):
 
 
 class ImportView(View):
-    title = "Import URL"
 
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
@@ -68,27 +69,27 @@ class ImportView(View):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
-        self.header("Import URL", "Spotify · YouTube · SoundCloud").grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
+        self.header(t("tab.import"), "Spotify · YouTube · SoundCloud").grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.grid(row=1, column=0, sticky="ew", padx=24)
         bar.grid_columnconfigure(0, weight=1)
-        self.url = theme.entry(bar, "Collez un lien : titre ou playlist (Spotify, YouTube, SoundCloud)")
+        self.url = theme.entry(bar, t("import.placeholder"))
         self.url.grid(row=0, column=0, sticky="ew")
         self.url.bind("<Return>", lambda _e: self.analyse())
-        theme.button(bar, "Coller…", self._paste_clipboard, kind="ghost", width=theme.px(80)).grid(row=0, column=1, padx=(8, 0))
-        self.go = theme.button(bar, "Analyser", self.analyse, kind="primary", width=theme.px(100))
+        theme.button(bar, t("action.paste"), self._paste_clipboard, kind="ghost", width=80).grid(row=0, column=1, padx=(8, 0))
+        self.go = theme.button(bar, t("import.read_link"), self.analyse, kind="primary", width=100)
         self.go.grid(row=0, column=2, padx=(8, 0))
 
         opts = ctk.CTkFrame(self, fg_color="transparent")
         opts.grid(row=2, column=0, sticky="ew", padx=24, pady=(8, 0))
-        self.info = theme.label(opts, "Collez un lien puis cliquez sur Analyser.", 11, theme.DIM, anchor="w")
+        self.info = theme.label(opts, t("import.info_start"), 11, theme.DIM, anchor="w")
         self.info.pack(side="left")
-        self.paste_list = theme.button(opts, "Coller une liste…", self._paste_list, kind="flat", width=theme.px(130))
+        self.paste_list = theme.button(opts, t("import.paste_list"), self._paste_list, kind="flat", width=130)
         self.paste_list.pack(side="right")
-        self.pref_menu = theme.option_menu(opts, list(PREFERENCE_LABELS.values()), self._pref_changed, width=theme.px(160))
+        self.pref_menu = theme.option_menu(opts, list(PREFERENCE_LABELS.values()), self._pref_changed, width=160)
         self.pref_menu.set(PREFERENCE_LABELS[self.preference])
-        self.pref_label = theme.label(opts, "Correspondance :", 11, theme.DIM)
+        self.pref_label = theme.label(opts, t("import.matching"), 11, theme.DIM)
 
         holder = ctk.CTkFrame(self, fg_color="transparent")
         holder.grid(row=3, column=0, sticky="nsew", padx=24, pady=(6, 10))
@@ -97,15 +98,16 @@ class ImportView(View):
 
         spotify_cols = [
             Column("chk", "", 38, "center", sortable=False),
-            Column("source", "Morceau Spotify", 260, stretch=True),
-            Column("match", "Correspondance YouTube Music", 300, stretch=True),
-            Column("type", "Type", 70, "center"),
-            Column("score", "Score", 60, "e", sort=lambda r: r.data.candidate.score if r.data and r.data.candidate else None),
-            Column("duration", "Durée", 70, "e"),
-            Column("status", "Statut", 150),
+            Column("source", t("import.col_source"), 240, stretch=True, min_width=120),
+            Column("match", t("import.col_match"), 280, stretch=True, min_width=120, priority=1),
+            Column("type", t("track.type"), 70, "center", priority=4),
+            Column("score", t("import.col_score"), 60, "e", priority=3,
+                   sort=lambda r: r.data.candidate.score if r.data and r.data.candidate else None),
+            Column("duration", t("track.duration"), 70, "e", priority=2),
+            Column("status", t("import.col_status"), 150),
         ]
         self.sp_table = TrackTable(holder, spotify_cols, loader, click_columns=("chk",))
-        self.dl_table = TrackTable(holder, result_columns(with_check=True), loader, click_columns=("chk",))
+        self.dl_table = TrackTable(holder, result_columns(with_check=True, with_download=False), loader, click_columns=("chk",))
         for table in (self.sp_table, self.dl_table):
             table.grid(row=0, column=0, sticky="nsew")
             table.on_cell_click = lambda iid, _k, t=table: self._toggle(t, iid)
@@ -115,16 +117,16 @@ class ImportView(View):
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
         self.sp_table.set_empty_text("")
-        self.dl_table.set_empty_text("Le contenu du lien s'affichera ici.")
+        self.dl_table.set_empty("import", t("import.empty_title"), t("import.empty_sub"))
         self.sp_table.grid_remove()
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 16))
-        self.preview_btn = theme.button(actions, "▶  Écouter", self._preview, kind="ghost", width=theme.px(110))
+        self.preview_btn = theme.button(actions, t("action.listen"), self._preview, kind="ghost", width=110)
         self.preview_btn.pack(side="left")
-        self.other_btn = theme.button(actions, "⟳  Autre correspondance", self._cycle, kind="ghost", width=theme.px(190))
+        self.other_btn = theme.button(actions, "⟳  " + t("import.other_match"), self._cycle, kind="ghost", width=190)
         self.other_btn.pack(side="left", padx=(8, 0))
-        self.dl_btn = theme.button(actions, "Télécharger", self._download, kind="primary", width=theme.px(200))
+        self.dl_btn = theme.button(actions, t("import.download_selection"), self._download, kind="primary", width=200)
         self.dl_btn.pack(side="right")
         self._show_mode(None)
         self.ctrl.on("library", self._library_changed)
@@ -167,6 +169,12 @@ class ImportView(View):
         if text:
             self.analyse()
 
+    def open_url(self, url: str) -> None:
+        """Depuis l'omnibar de l'Accueil."""
+        self.url.delete(0, "end")
+        self.url.insert(0, url)
+        self.analyse()
+
     def analyse(self) -> None:
         url = self.url.get().strip()
         if not url:
@@ -174,13 +182,14 @@ class ImportView(View):
         self._cancel_matching()
         self._token += 1
         token = self._token
-        self.go.configure(state="disabled", text="Analyse…")
-        self.info.configure(text="Lecture du lien…", text_color=theme.DIM)
+        self.go.configure(state="disabled", text=t("import.reading"))
+        self.info.configure(text=t("import.reading_link"), text_color=theme.DIM)
+        self.table.show_skeleton(6)
 
         def ok(kind: str, data: Any) -> None:
             if token != self._token:
                 return
-            self.go.configure(state="normal", text="Analyser")
+            self.go.configure(state="normal", text=t("import.read_link"))
             if kind == "spotify":
                 self._load_spotify(data)
             else:
@@ -189,8 +198,9 @@ class ImportView(View):
         def err(exc: BaseException) -> None:
             if token != self._token:
                 return
-            self.go.configure(state="normal", text="Analyser")
-            self.info.configure(text="Lien non lisible.", text_color=theme.ERR)
+            self.go.configure(state="normal", text=t("import.read_link"))
+            self.table.set_rows([])
+            self.info.configure(text=t("import.unreadable"), text_color=theme.ERR)
             self.ctrl._on_error(exc)
 
         self.ctrl.import_url(url, ok, err)
@@ -215,15 +225,15 @@ class ImportView(View):
 
     def _load_spotify(self, playlist: SpotifyPlaylist) -> None:
         self.playlist, self.resolved = playlist, None
-        self.matches = [MatchResult(source=t) for t in playlist.tracks]
+        self.matches = [MatchResult(source=tr) for tr in playlist.tracks]
         self._searched = set()
         self._show_mode("spotify")
         self.sp_table.set_empty_text("")
         self.sp_table.set_rows([self._sp_row(i, m) for i, m in enumerate(self.matches)], reset_sort=True,
                                keep_selection=False)
         n = len(self.matches)
-        note = "  ·  Spotify ne fournit que les 100 premiers morceaux." if playlist.truncated else ""
-        self.info.configure(text=f"« {playlist.name} » : {n} morceau(x). Recherche des correspondances 0/{n}…{note}",
+        note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+        self.info.configure(text=t("import.matching_progress", name=playlist.name, n=n, done=0) + note,
                             text_color=theme.DIM)
 
         def on_item(i: int, cands: List[Candidate]) -> None:
@@ -233,11 +243,11 @@ class ImportView(View):
             apply_preference(m, self.preference)
             self._refresh_sp_row(i, auto_check=True)
             done = self._handle.done if self._handle else n
-            self.info.configure(text=f"« {playlist.name} » : {n} morceau(x). Correspondances {done}/{n}…{note}")
+            self.info.configure(text=t("import.matching_progress", name=playlist.name, n=n, done=done) + note)
             self._refresh_buttons()
 
         def on_done() -> None:
-            self.info.configure(text=f"« {playlist.name} » : {self._summary()}{note}")
+            self.info.configure(text=t("import.summary", name=playlist.name, summary=self._summary()) + note)
             self._refresh_buttons()
 
         self._handle = self.ctrl.match_spotify(playlist.tracks, on_item, on_done)
@@ -246,23 +256,23 @@ class ImportView(View):
         counts = {"ok": 0, "review": 0, "missing": 0, "duplicate": 0}
         for m in self.matches:
             counts[m.status] += 1
-        parts = [f"{len(self.matches)} morceau(x)", f"{counts['ok']} trouvé(s)"]
+        parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.matches)), t("import.sum_found", n=counts["ok"])]
         if counts["review"]:
-            parts.append(f"{counts['review']} à vérifier")
+            parts.append(t("import.sum_review", n=counts["review"]))
         if counts["missing"]:
-            parts.append(f"{counts['missing']} introuvable(s)")
+            parts.append(t("import.sum_missing", n=counts["missing"]))
         if counts["duplicate"]:
-            parts.append(f"{counts['duplicate']} déjà en bibliothèque")
+            parts.append(t("import.sum_duplicate", n=counts["duplicate"]))
         return " · ".join(parts)
 
     def _sp_values(self, i: int, m: MatchResult) -> dict:
         c = m.candidate
         pending = i not in self._searched
         if c is None:
-            match, kind, score, dur = ("Recherche…" if pending else "—"), "", "", ""
+            match, kind, score, dur = (t("import.searching") if pending else "—"), "", "", ""
             status = "…" if pending else STATUS_TEXT["missing"]
         else:
-            manual = "  (choix manuel)" if m.manual else ""
+            manual = "  " + t("import.manual") if m.manual else ""
             match = f"{c.track.title} — {c.track.artist}{manual}"
             kind, score, dur = c.track.kind_label, f"{c.score:.0f}", c.track.duration_str
             status = STATUS_TEXT[m.status]
@@ -295,9 +305,7 @@ class ImportView(View):
             self.sp_table.update_values(iid, chk=CHECKED if checked else UNCHECKED)
         # la pochette suit le candidat : on la recharge si la ligne est visible
         if row.cover is not None:
-            self.sp_table._covered.discard(iid)
-            self.sp_table._photos.pop(iid, None)
-            self.sp_table._schedule_covers()
+            self.sp_table.refresh_cover(iid)
 
     def _pref_changed(self, label: str) -> None:
         self.preference = next((p for p, text in PREFERENCE_LABELS.items() if text == label), MatchPreference.AUTO)
@@ -322,37 +330,38 @@ class ImportView(View):
     def _load_direct(self, resolved: ResolvedUrl) -> None:
         self.resolved, self.playlist, self.matches = resolved, None, []
         self._show_mode("direct")
-        self._tracks = {t.video_id: t for t in resolved.tracks}
-        self.dl_table.set_rows([result_row(t, checked=False) for t in resolved.tracks], reset_sort=True,
+        self._tracks = {tr.video_id: tr for tr in resolved.tracks}
+        self.dl_table.set_rows([result_row(tr, checked=False) for tr in resolved.tracks], reset_sort=True,
                                keep_selection=False)
         self._apply_direct_checks(resolved.tracks)
         source = "SoundCloud" if resolved.kind == UrlKind.SOUNDCLOUD else "YouTube"
         extra = [resolved.note] if resolved.note else []
         if resolved.truncated:
-            extra.append("liste tronquée aux premiers morceaux")
+            extra.append(t("import.truncated"))
         tail = ("  ·  " + "  ·  ".join(extra)) if extra else ""
         self.info.configure(
-            text=f"{source} : « {resolved.name} » — {len(resolved.tracks)} morceau(x), téléchargement direct{tail}",
+            text=t("import.direct_info", source=source, name=resolved.name,
+                   tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail,
             text_color=theme.DIM)
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
-        for t in tracks:
-            self.dl_table.update_values(t.video_id, chk=UNCHECKED if t.is_duplicate else CHECKED)
+        for tr in tracks:
+            self.dl_table.update_values(tr.video_id, chk=UNCHECKED if tr.is_duplicate else CHECKED)
         self._refresh_buttons()
 
     def _direct_annotated(self, tracks: List[TrackResult]) -> None:
         if self.mode != "direct":
             return
-        for t in tracks:
-            if t.video_id not in self._tracks:
+        for tr in tracks:
+            if tr.video_id not in self._tracks:
                 continue
-            self._tracks[t.video_id] = t
-            row = self.dl_table.row(t.video_id)
+            self._tracks[tr.video_id] = tr
+            row = self.dl_table.row(tr.video_id)
             if row is not None:
-                row.data = t
-                self.dl_table.update_values(t.video_id, lib="✓ déjà" if t.is_duplicate else "")
-                self.dl_table.set_tags(t.video_id, *(("dup",) if t.is_duplicate else ()))
+                row.data = tr
+                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._apply_direct_checks(tracks)
 
     # -------------------------------------------------------------- cases
@@ -386,7 +395,7 @@ class ImportView(View):
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
         n = len(self._checked_tracks()) if self.mode else 0
-        self.dl_btn.configure(text=f"Télécharger la sélection ({n})" if n else "Télécharger la sélection",
+        self.dl_btn.configure(text=t("import.download_selection_n", n=n) if n else t("import.download_selection"),
                               state="normal" if n else "disabled")
         sel = self.table.selected_iids() if self.mode else []
         self.preview_btn.configure(state="normal" if sel else "disabled")
@@ -417,9 +426,9 @@ class ImportView(View):
     def _menu(self, iids: List[str]) -> list:
         if not iids:
             return []
-        entries: list = [("Écouter", self._preview)]
+        entries: list = [(t("action.listen"), self._preview)]
         if self.mode == "spotify":
-            entries.append(("Autre correspondance", self._cycle))
+            entries.append((t("import.other_match"), self._cycle))
         return entries
 
     def _library_changed(self) -> None:
@@ -432,17 +441,17 @@ class ImportView(View):
                 self.ctrl.reannotate(tracks, self._sp_annotated)
 
     def _direct_annotated_keep_checks(self, tracks: List[TrackResult]) -> None:
-        for t in tracks:
-            self._tracks[t.video_id] = t
-            row = self.dl_table.row(t.video_id)
+        for tr in tracks:
+            self._tracks[tr.video_id] = tr
+            row = self.dl_table.row(tr.video_id)
             if row is not None:
-                row.data = t
-                self.dl_table.update_values(t.video_id, lib="✓ déjà" if t.is_duplicate else "")
-                self.dl_table.set_tags(t.video_id, *(("dup",) if t.is_duplicate else ()))
+                row.data = tr
+                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._refresh_buttons()
 
     def _sp_annotated(self, tracks: List[TrackResult]) -> None:
-        by_id = {t.video_id: t for t in tracks}
+        by_id = {tr.video_id: tr for tr in tracks}
         for i, m in enumerate(self.matches):
             m.candidates = [Candidate(by_id.get(c.track.video_id, c.track), c.score) for c in m.candidates]
             if self.sp_table.row(str(i)) is not None:

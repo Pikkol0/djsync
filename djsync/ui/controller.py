@@ -1,9 +1,14 @@
 """Contrôleur : toute la logique de l'application, SANS widget.
 
-Les vues appellent ces méthodes ; les opérations lentes (réseau, base, FFmpeg) tournent dans
-des threads (UiDispatcher) et rappellent la vue dans le thread UI. Les vues écoutent des
+Les vues appellent ces méthodes ; les opérations lentes (réseau, base, FFmpeg, analyse) tournent
+dans des threads (UiDispatcher) et rappellent la vue dans le thread UI. Les vues écoutent des
 évènements : "drive", "drives", "library", "downloads", "download_update", "message",
-"navigate", "player".
+"navigate", "player", "queue", "zoom", "rebuild_ui".
+
+V0.2.0 : découpé par sujet (ce fichier : évènements, clé USB, recherche, import, réglages) :
+  * ctrl/library_ops.py : bibliothèque, playlists, export.pdb, analyse, doublons, grille ;
+  * ctrl/downloads.py   : file de téléchargements ;
+  * ctrl/playback.py    : lecture, file d'écoute (précédent / suivant), formes d'onde.
 """
 from __future__ import annotations
 
@@ -12,22 +17,29 @@ import shutil
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from .. import portable
-from ..audio.player import AudioPlayer, NowPlaying
+from ..audio.player import AudioPlayer
 from ..core.service import MusicService
 from ..core.spotify import SpotifyError, parse_text_list
 from ..core.urlimport import UrlImportError
 from ..db import (
-    AmbiguousDriveError, DatabaseLockedError, DriveNotFoundError, LibraryError, RekordboxUsbLibrary, UsbDrive,
+    DatabaseLockedError, DriveNotFoundError, LibraryError, RekordboxUsbLibrary, UsbDrive,
     drive_from_letter, find_usb_drives,
 )
+from ..db.errors import (
+    DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
+    UnsupportedFormatError,
+)
+from ..i18n import t
 from ..models import (
-    Candidate, DownloadJob, LibraryTrack, PlaylistInfo, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult,
-    UrlKind,
+    Candidate, DownloadJob, PlaylistInfo, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind,
 )
 from ..settings import Settings
+from .ctrl.downloads import DownloadsMixin
+from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
+from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
 from .runner import UiDispatcher
 
 log = logging.getLogger(__name__)
@@ -48,7 +60,7 @@ class MatchHandle:
         self.cancelled = True
 
 
-class AppController:
+class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
     def __init__(
         self,
         settings: Settings,
@@ -60,7 +72,7 @@ class AppController:
         self.dispatcher = dispatcher
         self.service = service or MusicService(ffmpeg_location=settings.ffmpeg_location or None)
         self.player = player or AudioPlayer(
-            post=dispatcher.post, on_event=lambda k, p: self._emit("player", k, p),
+            post=dispatcher.post, on_event=lambda k, p: self._player_event(k, p),
             ffmpeg_location=settings.ffmpeg_location or None,
         )
         self.player.set_volume(settings.volume)
@@ -81,10 +93,20 @@ class AppController:
         self._preview_files: Dict[str, str] = {}
         self._polling = False
         self._views_inflight: Set[str] = set()
+        self._init_playback()
 
     # ------------------------------------------------------------------ évènements
     def on(self, event: str, fn: Callable[..., None]) -> None:
         self._listeners[event].append(fn)
+
+    def listener_mark(self) -> Dict[str, int]:
+        """Instantané du nombre d'écouteurs par évènement (voir reset_listeners)."""
+        return {k: len(v) for k, v in self._listeners.items()}
+
+    def reset_listeners(self, mark: Dict[str, int]) -> None:
+        """Oublie les écouteurs ajoutés depuis `mark` (vues détruites par une reconstruction de l'UI)."""
+        for event in list(self._listeners):
+            del self._listeners[event][mark.get(event, 0):]
 
     def _emit(self, event: str, *args: Any) -> None:
         for fn in list(self._listeners[event]):
@@ -97,9 +119,24 @@ class AppController:
         """kind : info | ok | warn | error — affiché dans la barre d'état."""
         self._emit("message", kind, text)
 
+    # erreurs fréquentes : message traduit ; les autres gardent le détail technique
+    _ERROR_KEYS = (
+        (DatabaseLockedError, "error.db_locked"), (ReadOnlyError, "error.read_only"),
+        (DuplicatePlaylistError, "error.duplicate_playlist"), (PlaylistNotFoundError, "error.playlist_not_found"),
+        (TrackNotFoundError, "error.track_not_found"), (UnsupportedFormatError, "error.unsupported_format"),
+        (DriveNotFoundError, "error.drive_not_found"), (DatabaseOpenError, "error.db_open"),
+    )
+
+    def error_text(self, exc: BaseException) -> str:
+        for cls, key in self._ERROR_KEYS:
+            if isinstance(exc, cls):
+                return t(key, detail=str(exc))
+        if isinstance(exc, (LibraryError, SpotifyError, UrlImportError)):
+            return str(exc)
+        return f"{type(exc).__name__} : {exc}"
+
     def _on_error(self, exc: BaseException) -> None:
-        known = (LibraryError, SpotifyError, UrlImportError)
-        self.message("error", str(exc) if isinstance(exc, known) else f"{type(exc).__name__} : {exc}")
+        self.message("error", self.error_text(exc))
 
     @property
     def has_library(self) -> bool:
@@ -107,7 +144,7 @@ class AppController:
 
     @property
     def drive_label(self) -> str:
-        return str(self.drive) if self.drive else "Aucune clé"
+        return str(self.drive) if self.drive else t("nav.no_drive")
 
     @property
     def preview_dir(self) -> Path:
@@ -150,8 +187,8 @@ class AppController:
         if pick is not None:
             self.connect(pick)
         elif len(candidates) > 1:
-            self.message("warn", str(AmbiguousDriveError(candidates)))
-            self._emit("navigate", "settings")
+            self.message("warn", t("msg.several_drives", n=len(candidates)))
+            self._emit("navigate", "home")
 
     def connect(self, drive: Union[UsbDrive, str], remember: bool = True) -> None:
         """Ouvre la bibliothèque d'une clé (lettre forcée « E », chemin, ou UsbDrive détecté)."""
@@ -166,7 +203,7 @@ class AppController:
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
                 pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
-                analyze=self.settings.analyze_on_add, artwork=self.settings.analyze_on_add,
+                analyze=self.settings.analyze_on_add, artwork=True,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             self.service.set_library(lib)
@@ -180,17 +217,14 @@ class AppController:
             if remember:
                 self.settings.active_drive = self.drive.letter or str(self.drive.root)
                 self.settings.save()
-            self.message("ok", f"Clé {self.drive} connectée.")
+            self.message("ok", t("msg.drive_connected", drive=str(self.drive)))
             self._emit("drive")
 
         def err(exc: BaseException) -> None:
             self._connecting = False
             failed = str(drive.root if isinstance(drive, UsbDrive) else drive)
             self._connect_failed.add(failed)
-            if isinstance(exc, DatabaseLockedError):
-                self.message("error", f"{exc} Fermez Rekordbox puis réessayez.")
-            else:
-                self._on_error(exc)
+            self._on_error(exc)
 
         self.dispatcher.submit(work, ok, err, pool="db")
 
@@ -225,7 +259,7 @@ class AppController:
                 self._connect_failed.clear()
                 self._emit("drives")
             if self.drive is not None and self.drive is active and not still_there:
-                self.message("warn", f"Clé {active} débranchée.")
+                self.message("warn", t("msg.drive_unplugged", drive=str(active)))
                 self.disconnect(by_user=False)
             elif self.library is None and changed:
                 self._auto_connect()
@@ -236,128 +270,6 @@ class AppController:
             root.after(POLL_MS, self._poll)
 
         self.dispatcher.submit(probe, ok, err, pool="net")
-
-    # ------------------------------------------------------- bibliothèque (lecture)
-    def load_library(self, ok: Callback, err: Optional[Callback] = None) -> None:
-        """ok({"playlists": [...], "tracks": [...]})."""
-        lib = self.library
-        if lib is None:
-            ok({"playlists": [], "tracks": []})
-            return
-
-        def work() -> Dict[str, Any]:
-            return {"playlists": lib.list_playlists(), "tracks": lib.list_tracks()}
-
-        def done(data: Dict[str, Any]) -> None:
-            if lib is self.library:
-                self.playlists = data["playlists"]
-                ok(data)
-
-        self.dispatcher.submit(work, done, err or self._on_error, pool="db")
-
-    def fetch_playlists(self, ok: Callback) -> None:
-        lib = self.library
-        if lib is None:
-            ok([])
-            return
-
-        def done(playlists: List[PlaylistInfo]) -> None:
-            self.playlists = playlists
-            ok(playlists)
-
-        self.dispatcher.submit(lib.list_playlists, done, self._on_error, pool="db")
-
-    def playlist_tracks(self, playlist_id: int, ok: Callback) -> None:
-        lib = self.library
-        if lib is not None:
-            self.dispatcher.submit(lambda: lib.get_playlist_tracks(playlist_id), ok, self._on_error, pool="db")
-
-    # -------------------------------------------------------- analyse (V1.1-A4)
-    def analyze_missing(self, ok: Optional[Callback] = None) -> None:
-        """Analyse les sons ajoutés par une ancienne version de DJSync (sans BPM/tonalité/ANLZ).
-        Point d'entrée prêt pour l'interface (Étape B) ; long : quelques secondes par son."""
-        self._write(lambda lib: lib.analyze_missing(), ok,
-                    success="Analyse terminée : BPM, tonalités, formes d'onde et pochettes à jour.")
-
-    # -------------------------------------------------------- bibliothèque (écriture)
-    def _write(self, fn: Callable[[RekordboxUsbLibrary], Any], ok: Optional[Callback] = None,
-               success: str = "", err: Optional[Callback] = None) -> None:
-        """Exécute une écriture dans le thread DB. La sauvegarde (backup) AVANT modification
-        est faite par la classe DB elle-même ; ici on rafraîchit les vues et les doublons."""
-        lib = self.library
-        if lib is None:
-            self.message("error", "Aucune clé connectée.")
-            return
-
-        def work() -> Any:
-            result = fn(lib)
-            self.service.refresh_library()
-            return result
-
-        def done(result: Any) -> None:
-            if lib.pdb_state == "stale" and lib.pdb_problem:
-                self.message("warn", f"Modifié dans exportLibrary.db, mais pas dans export.pdb : {lib.pdb_problem}")
-            elif success:
-                self.message("ok", success)
-            self._emit("library")
-            if ok:
-                ok(result)
-
-        self.dispatcher.submit(work, done, err or self._on_error, pool="db")
-
-    def create_playlist(self, name: str, parent_id: int = 0, ok: Optional[Callback] = None,
-                        err: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.create_playlist(name, parent_id), ok, f"Playlist « {name.strip()} » créée.", err)
-
-    def rename_playlist(self, playlist_id: int, name: str, ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.rename_playlist(playlist_id, name), ok, "Playlist renommée.")
-
-    def delete_playlist(self, playlist_id: int, ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.delete_playlist(playlist_id), ok, "Playlist supprimée (les sons sont conservés).")
-
-    def add_to_playlists(self, content_ids: Sequence[int], playlist_ids: Sequence[int]) -> None:
-        def run(lib: RekordboxUsbLibrary) -> int:
-            with lib.batch():
-                return sum(lib.add_to_playlist(pid, content_ids) for pid in playlist_ids)
-        self._write(run, lambda n: None, "Sons ajoutés aux playlists.")
-
-    def remove_from_playlist(self, playlist_id: int, content_ids: Sequence[int]) -> None:
-        self._write(lambda lib: lib.remove_from_playlist(playlist_id, content_ids), None, "Retiré de la playlist.")
-
-    def move_tracks(self, content_ids: Sequence[int], from_id: int, to_id: int) -> None:
-        self._write(lambda lib: lib.move_tracks(content_ids, from_id, to_id), None, "Sons déplacés.")
-
-    def save_order(self, playlist_id: int, content_ids: Sequence[int], ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.set_playlist_order(playlist_id, content_ids), ok, "Ordre enregistré.")
-
-    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> None:
-        def done(result: Any) -> None:
-            removed, failures = result
-            text = f"{removed} son(s) supprimé(s)."
-            if failures:
-                text += f" {failures} fichier(s) n'ont pas pu être effacés de la clé."
-            self.message("warn" if failures else "ok", text)
-
-        self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done)
-
-    # ------------------------------------------------------------ export.pdb (anciennes platines)
-    def pdb_status(self, ok: Callback) -> None:
-        lib = self.library
-        if lib is not None:
-            self.dispatcher.submit(lib.pdb_status, ok, self._on_error, pool="db")
-
-    def pdb_sync_now(self, ok: Optional[Callback] = None) -> None:
-        def done(summary: Any) -> None:
-            self.message("ok", f"export.pdb synchronisé : {summary.tracks_added} son(s), "
-                               f"{summary.playlists_added} playlist(s) ajouté(s).")
-            self._emit("library")
-            if ok:
-                ok(summary)
-        lib = self.library
-        if lib is None:
-            self.message("error", "Aucune clé connectée.")
-            return
-        self.dispatcher.submit(lib.pdb_catch_up, done, self._on_error, pool="db")
 
     # ---------------------------------------------------------------- recherche
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
@@ -403,9 +315,16 @@ class AppController:
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:
-            (err or self._on_error)(UrlImportError("URL non reconnue : collez un lien Spotify, YouTube ou SoundCloud."))
+            (err or self._on_error)(UrlImportError(t("error.url_unknown")))
             return
         self.dispatcher.submit(work, lambda r: ok(*r), err or self._on_error, pool="net")
+
+    def is_url(self, text: str) -> bool:
+        """Omnibar : lien à importer (Spotify, YouTube, SoundCloud) ou texte à chercher ?"""
+        text = (text or "").strip()
+        if not text or " " in text:
+            return False
+        return self.service.classify_url(text) != UrlKind.UNKNOWN or text.lower().startswith(("http://", "https://"))
 
     @staticmethod
     def parse_pasted_list(text: str) -> SpotifyPlaylist:
@@ -436,121 +355,6 @@ class AppController:
             )
         return handle
 
-    # ------------------------------------------------------------ téléchargements
-    def enqueue(self, tracks: Sequence[TrackResult], playlist_ids: Sequence[int]) -> List[DownloadJob]:
-        lib = self.library
-        if lib is None:
-            self.message("error", "Aucune clé connectée : branchez-la ou choisissez-la dans Paramètres.")
-            return []
-        names = {p.playlist_id: p.name for p in self.playlists}
-        self.last_playlist_ids = list(playlist_ids)
-        created: List[DownloadJob] = []
-        for track in tracks:
-            self._job_seq += 1
-            job = DownloadJob(
-                id=self._job_seq, track=track, playlist_ids=list(playlist_ids),
-                playlist_names=[names.get(pid, f"#{pid}") for pid in playlist_ids], library=lib,
-            )
-            self.jobs.append(job)
-            created.append(job)
-            self.dispatcher.submit(lambda j=job: self._run_job(j), pool="dl")
-        self._emit("downloads")
-        where = f" → {', '.join(names.get(p, '?') for p in playlist_ids)}" if playlist_ids else " (bibliothèque seule)"
-        self.message("info", f"{len(created)} téléchargement(s) ajouté(s){where}.")
-        return created
-
-    def _job_changed(self, job: DownloadJob) -> None:
-        self._emit("download_update", job)
-
-    def _run_job(self, job: DownloadJob) -> None:
-        """Thread « dl » : téléchargement natif -> tags -> ajout en base (+ backup) -> playlists."""
-        last: Dict[str, Any] = {}
-
-        def progress(p: Any) -> None:
-            key = (p.status, int(p.percent // 2))
-            if last.get("key") == key:
-                return
-            last["key"] = key
-            job.status = p.status if p.status in ("downloading", "converting", "tagging") else job.status
-            job.percent = p.percent
-            self.dispatcher.post(self._job_changed, job)
-
-        job.status = "downloading"
-        self.dispatcher.post(self._job_changed, job)
-        try:
-            lib: RekordboxUsbLibrary = job.library
-            track = job.track
-            result = self.service.download(track, lib.default_download_dir(track.artist, track.album), on_progress=progress)
-            job.status, job.percent = "adding", 100.0
-            self.dispatcher.post(self._job_changed, job)
-            added = lib.add_track(
-                Path(result.file_path), track.title, track.artist, track.album, track.url, job.playlist_ids
-            )
-            self.service.refresh_library()
-            job.file_path, job.content_id, job.status = result.file_path, added.content_id, "done"
-            if lib.last_problems:
-                self.dispatcher.post(self.message, "warn",
-                                     f"« {track.title} » ajouté, mais : {' ; '.join(lib.last_problems)[:200]}")
-            if lib.pdb_state == "stale" and lib.pdb_problem:
-                self.dispatcher.post(self.message, "warn",
-                                     f"« {track.title} » est dans exportLibrary.db mais pas dans export.pdb : {lib.pdb_problem}")
-        except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
-            log.warning("Téléchargement %s en échec : %s", job.track.video_id, exc)
-            job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
-        self.dispatcher.post(self._job_changed, job)
-        if job.status == "done":
-            self.dispatcher.post(self._emit, "library")
-
-    def retry(self, job: DownloadJob) -> None:
-        if job.status != "error" or self.library is None:
-            return
-        job.status, job.percent, job.message, job.library = "queued", 0.0, "", self.library
-        self._emit("download_update", job)
-        self.dispatcher.submit(lambda: self._run_job(job), pool="dl")
-
-    def remove_job(self, job: DownloadJob) -> None:
-        if not job.is_active and job.status != "queued" and job in self.jobs:
-            self.jobs.remove(job)
-            self._emit("downloads")
-
-    def clear_finished(self) -> None:
-        self.jobs = [j for j in self.jobs if not j.is_finished]
-        self._emit("downloads")
-
-    @property
-    def active_jobs(self) -> int:
-        return sum(1 for j in self.jobs if not j.is_finished)
-
-    # --------------------------------------------------------------------- lecture
-    def preview(self, track: TrackResult) -> None:
-        """Préécoute AVANT téléchargement sur la clé : fichier temporaire, lu dans le lecteur."""
-        self.message("info", f"Préécoute : récupération de « {track.title} »…")
-        cached = self._preview_files.get(track.video_id)
-
-        def work() -> str:
-            if cached and Path(cached).is_file():
-                return cached
-            return self.service.download(track, self.preview_dir, tag=False).file_path
-
-        def ok(path: str) -> None:
-            self._preview_files[track.video_id] = path
-            self.player.play(path, NowPlaying(track.title, track.artist, path, cover_url=track.thumbnail_url))
-
-        self.dispatcher.submit(work, ok, self._on_error, pool="net")
-
-    def play_library_track(self, track: LibraryTrack) -> None:
-        lib = self.library
-        if lib is None:
-            return
-        path = lib.absolute_path(track)
-        art = lib.artwork_file(track)
-        self.player.play(path, NowPlaying(track.title, track.artist, str(path), cover_path=str(art) if art else None))
-
-    def play_job(self, job: DownloadJob) -> None:
-        if job.status == "done" and job.file_path:
-            t = job.track
-            self.player.play(job.file_path, NowPlaying(t.title, t.artist, job.file_path, cover_url=t.thumbnail_url))
-
     # -------------------------------------------------------------------- réglages
     def apply_settings(self) -> None:
         """Applique les réglages modifiés (FFmpeg, dossier de destination, sauvegardes) et les enregistre."""
@@ -562,21 +366,22 @@ class AppController:
             self.library.backup_keep = s.backup_keep
             self.library.pdb_sync = s.pdb_sync
             self.library.pdb_allow_growth = s.pdb_allow_growth
-            self.library.analyze = self.library.artwork = s.analyze_on_add
+            self.library.analyze = s.analyze_on_add
+            self.library.artwork = True
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation
         s.save()
 
     @staticmethod
-    def ffmpeg_status(location: str) -> str:
-        """Texte d'état pour l'onglet Paramètres."""
+    def ffmpeg_status(location: str) -> Tuple[bool, str]:
+        """(trouvé ?, texte d'état) pour l'onglet Paramètres."""
         if location:
             for name in ("ffmpeg.exe", "ffmpeg"):
                 if (Path(location) / name).is_file():
-                    return f"FFmpeg trouvé : {Path(location) / name}"
-            return "FFmpeg introuvable dans ce dossier."
+                    return True, t("settings.ffmpeg_found", path=str(Path(location) / name))
+            return False, t("settings.ffmpeg_not_in_folder")
         found = shutil.which("ffmpeg")
-        return f"FFmpeg trouvé dans le PATH : {found}" if found else "FFmpeg introuvable : requis (téléchargement, lecture m4a)."
+        return (True, t("settings.ffmpeg_in_path", path=found)) if found else (False, t("settings.ffmpeg_missing"))
 
     # ------------------------------------------------------------------- fermeture
     def shutdown(self) -> None:

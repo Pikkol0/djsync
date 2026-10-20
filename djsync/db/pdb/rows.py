@@ -117,6 +117,30 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     return pad4(bytes(fx) + bytes(body))
 
 
+
+def patch_track(row: Dict[str, object], artist_id: Optional[int] = None, bpmx100: Optional[int] = None,
+                index_shift: Optional[int] = None, **strings: str) -> bytes:
+    """Reconstruit une ligne EXISTANTE en ne changeant que les champs donnés (V0.2.0 : édition de
+    métadonnées, grille). Tous les autres octets fixes et chaînes de la ligne sont conservés tels quels :
+    une piste exportée par Rekordbox garde ses couleurs, notes, genre, etc."""
+    fx = bytearray(row["fixed"])                                          # type: ignore[arg-type]
+    if artist_id is not None:
+        struct.pack_into("<I", fx, 0x44, artist_id)
+    if bpmx100 is not None:
+        struct.pack_into("<I", fx, 0x38, bpmx100)
+    if index_shift is not None:
+        struct.pack_into("<H", fx, 0x02, index_shift & 0xFFFF)
+    values = dict(row["strings"])                                         # type: ignore[arg-type]
+    for name, text in strings.items():
+        if name not in values:
+            raise KeyError(name)
+        values[name] = text
+    body = bytearray()
+    for k, name in enumerate(STR_NAMES):
+        struct.pack_into("<H", fx, 0x5E + 2 * k, TRACK_FIXED + len(body))
+        body += encode_string(values[name])
+    return pad4(bytes(fx) + bytes(body))
+
 # ----------------------------------------------------------------- artistes / albums
 def build_artist(artist_id: int, name: str, index_shift: int) -> bytes:
     return pad4(struct.pack("<HHIBB", 0x60, index_shift & 0xFFFF, artist_id, 3, 0x0A) + encode_string(name))

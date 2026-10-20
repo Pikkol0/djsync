@@ -46,20 +46,21 @@ def _rekordbox_grid(lib, content_id: int):
 
 def _grid_gap(mine, theirs) -> tuple:
     """(écart médian en ms entre chaque temps Rekordbox et le temps DJSync le plus proche,
-    même 1er temps de mesure ?) ; None si pas comparable."""
+    même 1er temps de mesure ?, écart SIGNÉ médian en ms : DJSync - Rekordbox) ; None si pas comparable."""
     import numpy as np
 
     if not theirs or not mine.beats:
-        return None, None
+        return None, None, None
     rb_t, rb_n = np.array(theirs[0]), theirs[1]
     my_t = np.array([t for _, t in mine.beats])
     idx = np.clip(np.searchsorted(my_t, rb_t), 1, my_t.size - 1)
     near = np.where(np.abs(my_t[idx] - rb_t) < np.abs(my_t[idx - 1] - rb_t), idx, idx - 1)
     gap = float(np.median(np.abs(my_t[near] - rb_t))) * 1000
+    signed = float(np.median(my_t[near] - rb_t)) * 1000
     rb_down = next((t for t, n in zip(rb_t, rb_n) if n == 1), None)
     my_downs = np.array([t for n, t in mine.beats if n == 1])
     same_down = bool(rb_down is not None and my_downs.size and np.min(np.abs(my_downs - rb_down)) < 0.03)
-    return round(gap, 1), same_down
+    return round(gap, 1), same_down, round(signed, 1)
 
 
 def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = None) -> int:
@@ -72,6 +73,7 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
     with RekordboxUsbLibrary(drive_from_letter(drive), read_only=True) as lib:
         tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0][:limit]
         bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = 0
+        by_format: dict = {}
         for i, t in enumerate(tracks, start=1):
             dbg: dict = {}
             try:
@@ -82,7 +84,7 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                 print(f"  ! {t.title} : {exc}")
                 continue
             mine, theirs = key.camelot, to_camelot(t.key)
-            gap, same_down = _grid_gap(grid, _rekordbox_grid(lib, t.content_id))
+            gap, same_down, signed = _grid_gap(grid, _rekordbox_grid(lib, t.content_id))
             same_bpm = abs(grid.bpm - t.bpm) <= 0.05
             is_oct = not same_bpm and (abs(grid.bpm - 2 * t.bpm) <= 0.1 or abs(2 * grid.bpm - t.bpm) <= 0.1)
             bpm_ok += same_bpm
@@ -94,6 +96,8 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                 grid_n += 1
                 grid_ok += gap <= 20
                 down_ok += bool(same_down)
+                if gap < 0.25 * 60000 / grid.bpm:
+                    by_format.setdefault(t.path.rsplit(".", 1)[-1].lower(), []).append(signed)
                 grid_txt = f"  grille {gap:5.1f} ms{'' if same_down else ' (temps fort décalé)'}"
             flag = "" if (same_bpm and mine == theirs) else "   <--"
             print(f"{i:4} {t.title[:40]:40}  Rekordbox {t.bpm:7.2f} {theirs or '?':>4}   DJSync {grid.bpm:7.2f} "
@@ -102,7 +106,8 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
             rows.append({"titre": t.title, "fichier": t.path, "duree": round(audio.duration, 1),
                          "rb_bpm": t.bpm, "rb_key": theirs or "", "dj_bpm": grid.bpm, "dj_key": mine or "",
                          "dj_first_beat": round(grid.first_beat, 4), "dj_variable": grid.variable,
-                         "grid_gap_ms": gap if gap is not None else "", "same_downbeat": same_down
+                         "grid_gap_ms": gap if gap is not None else "", "grid_signed_ms": signed if signed is not None else "",
+                         "same_downbeat": same_down
                          if same_down is not None else "", **dbg})
         n = max(1, len(rows))
         print(f"\nBPM identiques : {bpm_ok}/{len(rows)} ({100 * bpm_ok / n:.0f} %), erreurs d'octave : "
@@ -111,6 +116,10 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
         if grid_n:
             print(f"Grilles (sons de même tempo) : temps à moins de 20 ms de Rekordbox : {grid_ok}/{grid_n}   "
                   f"même 1er temps de mesure : {down_ok}/{grid_n}")
+            import statistics
+
+            for fmt, vals in sorted(by_format.items()):
+                print(f"  .{fmt:4} : {len(vals):3} sons, décalage médian DJSync - Rekordbox {statistics.median(vals):+.1f} ms")
     if csv_path:
         import csv
 

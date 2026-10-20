@@ -11,7 +11,7 @@ BPM, grille de temps, tonalité, formes d'onde, pochette et date d'ajout sont é
 | Date d'ajout | `dateAdded` / `dateCreated` au **format des sons natifs de la clé** (voir plus bas) | `date_added` = `AAAA-MM-JJ` (relevé sur l'export réel) | — |
 | BPM | `bpmx100` (ex. 12800) | champ `tempo` x100 | grille dans `ANLZ0000.DAT` (PQTZ) |
 | Tonalité | `key_id` → table `key` | `key_id` → table 5 (tonalités) | — |
-| Pochette | `image_id` → table `image` (`/PIONEER/Artwork/00007/a137.jpg`) | `artwork_id` → table 13 (même chemin) | `a137.jpg` 80×80 + `a137_m.jpg` 240×240 |
+| Pochette | `image_id` → table `image` (`/PIONEER/Artwork/00007/b137.jpg`) | `artwork_id` → table 13 (`…/a137.jpg`) | `a137.jpg`, `b137.jpg` 80×80 + `a137_m.jpg`, `b137_m.jpg` 240×240 (mêmes octets) |
 | Analyse | `analysisDataFilePath`, `analysedBits` (valeur des sons natifs, sinon NULL) | `analyze_path`, `analyze_date` | `PIONEER/USBANLZ/Pxxx/xxxxxxxx/ANLZ0000.DAT` + `.EXT` |
 
 ### Date d'ajout
@@ -28,7 +28,9 @@ Détectée en notation musicale, convertie en Camelot. Écrite selon le réglage
 L'interface de DJSync affiche toujours le Camelot.
 
 ### Pochettes
-Relevé sur l'export réel : 20 pochettes par dossier (`a1`–`a19` dans `00001`, `a20`–`a39` dans
+Relevé sur la vraie clé (dossier PIONEER complet, 136 pochettes) : chaque pochette existe en double,
+`aN` (référencée par export.pdb) et `bN` (référencée par exportLibrary.db), fichiers identiques,
+même numéro, chacune en 80 et 240 px. 20 pochettes par dossier (`a1`–`a19` dans `00001`, `a20`–`a39` dans
 `00002`…). Le numéro suit le plus grand déjà utilisé (bases ET fichiers présents : une pochette
 orpheline n'est jamais écrasée). Les sons d'un même album partagent la pochette.
 
@@ -48,17 +50,30 @@ Environ **1 s par minute de musique**, ~80 Mo de mémoire au pic pour un morceau
   50 % appris sur 206 sons analysés par Rekordbox, 24 tonalités.
 * **Formes d'onde** : 3 bandes (basses < 250 Hz, médiums, aigus > 2,5 kHz) à 150 points/s.
 
-### Calibrage sur une vraie clé (213 sons, `python -m djsync.analysis --compare E:\ --csv diag.csv`)
-| | V1.1-A4 | V1.1-A4.1 |
+### Calibrage sur une vraie clé (213 sons + dossier PIONEER complet)
+| | V1.1-A4 | V1.1-A4.1 (mesuré) |
 |---|---|---|
-| Tonalité identique à Rekordbox | 67,5 % | 71,8 % (validation croisée) |
-| Tonalité compatible (même, ±1, relatif) | 83,5 % | 90,3 % (validation croisée) |
-| BPM, 10 sons « difficiles » envoyés | 0/10 | 6/10 exacts (+ Freestyle Funk à 0,05) |
-| Choix d'octave dans la zone 70-90 / 140-180 | 30/53 | 40/53 (règle sur le CSV) |
+| BPM identique à Rekordbox | 71 % | 84 % |
+| BPM identique ou à l'octave près | 81 % | 92 % |
+| Tonalité identique | 67 % | 72 % |
+| Tonalité compatible (même, ±1, relatif) | 83 % | 90 % |
 
-Le BPM global sur les 213 sons n'a pas pu être remesuré ici (il faut l'audio) : relancer
-`--compare`, qui affiche aussi désormais l'écart de **grille** avec Rekordbox (temps à ±20 ms,
-même temps fort), lu dans les ANLZ de Rekordbox présents sur la clé.
+Grille (V1.1-A4.2), comparée aux 213 grilles ANLZ de Rekordbox :
+* **MP3 : silence d'amorçage.** Rekordbox et les platines comptent le temps AVEC le silence de
+  l'encodeur MP3 (en-tête LAME : 576 + 529 échantillons = 25 ms), FFmpeg le retire. Mesuré : grilles
+  DJSync à 0,1 ms de Rekordbox en WAV, 24,6 ms trop tôt en MP3. DJSync rajoute ce silence avant
+  l'analyse (grille ET formes d'onde). Effet projeté : grilles à ±20 ms de 48 → 112 sons sur 179.
+* **Contretemps** : 40 sons calés sur le contretemps (house : charlestons ouverts). Correction :
+  si les attaques graves (kick) sont 1,3× plus fortes un demi-temps plus loin, on décale.
+* **1er temps de mesure** : changement harmonique (+ 0,5 × basses) : 6/8 au lieu de 3/8 sur les
+  sons testés.
+* **M4A (AAC)** : pas encore mesuré (aucun m4a analysé par Rekordbox sur la clé de référence). Le
+  `--compare` affiche maintenant le décalage par format : analyser quelques m4a DJSync dans
+  Rekordbox, exporter, relancer, pour trancher.
+
+Formes d'onde, comparées aux .EXT de Rekordbox des 10 sons fournis : alignement 0 ms, corrélation
+0,79-0,93. Recalibrées (courbe de hauteur en puissance 3, couleurs, blancheur, aperçus, modèle
+linéaire PWV4) : erreurs divisées par 1,5 à 3 (détails dans waveform.py).
 
 ### Fichiers ANLZ
 Constantes et ordre des balises recopiés de **vrais fichiers exportés par Rekordbox 6** (jeu de
@@ -103,9 +118,12 @@ Aussi testé : m4a/AAC, mp3 VBR, intro silencieuse de 8 s, vidéo désaccordée 
   les platines suivent le chemin inscrit dans la base, quel qu'il soit.
 
 ## Utilisation
-* Automatique à chaque ajout (réglage `analyze_on_add`, activé par défaut).
-* Sons ajoutés par une version précédente : `RekordboxUsbLibrary.analyze_missing()` (ou
-  `controller.analyze_missing()`, prêt pour un bouton à l'Étape B). Les sons natifs Rekordbox ne
+* V0.2.0 : **à la demande** (Bibliothèque ▸ Outils ▸ Analyser, Accueil, Paramètres) via
+  `RekordboxUsbLibrary.analyze_tracks()` (calcul hors verrou, écritures par lots de 8 sons). L'analyse à
+  chaque ajout est un réglage (`analyze_on_add`), **désactivé par défaut** depuis la V0.2.0 ; pochette et date
+  d'ajout restent toujours écrites.
+* Grille fausse sur les platines : éditeur de grille (voir `interface_v020.md`).
+* Sons ajoutés par une version précédente : `RekordboxUsbLibrary.analyze_missing()`. Les sons natifs Rekordbox ne
   sont jamais réanalysés ; dans export.pdb, la ligne d'un ancien son DJSync est réécrite avec le
   **même id** (playlists intactes).
 * Suppression d'un son DJSync : ses fichiers ANLZ sont supprimés aussi (pas la pochette, partageable).

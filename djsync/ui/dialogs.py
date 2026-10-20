@@ -1,10 +1,11 @@
-"""Popups modaux : choix de playlists (avec création), confirmation, saisie de texte, filtres."""
+"""Popups modaux : choix de playlists (avec création), confirmation, saisie de texte, filtres, métadonnées."""
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import customtkinter as ctk
 
+from ..i18n import t
 from ..models import SEARCH_MODE_LABELS, PlaylistInfo, SearchMode
 from . import theme
 
@@ -43,22 +44,24 @@ class BaseDialog(ctk.CTkToplevel):
         self.destroy()
 
     def footer(self, ok_text: str, on_ok: Callable[[], None], danger: bool = False,
-               cancel_text: str = "Annuler") -> ctk.CTkButton:
+               cancel_text: str = "", show_cancel: bool = True) -> ctk.CTkButton:
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(side="bottom", fill="x", padx=theme.px(18), pady=(0, theme.px(16)))
         ok = theme.button(bar, ok_text, on_ok, kind="danger" if danger else "primary", width=theme.px(130))
         ok.pack(side="right")
-        theme.button(bar, cancel_text, self.close, kind="ghost", width=theme.px(90)).pack(side="right", padx=(0, 8))
+        if show_cancel:
+            theme.button(bar, cancel_text or t("action.cancel"), self.close, kind="ghost", width=90).pack(
+                side="right", padx=(0, 8))
         return ok
 
 
 class ConfirmDialog(BaseDialog):
     def __init__(self, parent: Any, title: str, message: str, on_confirm: Callable[[], None],
-                 confirm_text: str = "Confirmer", danger: bool = False, detail: str = "",
+                 confirm_text: str = "", danger: bool = False, detail: str = "",
                  on_cancel: Optional[Callable[[], None]] = None) -> None:
         super().__init__(parent, title, 460, 230 if detail else 200)
         self._on_confirm, self._on_cancel = on_confirm, on_cancel
-        self.footer(confirm_text, self._ok, danger=danger)
+        self.footer(confirm_text or t("action.confirm"), self._ok, danger=danger)
         theme.label(self, title, 15, theme.TEXT, "bold", anchor="w").pack(fill="x", padx=theme.px(20), pady=(theme.px(18), 6))
         theme.label(self, message, 12, theme.TEXT, anchor="w", justify="left", wraplength=theme.px(410)).pack(
             fill="x", padx=theme.px(20))
@@ -80,10 +83,10 @@ class ConfirmDialog(BaseDialog):
 
 class TextInputDialog(BaseDialog):
     def __init__(self, parent: Any, title: str, label: str, on_ok: Callable[[str], None], initial: str = "",
-                 confirm_text: str = "Valider") -> None:
+                 confirm_text: str = "") -> None:
         super().__init__(parent, title, 420, 190)
         self._on_ok = on_ok
-        self.footer(confirm_text, self._ok)
+        self.footer(confirm_text or t("action.ok"), self._ok)
         theme.label(self, label, 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20), pady=(theme.px(20), 6))
         self._entry = theme.entry(self)
         self._entry.pack(fill="x", padx=theme.px(20))
@@ -120,11 +123,11 @@ class PlaylistPicker(BaseDialog):
 
         create = ctk.CTkFrame(self, fg_color="transparent")
         create.pack(side="bottom", fill="x", padx=theme.px(20), pady=(6, theme.px(12)))
-        self._new = theme.entry(create, "Nom de la nouvelle playlist")
+        self._new = theme.entry(create, t("picker.new_name"))
         self._new.pack(side="left", fill="x", expand=True)
         if new_name:
             self._new.insert(0, new_name)
-        theme.button(create, "＋ Créer", self._create, kind="ghost", width=theme.px(90)).pack(side="left", padx=(8, 0))
+        theme.button(create, "＋ " + t("action.create"), self._create, kind="ghost", width=theme.px(90)).pack(side="left", padx=(8, 0))
         self._new.bind("<Return>", lambda _e: self._create())
 
         self._list = ctk.CTkScrollableFrame(self, fg_color=theme.SURFACE, corner_radius=8)
@@ -158,7 +161,7 @@ class PlaylistPicker(BaseDialog):
             if tick is not None:
                 self._checked = {tick} if not self._multi else self._checked | {tick}
             if not rows:
-                theme.label(self._list, "Aucune playlist : créez-en une ci-dessous.", 12, theme.FAINT).pack(pady=24)
+                theme.label(self._list, t("picker.none"), 12, theme.FAINT).pack(pady=24)
             for text, p in rows:
                 var = ctk.BooleanVar(value=p.playlist_id in self._checked)
                 self._vars[p.playlist_id] = var
@@ -219,18 +222,18 @@ class FiltersPopup(BaseDialog):
 
     def __init__(self, parent: Any, exclude_words: str, mode: str,
                  on_apply: Callable[[str, str], None]) -> None:
-        super().__init__(parent, "Filtres de recherche", 440, 290)
+        super().__init__(parent, t("filters.title"), 440, 290)
         self._on_apply = on_apply
-        self.footer("Appliquer", self._apply)
-        theme.label(self, "Filtres de recherche", 15, theme.TEXT, "bold", anchor="w").pack(
+        self.footer(t("action.apply"), self._apply)
+        theme.label(self, t("filters.title"), 15, theme.TEXT, "bold", anchor="w").pack(
             fill="x", padx=theme.px(20), pady=(theme.px(18), 10))
-        theme.label(self, "Mots à exclure", 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20))
-        self._words = theme.entry(self, "remix, live, karaoké…")
+        theme.label(self, t("filters.exclude"), 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20))
+        self._words = theme.entry(self, t("filters.exclude_placeholder"))
         self._words.pack(fill="x", padx=theme.px(20), pady=(4, 2))
         self._words.insert(0, exclude_words)
-        theme.label(self, "Séparés par des virgules. Un résultat contenant l'un de ces mots est masqué.",
+        theme.label(self, t("filters.exclude_hint"),
                     11, theme.FAINT, anchor="w", wraplength=theme.px(390), justify="left").pack(fill="x", padx=theme.px(20))
-        theme.label(self, "Type de résultat", 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20), pady=(14, 0))
+        theme.label(self, t("filters.type"), 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20), pady=(14, 0))
         self._labels = {m.value: SEARCH_MODE_LABELS[m] for m in SearchMode}
         self._menu = theme.option_menu(self, list(self._labels.values()), width=theme.px(180))
         self._menu.set(self._labels.get(mode, SEARCH_MODE_LABELS[SearchMode.ALL]))
@@ -244,3 +247,32 @@ class FiltersPopup(BaseDialog):
         words = self._words.get().strip()
         self.close()
         self._on_apply(words, value)
+
+
+class MetadataDialog(BaseDialog):
+    """Modifier le titre et l'artiste d'un son (base + export.pdb ; le fichier n'est pas renommé)."""
+
+    def __init__(self, parent: Any, title: str, artist: str, on_ok: Callable[[str, str], None]) -> None:
+        super().__init__(parent, t("meta.title"), 460, 270)
+        self._on_ok = on_ok
+        self.footer(t("action.save"), self._ok)
+        theme.label(self, t("meta.title"), 15, theme.TEXT, "bold", anchor="w").pack(
+            fill="x", padx=theme.px(20), pady=(theme.px(18), 8))
+        theme.label(self, t("track.title"), 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20))
+        self._title = theme.entry(self)
+        self._title.pack(fill="x", padx=theme.px(20), pady=(2, 8))
+        self._title.insert(0, title)
+        theme.label(self, t("track.artist"), 12, theme.DIM, anchor="w").pack(fill="x", padx=theme.px(20))
+        self._artist = theme.entry(self)
+        self._artist.pack(fill="x", padx=theme.px(20), pady=(2, 4))
+        self._artist.insert(0, artist)
+        theme.label(self, t("meta.hint"), 10, theme.FAINT, anchor="w", wraplength=theme.px(410), justify="left").pack(
+            fill="x", padx=theme.px(20))
+        self.after(120, lambda: (self._title.focus_set(), self._title.select_range(0, "end")))
+        self.bind("<Return>", lambda _e: self._ok())
+
+    def _ok(self) -> None:
+        title, artist = self._title.get().strip(), self._artist.get().strip()
+        if title:
+            self.close()
+            self._on_ok(title, artist)

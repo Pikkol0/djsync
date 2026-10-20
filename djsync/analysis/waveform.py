@@ -77,12 +77,30 @@ def _columns(n: int, cols: int):
         yield min(a, n - 1), min(b, n)
 
 
+# Aperçu couleur PWV4 : 6 octets par colonne = modèle linéaire sur 12 mesures de la colonne
+# (moyennes / crêtes / RMS des 3 bandes, crête globale, parts d'aigus…), ajusté sur 12 000 colonnes
+# de 10 sons réels exportés par Rekordbox. Validation croisée par son : erreur moyenne par octet
+# 28/42/23/13/15/9 -> 14/21/13/11/11/7.
+PWV4_MODEL = np.array([
+    [-1.3108, -0.6192, -1.1130, -0.2577, 0.1411, 0.5102, 1.0796, 0.5046, 0.8290, -0.0185, -0.1061, 20.8977],
+    [1.1440, 0.5320, 3.0892, -0.0450, -0.2348, -0.4293, -0.6053, 0.0807, -1.1695, -1.2743, 0.1778, 198.5616],
+    [-1.1208, -0.5370, -1.0379, 0.1671, 0.1892, 0.3705, 0.8986, 0.0951, 0.6828, -0.1219, -0.1499, 25.8843],
+    [-0.8708, -0.7135, -1.0238, 0.3873, 0.0899, 0.4294, 0.9073, -0.0838, 0.5336, -0.0579, -0.0047, 9.3005],
+    [-1.3914, -0.2419, -0.8584, -0.1403, 0.7037, 0.2973, 1.0284, -0.0532, 0.5051, -0.0605, -0.1225, 19.8417],
+    [-0.5396, -0.2573, 0.1282, -0.1009, -0.0161, 0.8585, 0.5000, -0.0079, 0.2171, -0.0864, -0.0398, 9.7574],
+])
+
+
 def compute_waveforms(x: np.ndarray, sr: int, duration: float) -> Waveforms:
+    """Calibré sur les fichiers .EXT de Rekordbox de 10 sons réels (V1.1-A4.1), erreurs moyennes
+    avant -> après : hauteur 8,5 -> 3,5 (sur 31) ; rouge 1,2 -> 1,0, vert 1,4 -> 0,6, bleu 2,8 -> 0,9
+    (sur 7) ; blancheur 0,75 -> 0,61. Alignement temporel : 0 ms (mp3 compris)."""
     n = max(1, int(math.ceil(duration * DETAIL_RATE)))
     peak, L, M, H = _frame_features(x, sr, n)
 
     ref_peak = float(np.percentile(peak, 99.5)) if np.any(peak) else 0.0
-    height = np.zeros(n, dtype=np.int64) if ref_peak <= 0 else np.clip(np.round(31 * peak / ref_peak), 0, 31).astype(np.int64)
+    rel = np.zeros(n) if ref_peak <= 0 else np.clip(peak / ref_peak, 0, 1)
+    height = np.round(31 * rel ** 3).astype(np.int64)          # courbe de Rekordbox : ~ puissance 3
     bands = np.vstack([L, M, H])
     ref_band = float(np.percentile(bands.max(axis=0), 99.5)) if np.any(bands) else 0.0
     if ref_band > 0:
@@ -91,39 +109,41 @@ def compute_waveforms(x: np.ndarray, sr: int, duration: float) -> Waveforms:
     mx = np.maximum(bands.max(axis=0), 1e-9)
     total = Lb + Mb + Hb + 1e-9
 
-    # « blancheur » 0-7 : part des médiums/aigus (les passages chargés en basses sont plus foncés)
-    white = np.clip(np.round(7 * np.clip(((0.5 * Mb + Hb) / total) * 1.6, 0, 1)), 0, 7).astype(np.int64)
+    # « blancheur » 0-7 : part des médiums + aigus
+    white = np.clip(np.round(8 * (Mb + Hb) / total), 0, 7).astype(np.int64)
     white[height == 0] = 0
     detail = (height | (white << 5)).astype(np.uint8)
 
-    r = np.clip(np.round(7 * Lb / mx), 0, 7).astype(np.int64)
-    g = np.clip(np.round(7 * Mb / mx), 0, 7).astype(np.int64)
-    b = np.clip(np.round(7 * Hb / mx), 0, 7).astype(np.int64)
+    r = np.clip(np.round(7 * (Lb / mx) ** 1.5), 0, 7).astype(np.int64)
+    g = np.clip(np.round(5 * (Mb / mx) ** 0.5), 0, 7).astype(np.int64)
+    b = np.clip(np.round(10 * (Hb / mx) ** 0.5), 0, 7).astype(np.int64)
     silent = height == 0
     r[silent] = g[silent] = b[silent] = 0
     color_detail = ((r << 13) | (g << 10) | (b << 7) | (height << 2)).astype(">u2").tobytes()
 
+    # Aperçus calés sur Rekordbox : PWAV = 0,78 x hauteur moyenne de la colonne (erreur 9,6 -> 3,0 /31) ;
+    # PWV2 = 0,93 x moyenne quadratique du niveau relatif (erreur 3,1 -> 1,9 /15).
     prev = bytearray()
     for a, z in _columns(n, PREVIEW_COLS):
-        h = int(round(np.percentile(height[a:z], 90))) if z > a else 0
+        h = int(round(0.78 * float(height[a:z].mean()))) if z > a else 0
         w = int(round(float(white[a:z].mean()))) if z > a and h else 0
         prev.append(min(h, 31) | (min(w, 7) << 5))
     tiny = bytearray()
     for a, z in _columns(n, TINY_COLS):
-        h = float(np.percentile(height[a:z], 90)) if z > a else 0.0
-        tiny.append(min(15, int(round(h * 15 / 31))))
+        h = 0.93 * 15 * float(np.sqrt((rel[a:z] ** 2).mean())) if z > a else 0.0
+        tiny.append(min(15, int(round(h))))
     color_prev = bytearray()
+    pk = rel * 127
+    pk3 = rel ** 3 * 127
     for a, z in _columns(n, COLOR_PREVIEW_COLS):
         lseg, mseg, hseg = Lb[a:z], Mb[a:z], Hb[a:z]
-        lmean, mmean, hmean = float(lseg.mean()), float(mseg.mean()), float(hseg.mean())
-        s = lmean + mmean + hmean
-        d0 = 0.8 * s
-        d1 = 130.0 + 120.0 * (hmean / s) if s > 0.5 else 0.0
-        d2 = 1.12 * float(lseg.max())
-        d3 = float(np.sqrt((lseg ** 2).mean()))
-        d4 = 0.5 * float(mseg.max())
-        d5 = 1.58 * hmean
-        color_prev += bytes([min(127, int(round(d0))), min(255, int(round(d1))), min(127, int(round(d2))),
-                             min(127, int(round(d3))), min(127, int(round(d4))), min(127, int(round(d5)))])
+        lm, mm, hm = float(lseg.mean()), float(mseg.mean()), float(hseg.mean())
+        s = lm + mm + hm
+        f = np.array([lm, mm, hm, lseg.max(), mseg.max(), hseg.max(), float(np.sqrt((lseg ** 2).mean())),
+                      float(pk[a:z].max()), float(pk3[a:z].mean()), hm / s * 127 if s > 0 else 0.0,
+                      (mm + hm) / s * 127 if s > 0 else 0.0, 1.0])
+        vals = PWV4_MODEL @ f if s > 0.5 else np.zeros(6)
+        lim = (127, 255, 127, 127, 127, 127)
+        color_prev += bytes(int(min(lim[j], max(0, round(float(vals[j]))))) for j in range(6))
     return Waveforms(detail=detail.tobytes(), color_detail=color_detail, preview=bytes(prev),
                      tiny_preview=bytes(tiny), color_preview=bytes(color_prev))

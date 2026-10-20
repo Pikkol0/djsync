@@ -216,6 +216,26 @@ def _refine_align(smooth: np.ndarray, fps: float, bpm0: float, span: float = 0.0
     return round(bpm, 2), best
 
 
+OFFBEAT_FLIP = 1.3     # basses du contretemps / basses du temps au-delà duquel la grille est décalée
+
+
+def _kick_phase(benv: np.ndarray, period: float, phase: float, debug: Optional[Dict] = None) -> float:
+    """Temps ou contretemps ? Le calage sur toutes les attaques peut tomber sur le contretemps quand
+    les charlestons ouverts y dominent (house). Le KICK tranche : si les attaques graves sont
+    nettement plus fortes un demi-temps plus loin, la grille est décalée d'un demi-temps.
+    Mesuré sur 10 sons réels comparés aux grilles Rekordbox : 1,78 pour le seul son décalé (Pump It
+    Up), 1,03 au plus pour les 9 autres -> seuil 1,3."""
+    smooth = np.convolve(benv, [0.25, 0.5, 0.25], mode="same")
+    k = np.arange(0, max(1, int((smooth.size - 1 - phase) // period)))
+    on = float(_sample(smooth, phase + k * period).mean())
+    off = float(_sample(smooth, phase + period / 2 + k * period).mean())
+    if debug is not None:
+        debug["kick_offbeat_ratio"] = round(off / on, 3) if on > 0 else -1
+    if on > 0 and off > OFFBEAT_FLIP * on:
+        return (phase + period / 2) % period
+    return phase
+
+
 def _choose_octave(env: np.ndarray, benv: np.ndarray, fps: float, bpm: float, debug: Optional[Dict] = None) -> float:
     """`bpm` est dans [90, 180). S'il est >= 140, sa moitié (70-90) est aussi dans la plage :
     règle calée sur Rekordbox (213 sons de référence) : rapide sous 168 BPM, lent au-dessus."""
@@ -317,6 +337,29 @@ def _track_beats(smooth: np.ndarray, period: float, tightness: float = 60.0) -> 
     return np.concatenate([np.array(head[::-1]), out])
 
 
+def _harmonic_change(x: np.ndarray, sr: int, times: np.ndarray) -> np.ndarray:
+    """Changement harmonique à chaque temps : distance entre le spectre (log, 50 Hz - 2 kHz) moyen
+    du temps et celui du temps précédent. Les accords changent surtout en début de mesure.
+    Mesuré contre les grilles Rekordbox de 8 sons réels : 1er temps de mesure retrouvé 6 fois sur 8
+    (contre 3 sur 8 avec les seules attaques de basses)."""
+    n_fft, hop = 4096, 1024
+    if x.size < n_fft or times.size < 2:
+        return np.zeros(times.size)
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    band = (freqs >= 50) & (freqs <= 2000)
+    view = np.lib.stride_tricks.sliding_window_view(x, n_fft)[::hop]
+    win = np.hanning(n_fft).astype(np.float32)
+    spec = np.concatenate([np.log1p(np.abs(np.fft.rfft(view[i:i + 256] * win, axis=1))[:, band]).astype(np.float32)
+                           for i in range(0, view.shape[0], 256)])
+    idx = np.clip(((times - n_fft / 2 / sr) * sr / hop).round().astype(int), 0, spec.shape[0] - 1)
+    seg = [spec[idx[j]:idx[j + 1]].mean(axis=0) if idx[j + 1] > idx[j] else spec[idx[j]]
+           for j in range(idx.size - 1)] + [spec[idx[-1]]]
+    out = np.zeros(times.size)
+    for j in range(1, len(seg)):
+        out[j] = float(np.linalg.norm(seg[j] - seg[j - 1]))
+    return out
+
+
 def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatGrid:
     """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque."""
     duration = x.size / float(sr)
@@ -345,6 +388,7 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     # position du 1er temps (en images) par recherche directe ; la différence spectrale place une
     # attaque entre deux images (-0.5 image) et l'image est centrée sur sa fenêtre (+N_FFT/2)
     phase_frames, _, _ = _best_phase(env, period)
+    phase_frames = _kick_phase(benv, period, phase_frames, debug)
     t_of = lambda f: ((f - 0.5) * HOP + N_FFT / 2) / sr + ONSET_LATENCY   # image -> secondes
     first = t_of(phase_frames)
     beat_len = 60.0 / bpm
@@ -365,8 +409,17 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
         lo, hi = np.clip(i - 1, 0, e.size - 1), np.clip(i + 1, 0, e.size - 1)
         return np.maximum.reduce([e[lo], e[i], e[hi]])
 
-    strength_at = sample(benv) + 0.25 * sample(env)
-    scores = [float(strength_at[j::4].mean()) if strength_at[j::4].size else 0.0 for j in range(4)]
+    nums = np.arange(times.size) % 4
+    bass = sample(benv)
+    harm = _harmonic_change(x, sr, times)
+
+    def z(v: np.ndarray) -> np.ndarray:
+        per = np.array([float(v[nums == j].mean()) if np.any(nums == j) else 0.0 for j in range(4)])
+        return (per - per.mean()) / (per.std() + 1e-9)
+
+    scores = list(z(harm) + 0.5 * z(bass)) if times.size >= 8 else [0.0, 0.0, 0.0, 0.0]
+    if debug is not None:
+        debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
     down = int(np.argmax(scores))
     beats = [(((k - down) % 4) + 1, float(t)) for k, t in enumerate(times)]
     return BeatGrid(bpm=bpm, first_beat=float(first), downbeat_offset=down,

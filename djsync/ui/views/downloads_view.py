@@ -5,6 +5,7 @@ from typing import Any, List
 
 import customtkinter as ctk
 
+from ...i18n import plural, t
 from ...models import DownloadJob
 from .. import theme
 from ..covers import url_cover
@@ -13,39 +14,38 @@ from .common import View
 
 
 class DownloadsView(View):
-    title = "Téléchargements récents"
-
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
-        self.header("Téléchargements récents", "session en cours").grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
+        self.header(t("tab.downloads"), t("dl.session")).grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
         self.summary = theme.label(self, "", 11, theme.DIM, anchor="w")
         self.summary.grid(row=1, column=0, sticky="w", padx=26)
 
         cols = [
-            Column("title", "Titre", 280, stretch=True),
-            Column("artist", "Artiste", 180),
-            Column("dest", "Playlists", 190),
-            Column("state", "État", 170),
-            Column("time", "Heure", 70, "center"),
+            Column("title", t("track.title"), 260, stretch=True, min_width=160),
+            Column("artist", t("track.artist"), 170, priority=2),
+            Column("dest", t("dl.playlists"), 180, priority=3),
+            Column("state", t("dl.state"), 150),
+            Column("time", t("dl.time"), 64, "center", priority=1),
         ]
         self.table = TrackTable(self, cols, loader)
         self.table.grid(row=2, column=0, sticky="nsew", padx=24, pady=(6, 10))
-        self.table.set_empty_text("Les téléchargements de cette session apparaîtront ici.")
+        self.table.set_empty("downloads", t("dl.empty_title"), t("dl.empty_sub"),
+                             (t("tab.search"), lambda: self.ctrl._emit("navigate", "search")))
         self.table.on_select = lambda _i: self._refresh()
         self.table.on_double = self._play
         self.table.menu_builder = self._menu
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 6))
-        self.play_btn = theme.button(bar, "▶  Écouter", lambda: self._play(None), kind="ghost", width=theme.px(110))
+        self.play_btn = theme.button(bar, t("action.listen"), lambda: self._play(None), kind="ghost", width=110)
         self.play_btn.pack(side="left")
-        self.retry_btn = theme.button(bar, "Réessayer", self._retry, kind="ghost", width=theme.px(100))
+        self.retry_btn = theme.button(bar, t("action.retry"), self._retry, kind="ghost", width=100)
         self.retry_btn.pack(side="left", padx=(8, 0))
-        self.clear_btn = theme.button(bar, "Vider les terminés", self.ctrl.clear_finished, kind="ghost", width=theme.px(150))
+        self.clear_btn = theme.button(bar, t("dl.clear_finished"), self.ctrl.clear_finished, kind="ghost", width=150)
         self.clear_btn.pack(side="right")
-        self.detail = theme.label(self, "", 11, theme.ERR, anchor="w", justify="left", wraplength=theme.px(800))
+        self.detail = theme.label(self, "", 11, theme.ERR, anchor="w", justify="left", wraplength=800)
         self.detail.grid(row=4, column=0, sticky="ew", padx=26, pady=(0, 14))
 
         controller.on("downloads", self.rebuild)
@@ -54,15 +54,15 @@ class DownloadsView(View):
 
     @staticmethod
     def _tag(job: DownloadJob) -> tuple:
-        return ("err",) if job.status == "error" else ()
+        return ("err",) if job.status == "error" else (("ok",) if job.status == "done" else ())
 
     def _row(self, job: DownloadJob) -> Row:
-        t = job.track
+        x = job.track
         return Row(str(job.id), {
-            "title": t.title, "artist": t.artist,
-            "dest": ", ".join(job.playlist_names) or "Bibliothèque seule",
+            "title": x.title, "artist": x.artist,
+            "dest": ", ".join(job.playlist_names) or t("dl.library_only"),
             "state": job.status_label, "time": job.created_at.strftime("%H:%M"),
-        }, url_cover(t.thumbnail_url), self._tag(job), job)
+        }, url_cover(x.thumbnail_url), self._tag(job), job)
 
     def rebuild(self) -> None:
         self.table.set_rows([self._row(j) for j in reversed(self.ctrl.jobs)], keep_selection=True)
@@ -84,28 +84,32 @@ class DownloadsView(View):
         done = sum(1 for j in jobs if j.status == "done")
         err = sum(1 for j in jobs if j.status == "error")
         active = self.ctrl.active_jobs
-        parts = [f"{len(jobs)} téléchargement(s)", f"{done} terminé(s)"]
+        parts = [plural("dl.count_one", "dl.count_many", len(jobs)), t("dl.done_n", n=done)]
         if active:
-            parts.append(f"{active} en cours / en attente")
+            parts.append(t("dl.active_n", n=active))
         if err:
-            parts.append(f"{err} en erreur")
+            parts.append(t("dl.error_n", n=err))
         self.summary.configure(text=" · ".join(parts) if jobs else "")
         sel = self._selected_jobs()
         self.play_btn.configure(state="normal" if any(j.status == "done" for j in sel) else "disabled")
         self.retry_btn.configure(state="normal" if any(j.status == "error" for j in sel) else "disabled")
         self.clear_btn.configure(state="normal" if any(j.is_finished for j in jobs) else "disabled")
         bad = next((j for j in sel if j.status == "error"), None)
-        self.detail.configure(text=f"Erreur : {bad.message}" if bad and bad.message else "")
+        self.detail.configure(text=t("dl.error_detail", detail=bad.message) if bad and bad.message else "")
 
-    def _play(self, _iid: Any) -> None:
-        for job in self._selected_jobs():
-            if job.status == "done":
-                self.ctrl.play_job(job)
-                return
+    def _play(self, iid: Any) -> None:
+        done = [r.data for r in self.table.displayed_rows() if r.data is not None and r.data.status == "done"]
+        if iid is not None:
+            row = self.table.row(iid)
+            target = row.data if row is not None else None
+        else:
+            target = next((j for j in self._selected_jobs() if j.status == "done"), None)
+        if target in done:
+            self.ctrl.play_queue(done, done.index(target))
 
     def _retry(self) -> None:
         for job in self._selected_jobs():
             self.ctrl.retry(job)
 
     def _menu(self, iids: List[str]) -> list:
-        return [("Écouter", lambda: self._play(None)), ("Réessayer", self._retry)] if iids else []
+        return [(t("action.listen"), lambda: self._play(None)), (t("action.retry"), self._retry)] if iids else []

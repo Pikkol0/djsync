@@ -6,9 +6,9 @@ Tout le reste est neutre. Par défaut : « Violet clair » (`DEFAULT_THEME`).
 Fonctionnement :
   * `apply_palette("cyan")` recalcule ACCENT, ACCENT_HOVER, ACCENT_DIM, ON_ACCENT (variables de ce
     module, lues partout sous la forme `theme.ACCENT`) ;
-  * les widgets déjà créés gardent leurs anciennes couleurs : changer de thème en cours d'exécution
-    demande de reconstruire l'interface (prévu à l'étape Paramètres) ;
-  * `set_zoom(150)` agit sur customtkinter (widgets + fenêtre) ET sur les mesures Tk brutes.
+  * les widgets déjà créés gardent leurs anciennes couleurs : changer de thème ou de langue
+    reconstruit l'interface (DJSyncApp.rebuild_ui, sans redémarrage) ;
+  * échelle : voir plus bas (zoom utilisateur x facteur automatique selon la taille de fenêtre).
 
 Deux fonctions de taille, à ne pas confondre :
   * `px(n)`   : taille pour un widget customtkinter. Renvoie n tel quel : customtkinter applique
@@ -122,30 +122,76 @@ def apply_palette(name: str) -> str:
 
 apply_palette(DEFAULT_THEME)
 
-# ---- échelle
+# ---- échelle (V0.2.0) ------------------------------------------------------------
+# Une seule échelle d'interface, appliquée À CHAUD (pas de redémarrage) :
+#     ui = zoom utilisateur (Paramètres, 80-200 %) x facteur automatique (taille de la fenêtre)
+# * customtkinter reçoit `ui` comme « widget scaling » : textes, boutons, marges ; il ajoute
+#   lui-même le facteur DPI de l'écran. La taille de la FENÊTRE n'est jamais modifiée par le zoom
+#   (avant la V0.2.0 elle l'était : fenêtre géante et impossible à réduire).
+# * Tk brut (ttk.Treeview : police, hauteur de ligne, colonnes ; images) : n x DPI x ui (`tkpx`).
+# * Facteur automatique : la fenêtre de référence fait 1280 x 800 (pixels logiques). Plus grande,
+#   tout grandit (jusqu'à x1,45) ; plus petite, tout rétrécit un peu (jusqu'à x0,85) ; arrondi au
+#   pas de 0,05 pour ne pas tout recalculer à chaque pixel de redimensionnement.
+REF_W, REF_H = 1280, 800
+AUTO_MIN, AUTO_MAX, AUTO_STEP = 0.85, 1.45, 0.05
+ZOOM_MIN, ZOOM_MAX = 80, 200
 _DPI = 1.0       # facteur DPI de l'écran (Windows « 150 % »…)
-_ZOOM = 1.0      # option utilisateur 100–200 %
+_ZOOM = 1.0      # zoom utilisateur
+_AUTO = 1.0      # facteur automatique (taille de fenêtre)
+_AUTO_ON = True
 
 
 def set_scale(value: float) -> None:
-    """`value` = facteur total lu sur la fenêtre customtkinter (DPI × zoom déjà appliqué)."""
+    """Facteur DPI lu sur la fenêtre customtkinter."""
     global _DPI
-    _DPI = max(0.5, float(value or 1.0)) / _ZOOM
+    _DPI = max(0.5, float(value or 1.0))
 
 
-def set_zoom(percent: float, root: Optional[Any] = None) -> float:
-    """Zoom utilisateur (100–200 %). Applique customtkinter ; avec `root`, rafraîchit aussi les ttk."""
-    global _ZOOM
-    _ZOOM = max(1.0, min(2.0, float(percent) / 100.0))
-    ctk.set_widget_scaling(_ZOOM)
-    ctk.set_window_scaling(_ZOOM)
+def ui_factor() -> float:
+    return _ZOOM * (_AUTO if _AUTO_ON else 1.0)
+
+
+def _apply_ctk() -> None:
+    ctk.set_widget_scaling(ui_factor())
+
+
+def set_zoom(percent: float, auto: Optional[bool] = None, root: Optional[Any] = None) -> float:
+    """Zoom utilisateur (80-200 %) et facteur automatique activé ou non. Avec `root`, applique
+    immédiatement (customtkinter + styles ttk)."""
+    global _ZOOM, _AUTO_ON
+    _ZOOM = max(ZOOM_MIN, min(ZOOM_MAX, float(percent))) / 100.0
+    if auto is not None:
+        _AUTO_ON = bool(auto)
+    _apply_ctk()
     if root is not None:
         apply_ttk_style(root)
     return _ZOOM
 
 
+def auto_factor_for(width: int, height: int) -> float:
+    """Facteur automatique pour une fenêtre de `width` x `height` pixels PHYSIQUES."""
+    w, h = width / _DPI, height / _DPI
+    raw = min(w / REF_W, h / REF_H)
+    raw = max(AUTO_MIN, min(AUTO_MAX, raw))
+    return round(round(raw / AUTO_STEP) * AUTO_STEP, 2)
+
+
+def update_auto(width: int, height: int, root: Optional[Any] = None) -> bool:
+    """À appeler quand la fenêtre change de taille. True si l'échelle a changé (et a été appliquée)."""
+    global _AUTO
+    new = auto_factor_for(width, height)
+    if not _AUTO_ON or abs(new - _AUTO) < 1e-6:
+        _AUTO = new
+        return False
+    _AUTO = new
+    _apply_ctk()
+    if root is not None:
+        apply_ttk_style(root)
+    return True
+
+
 def zoom_factor() -> float:
-    return _ZOOM
+    return ui_factor()
 
 
 def px(n: float) -> int:
@@ -154,18 +200,44 @@ def px(n: float) -> int:
 
 
 def tkpx(n: float) -> int:
-    """Taille pour Tk brut (ttk, PhotoImage, colonnes) : DPI × zoom."""
-    return int(round(n * _DPI * _ZOOM))
+    """Taille pour Tk brut (ttk, PhotoImage, colonnes) : DPI x échelle d'interface."""
+    return int(round(n * _DPI * ui_factor()))
+
+
+_FONTS: Dict[Tuple[int, str], ctk.CTkFont] = {}
+
+
+def reset_fonts() -> None:
+    _FONTS.clear()
 
 
 def font(size: int = 12, weight: str = "normal") -> ctk.CTkFont:
-    return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
+    """Police partagée (une par taille/graisse) : customtkinter l'adapte à l'échelle de chaque widget.
+    Partagée = jamais libérée par le ramasse-miettes depuis un thread de travail."""
+    key = (size, weight)
+    if key not in _FONTS:
+        _FONTS[key] = ctk.CTkFont(family=FAMILY, size=size, weight=weight)
+    return _FONTS[key]
 
 
 def tk_font(size: int = 10, weight: str = "") -> Tuple[Any, ...]:
-    """Police pour ttk (non gérée par customtkinter) : suit le zoom."""
-    size = max(6, int(round(size * _ZOOM)))
-    return (FAMILY, size, weight) if weight else (FAMILY, size)
+    """Police pour ttk (non gérée par customtkinter). Taille NÉGATIVE = pixels (indépendant du
+    réglage de points de Tk) : suit exactement DPI x échelle."""
+    pixels = max(8, int(round(size * 1.333 * _DPI * ui_factor())))
+    return (FAMILY, -pixels, weight) if weight else (FAMILY, -pixels)
+
+
+# ---- couleurs de la roue Camelot (1 -> 12) : teinte par position, comme Mixed In Key / Rekordbox
+CAMELOT_COLORS = ["#4DE3B5", "#6BE36B", "#B6E34D", "#E3D94D", "#F2B24D", "#F2844D",
+                  "#F25C6E", "#E35CB4", "#B05CE3", "#7A6BF2", "#4D9CF2", "#4DCFE3"]
+
+
+def camelot_color(code: Optional[str]) -> str:
+    try:
+        n = int((code or "")[:-1])
+    except ValueError:
+        return FAINT
+    return CAMELOT_COLORS[(n - 1) % 12]
 
 
 # ------------------------------------------------------------------- fabriques de widgets
@@ -225,17 +297,17 @@ def apply_ttk_style(root: Any) -> None:
     style.theme_use("clam")
     style.configure(
         "Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=TEXT, borderwidth=0,
-        relief="flat", rowheight=tkpx(ROW_HEIGHT), font=tk_font(10),
+        relief="flat", rowheight=tkpx(ROW_HEIGHT), font=tk_font(11),
     )
     style.configure(
         "Treeview.Heading", background=ELEV, foreground=DIM, relief="flat", borderwidth=0,
-        font=tk_font(9, "bold"), padding=(tkpx(8), tkpx(7)),
+        font=tk_font(10, "bold"), padding=(tkpx(8), tkpx(7)),
     )
     style.map("Treeview", background=[("selected", ACCENT_DIM)], foreground=[("selected", TEXT)])
     style.map("Treeview.Heading", background=[("active", BORDER)], foreground=[("active", TEXT)])
     style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # supprime le cadre pointillé
     # arbre de navigation (playlists) : lignes plus compactes, sans pochette
     style.configure("Nav.Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=TEXT, borderwidth=0,
-                    rowheight=tkpx(30), font=tk_font(10), indent=tkpx(16))
+                    rowheight=tkpx(32), font=tk_font(11), indent=tkpx(16))
     style.map("Nav.Treeview", background=[("selected", ACCENT_DIM)], foreground=[("selected", ACCENT)])
     style.layout("Nav.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])

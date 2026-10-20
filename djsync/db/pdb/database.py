@@ -282,6 +282,24 @@ class PdbDatabase:
         self.summary.tracks_added -= 1
         self.summary.tracks_updated += 1
 
+    def update_track(self, path: str, title: Optional[str] = None, artist: Optional[str] = None,
+                     bpmx100: Optional[int] = None) -> bool:
+        """Modifie titre / artiste / BPM d'une piste existante, MÊME id (playlists intactes), autres
+        champs conservés à l'octet près. False si la piste est absente."""
+        ref = self._tracks.get(_key(path))
+        if ref is None:
+            self.summary.skipped.append(path)
+            return False
+        row = rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+        strings = {"title": title} if title is not None else {}
+        artist_id = self._ensure_artist(artist) if artist is not None else None
+        new = rows.patch_track(row, artist_id=artist_id, bpmx100=bpmx100, index_shift=self._shift(T.TRACKS), **strings)
+        page, slot = self.file.insert_row(T.TRACKS, new)          # nouvelle ligne d'abord
+        self.file.delete_row(ref.page, ref.slot)
+        self._tracks[_key(path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))
+        self.summary.tracks_updated += 1
+        return True
+
     def delete_track(self, path: str) -> bool:
         ref = self._tracks.pop(_key(path), None)
         if ref is None:

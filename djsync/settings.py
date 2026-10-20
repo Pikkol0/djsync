@@ -29,18 +29,19 @@ def settings_dir() -> Path:
     return Path.home() / ".config" / "djsync"
 
 
-ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 100, 200, 10   # pourcentage d'affichage (option « Zoom »)
+ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 80, 200, 10    # pourcentage d'affichage (option « Zoom de l'interface »)
+ZOOM_DEFAULT = 100
 DEFAULT_LANGUAGE = "en"
 DEFAULT_THEME = "violet_light"
 LANGUAGE_CODES = ("en", "fr")
 
 
 def clamp_zoom(value: object) -> int:
-    """Ramène n'importe quelle valeur dans [100, 200] (entier)."""
+    """Ramène n'importe quelle valeur dans [80, 200] (entier)."""
     try:
         return max(ZOOM_MIN, min(ZOOM_MAX, int(round(float(value)))))  # type: ignore[arg-type]
     except (TypeError, ValueError):
-        return ZOOM_MIN
+        return ZOOM_DEFAULT
 
 
 @dataclass
@@ -59,14 +60,18 @@ class Settings:
     # ---- V1.1
     language: str = DEFAULT_LANGUAGE   # "en" (défaut) | "fr"
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
-    zoom: int = ZOOM_MIN               # 100..200 (%)
+    zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
     # ---- V1.1-A3
     pdb_sync: str = "auto"             # "auto" : met aussi à jour export.pdb s'il existe | "off"
     pdb_allow_growth: bool = False     # autorise l'ajout de pages à export.pdb (non validé sur platine)
     # ---- V1.1-A4
-    analyze_on_add: bool = True        # BPM, tonalité, formes d'onde (ANLZ) et pochette à chaque ajout
+    analyze_on_add: bool = False       # V0.2.0 : désactivé par défaut (menu Analyse) ; True = à chaque ajout
     key_notation: str = "auto"         # auto (celle de la clé) | camelot (« 8A ») | musical (« Am »)
+    # ---- V0.2.0
+    zoom_auto: bool = True             # l'interface suit aussi la taille de la fenêtre
+    sidebar_compact: str = "auto"      # auto (repliée si fenêtre étroite) | on | off
+    harmonic_filter: bool = False      # dernier état du filtre « compatibles harmoniquement »
 
     @classmethod
     def path(cls) -> Path:
@@ -94,6 +99,7 @@ class Settings:
         self.zoom = clamp_zoom(self.zoom)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
+        self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
         return self

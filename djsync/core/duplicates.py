@@ -113,3 +113,86 @@ class DuplicateChecker:
             match = match or self.find_duplicate(r.title, r.artist)
             out.append(r.with_duplicate(match) if match else r)
         return out
+
+
+# ======================================================================================
+# V0.2.0 : doublons DANS la bibliothèque (outil « Doublons »)
+# ======================================================================================
+
+UNKNOWN_ARTISTS = {"", "unknown", "unknown artist", "artiste inconnu", "inconnu", "various artists",
+                   "various", "va", "n a", "none"}
+# suffixes de chaînes YouTube : « Daft Punk - Topic », « DaftPunkVEVO », « Daft Punk Official »
+_CHANNEL = re.compile(r"(\s*-\s*topic|vevo|\s+official|\s+officiel)$", re.IGNORECASE)
+
+
+def split_display(title: str, artist: str) -> Tuple[str, str]:
+    """(titre, artiste) « réels » : un titre « Artiste - Titre » est découpé quand l'artiste est
+    inconnu ou correspond à la partie gauche ; suffixes de chaîne (VEVO, - Topic) retirés."""
+    artist = _CHANNEL.sub("", (artist or "").strip()).strip()
+    title = (title or "").strip()
+    if " - " in title:
+        left, right = (s.strip() for s in title.split(" - ", 1))
+        if normalize(artist) in UNKNOWN_ARTISTS or fuzz.token_set_ratio(normalize(left), normalize(artist)) >= 80:
+            return right, left if normalize(artist) in UNKNOWN_ARTISTS else artist
+    return title, artist
+
+
+def _artists_match(a: str, b: str) -> bool:
+    if a in UNKNOWN_ARTISTS or b in UNKNOWN_ARTISTS:
+        return True
+    return fuzz.token_set_ratio(a, b) >= 75
+
+
+def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
+                          max_duration_gap: int = 90) -> List[List[Any]]:
+    """Groupes de sons qui semblent identiques (≥ 2 sons par groupe), du plus gros au plus petit.
+
+    `tracks` : objets avec .title, .artist, .duration_seconds (LibraryTrack). Exemples reconnus :
+    « Daft Punk - One More Time (Clip Officiel) » / artiste vide et « One More Time » / Daft Punk.
+    Des durées trop différentes (> `max_duration_gap` s : version longue, remix) séparent les sons."""
+    items = list(tracks)
+    if len(items) < 2:
+        return []
+    keys = []
+    for t in items:
+        title, artist = split_display(t.title, t.artist)
+        keys.append((normalize(title), normalize(artist)))
+    titles = [k[0] for k in keys]
+    parent = list(range(len(items)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    try:
+        from rapidfuzz import process
+
+        matrix = process.cdist(titles, titles, scorer=fuzz.ratio, score_cutoff=title_threshold, dtype="uint8")
+        pairs = ((i, j) for i, j in zip(*matrix.nonzero()) if i < j)
+    except Exception:  # noqa: BLE001 - repli sans numpy
+        pairs = ((i, j) for i in range(len(items)) for j in range(i + 1, len(items))
+                 if fuzz.ratio(titles[i], titles[j]) >= title_threshold)
+    for i, j in pairs:
+        if not titles[i] or not _artists_match(keys[i][1], keys[j][1]):
+            continue
+        di, dj = int(items[i].duration_seconds or 0), int(items[j].duration_seconds or 0)
+        if di and dj and abs(di - dj) > max_duration_gap:
+            continue
+        parent[find(int(i))] = find(int(j))
+    groups: dict = {}
+    for i in range(len(items)):
+        groups.setdefault(find(i), []).append(items[i])
+    out = [g for g in groups.values() if len(g) > 1]
+    out.sort(key=lambda g: (-len(g), normalize(g[0].title)))
+    return out
+
+
+def best_keeper(group: List[Any]) -> Any:
+    """Son proposé par défaut : analysé, avec pochette, avec un vrai artiste, titre le plus propre."""
+    def score(t: Any) -> Tuple[int, int, int, int]:
+        clean = 0 if _BRACKETS.search(t.title or "") or " - " in (t.title or "") else 1
+        return (int(bool(getattr(t, "is_analysed", False))), int(bool(getattr(t, "artwork_path", None))),
+                int(normalize(t.artist or "") not in UNKNOWN_ARTISTS), clean)
+    return max(group, key=score)

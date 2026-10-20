@@ -157,3 +157,105 @@ def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, in
     _write_atomic(folder / "ANLZ0000.DAT", dat)
     _write_atomic(folder / "ANLZ0000.EXT", ext)
     return f"{rel_dir}/ANLZ0000.DAT"
+
+
+# ---------------------------------------------------------- V0.2.0 : grille et aperçus
+def iter_tags(data: bytes) -> List[Tuple[str, bytes]]:
+    """[(code, octets bruts de la balise)] dans l'ordre du fichier (pour réécrire sans rien perdre)."""
+    parse(data)                                  # validation
+    len_header = struct.unpack(">I", data[4:8])[0]
+    out, i = [], len_header
+    while i < len(data):
+        lt = struct.unpack(">I", data[i + 8:i + 12])[0]
+        out.append((data[i:i + 4].decode("ascii"), data[i:i + lt]))
+        i += lt
+    return out
+
+
+def rebuild(data: bytes, replace: Dict[str, Optional[bytes]]) -> bytes:
+    """Réécrit un fichier ANLZ : chaque balise listée dans `replace` est remplacée (octets complets
+    de la nouvelle balise) ou retirée (None) ; les autres sont recopiées à l'octet près, en-tête PMAI
+    compris (seule la longueur totale change)."""
+    len_header = struct.unpack(">I", data[4:8])[0]
+    body = b"".join(replace.get(code, raw) or b"" if code in replace else raw for code, raw in iter_tags(data))
+    head = bytearray(data[:len_header])
+    struct.pack_into(">I", head, 8, len_header + len(body))
+    out = bytes(head) + body
+    parse(out)
+    return out
+
+
+def read_beats(data: bytes) -> List[Tuple[int, int, int]]:
+    """Grille PQTZ d'un .DAT : [(n° du temps dans la mesure 1-4, tempo x100, position ms)]."""
+    tags = parse(data)
+    if "PQTZ" not in tags:
+        return []
+    head, body = tags["PQTZ"][0]
+    count = struct.unpack(">I", head[8:12])[0] if len(head) >= 12 else len(body) // 8
+    count = min(count, len(body) // 8)
+    return [struct.unpack(">HHI", body[k * 8:k * 8 + 8]) for k in range(count)]
+
+
+def replace_beats(data: bytes, beats: Sequence[Tuple[int, int, int]]) -> bytes:
+    """.DAT avec une nouvelle grille (en-tête PQTZ d'origine conservé, sauf le nombre de temps)."""
+    tags = parse(data)
+    if "PQTZ" not in tags:
+        raise ValueError("pas de grille (PQTZ) dans ce fichier")
+    head = bytearray(tags["PQTZ"][0][0])
+    if len(head) < 12:
+        head = bytearray(struct.pack(">III", 0, 0x00080000, 0))
+    struct.pack_into(">I", head, 8, len(beats))
+    body = b"".join(struct.pack(">HHI", n, tempo, ms) for n, tempo, ms in beats)
+    return rebuild(data, {"PQTZ": _tag(b"PQTZ", bytes(head), body)})
+
+
+def drop_extended_grid(data: bytes) -> bytes:
+    """Retire PQT2 (grille étendue, .EXT/.2EX) : sinon les platines récentes garderaient l'ancienne."""
+    return rebuild(data, {"PQT2": None}) if "PQT2" in parse(data) else data
+
+
+def read_overview(dat: Optional[bytes] = None, ext: Optional[bytes] = None) -> List[Tuple[float, str]]:
+    """Aperçu de forme d'onde pour le lecteur : [(hauteur 0-1, couleur #RRGGBB)].
+
+    PWV4 (aperçu couleur, .EXT) si présent, sinon PWAV (aperçu mono, .DAT)."""
+    if ext:
+        try:
+            tags = parse(ext)
+        except ValueError:
+            tags = {}
+        if "PWV4" in tags:
+            b = tags["PWV4"][0][1]
+            out = []
+            for k in range(len(b) // 6):
+                _d0, _d1, low, mid, high, _d5 = b[k * 6:k * 6 + 6]
+                h = max(low, mid, high) / 127.0
+                tot = (low + mid + high) or 1
+                r = int(min(255, 70 + 185 * low / tot)); g = int(min(255, 70 + 185 * mid / tot))
+                bl = int(min(255, 70 + 185 * high / tot))
+                out.append((min(1.0, h), f"#{r:02X}{g:02X}{bl:02X}"))
+            if out:
+                return out
+    if dat:
+        try:
+            tags = parse(dat)
+        except ValueError:
+            return []
+        if "PWAV" in tags:
+            return [((v & 0x1F) / 31.0, "#4A9EFF" if (v >> 5) < 4 else "#9CCBFF") for v in tags["PWAV"][0][1]]
+    return []
+
+
+def read_detail(ext: bytes) -> List[Tuple[float, str]]:
+    """Forme d'onde détaillée (150 colonnes/s) pour l'éditeur de grille : PWV5 couleur, sinon PWV3."""
+    tags = parse(ext)
+    if "PWV5" in tags:
+        b = tags["PWV5"][0][1]
+        out = []
+        for k in range(len(b) // 2):
+            v = struct.unpack(">H", b[k * 2:k * 2 + 2])[0]
+            r, g, bl, h = (v >> 13) & 7, (v >> 10) & 7, (v >> 7) & 7, (v >> 2) & 31
+            out.append((h / 31.0, f"#{r * 36:02X}{g * 36:02X}{bl * 36:02X}"))
+        return out
+    if "PWV3" in tags:
+        return [((v & 0x1F) / 31.0, "#4A9EFF") for v in tags["PWV3"][0][1]]
+    return []
