@@ -2,7 +2,7 @@
 
 Aucune police d'icônes à installer et aucun glyphe Unicode « au petit bonheur » (certains manquent
 sous Windows) : chaque icône est tracée sur une grille 24 x 24, suréchantillonnée x6 puis réduite
-(bords lisses). `ctk_icon("search", 18, theme.TEXT)` -> CTkImage mise en cache.
+(bords lisses). `qicon("search", 16, theme.TEXT)` -> QIcon mise en cache (V0.3.0 : Qt).
 """
 from __future__ import annotations
 
@@ -252,21 +252,30 @@ def pil_icon(name: str, size: int, color: str, stroke: float = 2.0) -> Image.Ima
     return pen.img.resize((max(8, int(size)), max(8, int(size))), Image.LANCZOS)
 
 
-_ctk_cache: Dict[Tuple[str, int, str], Any] = {}
+def to_qpixmap(img: Image.Image) -> Any:
+    """Image Pillow -> QPixmap (copie des pixels, sans dépendance à ImageQt)."""
+    from PySide6.QtGui import QImage, QPixmap
+
+    img = img.convert("RGBA")
+    data = img.tobytes("raw", "RGBA")
+    qimg = QImage(data, img.width, img.height, img.width * 4, QImage.Format_RGBA8888)
+    return QPixmap.fromImage(qimg.copy())
+
+
+_qcache: Dict[Tuple[str, int, str], Any] = {}
+
+
+def qicon(name: str, size: int = 16, color: str = "#E6E6EA") -> Any:
+    """QIcon dessinée en x2 (nette sur les écrans à 150-200 %)."""
+    from PySide6.QtGui import QIcon
+
+    key = (name, size, color)
+    if key not in _qcache:
+        pm = to_qpixmap(pil_icon(name, size * 2, color))
+        pm.setDevicePixelRatio(2.0)
+        _qcache[key] = QIcon(pm)
+    return _qcache[key]
 
 
 def reset_icons() -> None:
-    """Nouvelle fenêtre racine : les images Tk de l'ancienne ne sont plus valables."""
-    _ctk_cache.clear()
-
-
-def ctk_icon(name: str, size: int, color: str) -> Any:
-    """CTkImage (mise à l'échelle par customtkinter avec le zoom). Rendue en x2 pour rester nette
-    jusqu'à 200 % de zoom."""
-    import customtkinter as ctk
-
-    key = (name, size, color)
-    if key not in _ctk_cache:
-        img = pil_icon(name, size * 2, color)
-        _ctk_cache[key] = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
-    return _ctk_cache[key]
+    _qcache.clear()

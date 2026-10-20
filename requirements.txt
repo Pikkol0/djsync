@@ -1,7 +1,7 @@
 # ===== DJSync: Python dependencies (Python 3.10+; tested with 3.12) =====
 
 # --- Interface ---
-customtkinter>=5.2.2       # dark UI (tested with 5.2.2 and 6.0.0)
+PySide6-Essentials>=6.6    # Qt interface (QtCore/QtGui/QtWidgets only, no QtWebEngine)
 Pillow>=10.0.0             # artwork, thumbnails, icons
 pygame>=2.5.0              # built-in audio player (mixer only)
 
@@ -17,7 +17,7 @@ requests>=2.31.0           # artwork, public Spotify page
 sqlcipher3-wheels>=0.5.5   # replaces sqlite3: the standard module CANNOT open this database
 
 # --- Tests (optional) ---
-# pytest>=8.0              # Linux: xvfb-run -a pytest ; UI tests are skipped without a display
+# pytest>=8.0              # UI tests run without a display (Qt "offscreen" platform)
 
 # --- Windows executable (optional) ---
 # pyinstaller>=6.0.0

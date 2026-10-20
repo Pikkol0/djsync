@@ -81,6 +81,14 @@ class TrackResult:
     source: str = "ytmusic"
     source_url: Optional[str] = None     # URL exacte à télécharger (import direct)
 
+    # Métadonnées complémentaires (V0.3.0, core/metadata.py) : écrites dans les tags et la base
+    year: int = 0
+    release_date: Optional[str] = None
+    genre: Optional[str] = None
+    label: Optional[str] = None
+    track_no: int = 0
+    isrc: Optional[str] = None
+
     # Renseignés par DuplicateChecker
     is_duplicate: bool = False
     duplicate_of: Optional[str] = None   # ex. "Daft Punk - One More Time"

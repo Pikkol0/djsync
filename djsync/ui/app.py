@@ -1,19 +1,23 @@
-"""Fenêtre principale (V0.2.0) : barre latérale (repliable), zone de contenu, barre d'état, lecteur.
+"""Fenêtre principale (V0.3.0, Qt) : barre latérale (repliable), zone de contenu, barre d'état, lecteur.
 
 Onglets, dans cet ordre : Accueil, Recherche, Bibliothèque, Téléchargements récents, Import URL,
-Paramètres. Toute l'interface suit :
-  * l'échelle (zoom des Paramètres x taille de la fenêtre), appliquée à chaud (theme.update_auto) ;
-  * la langue et la couleur d'accent : `rebuild_ui()` reconstruit les vues sans redémarrer.
+Paramètres.
+  * Le zoom (Paramètres) et la couleur d'accent s'appliquent à chaud : nouvelle feuille de style,
+    sans reconstruire les vues (`restyle`). La taille de la fenêtre ne change PLUS le zoom.
+  * La langue reconstruit les vues (`rebuild_ui`), sans redémarrer.
 """
 from __future__ import annotations
 
 import logging
-import re
 import shutil
 import sys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
-import customtkinter as ctk
+from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QApplication, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
+)
 
 from .. import i18n
 from ..i18n import t
@@ -21,8 +25,8 @@ from ..settings import Settings
 from . import theme
 from .controller import AppController
 from .covers import CoverLoader
-from .icons import ctk_icon, reset_icons
-from .logo import LogoCanvas, logo_image
+from .icons import qicon, reset_icons
+from .logo import logo_pixmap
 from .player_bar import PlayerBar
 from .runner import UiDispatcher
 from .views.common import View, human_size
@@ -32,13 +36,14 @@ from .views.import_view import ImportView
 from .views.library_view import LibraryView
 from .views.search_view import SearchView
 from .views.settings_view import SettingsView
+from .widgets import button, hbox, icon_button, label, panel, restyle, vbox
 
 log = logging.getLogger(__name__)
 
-SIDEBAR_WIDTH = 216
-SIDEBAR_COMPACT = 64
-COMPACT_BELOW = 1000            # largeur logique sous laquelle la barre latérale passe en icônes
-MIN_W, MIN_H = 760, 500         # fenêtre minimale (pixels logiques) : utilisable en petit
+SIDEBAR_WIDTH = 190
+SIDEBAR_COMPACT = 52
+COMPACT_BELOW = 1000            # largeur (pixels logiques) sous laquelle la barre latérale passe en icônes
+MIN_W, MIN_H = 760, 500
 DEFAULT_W, DEFAULT_H = 1240, 780
 TABS = [  # (clé, clé i18n, icône, classe)
     ("home", "tab.home", "home", HomeView),
@@ -48,337 +53,299 @@ TABS = [  # (clé, clé i18n, icône, classe)
     ("import", "tab.import", "import", ImportView),
     ("settings", "tab.settings", "settings", SettingsView),
 ]
+_ROLE = {"info": "dim", "ok": "accent", "warn": "warn", "error": "err"}
 
 
-def status_color(kind: str) -> str:
-    """Couleur d'un message d'état (lue à l'appel : dépend du thème actif)."""
-    return {"info": theme.DIM, "ok": theme.ACCENT, "warn": theme.WARN, "error": theme.ERR}.get(kind, theme.DIM)
+def status_role(kind: str) -> str:
+    return _ROLE.get(kind, "dim")
 
 
-class DJSyncApp(ctk.CTk):
+def qt_app() -> QApplication:
+    """L'application Qt (créée au besoin, style Fusion : rendu identique sur tous les systèmes)."""
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv[:1])
+        app.setStyle("Fusion")
+        app.setApplicationName("DJSync")
+    return app  # type: ignore[return-value]
+
+
+class DJSyncApp(QMainWindow):
     def __init__(self, settings: Optional[Settings] = None, controller: Optional[AppController] = None,
                  splash: Any = None) -> None:
+        self.qapp = qt_app()
         settings = settings or Settings.load()
-        # Langue, couleur et zoom DOIVENT être appliqués avant la création du moindre widget.
         i18n.set_language(settings.language)
         theme.apply_palette(settings.theme)
-        super().__init__(fg_color=theme.BG)
-        theme.reset_fonts()                 # polices et icônes partagées : liées à CETTE fenêtre racine
+        theme.apply(self.qapp, settings.zoom)
         reset_icons()
-        ctk.set_appearance_mode("dark")
-        try:
-            theme.set_scale(self._get_window_scaling())
-        except Exception:  # noqa: BLE001 - ancienne/nouvelle version de customtkinter
-            theme.set_scale(1.0)
-        theme.set_zoom(settings.zoom, settings.zoom_auto)
-        theme.apply_ttk_style(self)
+        super().__init__()
+        self.setWindowTitle("DJSync")
+        self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
 
-        # PAS de withdraw() ici : sous Windows, customtkinter ne réaffiche jamais une fenêtre masquée
-        # avant son premier affichage (astuce de la barre de titre sombre) -> fenêtre invisible.
-        # La fenêtre n'est de toute façon dessinée qu'au démarrage de la boucle Tk, une fois construite.
-        self.title("DJSync")
-        self._place_window(settings)
-        self._set_window_icon()
-
-        self.dispatcher = UiDispatcher(self)
+        self.dispatcher = UiDispatcher()
         self.ctrl = controller or AppController(settings, self.dispatcher)
         self.loader = CoverLoader(self.dispatcher)
-        self._status_after: Optional[str] = None
-        self._resize_after: Optional[str] = None
         self._current: Optional[str] = None
         self._compact: Optional[bool] = None
-        self._nav: Dict[str, ctk.CTkButton] = {}
+        self._nav: Dict[str, QPushButton] = {}
         self.views: Dict[str, View] = {}
-
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(lambda: self.status.setText(""))
 
         # écouteurs de la FENÊTRE d'abord : ceux des vues (ajoutés ensuite) sont oubliés à chaque
-        # reconstruction de l'interface (langue, couleur)
+        # reconstruction de l'interface (langue)
         self.ctrl.on("message", self._message)
-        self.ctrl.on("navigate", self.show)
+        self.ctrl.on("navigate", self.show_view)
         self.ctrl.on("drive", self._drive_changed)
         self.ctrl.on("drives", self._drive_changed)
         self.ctrl.on("downloads", self._badge)
         self.ctrl.on("download_update", lambda _j: self._badge())
         self.ctrl.on("library", self._library_changed)
         self.ctrl.on("rebuild_ui", self.rebuild_ui)
-        self.ctrl.on("zoom", self._apply_zoom)
+        self.ctrl.on("restyle", self.restyle)
+        self.ctrl.on("zoom", self.restyle)
         self.ctrl.on("analysis", self._analysis_changed)
         self.ctrl.on("open_grid", self.open_grid_editor)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()
-        self.bind("<Configure>", self._on_configure, add="+")
+        self._place_window(settings)
 
-        self.protocol("WM_DELETE_WINDOW", self._close)
-        self.show("home")
+        self.show_view("home")
         self._drive_changed()
-        self._reveal(splash)
-        self.after(150, self.ctrl.startup)
+        self._splash = splash
+        QTimer.singleShot(150, self.ctrl.startup)
 
     # ----------------------------------------------------------------- fenêtre à l'écran
-    def _screen_logical(self) -> Tuple[int, int, float]:
-        """Taille de l'écran en unités logiques (celles de geometry() sous customtkinter)."""
-        k = max(0.5, self._get_window_scaling()) if hasattr(self, "_get_window_scaling") else 1.0
-        return int(self.winfo_screenwidth() / k), int(self.winfo_screenheight() / k), k
-
     def _place_window(self, settings: Settings) -> None:
         """Taille et position de départ TOUJOURS dans l'écran : la géométrie enregistrée est
         réduite/recentrée si besoin (autre écran, autre DPI) ; sinon 1240 x 780 au plus, 90 % de
-        la largeur et 85 % de la hauteur de l'écran (barre des tâches), centrée."""
-        sw, sh, _k = self._screen_logical()
-        max_w, max_h = int(sw * 0.9), int(sh * 0.85)
-        self.minsize(min(MIN_W, max_w), min(MIN_H, max_h))
-        m = re.match(r"^(\d+)x(\d+)(?:([+-]-?\d+)([+-]-?\d+))?$", (settings.geometry or "").strip())
-        w, h = (int(m.group(1)), int(m.group(2))) if m else (DEFAULT_W, DEFAULT_H)
-        w, h = max(min(w, max_w), min(MIN_W, max_w)), max(min(h, max_h), min(MIN_H, max_h))
-        if m and m.group(3) is not None:
-            x, y = int(m.group(3)), int(m.group(4))
-            if not (0 <= x <= sw - 120 and 0 <= y <= sh - 80):      # hors écran : recentrée
-                x, y = (sw - w) // 2, max(0, (sh - h) // 3)
-        else:
-            x, y = (sw - w) // 2, max(0, (sh - h) // 3)
-        x, y = min(max(0, x), max(0, sw - w)), min(max(0, y), max(0, sh - h))
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        la largeur et 85 % de la hauteur de l'écran disponible, centrée."""
+        screen = self.qapp.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 800)
+        max_w, max_h = int(area.width() * 0.9), int(area.height() * 0.85)
+        self.setMinimumSize(min(MIN_W, max_w), min(MIN_H, max_h))
+        restored = False
+        if settings.geometry and not settings.geometry[0].isdigit():
+            try:
+                restored = self.restoreGeometry(QByteArray.fromBase64(settings.geometry.encode()))
+            except Exception:  # noqa: BLE001 - ancienne valeur (format Tk)
+                restored = False
+        if restored:
+            g = self.geometry()
+            if not any(s.availableGeometry().intersects(g) for s in self.qapp.screens()):
+                restored = False
+        if not restored:
+            w, h = min(DEFAULT_W, max_w), min(DEFAULT_H, max_h)
+            self.resize(w, h)
+            self.move(area.x() + (area.width() - w) // 2, area.y() + max(0, (area.height() - h) // 3))
         self._start_maximized = bool(settings.maximized)
 
-    def _reveal(self, splash: Any) -> None:
-        """Quand la fenêtre s'affiche (boucle Tk démarrée) : agrandie si elle l'était, au premier
-        plan, puis fermeture de l'écran de démarrage (Python ou PyInstaller)."""
-        def done() -> None:
-            if self._start_maximized:
-                try:
-                    self.state("zoomed")          # Windows
-                except Exception:  # noqa: BLE001 - Linux : attribut -zoomed
-                    try:
-                        self.attributes("-zoomed", True)
-                    except Exception:  # noqa: BLE001
-                        pass
-            try:
-                self.lift()
-                self.focus_force()
-            except Exception:  # noqa: BLE001
-                pass
-            if splash is not None:
-                splash.close()
-            from .splash import close_native
+    def reveal(self) -> None:
+        """Affiche la fenêtre (agrandie si elle l'était) puis ferme l'écran de démarrage."""
+        if self._start_maximized:
+            self.showMaximized()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
+        splash, self._splash = self._splash, None
+        if splash is not None:
+            splash.close()
+        from .splash import close_native
 
-            close_native()
-
-        self.after(120, done)
+        close_native()
 
     # ------------------------------------------------------------------ construction
-    def _set_window_icon(self) -> None:
-        try:
-            from PIL import ImageTk
-
-            self._icon_img = ImageTk.PhotoImage(logo_image(64, theme.ACCENT))
-            self.iconphoto(True, self._icon_img)
-        except Exception:  # noqa: BLE001 - icône facultative (certains gestionnaires de fenêtres)
-            pass
-
     def _build(self) -> None:
-        self._build_sidebar()
-        self.content = ctk.CTkFrame(self, fg_color=theme.BG, corner_radius=0)
-        self.content.grid(row=0, column=1, sticky="nsew")
-        self.content.grid_columnconfigure(0, weight=1)
-        self.content.grid_rowconfigure(0, weight=1)
+        central = QWidget()
+        outer = vbox(central, spacing=0)
+        body = hbox(spacing=0)
+        outer.addLayout(body, 1)
+        self.sidebar = self._build_sidebar()
+        body.addWidget(self.sidebar)
+        right = vbox(spacing=0)
+        self.stack = QStackedWidget()
+        right.addWidget(self.stack, 1)
+        self.status = label("", "dim")
+        self.status.setContentsMargins(theme.px(18), theme.px(2), theme.px(18), theme.px(4))
+        right.addWidget(self.status)
+        body.addLayout(right, 1)
         self.views = {}
-        self.grid_editor = None
+        self.grid_editor: Any = None
+        self._grid_return: Optional[str] = None
         for key, _label, _icon, cls in TABS:
-            view = cls(self.content, self.ctrl, self.loader)
-            view.grid(row=0, column=0, sticky="nsew")
+            view = cls(self.stack, self.ctrl, self.loader)
+            self.stack.addWidget(view)
             self.views[key] = view
-        self.status = theme.label(self, "", 11, theme.DIM, anchor="w")
-        self.status.grid(row=1, column=1, sticky="ew", padx=24, pady=(0, 4))
-        self.player_bar = PlayerBar(self, self.ctrl, self.loader)
-        self.player_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.player_bar = PlayerBar(central, self.ctrl, self.loader)
+        outer.addWidget(self.player_bar)
+        self.setCentralWidget(central)
         self._compact = None
         self._update_compact()
 
+    def _build_sidebar(self) -> QWidget:
+        bar = panel(role="sidebar")
+        lay = vbox(bar, margins=theme.px(8), spacing=theme.px(2))
+        head = hbox(spacing=theme.px(8))
+        self.logo = label()
+        self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))
+        head.addWidget(self.logo)
+        self.logo_text = label("DJSync", "h2")
+        head.addWidget(self.logo_text)
+        head.addStretch(1)
+        lay.addLayout(head)
+        lay.addSpacing(theme.px(12))
+
+        for key, text_key, icon_name, _cls in TABS:
+            b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
+            b.setCheckable(True)
+            b.setIcon(qicon(icon_name, 16, theme.DIM))
+            b.setIconSize(QSize(theme.px(16), theme.px(16)))
+            b._icon_name = icon_name  # type: ignore[attr-defined]
+            lay.addWidget(b)
+            self._nav[key] = b
+        lay.addStretch(1)
+
+        # ---- analyse en arrière-plan (visible depuis tous les onglets)
+        an = panel()
+        self.an_box = an
+        al = vbox(an, margins=theme.px(6), spacing=theme.px(3))
+        ah = hbox(spacing=theme.px(4))
+        self.an_title = label(t("nav.analysing").upper(), "section")
+        ah.addWidget(self.an_title, 1)
+        self.an_stop = icon_button("stop", self.ctrl.stop_analysis, t("lib.analyse_stop"), size=12)
+        ah.addWidget(self.an_stop)
+        al.addLayout(ah)
+        self.an_label = label("", "dim", wrap=True)
+        al.addWidget(self.an_label)
+        self.an_bar = QProgressBar()
+        self.an_bar.setRange(0, 1000)
+        self.an_bar.setTextVisible(False)
+        al.addWidget(self.an_bar)
+        self.an_open = icon_button("go", lambda: self.ctrl._emit("show_unanalysed"), t("lib.unanalysed"), size=12)
+        ah.insertWidget(1, self.an_open)
+        an.hide()
+        lay.addWidget(an)
+
+        # ---- clé active + remplissage
+        usb = panel()
+        self.usb_box = usb
+        ul = vbox(usb, margins=theme.px(6), spacing=theme.px(3))
+        self.usb_title = label(t("nav.active_drive").upper(), "section")
+        self.usb_label = label("", wrap=True)
+        self.usb_bar = QProgressBar()
+        self.usb_bar.setRange(0, 1000)
+        self.usb_bar.setTextVisible(False)
+        self.usb_free = label("", "dim")
+        for w in (self.usb_title, self.usb_label, self.usb_bar, self.usb_free):
+            ul.addWidget(w)
+        lay.addSpacing(theme.px(6))
+        lay.addWidget(usb)
+
+        self.help_btn = button(t("help.button"), self.open_help, kind="nav")
+        self.help_btn.setIcon(qicon("help", 16, theme.DIM))
+        lay.addSpacing(theme.px(4))
+        lay.addWidget(self.help_btn)
+        return bar
+
     def rebuild_ui(self) -> None:
-        """Reconstruit toute l'interface (changement de langue ou de couleur), sans redémarrer.
+        """Reconstruit toute l'interface (changement de langue), sans redémarrer.
         La clé, la file de téléchargements et la lecture en cours sont conservées (contrôleur)."""
         current = self._current or "home"
         i18n.set_language(self.ctrl.settings.language)
         theme.apply_palette(self.ctrl.settings.theme)
-        theme.apply_ttk_style(self)
-        self.configure(fg_color=theme.BG)
+        theme.apply(self.qapp, self.ctrl.settings.zoom)
         self.ctrl.reset_listeners(self._listener_mark)
-        for w in (self.sidebar, self.content, self.status, self.player_bar):
-            w.destroy()
-        self.loader.clear()
+        old = self.centralWidget()
         self._nav = {}
-        self._set_window_icon()
         self._build()
-        self.show(current)
+        if old is not None:
+            old.deleteLater()
+        self.show_view(current)
         self._drive_changed()
         self._badge()
         self._analysis_changed()
 
-    def _build_sidebar(self) -> None:
-        bar = ctk.CTkFrame(self, fg_color=theme.SURFACE, corner_radius=0, width=SIDEBAR_WIDTH)
-        bar.grid(row=0, column=0, sticky="nsw")
-        bar.grid_propagate(False)
-        bar.grid_rowconfigure(20, weight=1)
-        bar.grid_columnconfigure(0, weight=1)
-        self.sidebar = bar
-
-        head = ctk.CTkFrame(bar, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", padx=14, pady=(18, 18))
-        self.logo = LogoCanvas(head, theme.tkpx(30), theme.ACCENT, theme.SURFACE, theme.ELEV)
-        self.logo.pack(side="left")
-        self.logo_text = theme.label(head, "DJSync", 18, theme.TEXT, "bold")
-        self.logo_text.pack(side="left", padx=(10, 0))
-
-        for i, (key, label, icon_name, _cls) in enumerate(TABS, start=1):
-            btn = ctk.CTkButton(
-                bar, text=t(label), anchor="w", height=38, corner_radius=8, fg_color="transparent",
-                hover_color=theme.ELEV, text_color=theme.DIM, font=theme.font(13),
-                image=ctk_icon(icon_name, 18, theme.DIM), compound="left",
-                command=lambda k=key: self.show(k),
-            )
-            btn.grid(row=i, column=0, sticky="ew", padx=10, pady=2)
-            btn._icon_name = icon_name  # type: ignore[attr-defined]
-            self._nav[key] = btn
-
-        # ---- V0.2.4 : analyse en arrière-plan (visible depuis tous les onglets)
-        an = ctk.CTkFrame(bar, fg_color=theme.ELEV, corner_radius=10, cursor="hand2")
-        self.an_box = an
-        an_head = ctk.CTkFrame(an, fg_color="transparent")
-        an_head.pack(fill="x", padx=(12, 6), pady=(8, 0))
-        self.an_icon = ctk.CTkLabel(an_head, text="", image=ctk_icon("wave", 16, theme.ACCENT))
-        self.an_icon.pack(side="left")
-        self.an_title = theme.label(an_head, t("nav.analysing").upper(), 10, theme.ACCENT, "bold", anchor="w")
-        self.an_title.pack(side="left", padx=(6, 0))
-        self.an_stop = ctk.CTkButton(an_head, text="", image=ctk_icon("stop", 12, theme.DIM), width=24, height=24,
-                                     fg_color="transparent", hover_color=theme.BORDER, command=self.ctrl.stop_analysis)
-        self.an_stop.pack(side="right")
-        self.an_label = theme.label(an, "", 10, theme.DIM, anchor="w", justify="left", wraplength=170)
-        self.an_label.pack(fill="x", padx=12, pady=(2, 2))
-        self.an_bar = ctk.CTkProgressBar(an, height=6, corner_radius=3, fg_color=theme.BORDER,
-                                         progress_color=theme.ACCENT)
-        self.an_bar.set(0)
-        self.an_bar.pack(fill="x", padx=12, pady=(2, 10))
-        for w in (an, an_head, self.an_title, self.an_label, self.an_icon):
-            w.bind("<Button-1>", lambda _e: self.ctrl._emit("show_unanalysed"))
-
-        # ---- clé active + remplissage (point 13)
-        usb = ctk.CTkFrame(bar, fg_color=theme.ELEV, corner_radius=10)
-        usb.grid(row=21, column=0, sticky="ew", padx=10, pady=(10, 6))
-        self.usb_box = usb
-        self.usb_title = theme.label(usb, t("nav.active_drive"), 10, theme.FAINT, "bold", anchor="w")
-        self.usb_title.pack(fill="x", padx=12, pady=(10, 0))
-        self.usb_label = theme.label(usb, "", 11, theme.TEXT, anchor="w", justify="left", wraplength=170)
-        self.usb_label.pack(fill="x", padx=12, pady=(2, 4))
-        self.usb_bar = ctk.CTkProgressBar(usb, height=6, corner_radius=3, fg_color=theme.BORDER,
-                                          progress_color=theme.ACCENT)
-        self.usb_bar.set(0)
-        self.usb_free = theme.label(usb, "", 10, theme.DIM, anchor="w")
-        self.usb_compact = ctk.CTkLabel(usb, text="", image=ctk_icon("usb", 18, theme.DIM))
-
-        foot = ctk.CTkFrame(bar, fg_color="transparent")
-        foot.grid(row=22, column=0, sticky="ew", padx=10, pady=(0, 12))
-        self.help_btn = ctk.CTkButton(
-            foot, text=t("help.button"), anchor="w", height=32, corner_radius=8, fg_color="transparent",
-            hover_color=theme.ELEV, text_color=theme.DIM, font=theme.font(12),
-            image=ctk_icon("help", 16, theme.DIM), compound="left", command=self.open_help)
-        self.help_btn.pack(fill="x")
-
-    def _analysis_changed(self) -> None:
-        """Carte « Analyse » de la barre latérale : visible tant que la file d'analyse tourne."""
-        q = self.ctrl.analysis
-        box = getattr(self, "an_box", None)
-        if box is None or not box.winfo_exists():
-            return
-        if not q.running:
-            box.grid_forget()
-            return
-        if not box.winfo_ismapped():
-            box.grid(row=20, column=0, sticky="sew", padx=10, pady=(10, 0))
-        self.an_bar.set(q.done / max(1, q.total))
-        compact = bool(self._compact)
-        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
-        self.an_label.configure(text="" if compact else f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
-        self.an_title.configure(text="" if compact else
-                                (t("analysis.stopping") if q.cancelled else t("nav.analysing")).upper())
-        self.an_stop.configure(state="disabled" if q.cancelled else "normal")
-
-    # --------------------------------------------------------------- barre repliable
-    def _logical_width(self) -> float:
-        return self.winfo_width() / max(theme._DPI, 0.5)
-
-    def _update_compact(self) -> None:
-        width = self._logical_width() if self.winfo_ismapped() else 1240
-        mode = self.ctrl.settings.sidebar_compact
-        compact = mode == "on" or (mode == "auto" and width < COMPACT_BELOW)
-        if compact == self._compact:
-            return
-        self._compact = compact
-        self.sidebar.configure(width=SIDEBAR_COMPACT if compact else SIDEBAR_WIDTH)
-        for key, btn in self._nav.items():
-            label = dict((k, l) for k, l, *_ in TABS)[key]
-            btn.configure(text="" if compact else self._nav_text(key, label), anchor="center" if compact else "w")
-        self.logo_text.pack_forget() if compact else self.logo_text.pack(side="left", padx=(10, 0))
-        self.help_btn.configure(text="" if compact else t("help.button"), anchor="center" if compact else "w")
-        for w in (self.usb_title, self.usb_label, self.usb_bar, self.usb_free, self.usb_compact):
-            w.pack_forget()
-        self._analysis_changed()
-        if compact:
-            self.usb_compact.pack(pady=8)
-        else:
-            self.usb_title.pack(fill="x", padx=12, pady=(10, 0))
-            self.usb_label.pack(fill="x", padx=12, pady=(2, 4))
-            self._drive_changed()
-
-    def _on_configure(self, e: Any) -> None:
-        if e.widget is not self:
-            return
-        if self._resize_after:
-            self.after_cancel(self._resize_after)
-        self._resize_after = self.after(220, self._resized)
-
-    def _resized(self) -> None:
-        self._resize_after = None
-        self._update_compact()
-        if theme.update_auto(self.winfo_width(), self.winfo_height(), self):
-            self._after_scale()
-
-    def _apply_zoom(self) -> None:
+    def restyle(self) -> None:
+        """Couleur d'accent, zoom ou barre latérale changés : nouvelle feuille de style, sans
+        reconstruire les vues."""
         s = self.ctrl.settings
-        theme.set_zoom(s.zoom, s.zoom_auto)
-        theme.update_auto(self.winfo_width(), self.winfo_height())
-        theme.apply_ttk_style(self)
-        self._after_scale()
-
-    def _after_scale(self) -> None:
-        """Tk brut (images, colonnes) : recalcul après un changement d'échelle."""
-        self.logo.configure_logo(size=theme.tkpx(30))
-        self.loader.clear()
+        theme.apply_palette(s.theme)
+        theme.apply(self.qapp, s.zoom)
+        self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
+        self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))
+        for b in list(self._nav.values()) + [self.help_btn]:
+            b.setIconSize(QSize(theme.px(16), theme.px(16)))
         for view in self.views.values():
             view.on_scale()
         self.player_bar.on_scale()
         self._compact = None
         self._update_compact()
+        if self._current:
+            self.show_view(self._current)
+
+    def _analysis_changed(self) -> None:
+        """Carte « Analyse » de la barre latérale : visible tant que la file d'analyse tourne."""
+        q = self.ctrl.analysis
+        if not q.running:
+            self.an_box.hide()
+            return
+        self.an_box.show()
+        self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
+        compact = bool(self._compact)
+        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
+        self.an_label.setText("" if compact else f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
+        self.an_label.setVisible(not compact)
+        self.an_title.setText("" if compact else (t("analysis.stopping") if q.cancelled else t("nav.analysing")).upper())
+        self.an_stop.setEnabled(not q.cancelled)
+
+    # --------------------------------------------------------------- barre repliable
+    def _update_compact(self) -> None:
+        width = self.width() if self.isVisible() else DEFAULT_W
+        mode = self.ctrl.settings.sidebar_compact
+        compact = mode == "on" or (mode == "auto" and width < COMPACT_BELOW)
+        if compact == self._compact:
+            return
+        self._compact = compact
+        labels = {k: l for k, l, *_ in TABS}
+        for key, b in self._nav.items():
+            b.setText("" if compact else self._nav_text(key, labels[key]))
+            b.setToolTip(t(labels[key]) if compact else "")
+        width = theme.px(SIDEBAR_COMPACT)
+        if not compact:          # au moins le plus long libellé (langue, zoom)
+            width = max([theme.px(SIDEBAR_WIDTH)] + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
+        self.sidebar.setFixedWidth(width)
+        self.logo_text.setVisible(not compact)
+        self.help_btn.setText("" if compact else t("help.button").replace("&", "&&"))
+        for w in (self.usb_title, self.usb_label, self.usb_free):
+            w.setVisible(not compact)
+        self._analysis_changed()
+        self._drive_changed()
+
+    def resizeEvent(self, e: Any) -> None:     # noqa: N802
+        super().resizeEvent(e)
+        if self._nav:
+            self._update_compact()
 
     # --------------------------------------------------------------------- navigation
-    def _nav_text(self, key: str, label: str) -> str:
-        text = t(label)
+    def _nav_text(self, key: str, text_key: str) -> str:
+        text = t(text_key)
         if key == "downloads" and self.ctrl.active_jobs:
             text += f"  ({self.ctrl.active_jobs})"
         return text
 
-    def show(self, key: str) -> None:
+    def show_view(self, key: str) -> None:
         if key not in self.views:
             return
         self._current = key
-        for k, btn in self._nav.items():
+        for k, b in self._nav.items():
             active = k == key
-            color = theme.ACCENT if active else theme.DIM
-            btn.configure(fg_color=theme.ACCENT_DIM if active else "transparent", text_color=color,
-                          image=ctk_icon(btn._icon_name, 18, color))  # type: ignore[attr-defined]
-        self.views[key].tkraise()
+            b.setChecked(active)
+            b.setIcon(qicon(b._icon_name, 16, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
+        self.stack.setCurrentWidget(self.views[key])
         self.views[key].on_show()
         self._badge()
 
@@ -387,35 +354,34 @@ class DJSyncApp(ctk.CTk):
         return self._current
 
     def _badge(self) -> None:
-        if self._compact:
+        if self._compact or "downloads" not in self._nav:
             return
-        label = dict((k, l) for k, l, *_ in TABS)["downloads"]
-        self._nav["downloads"].configure(text=self._nav_text("downloads", label))
+        self._nav["downloads"].setText(self._nav_text("downloads", "tab.downloads"))
 
     def _drive_changed(self) -> None:
         drive = self.ctrl.drive
-        for w in (self.usb_bar, self.usb_free):
-            w.pack_forget()
+        show_bar = False
         if drive:
-            self.usb_label.configure(text=str(drive), text_color=theme.ACCENT)
+            self.usb_label.setText(drive.label or str(drive.root))
+            self.usb_label.setProperty("role", "accent")
             try:
                 usage = shutil.disk_usage(drive.root)
                 used = 1 - usage.free / max(usage.total, 1)
-                self.usb_bar.set(used)
-                self.usb_bar.configure(progress_color=theme.WARN if used > 0.9 else theme.ACCENT)
-                self.usb_free.configure(text=t("nav.free_space", free=human_size(usage.free),
-                                               total=human_size(usage.total)))
-                if not self._compact:
-                    self.usb_bar.pack(fill="x", padx=12, pady=(2, 2))
-                    self.usb_free.pack(fill="x", padx=12, pady=(0, 10))
+                self.usb_bar.setValue(int(used * 1000))
+                self.usb_free.setText(t("nav.free_space", free=human_size(usage.free), total=human_size(usage.total)))
+                show_bar = True
             except OSError:
-                pass
+                self.usb_free.setText("")
         elif self.ctrl.drives:
-            self.usb_label.configure(text=t("nav.drive_not_connected"), text_color=theme.WARN)
+            self.usb_label.setText(t("nav.drive_not_connected"))
+            self.usb_label.setProperty("role", "warn")
         else:
-            self.usb_label.configure(text=t("nav.no_drive"), text_color=theme.DIM)
-        if not drive or self._compact:
-            self.usb_label.pack_configure(pady=(2, 10)) if not self._compact else None
+            self.usb_label.setText(t("nav.no_drive"))
+            self.usb_label.setProperty("role", "dim")
+        restyle(self.usb_label)
+        self.usb_bar.setVisible(show_bar)
+        self.usb_free.setVisible(show_bar and not self._compact)
+        self.usb_box.setToolTip(str(drive) if drive else self.usb_label.text())
         search = self.views.get("search")
         if search is not None:
             search.refresh_duplicates()
@@ -428,29 +394,31 @@ class DJSyncApp(ctk.CTk):
 
     # ------------------------------------------------------------------- raccourcis
     def _typing(self) -> bool:
-        w = self.focus_get()
-        return w is not None and w.winfo_class() in ("Entry", "TEntry", "Text", "Spinbox")
+        return isinstance(self.qapp.focusWidget(), (QLineEdit, QPlainTextEdit))
+
+    def _shortcut(self, seq: Any, fn: Any) -> None:
+        sc = QShortcut(QKeySequence(seq), self)
+        sc.setContext(Qt.ApplicationShortcut)
+        sc.activated.connect(fn)
 
     def _bind_shortcuts(self) -> None:
         for i, (key, *_rest) in enumerate(TABS, start=1):
-            self.bind_all(f"<Control-Key-{i}>", lambda _e, k=key: self.show(k))
-        self.bind_all("<Control-k>", lambda _e: self.focus_omnibar())
-        self.bind_all("<Control-K>", lambda _e: self.focus_omnibar())
-        self.bind_all("<Control-f>", lambda _e: self._focus_filter())
-        self.bind_all("<Control-comma>", lambda _e: self.show("settings"))
-        self.bind_all("<F1>", lambda _e: self.open_help())
-        self.bind_all("<Control-Right>", lambda _e: self.ctrl.play_next())
-        self.bind_all("<Control-Left>", lambda _e: self.ctrl.play_previous())
-        self.bind_all("<space>", self._space, add="+")
+            self._shortcut(f"Ctrl+{i}", lambda k=key: self.show_view(k))
+        self._shortcut("Ctrl+K", self.focus_omnibar)
+        self._shortcut("Ctrl+F", self._focus_filter)
+        self._shortcut("Ctrl+,", lambda: self.show_view("settings"))
+        self._shortcut("F1", self.open_help)
+        self._shortcut("Ctrl+Right", self.ctrl.play_next)
+        self._shortcut("Ctrl+Left", self.ctrl.play_previous)
+        sc = QShortcut(QKeySequence(Qt.Key_Space), self)
+        sc.activated.connect(self._space)
 
-    def _space(self, _e: Any) -> Optional[str]:
-        if self._typing():
-            return None
-        self.ctrl.toggle_play()
-        return "break"
+    def _space(self) -> None:
+        if not self._typing():
+            self.ctrl.toggle_play()
 
     def focus_omnibar(self) -> None:
-        self.show("home")
+        self.show_view("home")
         self.views["home"].focus_omnibar()
 
     def _focus_filter(self) -> None:
@@ -458,27 +426,35 @@ class DJSyncApp(ctk.CTk):
         if view is not None:
             view.focus_filter()
 
-    # ------------------------------------------------------- éditeur de grille (V0.2.4 : une page)
+    # ----------------------------------------------------------- éditeur de grille : une page
     def open_grid_editor(self, track: Any) -> None:
         """Ouvre la page « Grille de temps » dans la zone de contenu. Changer d'onglet la cache sans la
         fermer : la rouvrir pour le même son retrouve les modifications en cours."""
         from .grid_editor import GridEditor
 
-        ed = getattr(self, "grid_editor", None)
+        ed = self.grid_editor
         if ed is not None and ed.winfo_exists():
             if ed.track.content_id == track.content_id:
-                ed.tkraise()
+                self._show_page(ed)
                 return
             ed._on_close = None
             ed.close()
         self._grid_return = self._current or "library"
-        self.grid_editor = GridEditor(self.content, self.ctrl, track, on_close=self._grid_closed)
-        self.grid_editor.grid(row=0, column=0, sticky="nsew")
-        self.grid_editor.tkraise()
+        self.grid_editor = GridEditor(self.stack, self.ctrl, track, on_close=self._grid_closed)
+        self.stack.addWidget(self.grid_editor)
+        self._show_page(self.grid_editor)
+
+    def _show_page(self, page: QWidget) -> None:
+        for b in self._nav.values():
+            b.setChecked(False)
+        self.stack.setCurrentWidget(page)
+        page.setFocus()
 
     def _grid_closed(self) -> None:
-        self.grid_editor = None
-        self.show(getattr(self, "_grid_return", None) or "library")
+        ed, self.grid_editor = self.grid_editor, None
+        if ed is not None:
+            self.stack.removeWidget(ed)
+        self.show_view(self._grid_return or "library")
 
     def open_help(self) -> None:
         from .help_dialog import HelpDialog
@@ -487,26 +463,26 @@ class DJSyncApp(ctk.CTk):
 
     # ------------------------------------------------------------------- état
     def _message(self, kind: str, text: str) -> None:
-        self.status.configure(text=text, text_color=status_color(kind))
-        if self._status_after:
-            self.after_cancel(self._status_after)
-        delay = 12000 if kind in ("error", "warn") else 6000
-        self._status_after = self.after(delay, lambda: self.status.configure(text=""))
+        self.status.setText(text)
+        self.status.setProperty("role", status_role(kind))
+        restyle(self.status)
+        self._status_timer.start(12000 if kind in ("error", "warn") else 6000)
 
-    def _close(self) -> None:
+    def closeEvent(self, e: Any) -> None:      # noqa: N802
+        s = self.ctrl.settings
         try:
-            zoomed = self.state() == "zoomed"
-            try:
-                zoomed = zoomed or bool(self.attributes("-zoomed"))
-            except Exception:  # noqa: BLE001 - attribut absent sous Windows
-                pass
-            self.ctrl.settings.maximized = zoomed
-            if not zoomed:                     # agrandie : on garde la taille « normale » d'avant
-                self.ctrl.settings.geometry = self.geometry()
+            s.maximized = self.isMaximized()
+            s.geometry = bytes(self.saveGeometry().toBase64()).decode()
         except Exception:  # noqa: BLE001
             pass
         self.ctrl.shutdown()
-        self.destroy()
+        super().closeEvent(e)
+
+    # compatibilité (tests, anciens appels)
+    def winfo_exists(self) -> bool:
+        from shiboken6 import isValid
+
+        return isValid(self)
 
 
 def main() -> None:

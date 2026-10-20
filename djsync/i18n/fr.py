@@ -204,6 +204,7 @@ STRINGS = {
     "lib.new_playlist": "Nouvelle playlist",
     "lib.new_folder": "Nouveau dossier",
     "lib.playlist_name": "Nom de la playlist",
+    "lib.folder": "Dossier",
     "lib.folder_name": "Nom du dossier",
     "lib.new_name": "Nouveau nom",
     "lib.filter": "Filtrer…",
@@ -296,9 +297,16 @@ STRINGS = {
     "grid.apply_bpm": "Imposer le BPM",
     "grid.apply_bpm_tip": "Grille constante à ce BPM, ancrée sur le temps sélectionné",
     "grid.bpm_range": "Le BPM doit être compris entre 40 et 300.",
-    "grid.play_tip": "Écouter depuis le curseur pointillé (clic sur la forme d'onde pour le placer)",
-    "grid.hint": "Clic : place le curseur et sélectionne le temps le plus proche  ·  glisser / molette : défiler  ·  "
-                 "les débuts de mesure sont épais et numérotés.",
+    "grid.play_tip": "Écouter depuis le curseur (clic ou glisser sur la forme d'onde pour le placer)",
+    "grid.hint": "Clic ou glisser : déplace le curseur d'écoute (sélectionne le temps le plus proche)  ·  "
+                 "clic droit glissé, molette ou barre : défiler  ·  les débuts de mesure sont épais et numérotés.",
+    "grid.bar_here": "Début de mesure ici",
+    "grid.bar_here_tip": "Un temps est placé exactement sur le curseur et devient le 1er temps d'une mesure "
+                         "(toute la grille suit)",
+    "grid.double": "BPM × 2",
+    "grid.half": "BPM ÷ 2",
+    "grid.double_tip": "Deux fois plus de temps, ancrés sur le temps sélectionné",
+    "grid.half_tip": "Deux fois moins de temps, ancrés sur le temps sélectionné",
     "grid.reset": "Annuler les modifs",
     "grid.saving": "Enregistrement…",
     "grid.modified": "Modifiée (temps choisi {ms} ms)",
@@ -397,9 +405,8 @@ STRINGS = {
     "settings.language": "Langue",
     "settings.theme": "Couleur du thème (et du logo)",
     "settings.zoom": "Zoom de l'interface",
-    "settings.zoom_hint": "De 80 % à 200 %. Avec « Suivre la taille de la fenêtre », tout grandit ou rétrécit aussi un "
-                          "peu avec la fenêtre (référence 1280 × 800).",
-    "settings.zoom_auto": "Suivre la taille de la fenêtre",
+    "settings.zoom_hint": "De 80 % à 200 %. Appliqué tout de suite ; la taille de la fenêtre ne le change pas.",
+    "common.loading": "Chargement…",
     "settings.zoom_reset": "Réinitialiser",
     "settings.sidebar": "Barre latérale",
     "settings.sidebar_auto": "Icônes seules si étroite",
@@ -440,6 +447,7 @@ STRINGS = {
     "settings.check": "Vérifier",
     "settings.sync_now": "Synchroniser maintenant",
     "settings.fetch_views": "Charger le nombre de vues des Titres (requêtes supplémentaires en arrière-plan)",
+    "settings.fetch_metadata": "Compléter album, année, genre, label et n° de piste au téléchargement (Deezer)",
     "settings.backups": "Sauvegardes de la base",
     "settings.backups_hint": "Avant chaque modification de exportLibrary.db, une copie est faite dans le dossier "
                              "DJSync_Backups de la clé.",

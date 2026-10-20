@@ -158,7 +158,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
     # ------------------------------------------------------------------- clé USB
     def startup(self) -> None:
         self.refresh_drives(then=self._auto_connect)
-        self.dispatcher._root.after(POLL_MS, self._poll)
+        self.dispatcher.call_later(POLL_MS, self._poll)
 
     def refresh_drives(self, then: Optional[Callable[[], None]] = None) -> None:
         def ok(drives: List[UsbDrive]) -> None:
@@ -247,9 +247,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
 
     def _poll(self) -> None:
         """Surveille le branchement/débranchement des clés (toutes les 4 s, hors thread UI)."""
-        root = self.dispatcher._root
         if self._polling:
-            root.after(POLL_MS, self._poll)
+            self.dispatcher.call_later(POLL_MS, self._poll)
             return
         self._polling = True
         active = self.drive
@@ -270,11 +269,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
                 self.disconnect(by_user=False)
             elif self.library is None and changed:
                 self._auto_connect()
-            root.after(POLL_MS, self._poll)
+            self.dispatcher.call_later(POLL_MS, self._poll)
 
         def err(_exc: BaseException) -> None:
             self._polling = False
-            root.after(POLL_MS, self._poll)
+            self.dispatcher.call_later(POLL_MS, self._poll)
 
         self.dispatcher.submit(probe, ok, err, pool="net")
 

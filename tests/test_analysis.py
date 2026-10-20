@@ -178,6 +178,23 @@ def test_anlz_files_match_rekordbox_layout(tmp_path):
     assert tempo == 12800 and abs(ms - 370) <= 6
 
 
+def test_2ex_three_band_waveforms_match_rekordbox_layout(tmp_path):
+    """V0.3.0 : .2EX (PWV7 / PWV6 / PWVC) écrit comme Rekordbox ; sans lui Rekordbox 6/7 réglé sur
+    « 3Band » affichait un aperçu bleu des sons DJSync (liste et aperçu du morceau entier)."""
+    r = _result()
+    rel = write_anlz(tmp_path, "/Contents/A/B/x.m4a", r, file_type=4)
+    two = (tmp_path / rel.lstrip("/")).with_suffix(".2EX").read_bytes()
+    assert two[:4] == b"PMAI" and two[12:28] == REAL_PMAI_TAIL
+    t = anlz.parse(two)
+    assert list(t) == ["PPTH", "PWV7", "PWV6", "PWVC"]
+    n = r.waveforms.detail_count
+    assert t["PWV7"][0][0] == struct.pack(">III", 3, n, 0x00960000) and len(t["PWV7"][0][1]) == 3 * n
+    assert t["PWV6"][0][0] == struct.pack(">II", 3, 1200) and len(t["PWV6"][0][1]) == 3600
+    assert t["PWVC"][0][0] == b"\x00\x00" and len(t["PWVC"][0][1]) == 6       # en-tête de 14 octets, comme les vrais
+    assert max(t["PWV7"][0][1]) <= 127 and max(t["PWV6"][0][1]) <= 127 and any(t["PWV6"][0][1])
+    assert anlz.read_path(two) == "/Contents/A/B/x.m4a"
+
+
 def test_anlz_parsed_by_independent_reader(tmp_path):
     pyrekordbox = pytest.importorskip("pyrekordbox.anlz")
     r = _result()
@@ -191,6 +208,8 @@ def test_anlz_parsed_by_independent_reader(tmp_path):
     # (pyrekordbox décale le rouge d'un bit de trop : 0..14 ; vert et bleu 0..7)
     assert heights.max() == 1.0 and colors[:, 0].max() <= 14 and colors[:, 1:].max() <= 7
     assert dat.build() == (tmp_path / rel.lstrip("/")).read_bytes()           # relu puis reconstruit à l'identique
+    two = pyrekordbox.AnlzFile.parse_file(str((tmp_path / rel.lstrip("/")).with_suffix(".2EX")))
+    assert {tag.type for tag in two.tags} >= {"PWV6", "PWV7"}
 
 
 def test_anlz_dir_never_overwrites_another_track(tmp_path):

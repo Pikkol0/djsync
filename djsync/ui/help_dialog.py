@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any, List, Tuple
 
-import customtkinter as ctk
+from PySide6.QtWidgets import QGridLayout, QScrollArea, QTabWidget, QWidget
 
 from .. import __version__
 from ..i18n import t
 from . import theme
 from .dialogs import BaseDialog
-from .icons import ctk_icon
+from .widgets import label, vbox
 
 SHORTCUTS: List[Tuple[str, str]] = [
     ("Ctrl + K", "help.sc_omnibar"),
@@ -28,35 +28,44 @@ TOPICS = ["help.topic_search", "help.topic_library", "help.topic_analysis", "hel
           "help.topic_duplicates", "help.topic_harmonic", "help.topic_safety"]
 
 
+def _scroll(inner: QWidget) -> QScrollArea:
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setWidget(inner)
+    return area
+
+
 class HelpDialog(BaseDialog):
+    modal = False
+
     def __init__(self, parent: Any) -> None:
-        super().__init__(parent, t("help.title"), 640, 600)
-        self.footer(t("action.close"), self.close, show_cancel=False)
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=20, pady=(18, 6))
-        ctk.CTkLabel(head, text="", image=ctk_icon("help", 24, theme.ACCENT)).pack(side="left")
-        theme.label(head, t("help.title"), 16, theme.TEXT, "bold").pack(side="left", padx=(10, 0))
-        theme.label(head, f"DJSync {__version__}", 11, theme.FAINT).pack(side="right")
+        super().__init__(parent, t("help.title"), 600, 540)
+        self.heading(t("help.title"), f"DJSync {__version__}")
+        tabs = QTabWidget()
 
-        tabs = ctk.CTkTabview(self, fg_color=theme.SURFACE, segmented_button_fg_color=theme.ELEV,
-                              segmented_button_selected_color=theme.ACCENT_DIM,
-                              segmented_button_selected_hover_color=theme.BORDER,
-                              segmented_button_unselected_color=theme.ELEV, text_color=theme.TEXT, corner_radius=8)
-        tabs.pack(fill="both", expand=True, padx=20, pady=(0, 10))
-        sc = tabs.add(t("help.shortcuts"))
-        guide = tabs.add(t("help.guide"))
-
-        box = ctk.CTkScrollableFrame(sc, fg_color="transparent")
-        box.pack(fill="both", expand=True)
-        box.grid_columnconfigure(1, weight=1)
+        sc = QWidget()
+        grid = QGridLayout(sc)
+        grid.setHorizontalSpacing(theme.px(16))
         for i, (keys, key) in enumerate(SHORTCUTS):
-            pill = ctk.CTkLabel(box, text=t("help.key_space") if keys == "Space" else keys, fg_color=theme.ELEV,
-                                corner_radius=6, text_color=theme.TEXT, font=theme.font(11, "bold"), height=26)
-            pill.grid(row=i, column=0, sticky="w", padx=(6, 14), pady=4, ipadx=6)
-            theme.label(box, t(key), 12, theme.DIM, anchor="w").grid(row=i, column=1, sticky="w")
+            k = label(t("help.key_space") if keys == "Space" else keys, "accent")
+            k.setStyleSheet("font-family: monospace;")
+            grid.addWidget(k, i, 0)
+            grid.addWidget(label(t(key), "dim"), i, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setRowStretch(len(SHORTCUTS), 1)
+        tabs.addTab(_scroll(sc), t("help.shortcuts"))
 
-        gbox = ctk.CTkScrollableFrame(guide, fg_color="transparent")
-        gbox.pack(fill="both", expand=True)
+        guide = QWidget()
+        lay = vbox(guide, margins=theme.px(8), spacing=theme.px(4))
         for key in TOPICS:
-            theme.label(gbox, t(key + "_title"), 13, theme.TEXT, "bold", anchor="w").pack(fill="x", padx=6, pady=(10, 2))
-            theme.label(gbox, t(key), 11, theme.DIM, anchor="w", justify="left", wraplength=540).pack(fill="x", padx=6)
+            title = label(t(key + "_title"))
+            title.setStyleSheet("font-weight:600;")
+            lay.addSpacing(theme.px(6))
+            lay.addWidget(title)
+            lay.addWidget(label(t(key), "dim", wrap=True))
+        lay.addStretch(1)
+        tabs.addTab(_scroll(guide), t("help.guide"))
+
+        self.body.addWidget(tabs, 1)
+        self.footer(t("action.close"), self.close, show_cancel=False)
+        self.show_dialog()

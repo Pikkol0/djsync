@@ -48,7 +48,7 @@ class IngestMixin:
                     ex.anlz_path = write_anlz(self.drive.root, db_path, ex.analysis, audio["fileType"],
                                               audio["samplingRate"] or 44100)
                     folder = self.drive.root / ex.anlz_path.lstrip("/")
-                    ex.written += [folder, folder.with_suffix(".EXT")]
+                    ex.written += [folder, folder.with_suffix(".EXT"), folder.with_suffix(".2EX")]
                 log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
                          ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
             except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
@@ -140,6 +140,37 @@ class IngestMixin:
             except OSError:
                 pass
 
+    @staticmethod
+    def _meta_columns(conn: Any, meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Colonnes de `content` pour l'année, la date de sortie, le n° de piste, l'ISRC, le genre et le
+        label (tables `genre` / `label` remplies seulement si elles existent dans cette base)."""
+        cols: Dict[str, Any] = {}
+        if meta.get("year"):
+            cols["releaseYear"] = int(meta["year"])
+        if meta.get("release_date"):
+            cols["releaseDate"] = str(meta["release_date"])
+        if meta.get("track_no"):
+            cols["trackNo"] = int(meta["track_no"])
+        if meta.get("isrc"):
+            cols["isrc"] = str(meta["isrc"])
+        for key, table in (("genre", "genre"), ("label", "label")):
+            name = (meta.get(key) or "").strip()
+            if not name:
+                continue
+            info = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+            if not {f"{table}_id", "name"} <= info:
+                continue
+            row = conn.execute(f'SELECT {table}_id FROM "{table}" WHERE name = ? COLLATE NOCASE LIMIT 1',
+                               (name,)).fetchone()
+            if row:
+                cols[f"{table}_id"] = row[0]
+            elif "nameForSearch" in info:
+                cols[f"{table}_id"] = conn.execute(f'INSERT INTO "{table}" (name, nameForSearch) VALUES (?, ?)',
+                                                   (name, name)).lastrowid
+            else:
+                cols[f"{table}_id"] = conn.execute(f'INSERT INTO "{table}" (name) VALUES (?)', (name,)).lastrowid
+        return cols
+
     # ------------------------------------------------------------- ajout / analyse
     def add_track(
         self,
@@ -149,6 +180,7 @@ class IngestMixin:
         album: Optional[str] = None,
         source_url: Optional[str] = None,
         playlist_ids: Sequence[int] = (),
+        meta: Optional[Dict[str, Any]] = None,
     ) -> LibraryTrack:
         """Insère le son (titre, artiste, chemin, date d'ajout) et l'ajoute aux playlists.
 
@@ -157,6 +189,9 @@ class IngestMixin:
         par Rekordbox. `last_problems` liste ce qui n'a pas pu être fait (le son est ajouté quand même).
         Idempotent : si le fichier est déjà référencé, on réutilise l'entrée (complétée si elle n'était
         pas analysée) et on l'ajoute simplement aux playlists demandées.
+
+        V0.3.0 : `meta` = métadonnées complémentaires facultatives (year, release_date, genre, label,
+        track_no, isrc), écrites dans les colonnes / tables de Rekordbox quand elles existent.
         """
         file_path = Path(file_path)
         if not file_path.is_file():
@@ -237,6 +272,7 @@ class IngestMixin:
                         # color_id / artist_id_lyricist = 0 : convention des sons natifs (voir en-tête).
                     }
                     cols.update(self._extra_columns(conn, ex, album_id))
+                    cols.update(self._meta_columns(conn, meta or {}))
                     content_id = conn.execute(
                         f"INSERT INTO content ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                         tuple(cols.values())).lastrowid

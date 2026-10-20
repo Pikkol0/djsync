@@ -1,3 +1,3 @@
 from .ui.launcher import main
 
-main()
+raise SystemExit(main())

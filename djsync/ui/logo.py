@@ -1,13 +1,10 @@
 """Logo DJSync : des ondes audio (barres symétriques) dans un carré arrondi, À LA COULEUR D'ACCENT.
 
-Deux rendus de la MÊME géométrie :
-  * `LogoCanvas` : widget tk.Canvas (barre latérale), redessiné quand le thème ou la taille change ;
-  * `logo_image(size, accent)` : image Pillow (icône de fenêtre / de l'exécutable, PNG exportés
-    pour chaque couleur par `tools/export_logos.py`).
+`logo_image(size, accent)` : image Pillow (icône de fenêtre / de l'exécutable, PNG exportés pour
+chaque couleur par `tools/export_logos.py`) ; `logo_pixmap` : la même en QPixmap pour l'interface.
 """
 from __future__ import annotations
 
-import tkinter as tk
 from typing import TYPE_CHECKING, Any, List, Tuple
 
 if TYPE_CHECKING:  # Pillow n'est importé qu'à l'usage (démarrage plus rapide)
@@ -58,36 +55,10 @@ def logo_image(size: int, accent: str, background: str = "#1A1A20", transparent:
     return img.resize((size, size), Image.LANCZOS)
 
 
-class LogoCanvas(tk.Canvas):
-    """Logo dessiné directement sur un Canvas Tk (formes vectorielles, net à toute échelle)."""
+def logo_pixmap(size: int, accent: str, background: str = "#1A1A20") -> Any:
+    """Logo en QPixmap (barre latérale, icône de fenêtre, écran de démarrage), net en x2."""
+    from .icons import to_qpixmap
 
-    def __init__(self, parent: Any, size: int, accent: str, background: str, tile: str) -> None:
-        super().__init__(parent, width=size, height=size, bg=background, highlightthickness=0, bd=0)
-        self._size, self._accent, self._tile = size, accent, tile
-        self.draw()
-
-    def configure_logo(self, size: int = 0, accent: str = "") -> None:
-        if size:
-            self._size = size
-            self.configure(width=size, height=size)
-        if accent:
-            self._accent = accent
-        self.draw()
-
-    def _round_rect(self, x0: float, y0: float, x1: float, y1: float, r: float, fill: str) -> None:
-        r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-        pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1, x0 + r, y1,
-               x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
-        self.create_polygon(pts, smooth=True, fill=fill, outline="")
-
-    def draw(self) -> None:
-        self.delete("all")
-        s = self._size
-        tile, bars = geometry(s)
-        self._round_rect(*tile, TILE_RADIUS * s, self._tile)
-        glow = _mix(self._accent, self._tile, 0.55)
-        for i, (x0, y0, x1, y1) in enumerate(bars):
-            color = self._accent if i % 2 == 1 else _mix(self._accent, "#FFFFFF", 0.18)
-            r = (x1 - x0) / 2
-            self._round_rect(x0 - r * 0.6, y0 - r * 0.6, x1 + r * 0.6, y1 + r * 0.6, r * 1.6, glow)
-            self._round_rect(x0, y0, x1, y1, r, color)
+    pm = to_qpixmap(logo_image(size * 2, accent, background))
+    pm.setDevicePixelRatio(2.0)
+    return pm

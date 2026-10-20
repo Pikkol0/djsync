@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, ID3NoHeaderError
+from mutagen.id3 import APIC, ID3, TALB, TCON, TIT2, TPE1, TPUB, TRCK, TSRC, TYER, ID3NoHeaderError
 from mutagen.mp4 import MP4, MP4Cover
 
 from ..models import TrackResult
@@ -63,6 +63,12 @@ def tag_m4a(file_path: str, track: TrackResult) -> None:
     mp4["\xa9ART"] = [track.artist]
     if track.album:
         mp4["\xa9alb"] = [track.album]
+    if track.release_date or track.year:
+        mp4["\xa9day"] = [track.release_date or str(track.year)]
+    if track.genre:
+        mp4["\xa9gen"] = [track.genre]
+    if track.track_no:
+        mp4["trkn"] = [(int(track.track_no), 0)]
     cover = _square(_fetch_cover(track.thumbnail_url))
     if cover:
         fmt = MP4Cover.FORMAT_PNG if cover.startswith(b"\x89PNG") else MP4Cover.FORMAT_JPEG
@@ -84,6 +90,14 @@ def tag_mp3(file_path: str, track: TrackResult) -> None:
     if track.album:
         tags.delall("TALB")
         tags.add(TALB(encoding=1, text=track.album))
+    if track.year:                               # ID3v2.3 : année (TYER)
+        tags.delall("TYER")
+        tags.add(TYER(encoding=1, text=str(track.year)))
+    for frame, value in ((TCON, track.genre), (TPUB, track.label), (TSRC, track.isrc),
+                         (TRCK, str(track.track_no) if track.track_no else None)):
+        if value:
+            tags.delall(frame.__name__)
+            tags.add(frame(encoding=1, text=value))
 
     cover = _square(_fetch_cover(track.thumbnail_url))
     if cover:

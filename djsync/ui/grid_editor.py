@@ -2,44 +2,88 @@
 
 Pour corriger un décalage observé sur les platines : la forme d'onde détaillée du son (ANLZ) avec
 ses temps (1ers temps de mesure plus épais, à la couleur d'accent). On peut :
-  * décaler toute la grille (±1 ms, ±10 ms) ;
-  * choisir le 1er temps de mesure (« le temps sélectionné devient le 1 ») ;
-  * imposer un BPM (grille constante ancrée sur le temps sélectionné) ;
-  * écouter à partir d'un endroit (clic sur la forme d'onde puis Lecture) ;
+  * décaler toute la grille (±1, ±10, ±100 ms) ;
+  * placer un début de mesure exactement sur le curseur, ou faire du temps sélectionné le 1 ;
+  * imposer un BPM, le doubler ou le diviser par 2 (grille constante ancrée sur le temps sélectionné) ;
+  * écouter à partir d'un endroit (clic ou glisser sur la forme d'onde : le curseur suit ; en lecture,
+    la lecture saute à cet endroit) ;
 puis Enregistrer : le .DAT est réécrit (copie d'origine dans DJSync_Backups/anlz), le BPM mis à
 jour dans exportLibrary.db et export.pdb.
 
-V0.2.4 : ce n'est plus une fenêtre séparée mais une PAGE de la fenêtre principale (comme un onglet),
-ouverte par `DJSyncApp.open_grid_editor`. Sous Windows, la fenêtre séparée était cachée par
-customtkinter un instant après son ouverture (changement de couleur de la barre de titre déclenché par
-`resizable`) : elle « se fermait » toute seule, ou bloquait l'appli tant qu'elle était modale.
+C'est une PAGE de la fenêtre principale (comme un onglet), ouverte par `DJSyncApp.open_grid_editor` :
+changer d'onglet la cache sans perdre les modifications ; « Retour » ou Échap la ferme.
 """
 from __future__ import annotations
 
-import tkinter as tk
 from typing import Any, List, Optional, Tuple
 
-import customtkinter as ctk
+from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
+from PySide6.QtWidgets import QComboBox, QLineEdit, QScrollBar, QWidget
 
 from ..analysis import grid as G
 from ..audio.player import PAUSED, PLAYING
-from ..i18n import t
+from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
 from . import theme
 from .dialogs import ConfirmDialog
-from .icons import ctk_icon
-from .widgets import Tooltip
+from .icons import qicon
+from .widgets import button, hbox, icon_button, label, restyle, vbox
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
 VIEW_CHOICES = (4, 8, 16, 32)
+SCROLL_STEPS = 1000
 
 
-class GridEditor(ctk.CTkFrame):
+class GridCanvas(QWidget):
+    def __init__(self, editor: "GridEditor") -> None:
+        super().__init__()
+        self.ed = editor
+        self.setMinimumHeight(theme.px(190))
+        self.setCursor(Qt.CrossCursor)
+        self._drag_x: Optional[float] = None
+        self._drag_start = 0.0
+
+    def paintEvent(self, _e: Any) -> None:          # noqa: N802
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(theme.SURFACE))
+        self.ed.paint(p, self.width(), self.height())
+        p.end()
+
+    def mousePressEvent(self, e: Any) -> None:      # noqa: N802
+        """Clic gauche : curseur d'écoute ; clic droit / milieu : faire défiler en glissant."""
+        self.setFocus()
+        x = e.position().x()
+        if e.button() == Qt.LeftButton:
+            self.ed.press(x)
+        else:
+            self._drag_x, self._drag_start = x, self.ed.start_ms
+
+    def mouseMoveEvent(self, e: Any) -> None:       # noqa: N802
+        x = e.position().x()
+        if e.buttons() & Qt.LeftButton:
+            self.ed.press(x, dragging=True)
+        elif self._drag_x is not None and e.buttons() & (Qt.RightButton | Qt.MiddleButton):
+            self.ed.start_ms = self._drag_start - (x - self._drag_x) / self.ed.px_per_ms
+            self.ed.draw()
+
+    def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
+        if e.button() == Qt.LeftButton:
+            self.ed.release()
+        self._drag_x = None
+
+    def contextMenuEvent(self, e: Any) -> None:     # noqa: N802
+        e.accept()                                  # clic droit = défilement, pas de menu
+
+    def wheelEvent(self, e: Any) -> None:           # noqa: N802
+        self.ed.pan(-0.15 if e.angleDelta().y() > 0 else 0.15)
+
+
+class GridEditor(QWidget):
     """Page « Grille de temps » (dans la zone de contenu de la fenêtre principale)."""
 
-    def __init__(self, parent: Any, controller: Any, track: LibraryTrack,
-                 on_close: Optional[Any] = None) -> None:
-        super().__init__(parent, fg_color=theme.BG, corner_radius=0)
+    def __init__(self, parent: Any, controller: Any, track: LibraryTrack, on_close: Optional[Any] = None) -> None:
+        super().__init__(parent)
         self.ctrl, self.track = controller, track
         self._on_close = on_close
         self._closed = False
@@ -51,89 +95,91 @@ class GridEditor(ctk.CTkFrame):
         self.start_ms = 0.0
         self.cursor_ms = 0.0
         self.selected = 0
-        self._drag_x: Optional[int] = None
         self._native = False
+        self._scrubbing = False
+        self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
-        bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.pack(side="bottom", fill="x", padx=18, pady=(0, 16))
-        theme.button(bar, t("grid.back"), self.close, kind="ghost", width=110).pack(side="right")
-        self.save_btn = theme.button(bar, t("action.save"), self._save, kind="primary", width=130)
-        self.save_btn.pack(side="right", padx=(0, 8))
-        self.reset_btn = theme.button(bar, t("grid.reset"), self._reset, kind="ghost", width=110)
-        self.reset_btn.pack(side="left")
-        self.state_lbl = theme.label(bar, "", 11, theme.DIM)
-        self.state_lbl.pack(side="left", padx=12)
+        head = hbox()
+        head.addWidget(button("←  " + t("grid.back"), self.close, kind="flat"))
+        titles = vbox(spacing=0)
+        titles.addWidget(label(track.display_name, "title"))
+        self.info = label(t("grid.loading"), "dim")
+        titles.addWidget(self.info)
+        head.addLayout(titles, 1)
+        head.addWidget(label(t("grid.view"), "dim"))
+        self.view_menu = QComboBox()
+        self.view_menu.addItems([f"{v} s" for v in VIEW_CHOICES])
+        self.view_menu.setCurrentText(f"{self.view_s} s")
+        self.view_menu.currentTextChanged.connect(self._view_changed)
+        head.addWidget(self.view_menu)
+        self.body.addLayout(head)
 
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=20, pady=(16, 4))
-        theme.button(head, "←  " + t("grid.back"), self.close, kind="ghost", width=90).pack(side="left", padx=(0, 14))
-        ctk.CTkLabel(head, text="", image=ctk_icon("grid", 22, theme.ACCENT)).pack(side="left")
-        box = ctk.CTkFrame(head, fg_color="transparent")
-        box.pack(side="left", padx=(10, 0))
-        theme.label(box, track.display_name, 14, theme.TEXT, "bold", anchor="w").pack(anchor="w")
-        self.info = theme.label(box, t("grid.loading"), 11, theme.DIM, anchor="w")
-        self.info.pack(anchor="w")
-        zoom = ctk.CTkFrame(head, fg_color="transparent")
-        zoom.pack(side="right")
-        theme.label(zoom, t("grid.view"), 11, theme.DIM).pack(side="left", padx=(0, 6))
-        self.view_menu = theme.option_menu(zoom, [f"{v} s" for v in VIEW_CHOICES], self._view_changed, width=80)
-        self.view_menu.set(f"{self.view_s} s")
-        self.view_menu.pack(side="left")
+        self.canvas = GridCanvas(self)
+        self.canvas.setFocusPolicy(Qt.ClickFocus)
+        self.body.addWidget(self.canvas, 1)
+        self.scroll = QScrollBar(Qt.Horizontal)
+        self.scroll.setRange(0, SCROLL_STEPS)
+        self.scroll.valueChanged.connect(self._scrolled)
+        self.body.addWidget(self.scroll)
 
-        self.canvas = tk.Canvas(self, bg=theme.SURFACE, highlightthickness=0, height=theme.tkpx(190), cursor="crosshair")
-        self.canvas.pack(fill="both", expand=True, padx=20, pady=(6, 0))
-        self.scroll = ctk.CTkSlider(self, from_=0, to=1, number_of_steps=1000, height=14, fg_color=theme.BORDER,
-                                    progress_color=theme.BORDER, button_color=theme.DIM,
-                                    button_hover_color=theme.TEXT, command=self._scrolled)
-        self.scroll.set(0)
-        self.scroll.pack(fill="x", padx=20, pady=(4, 6))
+        tools = hbox()
+        self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
+        self.play_btn.setProperty("kind", "primary")
+        tools.addWidget(self.play_btn)
+        self.time_lbl = label("0:00.000", "dim")
+        self.time_lbl.setMinimumWidth(theme.px(64))
+        tools.addWidget(self.time_lbl)
+        tools.addSpacing(theme.px(8))
+        tools.addWidget(label(t("grid.shift"), "dim"))
+        for ms in (-100, -10, -1, 1, 10, 100):
+            b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
+            b.setMinimumWidth(theme.px(40))
+            tools.addWidget(b)
+        tools.addStretch(1)
+        self.body.addLayout(tools)
 
-        tools = ctk.CTkFrame(self, fg_color="transparent")
-        tools.pack(fill="x", padx=20, pady=(2, 6))
+        tools2 = hbox()
+        tools2.addWidget(button(t("grid.bar_here"), self._bar_here, kind="primary", tooltip=t("grid.bar_here_tip")))
+        tools2.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
+        tools2.addStretch(1)
+        tools2.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
+        tools2.addWidget(button(t("grid.double"), lambda: self._scale(2.0), tooltip=t("grid.double_tip")))
+        tools2.addSpacing(theme.px(8))
+        tools2.addWidget(label("BPM", "dim"))
+        self.bpm_entry = QLineEdit()
+        self.bpm_entry.setFixedWidth(theme.px(70))
+        self.bpm_entry.returnPressed.connect(self._apply_bpm)
+        tools2.addWidget(self.bpm_entry)
+        tools2.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, tooltip=t("grid.apply_bpm_tip")))
+        self.body.addLayout(tools2)
+        self.body.addWidget(label(t("grid.hint"), "faint", wrap=True))
 
-        def tool(text: str, cmd: Any, tip: str, width: int = 64) -> ctk.CTkButton:
-            b = theme.button(tools, text, cmd, kind="ghost", width=width)
-            b.pack(side="left", padx=(0, 6))
-            Tooltip(b, tip)
-            return b
+        bar = hbox()
+        self.reset_btn = button(t("grid.reset"), self._reset)
+        bar.addWidget(self.reset_btn)
+        self.state_lbl = label("", "dim")
+        bar.addWidget(self.state_lbl, 1)
+        self.save_btn = button(t("action.save"), self._save, kind="primary")
+        self.save_btn.setEnabled(False)
+        bar.addWidget(self.save_btn)
+        bar.addWidget(button(t("grid.back"), self.close))
+        self.body.addLayout(bar)
 
-        self.play_btn = ctk.CTkButton(tools, text="", image=ctk_icon("play", 16, theme.ON_ACCENT), width=40, height=32,
-                                      corner_radius=8, fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
-                                      command=self._play)
-        self.play_btn.pack(side="left", padx=(0, 12))
-        Tooltip(self.play_btn, t("grid.play_tip"))
-        theme.label(tools, t("grid.shift"), 11, theme.DIM).pack(side="left", padx=(0, 6))
-        tool("−10", lambda: self._shift(-10), t("grid.shift_tip", ms=-10), 48)
-        tool("−1", lambda: self._shift(-1), t("grid.shift_tip", ms=-1), 40)
-        tool("+1", lambda: self._shift(1), t("grid.shift_tip", ms=1), 40)
-        tool("+10", lambda: self._shift(10), t("grid.shift_tip", ms=10), 48)
-        tool(t("grid.downbeat"), self._downbeat, t("grid.downbeat_tip"), 150)
-        right = ctk.CTkFrame(tools, fg_color="transparent")
-        right.pack(side="right")
-        theme.label(right, "BPM", 11, theme.DIM).pack(side="left", padx=(0, 6))
-        self.bpm_entry = theme.entry(right, "", width=80)
-        self.bpm_entry.pack(side="left")
-        self.bpm_entry.bind("<Return>", lambda _e: self._apply_bpm())
-        b = theme.button(right, t("grid.apply_bpm"), self._apply_bpm, kind="ghost", width=110)
-        b.pack(side="left", padx=(6, 0))
-        Tooltip(b, t("grid.apply_bpm_tip"))
-        theme.label(self, t("grid.hint"), 10, theme.FAINT, anchor="w", justify="left", wraplength=880).pack(
-            fill="x", padx=20, pady=(0, 6))
+        for seq, fn in ((Qt.Key_Left, lambda: self._shift(-1)), (Qt.Key_Right, lambda: self._shift(1)),
+                        (Qt.Key_Escape, self.close)):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(lambda f=fn: f() if not self.bpm_entry.hasFocus() else None)
 
-        self.canvas.bind("<Configure>", lambda _e: self.draw())
-        self.canvas.bind("<ButtonPress-1>", self._press)
-        self.canvas.bind("<B1-Motion>", self._drag)
-        self.canvas.bind("<ButtonRelease-1>", lambda _e: setattr(self, "_drag_x", None))
-        self.canvas.bind("<MouseWheel>", self._wheel)
-        self.canvas.bind("<Button-4>", lambda _e: self._pan(-0.15))
-        self.canvas.bind("<Button-5>", lambda _e: self._pan(0.15))
-        for w in (self, self.canvas):
-            w.bind("<Left>", lambda _e: self._shift(-1))
-            w.bind("<Right>", lambda _e: self._shift(1))
-            w.bind("<Escape>", lambda _e: self.close())
-        self.save_btn.configure(state="disabled")
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(60)
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
-        self._tick()
+
+    def winfo_exists(self) -> bool:
+        from shiboken6 import isValid
+
+        return not self._closed and isValid(self)
 
     # ------------------------------------------------------------------ chargement
     def _loaded(self, data: Any) -> None:
@@ -153,12 +199,14 @@ class GridEditor(ctk.CTkFrame):
 
     def _load_failed(self, exc: BaseException) -> None:
         if self.winfo_exists():
-            self.info.configure(text=self.ctrl.error_text(exc), text_color=theme.ERR)
+            self.info.setText(self.ctrl.error_text(exc))
+            self.info.setProperty("role", "err")
+            restyle(self.info)
 
     # ---------------------------------------------------------------- géométrie
     @property
     def px_per_ms(self) -> float:
-        return max(1, self.canvas.winfo_width()) / (self.view_s * 1000.0)
+        return max(1, self.canvas.width()) / (self.view_s * 1000.0)
 
     def _x(self, ms: float) -> float:
         return (ms - self.start_ms) * self.px_per_ms
@@ -170,21 +218,22 @@ class GridEditor(ctk.CTkFrame):
         span = self.view_s * 1000.0
         self.start_ms = max(0.0, min(self.start_ms, max(0.0, self.duration_ms - span)))
         total = max(1.0, self.duration_ms - span)
-        self.scroll.set(self.start_ms / total if total > 0 else 0)
+        self.scroll.blockSignals(True)
+        self.scroll.setValue(int(SCROLL_STEPS * self.start_ms / total))
+        self.scroll.blockSignals(False)
 
     # ------------------------------------------------------------------- dessin
     def draw(self) -> None:
-        c = self.canvas
-        c.delete("all")
-        w, h = c.winfo_width(), c.winfo_height()
+        self.canvas.update()
+
+    def paint(self, p: QPainter, w: int, h: int) -> None:
         if w < 10 or not self.beats:
             return
         self._clamp_view()
         mid = h * 0.55
-        # forme d'onde détaillée (une colonne par pixel, max des colonnes ANLZ couvertes)
-        if self.detail:
+        if self.detail:              # une colonne par pixel, max des colonnes ANLZ couvertes
             n = len(self.detail)
-            for x in range(0, w, max(1, theme.tkpx(1))):
+            for x in range(w):
                 a = int(self._ms(x) / 1000.0 * COLS_PER_S)
                 b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
                 if a >= n or b <= 0:
@@ -194,11 +243,12 @@ class GridEditor(ctk.CTkFrame):
                     continue
                 v, color = max(seg, key=lambda s: s[0])
                 half = max(1.0, v * (h * 0.42))
-                if color in ("#000000", "#000"):
-                    color = theme.DIM
-                c.create_line(x, mid - half, x, mid + half, fill=color)
-        # grille
+                p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
+                p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
         lo, hi = self._ms(-2), self._ms(w + 2)
+        font = QFont(p.font())
+        font.setBold(True)
+        p.setFont(font)
         bar_no = 0
         for i, (n, _tempo, ms) in enumerate(self.beats):
             if n == 1:
@@ -207,18 +257,23 @@ class GridEditor(ctk.CTkFrame):
                 continue
             x = self._x(ms)
             down = n == 1
-            color = theme.ACCENT if down else theme.mix(theme.SURFACE, theme.TEXT, 0.55)
-            c.create_line(x, 14, x, h, fill=color, width=theme.tkpx(2.5 if down else 1))
+            color = QColor(theme.ACCENT if down else theme.mix(theme.SURFACE, theme.TEXT, 0.55))
+            p.setPen(QPen(color, theme.px(2.5) if down else 1))
+            p.drawLine(QPointF(x, 14), QPointF(x, h))
             if down:
-                c.create_text(x + 4, 3, text=str(bar_no), anchor="nw", fill=theme.ACCENT, font=theme.tk_font(9, "bold"))
+                p.drawText(QPointF(x + 4, 12), str(bar_no))
             if i == self.selected:
-                c.create_polygon(x - 6, h, x + 6, h, x, h - 10, fill=theme.WARN, outline="")
-        # curseur (position d'écoute)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(theme.WARN))
+                p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
+                p.setBrush(Qt.NoBrush)
         xc = self._x(self.cursor_ms)
         if 0 <= xc <= w:
-            c.create_line(xc, 0, xc, h, fill=theme.TEXT, width=theme.tkpx(1.5), dash=(3, 3))
-        c.create_text(w - 6, 3, text=format_duration(int(self.start_ms / 1000)), anchor="ne", fill=theme.FAINT,
-                      font=theme.tk_font(9))
+            p.setPen(QPen(QColor(theme.TEXT), 1, Qt.DashLine))
+            p.drawLine(QPointF(xc, 0), QPointF(xc, h))
+        p.setPen(QColor(theme.FAINT))
+        p.drawText(self.canvas.rect().adjusted(0, 2, -6, 0), Qt.AlignRight | Qt.AlignTop,
+                   format_duration(int(self.start_ms / 1000)))
 
     def _refresh_info(self) -> None:
         if not self.beats:
@@ -227,15 +282,14 @@ class GridEditor(ctk.CTkFrame):
         bpm = tempos[len(tempos) // 2] / 100.0
         kind = t("grid.constant") if len(set(tempos)) <= 1 else t("grid.variable")
         delta = self.beats[self.selected][2] - self._original_at(self.selected)
-        parts = [f"{bpm:.2f} BPM", kind, plural_beats(len(self.beats))]
+        parts = [f"{bpm:.2f} BPM", kind, plural("grid.beats_one", "grid.beats_many", len(self.beats))]
         if self._native:
             parts.append(t("grid.native"))
-        self.info.configure(text="  ·  ".join(parts), text_color=theme.DIM)
-        self.bpm_entry.delete(0, "end")
-        self.bpm_entry.insert(0, f"{bpm:.2f}")
+        self.info.setText("  ·  ".join(parts))
+        self.bpm_entry.setText(f"{bpm:.2f}")
         changed = self.beats != self.original
-        self.save_btn.configure(state="normal" if changed else "disabled")
-        self.state_lbl.configure(text=(t("grid.modified", ms=f"{delta:+d}") if changed else ""))
+        self.save_btn.setEnabled(changed)
+        self.state_lbl.setText(t("grid.modified", ms=f"{delta:+d}") if changed else "")
 
     def _original_at(self, index: int) -> int:
         """Position d'origine du temps le plus proche (pour afficher le décalage appliqué)."""
@@ -260,9 +314,29 @@ class GridEditor(ctk.CTkFrame):
             self._refresh_info()
             self.draw()
 
+    def _bar_here(self) -> None:
+        """Un temps exactement sur le curseur, qui devient le 1er temps d'une mesure."""
+        if self.beats:
+            self.beats, self.selected = G.bar_at(self.beats, self.cursor_ms, self.duration_ms)
+            self._refresh_info()
+            self.draw()
+
+    def _scale(self, factor: float) -> None:
+        if not self.beats:
+            return
+        tempos = sorted(b[1] for b in self.beats)
+        if not 40 <= tempos[len(tempos) // 2] / 100.0 * factor <= 300:
+            self.ctrl.message("warn", t("grid.bpm_range"))
+            return
+        anchor = self.beats[self.selected][2]
+        self.beats = G.scale_tempo(self.beats, factor, self.selected, self.duration_ms)
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
+
     def _apply_bpm(self) -> None:
         try:
-            bpm = float(self.bpm_entry.get().replace(",", "."))
+            bpm = float(self.bpm_entry.text().replace(",", "."))
         except ValueError:
             return
         if not 40 <= bpm <= 300 or not self.beats:
@@ -281,41 +355,47 @@ class GridEditor(ctk.CTkFrame):
         self.draw()
 
     # --------------------------------------------------------------- navigation
-    def _view_changed(self, label: str) -> None:
+    def _view_changed(self, text: str) -> None:
         center = self.start_ms + self.view_s * 500
-        self.view_s = int(label.split()[0])
+        self.view_s = int(text.split()[0])
         self.start_ms = center - self.view_s * 500
         self.draw()
 
-    def _scrolled(self, value: float) -> None:
-        self.start_ms = float(value) * max(0.0, self.duration_ms - self.view_s * 1000.0)
+    def _scrolled(self, value: int) -> None:
+        self.start_ms = value / SCROLL_STEPS * max(0.0, self.duration_ms - self.view_s * 1000.0)
         self.draw()
 
-    def _pan(self, fraction: float) -> None:
+    def pan(self, fraction: float) -> None:
         self.start_ms += fraction * self.view_s * 1000
         self.draw()
 
-    def _wheel(self, e: Any) -> None:
-        self._pan(-0.15 if e.delta > 0 else 0.15)
-
-    def _press(self, e: Any) -> None:
-        self.canvas.focus_set()                  # flèches gauche/droite = décaler la grille
-        self._drag_x = e.x
-        self._drag_start = self.start_ms
-        self._moved = False
-        self.cursor_ms = max(0.0, self._ms(e.x))
+    def press(self, x: float, dragging: bool = False) -> None:
+        """Le curseur d'écoute suit la souris (clic ou glisser) ; en lecture, la lecture y saute au
+        relâchement (et pendant le glisser, au plus toutes les ~60 ms)."""
+        w = max(1, self.canvas.width())
+        x = min(max(0.0, x), float(w))
+        self.cursor_ms = min(max(0.0, self._ms(x)), float(self.duration_ms))
+        self._scrubbing = True
         if self.beats:
             self.selected = G.nearest(self.beats, self.cursor_ms)
             self._refresh_info()
+        if dragging:                         # au bord : la vue défile pour suivre
+            span = self.view_s * 1000.0
+            if x >= w - 4:
+                self.start_ms += span * 0.05
+            elif x <= 4:
+                self.start_ms -= span * 0.05
+        self._show_time()
         self.draw()
+
+    def release(self) -> None:
+        self._scrubbing = False
         if self.ctrl.player.state in (PLAYING, PAUSED) and self._is_playing_this():
             self.ctrl.player.seek(self.cursor_ms / 1000.0)
 
-    def _drag(self, e: Any) -> None:
-        if self._drag_x is None:
-            return
-        self.start_ms = self._drag_start - (e.x - self._drag_x) / self.px_per_ms
-        self.draw()
+    def _show_time(self) -> None:
+        s_ = self.cursor_ms / 1000.0
+        self.time_lbl.setText(f"{int(s_ // 60)}:{s_ % 60:06.3f}")
 
     # ------------------------------------------------------------------- écoute
     def _is_playing_this(self) -> bool:
@@ -334,28 +414,27 @@ class GridEditor(ctk.CTkFrame):
             if player.state == PLAYING and player.duration > 0:
                 player.seek(start)
             elif tries < 40 and self.winfo_exists():
-                self.after(100, lambda: seek_when_ready(tries + 1))
+                QTimer.singleShot(100, lambda: seek_when_ready(tries + 1))
 
-        self.after(100, seek_when_ready)
+        QTimer.singleShot(100, seek_when_ready)
 
     def _tick(self) -> None:
-        if not self.winfo_exists():
-            return
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
-        self.play_btn.configure(image=ctk_icon("pause" if playing else "play", 16, theme.ON_ACCENT))
-        if playing:
+        self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
+        if playing and not self._scrubbing:
             self.cursor_ms = player.position() * 1000.0
+            self._show_time()
             span = self.view_s * 1000.0
             if not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
-        self.after(60 if playing else 300, self._tick)
 
     # -------------------------------------------------------------- enregistrer
     def _save(self) -> None:
         def go() -> None:
-            self.save_btn.configure(state="disabled", text=t("grid.saving"))
+            self.save_btn.setEnabled(False)
+            self.save_btn.setText(t("grid.saving"))
 
             def done(_r: Any) -> None:
                 if self.winfo_exists():
@@ -363,7 +442,8 @@ class GridEditor(ctk.CTkFrame):
 
             def failed(_e: BaseException) -> None:
                 if self.winfo_exists():
-                    self.save_btn.configure(state="normal", text=t("action.save"))
+                    self.save_btn.setEnabled(True)
+                    self.save_btn.setText(t("action.save"))
 
             self.ctrl.save_grid(self.track.content_id, self.beats, ok=done, err=failed)
 
@@ -373,18 +453,15 @@ class GridEditor(ctk.CTkFrame):
         else:
             go()
 
-    def close(self) -> None:
+    def close(self) -> bool:                 # noqa: D401
         """Quitte la page (sans enregistrer) ; la lecture du son continue."""
         if self._closed:
-            return
+            return True
         self._closed = True
-        callback = self._on_close
-        self.destroy()
+        self._timer.stop()
+        callback, self._on_close = self._on_close, None
+        self.hide()
+        self.deleteLater()
         if callback:
             callback()
-
-
-def plural_beats(n: int) -> str:
-    from ..i18n import plural
-
-    return plural("grid.beats_one", "grid.beats_many", n)
+        return True

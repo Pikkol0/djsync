@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.4-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -34,7 +34,7 @@ exported by Rekordbox:
 - **Back up before every change**: a copy of the database goes to `DJSync_Backups/` on the drive.
 
 English interface (French available in Settings; other languages can be added — see below), 20 colour
-themes, zoom from 80 to 200 %.
+themes, zoom from 80 to 200 %. Plain, fast Qt interface (PySide6): no animations, nothing redrawn for nothing.
 
 > ⚠️ Personal project, not affiliated with Pioneer DJ / AlphaTheta. The drive formats are reverse-engineered:
 > **keep a copy of your drive** and close Rekordbox while DJSync writes to it.
@@ -109,7 +109,7 @@ djsync/
   db/                   USB drive: exportLibrary.db (SQLCipher) in library/, export.pdb in pdb/, artwork
   analysis/             BPM, grid, key, waveforms, ANLZ files (numpy + FFmpeg only)
   audio/                built-in player, artwork
-  ui/                   customtkinter interface: app, controller (ctrl/), views (views/), dialogs
+  ui/                   Qt interface (PySide6): app, controller (ctrl/), views (views/), table, dialogs
   i18n/                 English (en.py, reference) and French (fr.py) texts
 tests/                  pytest tests (fake drive, synthetic tracks)
 tools/                  development tools: screenshots, logo export
@@ -121,12 +121,11 @@ docs/                   technical notes (in French for now)
 
 ```bash
 pip install pytest
-python -m pytest -q                 # Windows: everything, UI included
-xvfb-run -a -s "-screen 0 1920x1200x24" python -m pytest -q   # Linux without a display
+python -m pytest -q                 # everything, UI included (Qt "offscreen": no display needed)
 ```
 Tests use neither the network nor a real drive: generated Rekordbox database, synthetic tracks.
 A test also checks that no French text is hard-coded outside the translation file.
-Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 --lang en`.
+Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 --lang en --dialogs`.
 
 ## Technical notes (French)
 - [Audio analysis, artwork, date added](docs/analyse_audio.md) — calibration on a real drive
@@ -137,7 +136,8 @@ Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 
 
 | Version | Changes |
 |---|---|
-| **0.2.4** | Background analysis: Library ▸ *Not analysed* section with "Analyse all" / "Stop", progress card in the sidebar, the rest of the app stays usable. Player: beat grid button and track options (title/artist, analyse again, compatible keys, show in library). export.pdb: track updates no longer eat the free space (in-place rewrite, deleted rows reclaimed), clearer "export.pdb is full" message. Beat grid editor is now a page of the main window (the separate window vanished or froze the app on Windows). Fixes: dialogs sized for the zoom and kept on screen, key pill now shown right after analysis. |
+| **0.3.0** | New Qt interface (PySide6) replacing customtkinter: native widgets, much smoother scrolling, resizing and table updates. Zoom and theme colour apply instantly without rebuilding the window; the zoom no longer follows the window size. Plainer look: flat dark theme, square corners, no shadows or animations, no per-row artwork or placeholder rows. Beat grid editor: drag the listening cursor on the waveform, "Bar starts here" (a downbeat exactly on the cursor), shift by ±1/±10/±100 ms, BPM ×2 / ÷2. Rekordbox 3-band waveforms (`.2EX`): track previews now look like Rekordbox's own instead of blue (re-analyse older tracks). Downloads complete album, year, genre, label, track number and ISRC (Deezer, can be turned off). Same features as 0.2.4 otherwise; UI tests run without a display. |
+| 0.2.4 | Background analysis: Library ▸ *Not analysed* section with "Analyse all" / "Stop", progress card in the sidebar, the rest of the app stays usable. Player: beat grid button and track options (title/artist, analyse again, compatible keys, show in library). export.pdb: track updates no longer eat the free space (in-place rewrite, deleted rows reclaimed), clearer "export.pdb is full" message. Beat grid editor is now a page of the main window (the separate window vanished or froze the app on Windows). Fixes: dialogs sized for the zoom and kept on screen, key pill now shown right after analysis. |
 | 0.2.3 | Windows start-up fix: the main window stayed invisible after the splash screen, and the splash shrank to a corner (DPI awareness set too late). |
 | 0.2.2 | Window always opens inside the screen (saved size/position clamped, maximised state remembered); lightweight splash screen at launch (also a native splash for the Windows executable). |
 | 0.2.1 | Fully English software: error messages, logs and command-line tools included; French kept as an optional interface translation (partial translations fall back to English). English README, obsolete console demos removed. |
@@ -155,6 +155,6 @@ Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 
 - [pyrekordbox](https://github.com/dylanljones/pyrekordbox) and the community documentation
   [Deep Symmetry / crate-digger](https://djl-analysis.deepsymmetry.org/) for the Rekordbox formats.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp), [ytmusicapi](https://github.com/sigma67/ytmusicapi),
-  [customtkinter](https://github.com/TomSchimansky/CustomTkinter), [SQLCipher](https://www.zetetic.net/sqlcipher/).
+  [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/), [SQLCipher](https://www.zetetic.net/sqlcipher/).
 
 Only download content you have the right to use.
