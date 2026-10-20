@@ -36,7 +36,7 @@ from .views.import_view import ImportView
 from .views.library_view import LibraryView
 from .views.search_view import SearchView
 from .views.settings_view import SettingsView
-from .widgets import button, hbox, icon_button, label, panel, restyle, vbox
+from .widgets import button, hbox, icon_button, icon_label, label, panel, restyle, vbox
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class DJSyncApp(QMainWindow):
         self.views: Dict[str, View] = {}
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
-        self._status_timer.timeout.connect(lambda: self.status.setText(""))
+        self._status_timer.timeout.connect(self._hide_toast)
 
         # écouteurs de la FENÊTRE d'abord : ceux des vues (ajoutés ensuite) sont oubliés à chaque
         # reconstruction de l'interface (langue)
@@ -166,13 +166,18 @@ class DJSyncApp(QMainWindow):
         outer.addLayout(body, 1)
         self.sidebar = self._build_sidebar()
         body.addWidget(self.sidebar)
-        right = vbox(spacing=0)
         self.stack = QStackedWidget()
-        right.addWidget(self.stack, 1)
+        body.addWidget(self.stack, 1)
+        # messages : petite bulle en bas à droite de la page, qui disparaît seule
+        self.toast = panel(self.stack, role="toast")
+        tl = hbox(self.toast, margins=theme.px(10), spacing=theme.px(8))
+        self.toast_icon = label()
         self.status = label("", "dim")
-        self.status.setContentsMargins(theme.px(18), theme.px(2), theme.px(18), theme.px(4))
-        right.addWidget(self.status)
-        body.addLayout(right, 1)
+        self.status.setWordWrap(True)
+        self.status.setMaximumWidth(theme.px(520))
+        tl.addWidget(self.toast_icon)
+        tl.addWidget(self.status, 1)
+        self.toast.hide()
         self.views = {}
         self.grid_editor: Any = None
         self._grid_return: Optional[str] = None
@@ -188,22 +193,23 @@ class DJSyncApp(QMainWindow):
 
     def _build_sidebar(self) -> QWidget:
         bar = panel(role="sidebar")
-        lay = vbox(bar, margins=theme.px(8), spacing=theme.px(2))
-        head = hbox(spacing=theme.px(8))
+        lay = vbox(bar, margins=theme.px(10), spacing=theme.px(3))
+        head = hbox(spacing=theme.px(10))
+        head.setContentsMargins(theme.px(6), theme.px(6), 0, 0)
         self.logo = label()
-        self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))
+        self.logo.setPixmap(logo_pixmap(theme.px(28), theme.ACCENT))
         head.addWidget(self.logo)
         self.logo_text = label("DJSync", "h2")
         head.addWidget(self.logo_text)
         head.addStretch(1)
         lay.addLayout(head)
-        lay.addSpacing(theme.px(12))
+        lay.addSpacing(theme.px(18))
 
         for key, text_key, icon_name, _cls in TABS:
             b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
             b.setCheckable(True)
-            b.setIcon(qicon(icon_name, 16, theme.DIM))
-            b.setIconSize(QSize(theme.px(16), theme.px(16)))
+            b.setIcon(qicon(icon_name, 18, theme.DIM))
+            b.setIconSize(QSize(theme.px(18), theme.px(18)))
             b._icon_name = icon_name  # type: ignore[attr-defined]
             lay.addWidget(b)
             self._nav[key] = b
@@ -212,7 +218,7 @@ class DJSyncApp(QMainWindow):
         # ---- analyse en arrière-plan (visible depuis tous les onglets)
         an = panel()
         self.an_box = an
-        al = vbox(an, margins=theme.px(6), spacing=theme.px(3))
+        al = vbox(an, margins=theme.px(10), spacing=theme.px(4))
         ah = hbox(spacing=theme.px(4))
         self.an_title = label(t("nav.analysing").upper(), "section")
         ah.addWidget(self.an_title, 1)
@@ -233,20 +239,26 @@ class DJSyncApp(QMainWindow):
         # ---- clé active + remplissage
         usb = panel()
         self.usb_box = usb
-        ul = vbox(usb, margins=theme.px(6), spacing=theme.px(3))
+        ul = vbox(usb, margins=theme.px(10), spacing=theme.px(4))
+        uh = hbox(spacing=theme.px(6))
+        self.usb_icon = icon_label("usb", 14, theme.FAINT)
+        uh.addWidget(self.usb_icon)
         self.usb_title = label(t("nav.active_drive").upper(), "section")
+        uh.addWidget(self.usb_title, 1)
+        ul.addLayout(uh)
         self.usb_label = label("", wrap=True)
         self.usb_bar = QProgressBar()
         self.usb_bar.setRange(0, 1000)
         self.usb_bar.setTextVisible(False)
-        self.usb_free = label("", "dim")
-        for w in (self.usb_title, self.usb_label, self.usb_bar, self.usb_free):
+        self.usb_free = label("", "dim", wrap=True)
+        for w in (self.usb_label, self.usb_bar, self.usb_free):
             ul.addWidget(w)
         lay.addSpacing(theme.px(6))
         lay.addWidget(usb)
 
         self.help_btn = button(t("help.button"), self.open_help, kind="nav")
-        self.help_btn.setIcon(qicon("help", 16, theme.DIM))
+        self.help_btn.setIcon(qicon("help", 18, theme.DIM))
+        self.help_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         lay.addSpacing(theme.px(4))
         lay.addWidget(self.help_btn)
         return bar
@@ -278,7 +290,7 @@ class DJSyncApp(QMainWindow):
         self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
         self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))
         for b in list(self._nav.values()) + [self.help_btn]:
-            b.setIconSize(QSize(theme.px(16), theme.px(16)))
+            b.setIconSize(QSize(theme.px(18), theme.px(18)))
         for view in self.views.values():
             view.on_scale()
         self.player_bar.on_scale()
@@ -327,12 +339,14 @@ class DJSyncApp(QMainWindow):
 
     def resizeEvent(self, e: Any) -> None:     # noqa: N802
         super().resizeEvent(e)
+        if getattr(self, "toast", None) is not None:
+            self._place_toast()
         if self._nav:
             self._update_compact()
 
     # --------------------------------------------------------------------- navigation
     def _nav_text(self, key: str, text_key: str) -> str:
-        text = t(text_key)
+        text = t(text_key).replace("&", "&&")          # « & » affiché tel quel (pas de raccourci Qt)
         if key == "downloads" and self.ctrl.active_jobs:
             text += f"  ({self.ctrl.active_jobs})"
         return text
@@ -344,7 +358,7 @@ class DJSyncApp(QMainWindow):
         for k, b in self._nav.items():
             active = k == key
             b.setChecked(active)
-            b.setIcon(qicon(b._icon_name, 16, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
+            b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
         self.stack.setCurrentWidget(self.views[key])
         self.views[key].on_show()
         self._badge()
@@ -464,9 +478,28 @@ class DJSyncApp(QMainWindow):
     # ------------------------------------------------------------------- état
     def _message(self, kind: str, text: str) -> None:
         self.status.setText(text)
-        self.status.setProperty("role", status_role(kind))
+        self.status.setProperty("role", "" if kind == "info" else status_role(kind))
         restyle(self.status)
-        self._status_timer.start(12000 if kind in ("error", "warn") else 6000)
+        icon, color = {"ok": ("check", theme.ACCENT), "warn": ("warn", theme.WARN),
+                       "error": ("warn", theme.ERR)}.get(kind, ("info", theme.DIM))
+        self.toast_icon.setPixmap(qicon(icon, 16, color).pixmap(QSize(theme.px(16), theme.px(16))))
+        self.toast.show()
+        self.toast.raise_()
+        self._place_toast()
+        self._status_timer.start(12000 if kind in ("error", "warn") else 5000)
+
+    def _hide_toast(self) -> None:
+        self.status.setText("")
+        self.toast.hide()
+
+    def _place_toast(self) -> None:
+        if not self.toast.isVisible():
+            return
+        self.toast.adjustSize()
+        m = theme.px(16)
+        area = self.stack.rect()
+        # au-dessus de la rangée de boutons du bas des pages
+        self.toast.move(area.right() - self.toast.width() - m, area.bottom() - self.toast.height() - theme.px(64))
 
     def closeEvent(self, e: Any) -> None:      # noqa: N802
         s = self.ctrl.settings

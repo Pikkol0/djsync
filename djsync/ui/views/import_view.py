@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QComboBox, QPlainTextEdit
 
 from ...core.matcher import apply_preference
 from ...i18n import LazyLabels, plural, t
@@ -17,7 +17,8 @@ from ...models import (
     UrlKind, format_duration,
 )
 from ..dialogs import BaseDialog
-from ..widgets import Column, Row, TrackTable, button, hbox, label
+from .. import theme
+from ..widgets import Column, Row, TrackTable, button, hbox, label, line_edit
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
@@ -31,8 +32,9 @@ class PasteListDialog(BaseDialog):
     def __init__(self, parent: Any, on_ok: Any) -> None:
         super().__init__(parent, t("import.paste_list_title"), 500, 420)
         self._on_ok = on_ok
-        self.heading(t("import.paste_list_title"), t("import.paste_list_hint"))
+        self.heading(t("import.paste_list_title"))
         self.box = QPlainTextEdit()
+        self.box.setPlaceholderText(t("import.paste_list_hint"))
         self.body.addWidget(self.box, 1)
         self.footer(t("import.analyse_list"), self._ok)
         self.show_dialog()
@@ -61,19 +63,20 @@ class ImportView(View):
         except ValueError:
             self.preference = MatchPreference.AUTO
 
-        self.root.addLayout(self.header(t("tab.import"), "Spotify · YouTube · SoundCloud"))
-        bar = hbox()
-        self.url = QLineEdit()
-        self.url.setPlaceholderText(t("import.placeholder"))
+        self.root.addLayout(self.header(t("tab.import")))
+        bar = hbox(spacing=theme.px(8))
+        self.url = line_edit(t("import.placeholder"), "import", big=True)
         self.url.returnPressed.connect(self.analyse)
         bar.addWidget(self.url, 1)
-        bar.addWidget(button(t("action.paste"), self._paste_clipboard))
-        self.go = button(t("import.read_link"), self.analyse, kind="primary")
-        bar.addWidget(self.go)
+        paste = button(t("action.paste"), self._paste_clipboard, icon="clipboard")
+        self.go = button(t("import.read_link"), self.analyse, kind="primary", icon="go")
+        for b in (paste, self.go):
+            b.setMinimumHeight(self.url.sizeHint().height())
+            bar.addWidget(b)
         self.root.addLayout(bar)
 
         opts = hbox()
-        self.info = label(t("import.info_start"), "dim")
+        self.info = label("", "dim")
         opts.addWidget(self.info, 1)
         self.pref_label = label(t("import.matching"), "dim")
         opts.addWidget(self.pref_label)
@@ -82,7 +85,7 @@ class ImportView(View):
         self.pref_menu.setCurrentText(PREFERENCE_LABELS[self.preference])
         self.pref_menu.currentTextChanged.connect(self._pref_changed)
         opts.addWidget(self.pref_menu)
-        self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat")
+        self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat", icon="playlist")
         opts.addWidget(self.paste_list)
         self.root.addLayout(opts)
 
@@ -106,15 +109,15 @@ class ImportView(View):
             self.root.addWidget(table, 1)
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
-        self.dl_table.set_empty("", t("import.empty_title"), t("import.empty_sub"))
+        self.dl_table.set_empty("import", t("import.empty_title"))
 
         actions = hbox()
-        self.preview_btn = button(t("action.listen"), self._preview)
+        self.preview_btn = button(t("action.listen"), self._preview, icon="play")
         actions.addWidget(self.preview_btn)
-        self.other_btn = button(t("import.other_match"), self._cycle)
+        self.other_btn = button(t("import.other_match"), self._cycle, icon="refresh")
         actions.addWidget(self.other_btn)
         actions.addStretch(1)
-        self.dl_btn = button(t("import.download_selection"), self._download, kind="primary")
+        self.dl_btn = button(t("import.download_selection"), self._download, kind="primary", icon="download")
         actions.addWidget(self.dl_btn)
         self.root.addLayout(actions)
         self._show_mode(None)

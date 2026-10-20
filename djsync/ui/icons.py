@@ -235,13 +235,60 @@ def _keyboard(p: _Pen) -> None:
     p.line(7.5, 14.5, 16.5, 14.5, w=1.8)
 
 
+def _refresh(p: _Pen) -> None:
+    p.arc(12, 12, 7.5, 200, 520)
+    p.poly(18.5, 3.5, 20.5, 10.5, 13.5, 9)
+
+
+def _folder(p: _Pen) -> None:
+    p.line(3, 7, 3, 18.5, 21, 18.5, 21, 8.5, 11.5, 8.5, 9.5, 5.5, 3, 5.5, 3, 7)
+
+
+def _back(p: _Pen) -> None:
+    p.line(20, 12, 5, 12)
+    p.line(11, 6, 5, 12, 11, 18)
+
+
+def _clipboard(p: _Pen) -> None:
+    p.rect(5, 5, 19, 21, 2)
+    p.rect(9, 3, 15, 7, 1.2, fill=True)
+    p.line(8.5, 12, 15.5, 12, w=1.6)
+    p.line(8.5, 16, 13.5, 16, w=1.6)
+
+
+def _playlist(p: _Pen) -> None:
+    for y in (6, 11, 16):
+        p.line(3, y, 13, y)
+    p.line(18, 18, 18, 8, 21.5, 7)
+    p.circle(16.2, 18, 2.2, fill=True)
+
+
+def _warn(p: _Pen) -> None:
+    p.line(12, 3.5, 21.5, 20, 2.5, 20, 12, 3.5)
+    p.line(12, 9.5, 12, 14)
+    p.circle(12, 17, 1.2, fill=True)
+
+
+def _info(p: _Pen) -> None:
+    p.circle(12, 12, 9)
+    p.line(12, 11, 12, 16.5)
+    p.circle(12, 7.7, 1.2, fill=True)
+
+
+def _move(p: _Pen) -> None:
+    p.rect(3, 4, 13, 14, 2)
+    p.line(10, 17.5, 20.5, 17.5)
+    p.line(16.5, 13.5, 20.5, 17.5, 16.5, 21.5)
+
+
 DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
     "pause": _pause, "stop": _stop, "next": _next, "prev": _prev, "volume": _volume, "wave": _wave,
     "duplicates": _duplicates, "menu": _menu, "close": _close, "plus": _plus, "usb": _usb, "grid": _grid,
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
-    "key": _key, "check": _check, "keyboard": _keyboard,
+    "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
+    "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
 }
 
 

@@ -3,8 +3,9 @@
 Tri par clic sur l'en-tête (croissant, décroissant, ordre d'origine), filtre texte + filtre
 « métier » (`row_filter`), réordonnancement par glisser-déposer ou Haut/Bas, glisser des lignes
 vers un autre widget (playlists), colonnes cliquables (cases, téléchargement), menu contextuel,
-colonnes secondaires masquées quand la place manque. La colonne « key » est peinte à la couleur
-Camelot de la tonalité. Aucune logique métier : les vues fournissent des `Row`.
+colonnes secondaires masquées quand la place manque. La colonne « key » est une pastille à la couleur
+Camelot de la tonalité ; la colonne « dl » une icône de téléchargement ; le titre en cours de lecture
+porte une icône. Aucune logique métier : les vues fournissent des `Row`.
 """
 from __future__ import annotations
 
@@ -12,14 +13,18 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QByteArray, QMimeData, QModelIndex, QPoint, Qt
-from PySide6.QtGui import QColor, QDrag
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QTableView
+from PySide6.QtCore import QRectF, QSize
+from PySide6.QtGui import QColor, QDrag, QPainter
+from PySide6.QtWidgets import (
+    QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QTableView, QWidget,
+)
 
 from ..i18n import t
 from . import theme
 
 MIME_IDS = "application/x-djsync-ids"
-MenuEntry = Optional[Tuple[str, Callable[[], None]]]      # None = séparateur
+MenuEntry = Optional[Tuple[Any, ...]]      # (texte, action[, icône]) ; None = séparateur
+ICON_COLUMNS = {"dl": ("download", "action.download"), "grid": ("grid", "lib.edit_grid")}   # colonnes-icônes
 ALIGN = {"w": Qt.AlignLeft | Qt.AlignVCenter, "e": Qt.AlignRight | Qt.AlignVCenter, "center": Qt.AlignCenter}
 
 
@@ -95,25 +100,27 @@ class _Model(QAbstractTableModel):
         if row is None:
             return None
         if role == Qt.DisplayRole:
+            if col.key in ICON_COLUMNS:
+                return ""
             v = row.values.get(col.key, "")
             return "" if v is None else str(v)
         if role == Qt.TextAlignmentRole:
             return int(ALIGN.get(col.anchor, ALIGN["w"]))
-        if col.key == "key" and row.values.get("key"):
-            color = theme.camelot_color(row.values["key"])
-            if role == Qt.BackgroundRole:
-                return QColor(color)
-            if role == Qt.ForegroundRole:
-                return QColor(theme.on_color(color))
+        if role == Qt.DecorationRole:
+            from .icons import qicon
+
+            if col.key in ICON_COLUMNS and row.values.get(col.key):
+                return qicon(ICON_COLUMNS[col.key][0], 16, theme.ACCENT)
+            if col.key == "title" and "playing" in row.tags:
+                return qicon("volume", 14, theme.ACCENT)
+            return None
         if role == Qt.ForegroundRole:
-            if col.key == "dl":
-                return QColor(theme.ACCENT)
             for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
                                ("ok", theme.ACCENT), ("dim", theme.DIM)):
                 if tag in row.tags:
                     return QColor(color)
-        if role == Qt.ToolTipRole and col.key == "dl":
-            return t("action.download")
+        if role == Qt.ToolTipRole and col.key in ICON_COLUMNS and row.values.get(col.key):
+            return t(ICON_COLUMNS[col.key][1])
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
@@ -125,6 +132,37 @@ class _Model(QAbstractTableModel):
     def refresh(self) -> None:
         self.beginResetModel()
         self.endResetModel()
+
+
+class _KeyDelegate(QStyledItemDelegate):
+    """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        code = index.data(Qt.DisplayRole) or ""
+        opt = option
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        if not code:
+            return
+        color = theme.camelot_color(code)
+        fm = opt.fontMetrics
+        w = fm.horizontalAdvance(code) + theme.px(12)
+        h = fm.height() + theme.px(2)
+        r = opt.rect
+        box = QRectF(r.center().x() - w / 2 + 0.5, r.center().y() - h / 2 + 0.5, w, h)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawRoundedRect(box, h / 2, h / 2)
+        painter.setPen(QColor(theme.on_color(color)))
+        f = opt.font
+        f.setBold(True)
+        painter.setFont(f)
+        painter.drawText(box, Qt.AlignCenter, code)
+        painter.restore()
 
 
 class TrackTable(QTableView):
@@ -182,17 +220,35 @@ class TrackTable(QTableView):
         head.sectionClicked.connect(self._heading_clicked)
         self.doubleClicked.connect(self._double)
         self.selectionModel().selectionChanged.connect(lambda *_: self._selected())
-        self._empty = QLabel(self.viewport())
-        self._empty.setAlignment(Qt.AlignCenter)
-        self._empty.setWordWrap(True)
-        self._empty.setProperty("role", "dim")
+        self._empty = QWidget(self.viewport())
+        self._empty.setObjectName("emptyState")
+        self._empty.setStyleSheet("#emptyState, #emptyState QLabel { background: transparent; }")
+        from .widgets import vbox
+
+        lay = vbox(self._empty, spacing=theme.px(8))
+        self._empty_icon = QLabel()
+        self._empty_icon.setAlignment(Qt.AlignCenter)
+        self._empty_text = QLabel()
+        self._empty_text.setAlignment(Qt.AlignCenter)
+        self._empty_text.setWordWrap(True)
+        self._empty_text.setProperty("role", "dim")
+        lay.addWidget(self._empty_icon)
+        lay.addWidget(self._empty_text)
+        self._empty_icon_name = ""
+        self._empty.hide()
+        for i, col in enumerate(self.columns):
+            if col.key == "key":
+                self.setItemDelegateForColumn(i, _KeyDelegate(self))
+        self.setMouseTracking(True)
+        self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self.apply_metrics()
 
     # ------------------------------------------------------------------ échelle
     def apply_metrics(self) -> None:
         """Hauteur de ligne et largeurs au zoom courant (appelé aussi après un changement de zoom)."""
         h = self.fontMetrics().height()
-        self.verticalHeader().setDefaultSectionSize(int(h * 1.7))
+        self.verticalHeader().setDefaultSectionSize(int(h * 2.0))
+        self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self._fit_columns()
 
     on_scale = apply_metrics
@@ -256,7 +312,7 @@ class TrackTable(QTableView):
         """Chargement : le tableau est vidé et indique « Loading… » (plus de lignes factices)."""
         self._rows, self._order, self._shown = {}, [], []
         self._model.refresh()
-        self._show_empty(t("common.loading"), "")
+        self._show_empty(t("common.loading"), "", "")
 
     def row(self, iid: str) -> Optional[Row]:
         return self._rows.get(iid)
@@ -330,6 +386,7 @@ class TrackTable(QTableView):
         self.set_rows([])
 
     def set_empty(self, icon: str, title: str, sub: str = "", action: Any = None) -> None:
+        self._empty_icon_name = icon
         self._empty_title, self._empty_sub = title, sub
         self._update_empty()
 
@@ -415,8 +472,14 @@ class TrackTable(QTableView):
         self._update_empty()
 
     # ----------------------------------------------------------------- état vide
-    def _show_empty(self, title: str, sub: str) -> None:
-        self._empty.setText(f"<b>{title}</b>" + (f"<br>{sub}" if sub else ""))
+    def _show_empty(self, title: str, sub: str, icon: str = "") -> None:
+        if icon:
+            from .icons import qicon
+
+            size = theme.px(40)
+            self._empty_icon.setPixmap(qicon(icon, 40, theme.FAINT).pixmap(QSize(size, size)))
+        self._empty_icon.setVisible(bool(icon))
+        self._empty_text.setText(f"<b>{title}</b>" + (f"<br>{sub}" if sub else ""))
         self._empty.show()
         self._place_empty()
 
@@ -424,11 +487,11 @@ class TrackTable(QTableView):
         if self._shown:
             self._empty.hide()
             return
-        title, sub = self._empty_title, self._empty_sub
+        title, sub, icon = self._empty_title, self._empty_sub, self._empty_icon_name
         if self.filter_active and self._rows:
-            title, sub = t("empty.filter_title"), t("empty.filter_sub")
+            title, sub, icon = t("empty.filter_title"), "", "filter"
         if title:
-            self._show_empty(title, sub)
+            self._show_empty(title, sub, icon)
         else:
             self._empty.hide()
 
@@ -437,7 +500,8 @@ class TrackTable(QTableView):
         w = min(vp.width() - 20, theme.px(460))
         self._empty.setFixedWidth(max(50, w))
         self._empty.adjustSize()
-        self._empty.move((vp.width() - self._empty.width()) // 2, int(vp.height() * 0.35))
+        self._empty.move((vp.width() - self._empty.width()) // 2,
+                         max(0, int(vp.height() * 0.42) - self._empty.height() // 2))
 
     # ------------------------------------------------------------------ évènements
     def _selected(self) -> None:
@@ -568,6 +632,11 @@ def popup_menu(widget: Any, entries: Sequence[MenuEntry], global_pos: Any) -> No
     for entry in entries:
         if entry is None:
             menu.addSeparator()
+        elif len(entry) > 2 and entry[2]:
+            from .icons import qicon
+
+            danger = entry[2] == "trash"
+            menu.addAction(qicon(entry[2], 16, theme.ERR if danger else theme.DIM), entry[0], entry[1])
         else:
             menu.addAction(entry[0], entry[1])
     menu.exec(global_pos)

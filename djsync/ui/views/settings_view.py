@@ -20,7 +20,7 @@ from ...settings import ZOOM_MAX, ZOOM_MIN, ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
-from ..widgets import button, hbox, label, panel, vbox
+from ..widgets import button, hbox, icon_button, icon_label, label, panel, vbox
 from .common import View
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
@@ -39,7 +39,11 @@ class SettingsView(View):
         self._zoom_timer.timeout.connect(self._apply_zoom)
         s = controller.settings
 
-        self.root.addLayout(self.header(t("tab.settings")))
+        head = self.header(t("tab.settings"))
+        self.saved = label("", "accent")
+        head.addWidget(self.saved)
+        head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
+        self.root.addLayout(head)
         area = QScrollArea()
         area.setWidgetResizable(True)
         page = QWidget()
@@ -48,7 +52,7 @@ class SettingsView(View):
         self.root.addWidget(area, 1)
 
         # ---- apparence
-        card = self._card(t("settings.appearance"), t("settings.appearance_hint"))
+        card = self._card(t("settings.appearance"), "settings")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.language"))))
         self.lang_menu = QComboBox()
@@ -59,7 +63,8 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
-        card.addWidget(label(t("settings.theme")))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.theme"))), 0, Qt.AlignTop)
         grid = QGridLayout()
         grid.setSpacing(theme.px(3))
         for i, (name, accent) in enumerate(PALETTES.items()):
@@ -72,12 +77,11 @@ class SettingsView(View):
             b.clicked.connect(lambda _=False, n=name: self._theme_changed(n))
             grid.addWidget(b, i // 10, i % 10)
             self._swatches[name] = b
-        wrap = hbox()
-        wrap.addLayout(grid)
-        wrap.addStretch(1)
-        card.addLayout(wrap)
+        row.addLayout(grid)
+        row.addStretch(1)
+        card.addLayout(row)
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
-        card.addWidget(self.theme_name)
+        self.theme_name.hide()
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.zoom"))))
@@ -89,10 +93,10 @@ class SettingsView(View):
         row.addWidget(self.zoom)
         self.zoom_val = label(f"{s.zoom} %", "accent")
         row.addWidget(self.zoom_val)
-        row.addWidget(button(t("settings.zoom_reset"), lambda: self.zoom.setValue(100 // ZOOM_STEP), kind="flat"))
+        row.addWidget(button(t("settings.zoom_reset"), lambda: self.zoom.setValue(100 // ZOOM_STEP), kind="flat",
+                             icon="refresh"))
         row.addStretch(1)
         card.addLayout(row)
-        card.addWidget(label(t("settings.zoom_hint"), "faint", wrap=True))
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
@@ -106,45 +110,53 @@ class SettingsView(View):
         card.addLayout(row)
 
         # ---- clé USB
-        card = self._card(t("settings.drive"), t("settings.drive_hint"))
+        card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
         row = hbox()
         self.drive_menu = QComboBox()
         self.drive_menu.setMinimumWidth(theme.px(280))
         row.addWidget(self.drive_menu)
-        row.addWidget(button(t("action.refresh"), self.ctrl.refresh_drives))
-        self.connect_btn = button(t("action.connect"), self._connect, kind="primary")
+        row.addWidget(icon_button("refresh", self.ctrl.refresh_drives, t("action.refresh")))
+        self.connect_btn = button(t("action.connect"), self._connect, kind="primary", icon="usb")
         row.addWidget(self.connect_btn)
-        row.addWidget(button(t("action.disconnect"), lambda: self.ctrl.disconnect(True)))
+        row.addWidget(button(t("action.disconnect"), lambda: self.ctrl.disconnect(True), icon="close"))
         row.addStretch(1)
         card.addLayout(row)
         self.drive_state = label("", "dim")
         card.addWidget(self.drive_state)
-        card.addWidget(label(t("settings.forced_drive"), "dim"))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.forced_drive_short"))))
         self.forced = QLineEdit(s.forced_drive)
         self.forced.setPlaceholderText(t("settings.forced_placeholder"))
-        self.forced.setMaximumWidth(theme.px(260))
-        card.addWidget(self.forced)
+        self.forced.setToolTip(t("settings.forced_drive"))
+        self.forced.setMaximumWidth(theme.px(120))
+        row.addWidget(self.forced)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- dossier de destination
-        card = self._card(t("settings.destination"), t("settings.destination_hint"))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.destination"))))
         self.contents = QLineEdit(s.contents_dir)
+        self.contents.setToolTip(t("settings.destination_hint"))
         self.contents.setMaximumWidth(theme.px(260))
-        card.addWidget(self.contents)
+        row.addWidget(self.contents)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- FFmpeg
-        card = self._card("FFmpeg", t("settings.ffmpeg_hint"))
+        card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"))
         row = hbox()
         self.ffmpeg = QLineEdit(s.ffmpeg_location)
         self.ffmpeg.setPlaceholderText(t("settings.ffmpeg_placeholder"))
         self.ffmpeg.textEdited.connect(lambda _t: self._ffmpeg_status())
         row.addWidget(self.ffmpeg, 1)
-        row.addWidget(button(t("action.browse"), self._browse_ffmpeg))
+        row.addWidget(button(t("action.browse"), self._browse_ffmpeg, icon="folder"))
         card.addLayout(row)
         self.ffmpeg_state = label("", "dim")
         card.addWidget(self.ffmpeg_state)
 
         # ---- analyse
-        card = self._card(t("settings.analysis"), t("settings.analysis_hint"))
+        card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
         self.analyze_var = QCheckBox(t("settings.analyze_on_add"))
         self.analyze_var.setChecked(s.analyze_on_add)
         card.addWidget(self.analyze_var)
@@ -158,12 +170,12 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         row = hbox()
-        row.addWidget(button(t("settings.analyse_now"), lambda: self.ctrl._emit("show_unanalysed")))
+        row.addWidget(button(t("settings.analyse_now"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
         row.addStretch(1)
         card.addLayout(row)
 
         # ---- anciennes platines : export.pdb
-        card = self._card(t("settings.pdb"), t("settings.pdb_hint"))
+        card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"))
         self.pdb_var = QCheckBox(t("settings.pdb_sync"))
         self.pdb_var.setChecked(s.pdb_sync == "auto")
         card.addWidget(self.pdb_var)
@@ -171,8 +183,8 @@ class SettingsView(View):
         self.pdb_growth_var.setChecked(s.pdb_allow_growth)
         card.addWidget(self.pdb_growth_var)
         row = hbox()
-        row.addWidget(button(t("settings.check"), self._pdb_refresh))
-        self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary")
+        row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
+        self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary", icon="refresh")
         row.addWidget(self.pdb_sync_btn)
         row.addStretch(1)
         card.addLayout(row)
@@ -180,7 +192,7 @@ class SettingsView(View):
         card.addWidget(self.pdb_state)
 
         # ---- recherche
-        card = self._card(t("tab.search"), "")
+        card = self._card(t("settings.downloads"), "download")
         self.views_var = QCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
         self.meta_var = QCheckBox(t("settings.fetch_metadata"))
@@ -189,9 +201,9 @@ class SettingsView(View):
         card.addWidget(self.meta_var)
 
         # ---- sauvegardes
-        card = self._card(t("settings.backups"), t("settings.backups_hint"))
+        card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
         row = hbox()
-        row.addWidget(label(t("settings.backups_keep")))
+        row.addWidget(self._fixed(label(t("settings.backups_keep"))))
         self.keep = QComboBox()
         self.keep.addItems(BACKUP_CHOICES)
         self.keep.setCurrentText(str(s.backup_keep) if str(s.backup_keep) in BACKUP_CHOICES else "10")
@@ -200,25 +212,26 @@ class SettingsView(View):
         card.addLayout(row)
         self.page.addStretch(1)
 
-        bottom = hbox()
-        bottom.addStretch(1)
-        self.saved = label("", "accent")
-        bottom.addWidget(self.saved)
-        bottom.addWidget(button(t("action.save"), self._save, kind="primary"))
-        self.root.addLayout(bottom)
-
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drives", self._refresh_drives)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
         self._ffmpeg_status()
 
-    def _card(self, title: str, hint: str) -> Any:
+    def _card(self, title: str, icon: str = "", hint: str = "") -> Any:
+        """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ)."""
         box = panel()
-        lay = vbox(box, margins=theme.px(12), spacing=theme.px(6))
-        lay.addWidget(label(title, "h2"))
+        lay = vbox(box, margins=theme.px(14), spacing=theme.px(8))
+        head = hbox(spacing=theme.px(8))
+        if icon:
+            head.addWidget(icon_label(icon, 18, theme.ACCENT))
+        head.addWidget(label(title, "h2"))
         if hint:
-            lay.addWidget(label(hint, "dim", wrap=True))
+            info = icon_label("info", 14, theme.FAINT)
+            info.setToolTip(hint)
+            head.addWidget(info)
+        head.addStretch(1)
+        lay.addLayout(head)
         self.page.addWidget(box)
         return lay
 

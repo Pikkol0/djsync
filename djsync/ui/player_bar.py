@@ -102,7 +102,7 @@ class PlayerBar(QWidget):
         text = vbox(spacing=theme.px(1))
         self.title = label(t("player.nothing"))
         self.title.setStyleSheet("font-weight:600;")
-        self.artist = label(t("player.hint"), "dim")
+        self.artist = label("", "dim")
         meta = hbox(spacing=theme.px(6))
         self.key_pill = CamelotPill()
         self.bpm = label("", "dim")
@@ -125,6 +125,7 @@ class PlayerBar(QWidget):
         self.play_btn = icon_button("play", self.ctrl.toggle_play, t("player.play_pause"), size=18,
                                     color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
+        self.play_btn.setFixedSize(theme.px(34), theme.px(34))
         self.next_btn = icon_button("next", self.ctrl.play_next, t("player.next"))
         self.stop_btn = icon_button("stop", self.player.stop, t("player.stop"))
         for b in (self.prev_btn, self.play_btn, self.next_btn, self.stop_btn):
@@ -228,13 +229,13 @@ class PlayerBar(QWidget):
         def show(track: Any) -> None:
             entries: list = []
             if track.is_analysed:
-                entries.append((t("lib.edit_grid"), self._edit_grid))
-            entries.append((t("action.edit_metadata"), lambda: self._edit_metadata(track)))
+                entries.append((t("lib.edit_grid"), self._edit_grid, "grid"))
+            entries.append((t("action.edit_metadata"), lambda: self._edit_metadata(track), "edit"))
             entries.append((t("player.analyse_again") if track.is_analysed else t("action.analyse"),
-                            lambda: self.ctrl.analyze([track.content_id], force=track.is_analysed)))
+                            lambda: self.ctrl.analyze([track.content_id], force=track.is_analysed), "wave"))
             if track.camelot:
-                entries += [None, (t("lib.show_compatible", code=track.camelot), lambda: self._compatible(track))]
-            entries += [None, (t("player.show_in_library"), lambda: self._show_in_library(track))]
+                entries += [None, (t("lib.show_compatible", code=track.camelot), lambda: self._compatible(track), "key")]
+            entries += [None, (t("player.show_in_library"), lambda: self._show_in_library(track), "library")]
             b = self.more_btn
             popup_menu(b, entries, b.mapToGlobal(b.rect().topLeft()))
 

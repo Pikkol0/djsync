@@ -100,7 +100,7 @@ class GridEditor(QWidget):
         self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
         head = hbox()
-        head.addWidget(button("←  " + t("grid.back"), self.close, kind="flat"))
+        head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
         titles = vbox(spacing=0)
         titles.addWidget(label(track.display_name, "title"))
         self.info = label(t("grid.loading"), "dim")
@@ -116,6 +116,7 @@ class GridEditor(QWidget):
 
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
+        self.canvas.setToolTip(t("grid.hint"))
         self.body.addWidget(self.canvas, 1)
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
@@ -139,7 +140,8 @@ class GridEditor(QWidget):
         self.body.addLayout(tools)
 
         tools2 = hbox()
-        tools2.addWidget(button(t("grid.bar_here"), self._bar_here, kind="primary", tooltip=t("grid.bar_here_tip")))
+        tools2.addWidget(button(t("grid.bar_here"), self._bar_here, kind="primary", icon="grid",
+                                tooltip=t("grid.bar_here_tip")))
         tools2.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
         tools2.addStretch(1)
         tools2.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
@@ -150,19 +152,18 @@ class GridEditor(QWidget):
         self.bpm_entry.setFixedWidth(theme.px(70))
         self.bpm_entry.returnPressed.connect(self._apply_bpm)
         tools2.addWidget(self.bpm_entry)
-        tools2.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, tooltip=t("grid.apply_bpm_tip")))
+        tools2.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, icon="check", tooltip=t("grid.apply_bpm_tip")))
         self.body.addLayout(tools2)
-        self.body.addWidget(label(t("grid.hint"), "faint", wrap=True))
 
         bar = hbox()
-        self.reset_btn = button(t("grid.reset"), self._reset)
+        self.reset_btn = button(t("grid.reset"), self._reset, icon="refresh")
         bar.addWidget(self.reset_btn)
         self.state_lbl = label("", "dim")
         bar.addWidget(self.state_lbl, 1)
-        self.save_btn = button(t("action.save"), self._save, kind="primary")
+        self.save_btn = button(t("action.save"), self._save, kind="primary", icon="check")
         self.save_btn.setEnabled(False)
         bar.addWidget(self.save_btn)
-        bar.addWidget(button(t("grid.back"), self.close))
+        bar.addWidget(button(t("grid.back"), self.close, icon="back"))
         self.body.addLayout(bar)
 
         for seq, fn in ((Qt.Key_Left, lambda: self._shift(-1)), (Qt.Key_Right, lambda: self._shift(1)),
