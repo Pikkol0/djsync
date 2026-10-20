@@ -104,6 +104,7 @@ class DJSyncApp(ctk.CTk):
         self.ctrl.on("library", self._library_changed)
         self.ctrl.on("rebuild_ui", self.rebuild_ui)
         self.ctrl.on("zoom", self._apply_zoom)
+        self.ctrl.on("analysis", self._analysis_changed)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()
@@ -212,6 +213,7 @@ class DJSyncApp(ctk.CTk):
         self.show(current)
         self._drive_changed()
         self._badge()
+        self._analysis_changed()
 
     def _build_sidebar(self) -> None:
         bar = ctk.CTkFrame(self, fg_color=theme.SURFACE, corner_radius=0, width=SIDEBAR_WIDTH)
@@ -239,6 +241,27 @@ class DJSyncApp(ctk.CTk):
             btn._icon_name = icon_name  # type: ignore[attr-defined]
             self._nav[key] = btn
 
+        # ---- V0.2.4 : analyse en arrière-plan (visible depuis tous les onglets)
+        an = ctk.CTkFrame(bar, fg_color=theme.ELEV, corner_radius=10, cursor="hand2")
+        self.an_box = an
+        an_head = ctk.CTkFrame(an, fg_color="transparent")
+        an_head.pack(fill="x", padx=(12, 6), pady=(8, 0))
+        self.an_icon = ctk.CTkLabel(an_head, text="", image=ctk_icon("wave", 16, theme.ACCENT))
+        self.an_icon.pack(side="left")
+        self.an_title = theme.label(an_head, t("nav.analysing").upper(), 10, theme.ACCENT, "bold", anchor="w")
+        self.an_title.pack(side="left", padx=(6, 0))
+        self.an_stop = ctk.CTkButton(an_head, text="", image=ctk_icon("stop", 12, theme.DIM), width=24, height=24,
+                                     fg_color="transparent", hover_color=theme.BORDER, command=self.ctrl.stop_analysis)
+        self.an_stop.pack(side="right")
+        self.an_label = theme.label(an, "", 10, theme.DIM, anchor="w", justify="left", wraplength=170)
+        self.an_label.pack(fill="x", padx=12, pady=(2, 2))
+        self.an_bar = ctk.CTkProgressBar(an, height=6, corner_radius=3, fg_color=theme.BORDER,
+                                         progress_color=theme.ACCENT)
+        self.an_bar.set(0)
+        self.an_bar.pack(fill="x", padx=12, pady=(2, 10))
+        for w in (an, an_head, self.an_title, self.an_label, self.an_icon):
+            w.bind("<Button-1>", lambda _e: self.ctrl._emit("show_unanalysed"))
+
         # ---- clé active + remplissage (point 13)
         usb = ctk.CTkFrame(bar, fg_color=theme.ELEV, corner_radius=10)
         usb.grid(row=21, column=0, sticky="ew", padx=10, pady=(10, 6))
@@ -261,6 +284,25 @@ class DJSyncApp(ctk.CTk):
             image=ctk_icon("help", 16, theme.DIM), compound="left", command=self.open_help)
         self.help_btn.pack(fill="x")
 
+    def _analysis_changed(self) -> None:
+        """Carte « Analyse » de la barre latérale : visible tant que la file d'analyse tourne."""
+        q = self.ctrl.analysis
+        box = getattr(self, "an_box", None)
+        if box is None or not box.winfo_exists():
+            return
+        if not q.running:
+            box.grid_forget()
+            return
+        if not box.winfo_ismapped():
+            box.grid(row=20, column=0, sticky="sew", padx=10, pady=(10, 0))
+        self.an_bar.set(q.done / max(1, q.total))
+        compact = bool(self._compact)
+        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
+        self.an_label.configure(text="" if compact else f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
+        self.an_title.configure(text="" if compact else
+                                (t("analysis.stopping") if q.cancelled else t("nav.analysing")).upper())
+        self.an_stop.configure(state="disabled" if q.cancelled else "normal")
+
     # --------------------------------------------------------------- barre repliable
     def _logical_width(self) -> float:
         return self.winfo_width() / max(theme._DPI, 0.5)
@@ -280,6 +322,7 @@ class DJSyncApp(ctk.CTk):
         self.help_btn.configure(text="" if compact else t("help.button"), anchor="center" if compact else "w")
         for w in (self.usb_title, self.usb_label, self.usb_bar, self.usb_free, self.usb_compact):
             w.pack_forget()
+        self._analysis_changed()
         if compact:
             self.usb_compact.pack(pady=8)
         else:

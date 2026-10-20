@@ -37,6 +37,22 @@ Corrigé grâce à ce fichier (le premier modèle était faux sur ces points) :
 * Marge réelle de ce fichier : tonalités ≈ 300 lignes, pochettes ≈ 80 ; dernière page des pistes ≈ 12 ajouts, des playlists ≈ 70 entrées ; au-delà,
   l'ajout de pages est nécessaire (Paramètres, désactivé par défaut) sinon la synchro passe à « à rattraper ».
 
+## V0.2.4 : les mises à jour ne consomment plus la marge
+Avant, chaque mise à jour d'une piste (analyse d'un son déjà présent, BPM corrigé dans l'éditeur de grille,
+titre / artiste) ajoutait une NOUVELLE ligne et marquait l'ancienne supprimée (ses octets restent dans la
+page) : analyser 7 sons pouvait remplir la dernière page et donner « table 0: last page full ».
+* `PdbFile.replace_row` : réécriture **sur place** (même numéro, même offset) quand la ligne ne grandit pas
+  (cas du BPM) ; sinon la page est **réorganisée** avec la nouvelle ligne au même numéro si elle tient ;
+  sinon nouvelle ligne + suppression de l'ancienne (comme avant).
+* `Page.compact` : avant de déclarer une table pleine, la place des lignes supprimées est récupérée (dernière
+  page d'abord, puis les autres). Les lignes valides gardent leur numéro (l'index de la page ne change pas),
+  seul leur offset change ; les emplacements supprimés gardent leur bit à 0.
+* `index_shift` (u16 à +2 des pistes / artistes / albums) recalculé une fois la place de la ligne connue.
+* Message clair quand la table est vraiment pleine : autoriser l'ajout de pages (Paramètres ▸ Anciennes
+  platines) puis « Synchroniser maintenant ».
+Non validé sur platine, comme le reste du module : une page compactée n'est pas une forme que Rekordbox
+produit lui-même, mais les platines ne lisent que les offsets de l'index de la page.
+
 ## Validation à faire (clé de test)
 1. `python -m djsync.db.pdb.check E:\` : doit afficher « Modèle reconnu ».
 2. Ajouter 1 son avec DJSync, le charger sur la platine la plus ancienne.
