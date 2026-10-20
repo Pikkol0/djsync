@@ -37,8 +37,12 @@ def demo(tmp_path, monkeypatch):
     errors = []
     window.report_callback_exception = lambda *a: errors.append(a[1])
     window.errors = errors
+    window.maxsize(4000, 4000)        # Xvfb (640 x 480 par défaut) : Tk borne sinon la fenêtre à l'écran
     window.geometry("1280x800+0+0")
     assert pump(window, 6, lambda: window.ctrl.has_library)
+    # V0.2.2 : la fenêtre s'ouvre à la taille de l'écran ; Xvfb vaut 640 x 480 par défaut -> on
+    # attend que la fenêtre agrandie ci-dessus soit prise en compte (barre latérale complète)
+    pump(window, 3, lambda: window._compact is False)
     yield window
     window.ctrl.shutdown()
     window.destroy()
@@ -56,15 +60,15 @@ def _find(root, cls):
 
 def test_tabs_home_and_english_default(demo):
     assert list(demo.views) == ["home", "search", "library", "downloads", "import", "settings"]
-    assert demo._nav["home"].cget("text") == "Home" and demo.current == "home"
+    assert demo._nav["home"].cget("text") == "Home" and demo.current == "home", (demo._compact, demo.winfo_width(), demo._logical_width(), demo.ctrl.settings.sidebar_compact)
     home = demo.views["home"]
-    assert pump(demo, 3, lambda: home._summaries and home._summaries[0].tracks == 10)
+    assert pump(demo, 8, lambda: home._summaries and home._summaries[0].tracks == 10)
     s = home._summaries[0]
     assert s.connected and s.playlists == 4 and s.unanalysed == 10 and s.total > 0
     # omnibar : texte -> Recherche ; lien -> Import
     home.omnibar.insert(0, "daft punk")
     home._go()
-    assert demo.current == "search" and pump(demo, 3, lambda: demo.views["search"].table.count == 3)
+    assert demo.current == "search" and pump(demo, 8, lambda: demo.views["search"].table.count == 3)
     assert demo.ctrl.is_url("https://open.spotify.com/playlist/37i9dQZF1DX") and not demo.ctrl.is_url("daft punk")
     assert not demo.errors
 
@@ -185,3 +189,35 @@ def test_dialogs_open(demo):
     md._ok()
     assert pump(demo, 4, lambda: any(x.title == "Nouveau titre" for x in lib.all_tracks))
     assert not demo.errors
+
+
+def test_window_always_fits_the_screen_and_splash(tmp_path, monkeypatch):
+    """V0.2.2 : la fenêtre ne dépasse jamais de l'écran (géométrie enregistrée trop grande ou sur
+    un autre écran) ; l'écran de démarrage se ferme quand la fenêtre est prête."""
+    import tkinter
+
+    monkeypatch.setenv("DJSYNC_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
+    import djsync.ui.controller as controller
+
+    monkeypatch.setattr(controller, "find_usb_drives", lambda: [])
+    from djsync.ui import splash
+    from djsync.ui.app import DJSyncApp
+
+    screen = splash.show()
+    if screen is None:
+        pytest.skip("pas d'écran disponible")
+    assert tkinter._default_root is None                  # la vraie fenêtre deviendra la racine
+    s = Settings()
+    s.geometry = "9000x6000+12000+40"
+    app = DJSyncApp(s, splash=screen)
+    try:
+        pump(app, 0.6)
+        sw, sh, _k = app._screen_logical()
+        w, h = app.winfo_width(), app.winfo_height()
+        assert w <= sw and h <= sh and 0 <= app.winfo_x() <= sw - 100
+        assert screen.root is None
+        assert tkinter._default_root is app
+    finally:
+        app.ctrl.shutdown()
+        app.destroy()

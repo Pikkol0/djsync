@@ -72,6 +72,8 @@ class Settings:
     zoom_auto: bool = True             # l'interface suit aussi la taille de la fenêtre
     sidebar_compact: str = "auto"      # auto (repliée si fenêtre étroite) | on | off
     harmonic_filter: bool = False      # dernier état du filtre « compatibles harmoniquement »
+    # ---- V0.2.2
+    maximized: bool = False            # fenêtre rouverte agrandie si elle l'était à la fermeture
 
     @classmethod
     def path(cls) -> Path:

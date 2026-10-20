@@ -1,5 +1,5 @@
-"""Point d'entrée de DJSync :  python app.py   (ou, une fois compilé, DJSync.exe)."""
-from djsync.ui.app import main
+"""DJSync entry point:  python app.py   (or DJSync.exe once built)."""
+from djsync.ui.launcher import main
 
 if __name__ == "__main__":
     main()
