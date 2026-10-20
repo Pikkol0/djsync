@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.1-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.2-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -68,7 +68,7 @@ On Linux, Tkinter comes from the system (`sudo apt install python3-tk`).
 pip install pyinstaller
 pyinstaller packaging/DJSync.spec
 ```
-Builds `dist/DJSync.exe`. Copy it to the drive with `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` next to it:
+Builds `dist/DJSync.exe` (with a splash screen shown while it starts). Copy it to the drive with `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` next to it:
 DJSync then recognises the drive it runs from and connects to it automatically.
 *(Build not yet validated on a Windows machine.)*
 
@@ -121,7 +121,7 @@ docs/                   technical notes (in French for now)
 ```bash
 pip install pytest
 python -m pytest -q                 # Windows: everything, UI included
-xvfb-run -a python -m pytest -q     # Linux without a display
+xvfb-run -a -s "-screen 0 1920x1200x24" python -m pytest -q   # Linux without a display
 ```
 Tests use neither the network nor a real drive: generated Rekordbox database, synthetic tracks.
 A test also checks that no French text is hard-coded outside the translation file.
@@ -136,7 +136,8 @@ Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 
 
 | Version | Changes |
 |---|---|
-| **0.2.1** | Fully English software: error messages, logs and command-line tools included; French kept as an optional interface translation (partial translations fall back to English). English README, obsolete console demos removed. |
+| **0.2.2** | Window always opens inside the screen (saved size/position clamped, maximised state remembered); lightweight splash screen at launch (also a native splash for the Windows executable). |
+| 0.2.1 | Fully English software: error messages, logs and command-line tools included; French kept as an optional interface translation (partial translations fall back to English). English README, obsolete console demos removed. |
 | 0.2.0 | New interface: Home + omnibar, search as you type, "All tracks", Camelot pills, drag and drop onto playlists, harmonic filter, player previous/next + waveform, zoom and small windows, English by default, logo per colour. On-demand analysis, beat grid editor, duplicates tool, help and shortcuts. Code split (library, controller). |
 | 0.1.6 | Local BPM / key / ANLZ waveform analysis, date added and artwork in both databases, calibration on a real drive (MP3 encoder delay). |
 | 0.1.x | YouTube Music search and download, Spotify/YouTube/SoundCloud import, writing to exportLibrary.db then export.pdb, library and playlists, player, portable mode. |

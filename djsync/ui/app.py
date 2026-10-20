@@ -8,9 +8,10 @@ Paramètres. Toute l'interface suit :
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import customtkinter as ctk
 
@@ -38,6 +39,7 @@ SIDEBAR_WIDTH = 216
 SIDEBAR_COMPACT = 64
 COMPACT_BELOW = 1000            # largeur logique sous laquelle la barre latérale passe en icônes
 MIN_W, MIN_H = 760, 500         # fenêtre minimale (pixels logiques) : utilisable en petit
+DEFAULT_W, DEFAULT_H = 1240, 780
 TABS = [  # (clé, clé i18n, icône, classe)
     ("home", "tab.home", "home", HomeView),
     ("search", "tab.search", "search", SearchView),
@@ -54,7 +56,8 @@ def status_color(kind: str) -> str:
 
 
 class DJSyncApp(ctk.CTk):
-    def __init__(self, settings: Optional[Settings] = None, controller: Optional[AppController] = None) -> None:
+    def __init__(self, settings: Optional[Settings] = None, controller: Optional[AppController] = None,
+                 splash: Any = None) -> None:
         settings = settings or Settings.load()
         # Langue, couleur et zoom DOIVENT être appliqués avant la création du moindre widget.
         i18n.set_language(settings.language)
@@ -70,9 +73,9 @@ class DJSyncApp(ctk.CTk):
         theme.set_zoom(settings.zoom, settings.zoom_auto)
         theme.apply_ttk_style(self)
 
+        self.withdraw()                       # montrée une fois construite (pas de fenêtre à moitié dessinée)
         self.title("DJSync")
-        self.minsize(MIN_W, MIN_H)
-        self.geometry(settings.geometry or "1240x780")
+        self._place_window(settings)
         self._set_window_icon()
 
         self.dispatcher = UiDispatcher(self)
@@ -107,7 +110,54 @@ class DJSyncApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.show("home")
         self._drive_changed()
+        self._reveal(splash)
         self.after(150, self.ctrl.startup)
+
+    # ----------------------------------------------------------------- fenêtre à l'écran
+    def _screen_logical(self) -> Tuple[int, int, float]:
+        """Taille de l'écran en unités logiques (celles de geometry() sous customtkinter)."""
+        k = max(0.5, self._get_window_scaling()) if hasattr(self, "_get_window_scaling") else 1.0
+        return int(self.winfo_screenwidth() / k), int(self.winfo_screenheight() / k), k
+
+    def _place_window(self, settings: Settings) -> None:
+        """Taille et position de départ TOUJOURS dans l'écran : la géométrie enregistrée est
+        réduite/recentrée si besoin (autre écran, autre DPI) ; sinon 1240 x 780 au plus, 90 % de
+        la largeur et 85 % de la hauteur de l'écran (barre des tâches), centrée."""
+        sw, sh, _k = self._screen_logical()
+        max_w, max_h = int(sw * 0.9), int(sh * 0.85)
+        self.minsize(min(MIN_W, max_w), min(MIN_H, max_h))
+        m = re.match(r"^(\d+)x(\d+)(?:([+-]-?\d+)([+-]-?\d+))?$", (settings.geometry or "").strip())
+        w, h = (int(m.group(1)), int(m.group(2))) if m else (DEFAULT_W, DEFAULT_H)
+        w, h = max(min(w, max_w), min(MIN_W, max_w)), max(min(h, max_h), min(MIN_H, max_h))
+        if m and m.group(3) is not None:
+            x, y = int(m.group(3)), int(m.group(4))
+            if not (0 <= x <= sw - 120 and 0 <= y <= sh - 80):      # hors écran : recentrée
+                x, y = (sw - w) // 2, max(0, (sh - h) // 3)
+        else:
+            x, y = (sw - w) // 2, max(0, (sh - h) // 3)
+        x, y = min(max(0, x), max(0, sw - w)), min(max(0, y), max(0, sh - h))
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self._start_maximized = bool(settings.maximized)
+
+    def _reveal(self, splash: Any) -> None:
+        """Affiche la fenêtre construite puis ferme l'écran de démarrage (Python ou PyInstaller)."""
+        self.update_idletasks()
+        self.deiconify()
+        if self._start_maximized:
+            try:
+                self.state("zoomed")          # Windows
+            except Exception:  # noqa: BLE001 - Linux : attribut -zoomed
+                try:
+                    self.attributes("-zoomed", True)
+                except Exception:  # noqa: BLE001
+                    pass
+        self.lift()
+        self.focus_force()
+        if splash is not None:
+            self.after(60, splash.close)
+        from .splash import close_native
+
+        close_native()
 
     # ------------------------------------------------------------------ construction
     def _set_window_icon(self) -> None:
@@ -371,7 +421,14 @@ class DJSyncApp(ctk.CTk):
 
     def _close(self) -> None:
         try:
-            self.ctrl.settings.geometry = self.geometry().split("+")[0] if self.state() == "zoomed" else self.geometry()
+            zoomed = self.state() == "zoomed"
+            try:
+                zoomed = zoomed or bool(self.attributes("-zoomed"))
+            except Exception:  # noqa: BLE001 - attribut absent sous Windows
+                pass
+            self.ctrl.settings.maximized = zoomed
+            if not zoomed:                     # agrandie : on garde la taille « normale » d'avant
+                self.ctrl.settings.geometry = self.geometry()
         except Exception:  # noqa: BLE001
             pass
         self.ctrl.shutdown()
@@ -379,11 +436,10 @@ class DJSyncApp(ctk.CTk):
 
 
 def main() -> None:
-    from .. import portable
-    portable.prepare_environment()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    app = DJSyncApp()
-    app.mainloop()
+    """Compatibilité : le lancement normal passe par ui/launcher.py (écran de démarrage)."""
+    from .launcher import main as launch
+
+    launch()
 
 
 if __name__ == "__main__":

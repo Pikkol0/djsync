@@ -8,9 +8,11 @@ Deux rendus de la MÊME géométrie :
 from __future__ import annotations
 
 import tkinter as tk
-from typing import Any, List, Tuple
+from typing import TYPE_CHECKING, Any, List, Tuple
 
-from PIL import Image, ImageDraw
+if TYPE_CHECKING:  # Pillow n'est importé qu'à l'usage (démarrage plus rapide)
+    from PIL import Image
+
 
 # barres : (position x relative 0-1, demi-hauteur relative 0-1) -> « pulsation » symétrique
 BARS: List[Tuple[float, float]] = [(0.20, 0.16), (0.32, 0.34), (0.44, 0.24), (0.56, 0.44),
@@ -36,8 +38,10 @@ def geometry(size: float) -> Tuple[Tuple[float, float, float, float], List[Tuple
     return tile, bars
 
 
-def logo_image(size: int, accent: str, background: str = "#1A1A20", transparent: bool = False) -> Image.Image:
-    """Logo en image (suréchantillonné x4)."""
+def logo_image(size: int, accent: str, background: str = "#1A1A20", transparent: bool = False) -> "Image.Image":
+    """Logo en image (suréchantillonné x4). Pillow importé ici : l'écran de démarrage n'en a pas besoin."""
+    from PIL import Image, ImageDraw
+
     k = 4
     big = size * k
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))

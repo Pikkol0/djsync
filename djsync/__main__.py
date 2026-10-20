@@ -1,3 +1,3 @@
-from .ui.app import main
+from .ui.launcher import main
 
 main()
