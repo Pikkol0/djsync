@@ -56,7 +56,7 @@ class TracksMixin:
     def get_track(self, content_id: int) -> LibraryTrack:
         rows = self._read(_track_select(self._has_key) + " WHERE c.content_id = ?", (content_id,))
         if not rows:
-            raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
         return self._track(rows[0])
 
     def find_by_source_url(self, url_or_video_id: str) -> Optional[LibraryTrack]:
@@ -83,13 +83,13 @@ class TracksMixin:
 
         ftype = FILE_TYPES.get(path.suffix.lower())
         if ftype is None:
-            raise UnsupportedFormatError(f"Format non géré : {path.suffix or '(sans extension)'}")
+            raise UnsupportedFormatError(f"Unsupported format: {path.suffix or '(no extension)'}")
         try:
             audio = mutagen.File(str(path))
         except Exception as exc:  # mutagen lève des erreurs variées sur fichier tronqué
-            raise UnsupportedFormatError(f"Fichier audio illisible : {exc}") from exc
+            raise UnsupportedFormatError(f"Unreadable audio file: {exc}") from exc
         if audio is None or audio.info is None:
-            raise UnsupportedFormatError("Fichier audio illisible (en-tête invalide).")
+            raise UnsupportedFormatError("Unreadable audio file (invalid header).")
         info = audio.info
         return {
             "fileType": ftype,
@@ -119,7 +119,7 @@ class TracksMixin:
             row = conn.execute("SELECT path, analysisDataFilePath, masterDbId FROM content WHERE content_id = ?",
                                (content_id,)).fetchone()
             if row is None:
-                raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+                raise TrackNotFoundError(f"Track not found (id {content_id}).")
             path, anlz_path, master = row
             affected = [r[0] for r in conn.execute(
                 "SELECT DISTINCT playlist_id FROM playlist_content WHERE content_id = ?", (content_id,))]
@@ -160,7 +160,7 @@ class TracksMixin:
                 folder.rmdir()
                 folder = folder.parent
         except (OSError, ValueError, UnicodeDecodeError) as exc:
-            log.warning("Fichiers d'analyse non supprimés (%s) : %s", dat, exc)
+            log.warning("Analysis files not deleted (%s): %s", dat, exc)
 
     def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
         """Supprime plusieurs sons sous une seule sauvegarde.
@@ -182,7 +182,7 @@ class TracksMixin:
         target = (root / db_path.lstrip("/")).resolve()
         # Garde-fou : jamais hors de la clé, jamais autre chose qu'un fichier audio connu.
         if root not in target.parents or target.suffix.lower() not in FILE_TYPES:
-            log.error("Suppression refusée (chemin suspect) : %s", target)
+            log.error("Deletion refused (suspicious path): %s", target)
             return False
         try:
             target.unlink(missing_ok=True)
@@ -193,5 +193,5 @@ class TracksMixin:
                 parent = parent.parent
             return True
         except OSError as exc:
-            log.warning("Fichier non supprimé (%s) : %s", target, exc)
+            log.warning("File not deleted (%s): %s", target, exc)
             return False

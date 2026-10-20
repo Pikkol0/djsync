@@ -1,34 +1,31 @@
-# ===== DJSync : dépendances Python (Python 3.10+ ; testé en 3.12) =====
+# ===== DJSync: Python dependencies (Python 3.10+; tested with 3.12) =====
 
 # --- Interface ---
-customtkinter>=5.2.2       # interface sombre (testé en 5.2.2 et 6.0.0)
-Pillow>=10.0.0             # pochettes, miniatures, icônes de la barre de lecture
-pygame>=2.5.0              # lecteur audio intégré (mixer uniquement)
+customtkinter>=5.2.2       # dark UI (tested with 5.2.2 and 6.0.0)
+Pillow>=10.0.0             # artwork, thumbnails, icons
+pygame>=2.5.0              # built-in audio player (mixer only)
 
-# --- Recherche, import par URL, téléchargement ---
-ytmusicapi>=1.8.0          # recherche YouTube Music (sans authentification)
-yt-dlp[default]>=2025.1.1  # téléchargement ; l'extra [default] apporte yt-dlp-ejs (obligatoire pour YouTube)
-mutagen>=1.47.0            # tags m4a/mp3 et propriétés audio
-numpy>=1.24                # analyse audio locale V1.1-A4 : BPM, tonalité, formes d'onde ANLZ (seule dépendance ajoutée)
-rapidfuzz>=3.6.0           # doublons + correspondance Spotify -> YouTube Music
-requests>=2.31.0           # pochettes, page publique Spotify
+# --- Search, URL import, download ---
+ytmusicapi>=1.8.0          # YouTube Music search (no authentication)
+yt-dlp[default]>=2025.1.1  # download; the [default] extra brings yt-dlp-ejs (required for YouTube)
+mutagen>=1.47.0            # m4a/mp3 tags and audio properties
+numpy>=1.24                # local audio analysis: BPM, key, ANLZ waveforms
+rapidfuzz>=3.6.0           # duplicates + Spotify -> YouTube Music matching
+requests>=2.31.0           # artwork, public Spotify page
 
-# --- Base exportLibrary.db (chiffrée SQLCipher 4, mode WAL) ---
-sqlcipher3-wheels>=0.5.5   # remplace sqlite3 : le module standard ne peut PAS ouvrir cette base
+# --- exportLibrary.db (SQLCipher 4 encrypted, WAL mode) ---
+sqlcipher3-wheels>=0.5.5   # replaces sqlite3: the standard module CANNOT open this database
 
-# --- Tests (optionnel) ---
-# pytest>=8.0              # linux : xvfb-run -a pytest ; le test d'interface est ignoré sans écran
+# --- Tests (optional) ---
+# pytest>=8.0              # Linux: xvfb-run -a pytest ; UI tests are skipped without a display
 
-# --- Compilation en .exe (optionnel) ---
+# --- Windows executable (optional) ---
 # pyinstaller>=6.0.0
 
-# NOTES (pas des paquets pip)
-#  * FFmpeg (ffmpeg.exe + ffprobe.exe) : requis (téléchargement + lecture m4a). Dans le PATH, ou
-#    dossier indiqué dans Paramètres > FFmpeg.
-#  * Deno (ou Node) : yt-dlp en a besoin pour YouTube (résolution du JavaScript du lecteur).
-#    Sans lui, certains téléchargements YouTube échouent. https://deno.com
-
-# NOTE V1.1-A3 : export.pdb est écrit par djsync/db/pdb (Python pur) : aucune dépendance en plus.
-# NOTE V1.1-A4 : l'analyse (djsync/analysis) n'utilise QUE numpy + FFmpeg (déjà requis) : pas de
-#   librosa/scipy/numba (~150 Mo) ; l'exécutable portable grossit d'environ 15-20 Mo (numpy).
-# Mode portable : voir djsync/portable.py et packaging/DJSync.spec.
+# NOTES (not pip packages)
+#  * FFmpeg (ffmpeg + ffprobe): required (download, m4a playback, analysis). In the PATH, or the
+#    folder set in Settings > FFmpeg.
+#  * Deno (or Node): needed by yt-dlp for YouTube (player JavaScript). Without it, some YouTube
+#    downloads fail. https://deno.com
+#  * export.pdb is written by djsync/db/pdb (pure Python) and the analysis (djsync/analysis) only
+#    uses numpy + FFmpeg: no librosa/scipy/numba (~150 MB).

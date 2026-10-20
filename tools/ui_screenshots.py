@@ -101,7 +101,7 @@ def main() -> int:
     ap.add_argument("--sizes", default="860x560,1280x800,1680x1050")
     ap.add_argument("--lang", default="en")
     ap.add_argument("--theme", default=None)
-    ap.add_argument("--dialogs", action="store_true", help="captures aussi Aide, Analyse, Doublons, Grille, lecteur")
+    ap.add_argument("--dialogs", action="store_true", help="also capture Help, Analysis, Duplicates, Grid editor, player")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="djsync_shots_"))
@@ -145,7 +145,7 @@ def main() -> int:
         shoot_dialogs(app, args.out)
     app.ctrl.shutdown()
     app.destroy()
-    print("captures :", args.out)
+    print("screenshots:", args.out)
     return 0
 
 

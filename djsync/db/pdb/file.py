@@ -138,21 +138,21 @@ class Page:
         """Vérifie que la page respecte le modèle (sinon PdbFormatError : on n'y écrit pas)."""
         n = self.num_slots
         if self.is_index:
-            raise PdbFormatError(f"page {self.index} : page d'index, pas de données")
+            raise PdbFormatError(f"page {self.index}: index page, no data")
         if self.flags not in (0x24, 0x34):
             raise PdbFormatError(f"page {self.index} : drapeaux de page inconnus ({self.flags:#x})")
         if n > MAX_SLOTS or self.heap_end % 4:
-            raise PdbFormatError(f"page {self.index} : compteurs incohérents")
+            raise PdbFormatError(f"page {self.index}: inconsistent counters")
         if self.heap_end + self.free + index_size(n) != PAGE_SIZE:      # vrai sur les 40 pages d'un export réel
-            raise PdbFormatError(f"page {self.index} : tailles libre/utilisée incohérentes")
+            raise PdbFormatError(f"page {self.index}: inconsistent free/used sizes")
         valid = sum(1 for i in range(n) if self.present(i))
         if valid != self.num_valid:
-            raise PdbFormatError(f"page {self.index} : nombre de lignes valides incohérent")
+            raise PdbFormatError(f"page {self.index}: inconsistent valid row count")
 
         for i in range(n):
             off = self.row_offset(i)
             if self.present(i) and (not (HEADER <= off < self.heap_end) or off % 4):
-                raise PdbFormatError(f"page {self.index} : ligne {i} hors du tas (offset {off:#x})")
+                raise PdbFormatError(f"page {self.index}: row {i} outside the heap (offset {off:#x})")
 
     def can_fit(self, row_len: int) -> bool:
         n = self.num_slots
@@ -161,7 +161,7 @@ class Page:
     def append(self, row: bytes, seq: int) -> int:
         """Ajoute une ligne (déjà alignée sur 4 octets) ; renvoie son numéro."""
         if len(row) % 4 or not self.can_fit(len(row)):
-            raise PdbCapacityError(f"page {self.index} : pas de place pour {len(row)} octets")
+            raise PdbCapacityError(f"page {self.index}: no room for {len(row)} bytes")
         n, start = self.num_slots, self.heap_end
         self.data[self.base + start: self.base + start + len(row)] = row
         g, k = divmod(n, 16)
@@ -190,28 +190,28 @@ class Page:
 class PdbFile:
     def __init__(self, data: bytes, allow_growth: bool = False) -> None:
         if len(data) < 2 * PAGE_SIZE:
-            raise PdbFormatError("fichier trop court pour un export.pdb")
+            raise PdbFormatError("file too short for an export.pdb")
         self.data = bytearray(data)
         self.allow_growth = allow_growth
         if u32(self.data, 0) != 0 or u32(self.data, 4) != PAGE_SIZE:
-            raise PdbFormatError(f"taille de page {u32(self.data, 4)} (attendu : {PAGE_SIZE})")
+            raise PdbFormatError(f"page size {u32(self.data, 4)} (expected: {PAGE_SIZE})")
         if len(data) % PAGE_SIZE:
-            raise PdbFormatError("taille du fichier non multiple de la taille de page")
+            raise PdbFormatError("file size is not a multiple of the page size")
         self.n_pages = len(data) // PAGE_SIZE
         count = u32(self.data, 8)
         if not 1 <= count <= 64 or FILE_TABLES_AT + 16 * count > PAGE_SIZE:
-            raise PdbFormatError(f"nombre de tables invraisemblable : {count}")
+            raise PdbFormatError(f"implausible table count: {count}")
         self.next_unused = u32(self.data, 0x0C)
         # Constaté sur un vrai export : next_unused = nombre de pages + 1 (la page « vide candidate » de
         # la dernière table n'existe pas encore physiquement : le fichier s'arrête à la dernière page écrite).
         if not 2 <= self.next_unused <= self.n_pages + 8:
-            raise PdbFormatError("prochaine page libre hors du fichier")
+            raise PdbFormatError("next free page outside the file")
         self.seq = u32(self.data, 0x14)
         self.tables: Dict[int, TableRef] = {}
         for slot in range(count):
             t, empty, first, last = struct.unpack_from("<IIII", self.data, FILE_TABLES_AT + 16 * slot)
             if t in self.tables:
-                raise PdbFormatError(f"table {t} déclarée deux fois")
+                raise PdbFormatError(f"table {t} declared twice")
             self.tables[t] = TableRef(slot, t, empty, first, last)
         self.touched: set = set()
         self._begun = False
@@ -219,12 +219,12 @@ class PdbFile:
     # ------------------------------------------------------------------ navigation
     def page(self, index: int) -> Page:
         if not 1 <= index < self.n_pages:
-            raise PdbFormatError(f"page {index} hors du fichier ({self.n_pages} pages)")
+            raise PdbFormatError(f"page {index} outside the file ({self.n_pages} pages)")
         return Page(self.data, index)
 
     def table(self, ttype: int) -> TableRef:
         if ttype not in self.tables:
-            raise PdbFormatError(f"table {ttype} absente du fichier")
+            raise PdbFormatError(f"table {ttype} missing from the file")
         return self.tables[ttype]
 
     def chain(self, ttype: int) -> List[int]:
@@ -234,10 +234,10 @@ class PdbFile:
         p = tab.first_page
         while True:
             if p in out:
-                raise PdbFormatError(f"table {ttype} : boucle dans la liste de pages")
+                raise PdbFormatError(f"table {ttype}: loop in the page list")
             page = self.page(p)
             if page.index != p or page.type != ttype or page.u32(0x04) != p:
-                raise PdbFormatError(f"table {ttype} : la page {p} n'appartient pas à la table")
+                raise PdbFormatError(f"table {ttype}: page {p} does not belong to the table")
             out.append(p)
             if p == tab.last_page:
                 return out
@@ -258,7 +258,7 @@ class PdbFile:
                 end = _rows.row_end(ttype, self.data, page.base + off) - page.base
                 if end > page.heap_end:
                     raise PdbFormatError(
-                        f"page {p} : la ligne {i} dépasse la zone « utilisée » ({end:#x} > {page.heap_end:#x})")
+                        f"page {p}: row {i} goes beyond the used area ({end:#x} > {page.heap_end:#x})")
                 yield p, i, off
 
     # ------------------------------------------------------------------ écriture
@@ -275,7 +275,7 @@ class PdbFile:
     def insert_row(self, ttype: int, row: bytes) -> Tuple[int, int]:
         """Ajoute une ligne à la table ; renvoie (page, numéro de ligne)."""
         if len(row) % 4:
-            raise PdbFormatError("ligne non alignée sur 4 octets")
+            raise PdbFormatError("row not aligned on 4 bytes")
         self._begin()
         pages = self.data_pages(ttype)
         if pages:
@@ -286,10 +286,10 @@ class PdbFile:
                 return last.index, last.append(row, self.seq)
         if not self.allow_growth:
             raise PdbCapacityError(
-                f"table {ttype} : dernière page pleine (l'agrandissement d'une table est désactivé par prudence)")
+                f"table {ttype}: last page full (growing a table is disabled for safety)")
         page = self.page(self._grow(ttype, pages))
         if not page.can_fit(len(row)):
-            raise PdbFormatError("ligne plus grande qu'une page")
+            raise PdbFormatError("row larger than a page")
         return page.index, page.append(row, self.seq)
 
     def delete_row(self, page: int, slot: int) -> None:
@@ -297,7 +297,7 @@ class PdbFile:
         pg = self.page(page)
         pg.check_data_page()
         if not pg.present(slot):
-            raise PdbFormatError(f"page {page} : ligne {slot} déjà supprimée")
+            raise PdbFormatError(f"page {page}: row {slot} already deleted")
         pg.delete(slot, self.seq)
         self.touched.add(page)
 
@@ -319,18 +319,18 @@ class PdbFile:
         chain = self.chain(ttype)
         last = self.page(chain[-1])
         if last.next_page != tab.empty_candidate:
-            raise PdbFormatError(f"table {ttype} : la dernière page ne pointe pas sur la page vide candidate")
+            raise PdbFormatError(f"table {ttype}: the last page does not point to the empty candidate page")
         new = tab.empty_candidate
         spare = max(self.next_unused, new + 1)       # future page vide candidate de la table
         if new < 1 or new in chain or new > self.n_pages + 64:
-            raise PdbFormatError(f"table {ttype} : page vide candidate invalide ({new})")
+            raise PdbFormatError(f"table {ttype}: invalid empty candidate page ({new})")
         if new < self.n_pages and not self.page(new).is_blank():
-            raise PdbFormatError(f"page {new} censée être vide mais non vide")
+            raise PdbFormatError(f"page {new} should be empty but is not")
         if spare < self.n_pages and not self.page(spare).is_blank():
-            raise PdbFormatError(f"page {spare} censée être libre mais non vide")
+            raise PdbFormatError(f"page {spare} should be free but is not empty")
         indexes = [p for p in chain if self.page(p).is_index]
         if len(indexes) > 1 or (indexes and chain[0] != indexes[0]):
-            raise PdbFormatError(f"table {ttype} : organisation des pages d'index non reconnue")
+            raise PdbFormatError(f"table {ttype}: unknown index page layout")
 
         # --- vérifications passées : on écrit
         while self.n_pages <= new:                   # la candidate n'existe pas encore dans le fichier :
@@ -371,9 +371,9 @@ def validate_against(old: bytes, new: bytes, touched: set) -> None:
             fresh.page(p).check_data_page()
         fresh.chain(ttype)
     if fresh.next_unused < max([t.last_page for t in fresh.tables.values()] + [1]) + 1:
-        raise PdbFormatError("prochaine page libre incohérente après modification")
+        raise PdbFormatError("inconsistent next free page after the change")
     for i in range(1, len(old) // PAGE_SIZE):
         if i in touched:
             continue
         if old[i * PAGE_SIZE:(i + 1) * PAGE_SIZE] != new[i * PAGE_SIZE:(i + 1) * PAGE_SIZE]:
-            raise PdbFormatError(f"page {i} modifiée alors qu'elle ne devait pas l'être")
+            raise PdbFormatError(f"page {i} changed although it should not have been")

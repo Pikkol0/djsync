@@ -135,7 +135,7 @@ def test_full_page_marks_stale_then_catch_up_with_growth_heals(tmp_path):
             lib.add_track(make_wav(lib, f"F{i}", f"f{i}"), f"f{i}", f"F{i}", None, None, [1])
             if lib.pdb_state == "stale":
                 break
-        assert lib.pdb_state == "stale" and "pleine" in lib.pdb_problem
+        assert lib.pdb_state == "stale" and "full" in lib.pdb_problem
         assert lib.track_count() >= 1                              # la base OneLibrary, elle, est à jour
         status = lib.pdb_status()
         assert status.state == "stale" and status.missing_tracks >= 1

@@ -95,7 +95,7 @@ def decode_string(buf, pos: int, strict: bool = True) -> str:
     except (IndexError, struct.error):
         pass
     if strict:
-        raise PdbFormatError(f"chaîne DeviceSQL illisible à l'octet {pos}")
+        raise PdbFormatError(f"unreadable DeviceSQL string at byte {pos}")
     return ""
 
 
@@ -106,7 +106,7 @@ def string_span(buf, pos: int) -> int:
         return max(flag >> 1, 1)
     if flag in (0x40, 0x90):
         return u16(buf, pos + 1)
-    raise PdbFormatError(f"chaîne DeviceSQL inconnue (octet {flag:#x}) à {pos}")
+    raise PdbFormatError(f"unknown DeviceSQL string (byte {flag:#x}) at {pos}")
 
 
 def split_name(path: Tuple[str, ...]) -> Tuple[Tuple[str, ...], str]:

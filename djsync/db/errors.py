@@ -18,7 +18,7 @@ class AmbiguousDriveError(LibraryError):
     def __init__(self, drives: Sequence[object]) -> None:
         self.drives = list(drives)
         names = ", ".join(str(d) for d in self.drives)
-        super().__init__(f"Plusieurs clés détectées ({names}) : choisissez la clé active.")
+        super().__init__(f"Several drives detected ({names}): choose the active drive.")
 
 
 class DatabaseOpenError(LibraryError):

@@ -251,10 +251,10 @@ def test_used_size_too_small_is_rejected():
 def test_report_cli_on_good_and_bad_files(tmp_path, capsys):
     good = tmp_path / "export.pdb"
     good.write_bytes(base_pdb())
-    assert "Modèle reconnu" in "\n".join(report(good))
+    assert "Layout recognised" in "\n".join(report(good))
     bad = tmp_path / "bad.pdb"
     bad.write_bytes(b"\0" * 5000)
-    assert "NON RECONNU" in "\n".join(report(bad))
+    assert "NOT RECOGNISED" in "\n".join(report(bad))
     from djsync.db.pdb.check import main
     assert main([str(good)]) == 0 and main([str(bad)]) == 1
 

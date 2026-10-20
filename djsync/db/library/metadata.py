@@ -54,16 +54,16 @@ class MetadataMixin:
                               artist: Optional[str] = None) -> LibraryTrack:
         """Change le titre et/ou l'artiste d'un son (base + export.pdb). Le fichier n'est pas renommé."""
         if self.read_only:
-            raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
+            raise ReadOnlyError("Library opened read-only.")
         title = title.strip() if title is not None else None
         artist = artist.strip() if artist is not None else None
         if title is not None and not title:
-            raise LibraryError("Le titre ne peut pas être vide.")
+            raise LibraryError("The title cannot be empty.")
         with self._write() as conn:
             row = conn.execute("SELECT path, COALESCE(informationUpdateCount,0) FROM content WHERE content_id = ?",
                                (content_id,)).fetchone()
             if row is None:
-                raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+                raise TrackNotFoundError(f"Track not found (id {content_id}).")
             cols: Dict[str, Any] = {}
             if title is not None:
                 cols.update(title=title, titleForSearch=title)
@@ -91,7 +91,7 @@ class MetadataMixin:
         with self.batch():
             with self._write() as conn:
                 if conn.execute("SELECT 1 FROM content WHERE content_id = ?", (keep_id,)).fetchone() is None:
-                    raise TrackNotFoundError(f"Son introuvable (id {keep_id}).")
+                    raise TrackNotFoundError(f"Track not found (id {keep_id}).")
                 q = ",".join("?" * len(remove))
                 affected = [r[0] for r in conn.execute(
                     f"SELECT DISTINCT playlist_id FROM playlist_content WHERE content_id IN ({q})", remove)]
@@ -126,17 +126,17 @@ class MetadataMixin:
         rows = self._read("SELECT analysisDataFilePath, COALESCE(length,0), masterDbId FROM content WHERE content_id = ?",
                           (content_id,))
         if not rows:
-            raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
         anlz, length, master = rows[0]
         if not anlz:
-            raise LibraryError("Ce son n'est pas encore analysé : lancez l'analyse d'abord.")
+            raise LibraryError("This track is not analysed yet: run the analysis first.")
         dat = self.absolute_path(anlz)
         try:
             beats = read_beats(dat.read_bytes())
         except (OSError, ValueError) as exc:
-            raise LibraryError(f"Fichier d'analyse illisible : {exc}") from exc
+            raise LibraryError(f"Unreadable analysis file: {exc}") from exc
         if not beats:
-            raise LibraryError("Ce son n'a pas de grille de temps.")
+            raise LibraryError("This track has no beat grid.")
         return BeatGrid(content_id, beats, int(length) * 1000, dat, master is not None)
 
     def save_beat_grid(self, content_id: int, beats: Sequence[Tuple[int, int, int]]) -> LibraryTrack:
@@ -146,10 +146,10 @@ class MetadataMixin:
         from ...analysis.anlz import _write_atomic, drop_extended_grid, replace_beats
 
         if self.read_only:
-            raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
+            raise ReadOnlyError("Library opened read-only.")
         beats = [(int(n), int(t), int(ms)) for n, t, ms in beats]
         if len(beats) < 2 or any(b[2] >= c[2] for b, c in zip(beats, beats[1:])):
-            raise LibraryError("Grille invalide (au moins deux temps, positions croissantes).")
+            raise LibraryError("Invalid grid (at least two beats, increasing positions).")
         grid = self.beat_grid(content_id)
         files = [grid.dat_path] + [grid.dat_path.with_suffix(s) for s in (".EXT", ".2EX")]
         files = [f for f in files if f.is_file()]
@@ -181,6 +181,6 @@ class MetadataMixin:
                 try:
                     _write_atomic(f, data)
                 except OSError:
-                    log.error("Restauration impossible de %s (copie dans %s)", f, backup)
+                    log.error("Could not restore %s (copy in %s)", f, backup)
             raise
         return self.get_track(content_id)

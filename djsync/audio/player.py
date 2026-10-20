@@ -65,7 +65,7 @@ class AudioPlayer:
         try:
             self._on_event(kind, payload)
         except Exception:  # noqa: BLE001 - un souci d'affichage ne doit jamais casser la lecture
-            log.exception("Gestionnaire d'évènement du lecteur")
+            log.exception("Player event handler")
 
     def _set_state(self, state: str) -> None:
         self.state = state
@@ -117,7 +117,7 @@ class AudioPlayer:
             return out
         ffmpeg = self._ffmpeg()
         if not ffmpeg:
-            raise RuntimeError("FFmpeg est requis pour lire ce format (indiquez son dossier dans Paramètres).")
+            raise RuntimeError("FFmpeg is required to play this format (set its folder in Settings).")
         cmd = [ffmpeg, "-v", "error", "-y", "-i", str(src), "-vn",
                "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", str(out)]
         proc = subprocess.run(
@@ -126,7 +126,7 @@ class AudioPlayer:
         )
         if proc.returncode != 0 or not out.exists():
             out.unlink(missing_ok=True)
-            raise RuntimeError(f"Décodage impossible : {proc.stderr.strip()[-200:] or 'erreur FFmpeg'}")
+            raise RuntimeError(f"Cannot decode: {proc.stderr.strip()[-200:] or 'FFmpeg error'}")
         old = sorted(self._cache_dir().glob("*.wav"), key=lambda p: p.stat().st_mtime)[:-_CACHE_KEEP]
         for f in old:
             if f != out:
@@ -139,7 +139,7 @@ class AudioPlayer:
             playable = path if path.suffix.lower() in _DIRECT else self._decode(path)
             duration = self.probe_duration(str(path)) or self.probe_duration(str(playable))
         except Exception as exc:  # noqa: BLE001
-            message = str(exc) if isinstance(exc, RuntimeError) else f"Lecture impossible : {exc}"
+            message = str(exc) if isinstance(exc, RuntimeError) else f"Cannot play: {exc}"
             self._post(lambda: self._failed(gen, message))
             return
         self._post(lambda: self._start(gen, playable, meta, duration))
@@ -156,7 +156,7 @@ class AudioPlayer:
         """Charge puis lit. Le décodage éventuel se fait en arrière-plan (état LOADING)."""
         path = Path(path)
         if not path.is_file():
-            self._emit("error", f"Fichier introuvable : {path.name} (clé débranchée ?)")
+            self._emit("error", f"File not found: {path.name} (drive unplugged?)")
             return
         self.stop(keep_meta=False)
         self._gen += 1
@@ -178,7 +178,7 @@ class AudioPlayer:
             pygame.mixer.music.play()
         except Exception as exc:  # noqa: BLE001
             self.state = STOPPED
-            self._emit("error", f"Lecture impossible : {exc}")
+            self._emit("error", f"Cannot play: {exc}")
             self._emit("state", STOPPED)
             return
         self.duration = duration
@@ -227,7 +227,7 @@ class AudioPlayer:
             if was_paused:
                 pygame.mixer.music.pause()
         except Exception as exc:  # noqa: BLE001 - format non « seekable »
-            log.warning("Seek impossible : %s", exc)
+            log.warning("Seek failed: %s", exc)
 
     def set_volume(self, volume: float) -> None:
         self._volume = max(0.0, min(1.0, volume))

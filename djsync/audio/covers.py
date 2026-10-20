@@ -38,7 +38,7 @@ def extract_embedded_cover(path: Union[str, Path]) -> Optional[bytes]:
         pics = getattr(audio, "pictures", None)
         return pics[0].data if pics else None
     except Exception as exc:  # noqa: BLE001 - fichier sans tags, tronqué... : pas de pochette
-        log.debug("Pas de pochette dans %s : %s", path, exc)
+        log.debug("No artwork in %s: %s", path, exc)
         return None
 
 

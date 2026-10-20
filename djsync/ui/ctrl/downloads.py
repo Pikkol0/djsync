@@ -71,7 +71,7 @@ class DownloadsMixin:
                 self.dispatcher.post(self.message, "warn", t("msg.pdb_not_updated_track", title=track.title,
                                                              detail=lib.pdb_problem))
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
-            log.warning("Téléchargement %s en échec : %s", job.track.video_id, exc)
+            log.warning("Download %s failed: %s", job.track.video_id, exc)
             job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":

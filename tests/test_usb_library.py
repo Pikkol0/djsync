@@ -279,7 +279,7 @@ def test_diagnose_report(lib, usb):
     rep = diagnose(lib)
     assert rep.legacy_files == ["export.pdb"]
     assert rep.missing_files == ["/Contents/Old/o.wav"]
-    assert any("Ancien format" in p for p in rep.problems)
+    assert any("Legacy format" in p for p in rep.problems)
     assert rep.counter_mismatch                  # property.numberOfContents = 0, 1 son en base
     assert not any("étrangères" in p for p in rep.problems)   # 0 = « aucun » : pas une erreur
 
@@ -291,4 +291,4 @@ def test_diagnose_cli_clean_drive(lib, usb, capsys):
     lib.close()
     assert main([str(usb), "--inspect"]) == 0
     out = capsys.readouterr().out
-    assert "Aucun problème" in out and "color_id" in out
+    assert "No problem" in out and "color_id" in out

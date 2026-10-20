@@ -71,8 +71,8 @@ class Downloader:
             except yt_dlp.utils.DownloadError as exc:
                 if "format is not available" not in str(exc).lower():
                     raise
-                log.warning("Pas de flux m4a natif pour %s : repli en AAC converti.", track.video_id)
-                notify(DownloadProgress("converting", 0.0, "Pas de flux AAC natif : conversion en AAC…"))
+                log.warning("No native m4a stream for %s: falling back to converted AAC.", track.video_id)
+                notify(DownloadProgress("converting", 0.0, "No native AAC stream: converting to AAC…"))
                 path = self._run(
                     track, dest, base,
                     {
@@ -90,10 +90,10 @@ class Downloader:
             raise
 
         if tag:
-            notify(DownloadProgress("tagging", 100.0, "Écriture des tags…"))
+            notify(DownloadProgress("tagging", 100.0, "Writing tags…"))
             tag_audio(str(path), track)
         notify(DownloadProgress("done", 100.0))
-        log.info("Téléchargé : %s", path)
+        log.info("Downloaded: %s", path)
         return DownloadedTrack(track=track, file_path=str(path))
 
     def _run(self, track: TrackResult, dest: Path, base: str, extra: dict,
@@ -124,5 +124,5 @@ class Downloader:
         if final is None or not final.exists():
             final = next((dest / f"{base}{ext}" for ext in _READABLE if (dest / f"{base}{ext}").exists()), None)
         if final is None:
-            raise FileNotFoundError(f"Fichier attendu introuvable dans {dest}")
+            raise FileNotFoundError(f"Expected file not found in {dest}")
         return final

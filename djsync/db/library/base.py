@@ -80,7 +80,7 @@ class LibraryBase:
             if self._conn is not None:
                 return self
             if not self.db_path.is_file():
-                raise DatabaseOpenError(f"Base introuvable : {self.db_path}")
+                raise DatabaseOpenError(f"Database not found: {self.db_path}")
 
             conn = sqlcipher.connect(
                 str(self.db_path),
@@ -96,20 +96,20 @@ class LibraryBase:
                 conn.close()
                 if "locked" in str(exc).lower() or "busy" in str(exc).lower():
                     raise DatabaseLockedError(
-                        "La base est utilisée par un autre programme (Rekordbox est-il ouvert ?)."
+                        "The database is used by another program (is Rekordbox open?)."
                     ) from exc
                 raise DatabaseOpenError(str(exc)) from exc
             except sqlcipher.DatabaseError as exc:
                 conn.close()
                 raise DatabaseOpenError(
-                    "Impossible de déchiffrer la base (mauvaise clé, fichier corrompu "
-                    "ou ce n'est pas une base OneLibrary)."
+                    "Cannot decrypt the database (wrong key, corrupted file "
+                    "or not a OneLibrary database)."
                 ) from exc
 
             missing = REQUIRED_TABLES - tables
             if missing:
                 conn.close()
-                raise DatabaseOpenError(f"Base inattendue, tables manquantes : {sorted(missing)}")
+                raise DatabaseOpenError(f"Unexpected database, missing tables: {sorted(missing)}")
 
             conn.execute("PRAGMA synchronous = FULL")  # support amovible : durabilité avant vitesse
             if self.read_only:
@@ -128,11 +128,11 @@ class LibraryBase:
             self._has_image = "image" in tables and any(
                 c[1] == "path" for c in conn.execute('PRAGMA table_info("image")'))
             self._conn = conn
-            log.info("Bibliothèque ouverte : %s (journal=%s)", self.db_path, self.journal_mode)
+            log.info("Library opened: %s (journal=%s)", self.db_path, self.journal_mode)
         try:                      # état de export.pdb (lecture seule) : n'empêche jamais la connexion
             self.pdb_status()
         except Exception:  # noqa: BLE001
-            log.exception("État de export.pdb indéterminé")
+            log.exception("export.pdb state unknown")
         return self
 
     def close(self) -> None:
@@ -152,7 +152,7 @@ class LibraryBase:
 
     def _db(self) -> Any:
         if self._conn is None:
-            raise LibraryError("Bibliothèque non connectée : appelez connect().")
+            raise LibraryError("Library not connected: call connect().")
         return self._conn
 
     # ------------------------------------------------------------ WAL / transactions
@@ -161,9 +161,9 @@ class LibraryBase:
         try:
             busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
             if busy:
-                log.warning("Checkpoint WAL incomplet : un autre processus lit la base.")
+                log.warning("Incomplete WAL checkpoint: another process is reading the database.")
         except sqlcipher.Error as exc:
-            log.warning("Checkpoint WAL impossible : %s", exc)
+            log.warning("WAL checkpoint failed: %s", exc)
 
     @property
     def backup_dir(self) -> Path:
@@ -211,7 +211,7 @@ class LibraryBase:
                     old.unlink(missing_ok=True)
             log.info("Sauvegarde : %s", target.name)
         except OSError as exc:
-            raise LibraryError(f"Sauvegarde impossible, écriture annulée par prudence : {exc}") from exc
+            raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         self._session_backed_up = True
         if self._batch_depth > 0:
             self._batch_backed_up = True
@@ -222,14 +222,14 @@ class LibraryBase:
         with self._lock:
             conn = self._db()
             if self.read_only:
-                raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
+                raise ReadOnlyError("Library opened read-only.")
             self._backup_before_write()
             self._txn_ops = []
             try:
                 conn.execute("BEGIN IMMEDIATE")
             except sqlcipher.OperationalError as exc:
                 raise DatabaseLockedError(
-                    "Impossible d'écrire : base verrouillée (Rekordbox ouvert ?)."
+                    "Cannot write: database locked (Rekordbox open?)."
                 ) from exc
             try:
                 yield conn

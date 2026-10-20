@@ -47,46 +47,46 @@ class DiagnosticReport:
             if self.pdb_state == "ok":
                 pass   # export.pdb reconnu et à jour : rien à signaler
             else:
-                why = {"unsupported": "format non reconnu par DJSync, il n'est pas mis à jour",
-                       "stale": "il ne contient pas tous les sons/playlists (Paramètres > Synchroniser)",
-                       "off": "synchronisation désactivée"}.get(self.pdb_state, "état inconnu")
+                why = {"unsupported": "format not recognised by DJSync, it is not updated",
+                       "stale": "it does not contain every track/playlist (Settings > Synchronise)",
+                       "off": "synchronisation disabled"}.get(self.pdb_state, "unknown state")
                 out.append(
-                    f"Ancien format présent ({', '.join(self.legacy_files)}) : {why}. Les platines qui le lisent "
-                    "ne voient pas les ajouts faits dans exportLibrary.db." + (f" [{self.pdb_detail}]" if self.pdb_detail else ""))
+                    f"Legacy format present ({', '.join(self.legacy_files)}): {why}. Players reading it "
+                    "do not see what was added to exportLibrary.db." + (f" [{self.pdb_detail}]" if self.pdb_detail else ""))
         if self.integrity and self.integrity.lower() != "ok":
-            out.append(f"Intégrité SQLite : {self.integrity}")
+            out.append(f"SQLite integrity: {self.integrity}")
         if self.missing_files:
-            out.append(f"{len(self.missing_files)} son(s) référencé(s) dont le fichier est absent de la clé.")
+            out.append(f"{len(self.missing_files)} referenced track(s) whose file is missing from the drive.")
         if self.bad_paths:
-            out.append(f"{len(self.bad_paths)} chemin(s) mal formé(s) (attendu : « /Contents/… », sans « \\\\ »).")
+            out.append(f"{len(self.bad_paths)} malformed path(s) (expected: \"/Contents/…\", without \"\\\\\").")
         if self.orphan_playlist_rows:
-            out.append(f"{self.orphan_playlist_rows} ligne(s) de playlist pointent vers un son/une playlist inexistant(e).")
+            out.append(f"{self.orphan_playlist_rows} playlist row(s) point to a missing track/playlist.")
         if self.counter_mismatch:
             out.append(self.counter_mismatch)
         return out
 
     def lines(self) -> List[str]:
         rows = [
-            f"Clé                : {self.drive}",
-            f"Sons / playlists   : {self.track_count} / {self.playlist_count}",
-            f"Mode journal       : {self.journal_mode}",
-            f"Format ancien      : {', '.join(self.legacy_files) or 'absent (OneLibrary seul)'}",
+            f"Drive              : {self.drive}",
+            f"Tracks / playlists : {self.track_count} / {self.playlist_count}",
+            f"Journal mode       : {self.journal_mode}",
+            f"Legacy format      : {', '.join(self.legacy_files) or 'absent (OneLibrary only)'}",
         ]
         if self.legacy_newer_than_onelibrary is not None:
             rows.append("export.pdb         : " + (
-                "plus récent que exportLibrary.db" if self.legacy_newer_than_onelibrary
-                else "plus ancien que exportLibrary.db"))
+                "newer than exportLibrary.db" if self.legacy_newer_than_onelibrary
+                else "older than exportLibrary.db"))
         if self.dangling_fks:  # information : Rekordbox lui-même en laisse (0 = « aucun »)
-            rows.append("Réf. sans ligne cible : " + "; ".join(self.dangling_fks) + "  (info, pas une erreur)")
+            rows.append("Refs without target row: " + "; ".join(self.dangling_fks) + "  (info, not an error)")
         if self.legacy_files:
-            rows.append(f"Synchro export.pdb : {self.pdb_state or '?'}" + (f" ({self.pdb_detail})" if self.pdb_detail else ""))
+            rows.append(f"export.pdb sync     : {self.pdb_state or '?'}" + (f" ({self.pdb_detail})" if self.pdb_detail else ""))
         rows.append("")
         problems = self.problems
-        rows += ["Aucun problème détecté dans la base OneLibrary."] if not problems else (
-            ["Problèmes :"] + [f"  - {p}" for p in problems])
-        for title, items in (("Fichiers absents", self.missing_files), ("Chemins mal formés", self.bad_paths)):
+        rows += ["No problem found in the OneLibrary database."] if not problems else (
+            ["Problems:"] + [f"  - {p}" for p in problems])
+        for title, items in (("Missing files", self.missing_files), ("Malformed paths", self.bad_paths)):
             if items:
-                rows += ["", f"{title} (20 premiers) :"] + [f"  {i}" for i in items[:20]]
+                rows += ["", f"{title} (first 20):"] + [f"  {i}" for i in items[:20]]
         return rows
 
 
@@ -105,7 +105,7 @@ def diagnose(library: RekordboxUsbLibrary, sample: int = 20) -> DiagnosticReport
     if "export.pdb" in present:
         st = library.pdb_status()
         rep.pdb_state = st.state
-        rep.pdb_detail = st.detail or (f"{st.missing_tracks} son(s) absent(s)" if st.missing_tracks else "")
+        rep.pdb_detail = st.detail or (f"{st.missing_tracks} track(s) missing" if st.missing_tracks else "")
     if present:
         rep.legacy_newer_than_onelibrary = (folder / present[0]).stat().st_mtime > library.db_path.stat().st_mtime
 
@@ -135,15 +135,15 @@ def diagnose(library: RekordboxUsbLibrary, sample: int = 20) -> DiagnosticReport
     prop = q("SELECT numberOfContents FROM property LIMIT 1")
     if prop and prop[0][0] != rep.track_count:
         rep.counter_mismatch = (
-            f"property.numberOfContents = {prop[0][0]} mais la base contient {rep.track_count} son(s).")
+            f"property.numberOfContents = {prop[0][0]} but the database holds {rep.track_count} track(s).")
 
     return rep
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m djsync.db.diagnose", description=__doc__.split("\n")[0])
-    ap.add_argument("drive", help='lettre ou dossier racine de la clé (ex. "E:" ou "/media/usb")')
-    ap.add_argument("--inspect", action="store_true", help="affiche comment Rekordbox renseigne les colonnes optionnelles")
+    ap = argparse.ArgumentParser(prog="python -m djsync.db.diagnose", description="Read-only check of a Rekordbox USB drive: why a track added by DJSync may not show up on the players.")
+    ap.add_argument("drive", help='drive letter or root folder (e.g. "E:" or "/media/usb")')
+    ap.add_argument("--inspect", action="store_true", help="show how Rekordbox fills the optional columns")
     args = ap.parse_args(argv)
 
     try:
@@ -152,9 +152,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             report = diagnose(lib)
             conventions = lib.inspect_conventions() if args.inspect else {}
     except Exception as exc:  # noqa: BLE001 - affichage lisible en ligne de commande
-        print(f"Erreur : {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
-    print(f"=== DJSync – diagnostic {datetime.now():%Y-%m-%d %H:%M} ===")
+    print(f"=== DJSync – diagnostics {datetime.now():%Y-%m-%d %H:%M} ===")
     print("\n".join(report.lines()))
     for name, counts in conventions.items():
         print(f"  {name:28s} " + "  ".join(f"{k}={v}" for k, v in counts.items()))

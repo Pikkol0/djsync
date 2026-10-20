@@ -86,17 +86,17 @@ def build_ext(track_path: str, wf: Waveforms) -> bytes:
 def parse(data: bytes) -> Dict[str, List[Tuple[bytes, bytes]]]:
     """{code: [(en-tête après les 12 octets communs, contenu)]}. Lève ValueError si incohérent."""
     if data[:4] != b"PMAI":
-        raise ValueError("pas un fichier ANLZ (PMAI attendu)")
+        raise ValueError("not an ANLZ file (PMAI expected)")
     len_header, len_file = struct.unpack(">II", data[4:12])
     if len_file != len(data):
-        raise ValueError("taille déclarée incohérente")
+        raise ValueError("inconsistent declared size")
     out: Dict[str, List[Tuple[bytes, bytes]]] = {}
     i = len_header
     while i < len(data):
         code = data[i:i + 4].decode("ascii")
         lh, lt = struct.unpack(">II", data[i + 4:i + 12])
         if lh < 12 or lt < lh or i + lt > len(data):
-            raise ValueError(f"balise {code} : longueurs incohérentes")
+            raise ValueError(f"tag {code}: inconsistent lengths")
         out.setdefault(code, []).append((data[i + 12:i + lh], data[i + lh:i + lt]))
         i += lt
     return out
@@ -132,7 +132,7 @@ def choose_anlz_dir(drive_root: Path, track_path: str) -> str:
                 return rel
         except (OSError, ValueError, UnicodeDecodeError):
             continue
-    raise OSError("aucun dossier d'analyse libre trouvé")
+    raise OSError("no free analysis folder found")
 
 
 def _write_atomic(target: Path, data: bytes) -> None:
@@ -200,7 +200,7 @@ def replace_beats(data: bytes, beats: Sequence[Tuple[int, int, int]]) -> bytes:
     """.DAT avec une nouvelle grille (en-tête PQTZ d'origine conservé, sauf le nombre de temps)."""
     tags = parse(data)
     if "PQTZ" not in tags:
-        raise ValueError("pas de grille (PQTZ) dans ce fichier")
+        raise ValueError("no beat grid (PQTZ) in this file")
     head = bytearray(tags["PQTZ"][0][0])
     if len(head) < 12:
         head = bytearray(struct.pack(">III", 0, 0x00080000, 0))

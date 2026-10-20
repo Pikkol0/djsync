@@ -32,7 +32,7 @@ from ..db.errors import (
     DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
     UnsupportedFormatError,
 )
-from ..i18n import t
+from ..i18n import get_language, t
 from ..models import (
     Candidate, DownloadJob, PlaylistInfo, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind,
 )
@@ -113,7 +113,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             try:
                 fn(*args)
             except Exception:  # noqa: BLE001 - une vue en erreur ne doit pas casser les autres
-                log.exception("Écouteur %s", event)
+                log.exception("Listener %s", event)
 
     def message(self, kind: str, text: str) -> None:
         """kind : info | ok | warn | error — affiché dans la barre d'état."""
@@ -128,12 +128,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
     )
 
     def error_text(self, exc: BaseException) -> str:
-        for cls, key in self._ERROR_KEYS:
-            if isinstance(exc, cls):
-                return t(key, detail=str(exc))
+        """Messages d'exception écrits en anglais (V0.2.1) ; les plus fréquents sont traduits dans
+        les autres langues, les autres restent en anglais."""
+        if get_language() != "en":
+            for cls, key in self._ERROR_KEYS:
+                if isinstance(exc, cls):
+                    return t(key, detail=str(exc))
         if isinstance(exc, (LibraryError, SpotifyError, UrlImportError)):
             return str(exc)
-        return f"{type(exc).__name__} : {exc}"
+        return f"{type(exc).__name__}: {exc}"
 
     def _on_error(self, exc: BaseException) -> None:
         self.message("error", self.error_text(exc))
@@ -393,7 +396,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             try:
                 lib.close()
             except Exception:  # noqa: BLE001
-                log.exception("Fermeture de la base")
+                log.exception("Closing the database")
         if self._preview_dir is not None:
             shutil.rmtree(self._preview_dir, ignore_errors=True)
         self.dispatcher.shutdown()

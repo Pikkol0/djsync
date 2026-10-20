@@ -91,13 +91,13 @@ def parse_embed_html(html: str) -> SpotifyPlaylist:
     m = _NEXT_DATA.search(html)
     if not m:
         raise SpotifyError(
-            "Format de page Spotify non reconnu. Utilisez « Coller une liste » "
-            "(une ligne par morceau : Artiste - Titre)."
+            "Unknown Spotify page format. Use \"Paste a list\" "
+            "(one track per line: Artist - Title)."
         )
     try:
         data = json.loads(m.group(1))
     except json.JSONDecodeError as exc:
-        raise SpotifyError("Données Spotify illisibles.") from exc
+        raise SpotifyError("Unreadable Spotify data.") from exc
 
     entity: Optional[dict] = None
     track_list: Optional[list] = None
@@ -117,7 +117,7 @@ def parse_embed_html(html: str) -> SpotifyPlaylist:
         single = _single_track(data)
         if single:
             return SpotifyPlaylist(name=single.title, tracks=[single])
-        raise SpotifyError("Aucun morceau trouvé (playlist vide ou privée ?).")
+        raise SpotifyError("No track found (empty or private playlist?).")
 
     tracks = []
     for item in track_list:
@@ -139,7 +139,7 @@ def fetch_spotify(url: str, session: Optional[requests.Session] = None, timeout:
     """Playlist, album ou titre unique (liste d'un seul morceau)."""
     ref = extract_spotify_id(url)
     if ref is None:
-        raise SpotifyError("URL Spotify non reconnue (playlist, album ou titre : https://open.spotify.com/…).")
+        raise SpotifyError("Unknown Spotify URL (playlist, album or track: https://open.spotify.com/…).")
     kind, spotify_id = ref
     http = session or requests
     try:
@@ -151,9 +151,9 @@ def fetch_spotify(url: str, session: Optional[requests.Session] = None, timeout:
     except requests.RequestException as exc:
         raise SpotifyError(f"Spotify injoignable : {exc}") from exc
     if resp.status_code == 404:
-        raise SpotifyError("Contenu introuvable ou privé (seuls les contenus publics sont lisibles).")
+        raise SpotifyError("Content not found or private (only public content can be read).")
     if resp.status_code != 200:
-        raise SpotifyError(f"Spotify a répondu {resp.status_code}.")
+        raise SpotifyError(f"Spotify answered {resp.status_code}.")
     playlist = parse_embed_html(resp.text)
     playlist.source_url = url
     return playlist
@@ -166,7 +166,7 @@ fetch_playlist = fetch_spotify  # nom historique
 _SEP = re.compile(r"\s+[-–—]\s+")
 
 
-def parse_text_list(text: str, name: str = "Liste collée") -> SpotifyPlaylist:
+def parse_text_list(text: str, name: str = "Pasted list") -> SpotifyPlaylist:
     """Une ligne par morceau : « Artiste - Titre » (ou « Artiste1, Artiste2 - Titre »)."""
     tracks: List[SpotifyTrack] = []
     for line in text.splitlines():
@@ -179,5 +179,5 @@ def parse_text_list(text: str, name: str = "Liste collée") -> SpotifyPlaylist:
         else:
             tracks.append(SpotifyTrack(title=line))
     if not tracks:
-        raise SpotifyError("Aucune ligne exploitable.")
+        raise SpotifyError("No usable line.")
     return SpotifyPlaylist(name=name, tracks=tracks)
