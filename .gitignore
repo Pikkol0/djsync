@@ -221,3 +221,15 @@ __marimo__/
 
 #database
 *.db
+
+# ---- DJSync
+# La spécification PyInstaller du projet DOIT être versionnée (le motif *.spec plus haut l'exclurait)
+!packaging/DJSync.spec
+# Données locales : sauvegardes de clé, captures d'écran de développement, profils navigateur
+DJSync_Backups/
+/captures/
+.pki/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
