@@ -8,18 +8,16 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-import customtkinter as ctk
+from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QPlainTextEdit
 
 from ...core.matcher import apply_preference
+from ...i18n import LazyLabels, plural, t
 from ...models import (
     PREFERENCE_LABELS, Candidate, MatchPreference, MatchResult, ResolvedUrl, SpotifyPlaylist, TrackResult,
     UrlKind, format_duration,
 )
-from ...i18n import LazyLabels, plural, t
-from .. import theme
-from ..covers import url_cover
 from ..dialogs import BaseDialog
-from ..widgets import Column, Row, TrackTable
+from ..widgets import Column, Row, TrackTable, button, hbox, label
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
@@ -31,27 +29,23 @@ class PasteListDialog(BaseDialog):
     """Repli quand Spotify refuse la lecture : une ligne par morceau « Artiste - Titre »."""
 
     def __init__(self, parent: Any, on_ok: Any) -> None:
-        super().__init__(parent, t("import.paste_list_title"), 520, 420)
+        super().__init__(parent, t("import.paste_list_title"), 500, 420)
         self._on_ok = on_ok
+        self.heading(t("import.paste_list_title"), t("import.paste_list_hint"))
+        self.box = QPlainTextEdit()
+        self.body.addWidget(self.box, 1)
         self.footer(t("import.analyse_list"), self._ok)
-        theme.label(self, t("import.paste_list_title"), 15, theme.TEXT, "bold", anchor="w").pack(
-            fill="x", padx=(20), pady=((18), 2))
-        theme.label(self, t("import.paste_list_hint"),
-                    11, theme.DIM, anchor="w", wraplength=(470), justify="left").pack(fill="x", padx=(20))
-        self.box = ctk.CTkTextbox(self, fg_color=theme.SURFACE, text_color=theme.TEXT, border_color=theme.BORDER,
-                                  border_width=1, font=theme.font(12), corner_radius=8)
-        self.box.pack(fill="both", expand=True, padx=(20), pady=10)
-        self.after(150, self.box.focus_set)
+        self.show_dialog()
+        self.box.setFocus()
 
     def _ok(self) -> None:
-        text = self.box.get("1.0", "end").strip()
+        text = self.box.toPlainText().strip()
         if text:
             self.close()
             self._on_ok(text)
 
 
 class ImportView(View):
-
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
         self.mode: Optional[str] = None            # "spotify" | "direct"
@@ -67,67 +61,62 @@ class ImportView(View):
         except ValueError:
             self.preference = MatchPreference.AUTO
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
-        self.header(t("tab.import"), "Spotify · YouTube · SoundCloud").grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 10))
+        self.root.addLayout(self.header(t("tab.import"), "Spotify · YouTube · SoundCloud"))
+        bar = hbox()
+        self.url = QLineEdit()
+        self.url.setPlaceholderText(t("import.placeholder"))
+        self.url.returnPressed.connect(self.analyse)
+        bar.addWidget(self.url, 1)
+        bar.addWidget(button(t("action.paste"), self._paste_clipboard))
+        self.go = button(t("import.read_link"), self.analyse, kind="primary")
+        bar.addWidget(self.go)
+        self.root.addLayout(bar)
 
-        bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.grid(row=1, column=0, sticky="ew", padx=24)
-        bar.grid_columnconfigure(0, weight=1)
-        self.url = theme.entry(bar, t("import.placeholder"))
-        self.url.grid(row=0, column=0, sticky="ew")
-        self.url.bind("<Return>", lambda _e: self.analyse())
-        theme.button(bar, t("action.paste"), self._paste_clipboard, kind="ghost", width=80).grid(row=0, column=1, padx=(8, 0))
-        self.go = theme.button(bar, t("import.read_link"), self.analyse, kind="primary", width=100)
-        self.go.grid(row=0, column=2, padx=(8, 0))
-
-        opts = ctk.CTkFrame(self, fg_color="transparent")
-        opts.grid(row=2, column=0, sticky="ew", padx=24, pady=(8, 0))
-        self.info = theme.label(opts, t("import.info_start"), 11, theme.DIM, anchor="w")
-        self.info.pack(side="left")
-        self.paste_list = theme.button(opts, t("import.paste_list"), self._paste_list, kind="flat", width=130)
-        self.paste_list.pack(side="right")
-        self.pref_menu = theme.option_menu(opts, list(PREFERENCE_LABELS.values()), self._pref_changed, width=160)
-        self.pref_menu.set(PREFERENCE_LABELS[self.preference])
-        self.pref_label = theme.label(opts, t("import.matching"), 11, theme.DIM)
-
-        holder = ctk.CTkFrame(self, fg_color="transparent")
-        holder.grid(row=3, column=0, sticky="nsew", padx=24, pady=(6, 10))
-        holder.grid_columnconfigure(0, weight=1)
-        holder.grid_rowconfigure(0, weight=1)
+        opts = hbox()
+        self.info = label(t("import.info_start"), "dim")
+        opts.addWidget(self.info, 1)
+        self.pref_label = label(t("import.matching"), "dim")
+        opts.addWidget(self.pref_label)
+        self.pref_menu = QComboBox()
+        self.pref_menu.addItems(list(PREFERENCE_LABELS.values()))
+        self.pref_menu.setCurrentText(PREFERENCE_LABELS[self.preference])
+        self.pref_menu.currentTextChanged.connect(self._pref_changed)
+        opts.addWidget(self.pref_menu)
+        self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat")
+        opts.addWidget(self.paste_list)
+        self.root.addLayout(opts)
 
         spotify_cols = [
-            Column("chk", "", 38, "center", sortable=False),
-            Column("source", t("import.col_source"), 240, stretch=True, min_width=120),
-            Column("match", t("import.col_match"), 280, stretch=True, min_width=120, priority=1),
+            Column("chk", "", 30, "center", sortable=False),
+            Column("source", t("import.col_source"), 240, stretch=True, min_width=140),
+            Column("match", t("import.col_match"), 280, stretch=True, min_width=140, priority=1),
             Column("type", t("track.type"), 70, "center", priority=4),
-            Column("score", t("import.col_score"), 60, "e", priority=3,
+            Column("score", t("import.col_score"), 56, "e", priority=3,
                    sort=lambda r: r.data.candidate.score if r.data and r.data.candidate else None),
-            Column("duration", t("track.duration"), 70, "e", priority=2),
+            Column("duration", t("track.duration"), 64, "e", priority=2),
             Column("status", t("import.col_status"), 150),
         ]
-        self.sp_table = TrackTable(holder, spotify_cols, loader, click_columns=("chk",))
-        self.dl_table = TrackTable(holder, result_columns(with_check=True, with_download=False), loader, click_columns=("chk",))
+        self.sp_table = TrackTable(self, spotify_cols, click_columns=("chk",))
+        self.dl_table = TrackTable(self, result_columns(with_check=True, with_download=False), click_columns=("chk",))
         for table in (self.sp_table, self.dl_table):
-            table.grid(row=0, column=0, sticky="nsew")
-            table.on_cell_click = lambda iid, _k, t=table: self._toggle(t, iid)
+            table.on_cell_click = lambda iid, _k, tb=table: self._toggle(tb, iid)
             table.on_select = lambda _i: self._refresh_buttons()
             table.on_double = lambda _i: self._preview()
             table.menu_builder = self._menu
+            self.root.addWidget(table, 1)
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
-        self.sp_table.set_empty_text("")
-        self.dl_table.set_empty("import", t("import.empty_title"), t("import.empty_sub"))
-        self.sp_table.grid_remove()
+        self.dl_table.set_empty("", t("import.empty_title"), t("import.empty_sub"))
 
-        actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 16))
-        self.preview_btn = theme.button(actions, t("action.listen"), self._preview, kind="ghost", width=110)
-        self.preview_btn.pack(side="left")
-        self.other_btn = theme.button(actions, "⟳  " + t("import.other_match"), self._cycle, kind="ghost", width=190)
-        self.other_btn.pack(side="left", padx=(8, 0))
-        self.dl_btn = theme.button(actions, t("import.download_selection"), self._download, kind="primary", width=200)
-        self.dl_btn.pack(side="right")
+        actions = hbox()
+        self.preview_btn = button(t("action.listen"), self._preview)
+        actions.addWidget(self.preview_btn)
+        self.other_btn = button(t("import.other_match"), self._cycle)
+        actions.addWidget(self.other_btn)
+        actions.addStretch(1)
+        self.dl_btn = button(t("import.download_selection"), self._download, kind="primary")
+        actions.addWidget(self.dl_btn)
+        self.root.addLayout(actions)
         self._show_mode(None)
         self.ctrl.on("library", self._library_changed)
 
@@ -135,20 +124,11 @@ class ImportView(View):
     def _show_mode(self, mode: Optional[str]) -> None:
         self.mode = mode
         spotify = mode == "spotify"
-        if spotify:
-            self.dl_table.grid_remove()
-            self.sp_table.grid()
-        else:
-            self.sp_table.grid_remove()
-            self.dl_table.grid()
-        for w in (self.pref_menu, self.pref_label):
-            w.pack_forget()
-        if spotify:
-            self.pref_menu.pack(side="right", padx=(0, 8))
-            self.pref_label.pack(side="right", padx=(0, 6))
-        self.other_btn.pack_forget()
-        if spotify:
-            self.other_btn.pack(side="left", padx=(8, 0), after=self.preview_btn)
+        self.sp_table.setVisible(spotify)
+        self.dl_table.setVisible(not spotify)
+        self.pref_menu.setVisible(spotify)
+        self.pref_label.setVisible(spotify)
+        self.other_btn.setVisible(spotify)
         self._refresh_buttons()
 
     @property
@@ -156,40 +136,42 @@ class ImportView(View):
         return self.sp_table if self.mode == "spotify" else self.dl_table
 
     def on_show(self) -> None:
-        self.url.focus_set()
+        self.url.setFocus()
 
     # --------------------------------------------------------------- analyse
     def _paste_clipboard(self) -> None:
         try:
-            text = self.clipboard_get().strip()
+            text = QApplication.clipboard().text().strip()
         except Exception:  # noqa: BLE001 - presse-papiers vide/inaccessible
             return
-        self.url.delete(0, "end")
-        self.url.insert(0, text)
+        self.url.setText(text)
         if text:
             self.analyse()
 
     def open_url(self, url: str) -> None:
         """Depuis l'omnibar de l'Accueil."""
-        self.url.delete(0, "end")
-        self.url.insert(0, url)
+        self.url.setText(url)
         self.analyse()
 
+    def _set_go(self, enabled: bool) -> None:
+        self.go.setEnabled(enabled)
+        self.go.setText(t("import.read_link") if enabled else t("import.reading"))
+
     def analyse(self) -> None:
-        url = self.url.get().strip()
+        url = self.url.text().strip()
         if not url:
             return
         self._cancel_matching()
         self._token += 1
         token = self._token
-        self.go.configure(state="disabled", text=t("import.reading"))
-        self.info.configure(text=t("import.reading_link"), text_color=theme.DIM)
+        self._set_go(False)
+        self.info.setText(t("import.reading_link"))
         self.table.show_skeleton(6)
 
         def ok(kind: str, data: Any) -> None:
             if token != self._token:
                 return
-            self.go.configure(state="normal", text=t("import.read_link"))
+            self._set_go(True)
             if kind == "spotify":
                 self._load_spotify(data)
             else:
@@ -198,9 +180,9 @@ class ImportView(View):
         def err(exc: BaseException) -> None:
             if token != self._token:
                 return
-            self.go.configure(state="normal", text=t("import.read_link"))
+            self._set_go(True)
             self.table.set_rows([])
-            self.info.configure(text=t("import.unreadable"), text_color=theme.ERR)
+            self.info.setText(t("import.unreadable"))
             self.ctrl._on_error(exc)
 
         self.ctrl.import_url(url, ok, err)
@@ -233,8 +215,7 @@ class ImportView(View):
                                keep_selection=False)
         n = len(self.matches)
         note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
-        self.info.configure(text=t("import.matching_progress", name=playlist.name, n=n, done=0) + note,
-                            text_color=theme.DIM)
+        self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=0) + note)
 
         def on_item(i: int, cands: List[Candidate]) -> None:
             m = self.matches[i]
@@ -243,11 +224,11 @@ class ImportView(View):
             apply_preference(m, self.preference)
             self._refresh_sp_row(i, auto_check=True)
             done = self._handle.done if self._handle else n
-            self.info.configure(text=t("import.matching_progress", name=playlist.name, n=n, done=done) + note)
+            self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=done) + note)
             self._refresh_buttons()
 
         def on_done() -> None:
-            self.info.configure(text=t("import.summary", name=playlist.name, summary=self._summary()) + note)
+            self.info.setText(t("import.summary", name=playlist.name, summary=self._summary()) + note)
             self._refresh_buttons()
 
         self._handle = self.ctrl.match_spotify(playlist.tracks, on_item, on_done)
@@ -285,8 +266,7 @@ class ImportView(View):
     def _sp_row(self, i: int, m: MatchResult) -> Row:
         values = self._sp_values(i, m)
         values["chk"] = UNCHECKED
-        c = m.candidate
-        return Row(str(i), values, url_cover(c.track.thumbnail_url) if c else None, (), m)
+        return Row(str(i), values, (), m)
 
     def _refresh_sp_row(self, i: int, auto_check: bool = False) -> None:
         m, iid = self.matches[i], str(i)
@@ -294,8 +274,6 @@ class ImportView(View):
         if row is None:
             return
         row.data = m
-        c = m.candidate
-        row.cover = url_cover(c.track.thumbnail_url) if c else None
         vals = self._sp_values(i, m)
         row.values.update(vals)
         self.sp_table.update_values(iid, **vals)
@@ -303,9 +281,7 @@ class ImportView(View):
         if auto_check or m.status in ("missing", "duplicate"):
             checked = m.status in ("ok", "review") and (auto_check or row.values.get("chk") == CHECKED)
             self.sp_table.update_values(iid, chk=CHECKED if checked else UNCHECKED)
-        # la pochette suit le candidat : on la recharge si la ligne est visible
-        if row.cover is not None:
-            self.sp_table.refresh_cover(iid)
+
 
     def _pref_changed(self, label: str) -> None:
         self.preference = next((p for p, text in PREFERENCE_LABELS.items() if text == label), MatchPreference.AUTO)
@@ -339,10 +315,8 @@ class ImportView(View):
         if resolved.truncated:
             extra.append(t("import.truncated"))
         tail = ("  ·  " + "  ·  ".join(extra)) if extra else ""
-        self.info.configure(
-            text=t("import.direct_info", source=source, name=resolved.name,
-                   tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail,
-            text_color=theme.DIM)
+        self.info.setText(t("import.direct_info", source=source, name=resolved.name,
+                            tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail)
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
@@ -395,11 +369,11 @@ class ImportView(View):
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
         n = len(self._checked_tracks()) if self.mode else 0
-        self.dl_btn.configure(text=t("import.download_selection_n", n=n) if n else t("import.download_selection"),
-                              state="normal" if n else "disabled")
+        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else t("import.download_selection"))
+        self.dl_btn.setEnabled(bool(n))
         sel = self.table.selected_iids() if self.mode else []
-        self.preview_btn.configure(state="normal" if sel else "disabled")
-        self.other_btn.configure(state="normal" if sel and self.mode == "spotify" else "disabled")
+        self.preview_btn.setEnabled(bool(sel))
+        self.other_btn.setEnabled(bool(sel) and self.mode == "spotify")
 
     def _preview_target(self) -> Optional[TrackResult]:
         sel = self.table.selected_iids()

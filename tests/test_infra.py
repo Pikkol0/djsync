@@ -92,7 +92,7 @@ def test_clamp_zoom(raw, expected):
 
 # ------------------------------------------------------------------ thème
 def test_palettes():
-    pytest.importorskip("customtkinter")
+    pytest.importorskip("PySide6")
     from djsync.ui import theme
 
     assert len(theme.PALETTES) == 20 and theme.DEFAULT_THEME == "violet_light"
@@ -103,36 +103,19 @@ def test_palettes():
         assert theme.contrast(colors["ACCENT"], colors["ON_ACCENT"]) >= 4.4, name
     assert theme.apply_palette("cyan") == "cyan" and theme.ACCENT == "#36E2FF"
     assert theme.apply_palette("inconnu") == "violet_light" and theme.ACCENT == "#B79CFF"
+    assert theme.ACCENT in theme.stylesheet()
 
 
-def test_px_vs_tkpx():
-    pytest.importorskip("customtkinter")
+def test_zoom_is_fixed_by_the_setting_only():
+    """V0.3.0 : plus de zoom automatique selon la taille de la fenêtre ; Qt gère le DPI."""
+    pytest.importorskip("PySide6")
     from djsync.ui import theme
 
     try:
-        theme.set_zoom(100, auto=False)
-        assert theme.px(32) == 32 and theme.tkpx(32) == 32
-        theme.set_zoom(200)
-        assert theme.px(32) == 32 and theme.tkpx(32) == 64    # px : CTk met à l'échelle lui-même
+        assert theme.set_zoom(100) == 1.0 and theme.px(32) == 32
+        theme.set_zoom(150)
+        assert theme.px(32) == 48 and theme.font_pt() == theme.BASE_PT * 1.5
         assert theme.set_zoom(999) == 2.0 and theme.set_zoom(10) == 0.8   # bornes 80-200 %
+        assert not hasattr(theme, "update_auto")
     finally:
-        theme.set_zoom(100, auto=True)
-
-
-def test_auto_scale_follows_window_size():
-    pytest.importorskip("customtkinter")
-    from djsync.ui import theme
-
-    assert theme.auto_factor_for(1280, 800) == 1.0
-    assert theme.auto_factor_for(860, 560) == 0.85            # petite fenêtre : un peu plus petit, borné
-    assert theme.auto_factor_for(1680, 1050) == 1.3           # arrondi au pas de 0,05
-    assert theme.auto_factor_for(4000, 3000) == 1.45
-    try:
-        theme.set_zoom(150, auto=True)
-        theme.update_auto(1680, 1050)
-        assert abs(theme.ui_factor() - 1.5 * 1.3) < 1e-9
-        theme.set_zoom(150, auto=False)
-        assert theme.ui_factor() == 1.5
-    finally:
-        theme.set_zoom(100, auto=True)
-        theme.update_auto(1280, 800)
+        theme.set_zoom(100)

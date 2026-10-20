@@ -101,8 +101,7 @@ def test_dynamic_keys_exist():
         assert f"settings.sidebar_{mode}" in en.STRINGS
     for notation in ("auto", "camelot", "musical"):
         assert f"settings.notation_{notation}" in en.STRINGS
-    pytest.importorskip("tkinter")
-    pytest.importorskip("customtkinter")
+    pytest.importorskip("PySide6")
     from djsync.ui.help_dialog import SHORTCUTS, TOPICS
 
     for key in [k for _keys, k in SHORTCUTS] + TOPICS + [k + "_title" for k in TOPICS]:

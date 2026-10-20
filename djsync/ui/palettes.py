@@ -1,4 +1,4 @@
-"""Couleurs du thème sans dépendance (lues aussi par l'écran de démarrage, avant customtkinter)."""
+"""Couleurs du thème sans dépendance (lues aussi par l'écran de démarrage, avant Qt)."""
 
 BG = "#0B0B0D"
 SURFACE = "#121216"

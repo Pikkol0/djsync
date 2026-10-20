@@ -5,11 +5,13 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hidden = [], [], []
-for pkg in ("customtkinter", "yt_dlp", "ytmusicapi", "sqlcipher3", "pygame", "mutagen"):   # numpy : hook PyInstaller natif
+for pkg in ("yt_dlp", "ytmusicapi", "sqlcipher3", "pygame", "mutagen"):   # numpy : hook PyInstaller natif
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
 
-a = Analysis(["../app.py"], pathex=[".."], binaries=binaries, datas=datas, hiddenimports=hidden)
+# PySide6: PyInstaller's own hook keeps only the Qt modules actually imported (Core, Gui, Widgets).
+a = Analysis(["../app.py"], pathex=[".."], binaries=binaries, datas=datas, hiddenimports=hidden,
+             excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtNetwork"])
 pyz = PYZ(a.pure)
 # Native splash screen: shown by the exe while it unpacks (the slow part of a one-file build);
 # closed by DJSync as soon as its window is ready (djsync/ui/splash.close_native).

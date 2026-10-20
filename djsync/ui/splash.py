@@ -1,8 +1,5 @@
-"""Écran de démarrage : s'affiche dès le double-clic, pendant le chargement des modules et la
-construction de la fenêtre (environ 1 s depuis les sources, davantage pour l'exécutable).
-
-Volontairement minimal : Tkinter seul (pas de customtkinter, pas de Pillow), logo dessiné sur un
-Canvas à la couleur du thème choisi, nom, « Loading… ». Aucune barre de progression.
+"""Écran de démarrage : s'affiche dès le double-clic, pendant le chargement des modules lourds et la
+construction de la fenêtre. Volontairement minimal : logo, nom, « Loading… », sans barre de progression.
 
 Exécutable PyInstaller : l'écran de démarrage natif de PyInstaller (packaging/DJSync.spec) couvre
 déjà la décompression ; celui-ci n'est alors pas affiché et `close_native()` ferme le natif.
@@ -10,15 +7,12 @@ déjà la décompression ; celui-ci n'est alors pas affiché et `close_native()`
 from __future__ import annotations
 
 import json
-import sys
-import tkinter as tk
-from typing import Optional
+from typing import Any, Optional
 
 from .. import __version__
-from .logo import LogoCanvas
-from .palettes import DEFAULT_THEME, DIM, ELEV, PALETTES, SURFACE, TEXT
+from .palettes import DEFAULT_THEME, DIM, PALETTES, SURFACE, TEXT
 
-WIDTH, HEIGHT = 340, 210      # unités logiques (x facteur DPI de l'écran)
+WIDTH, HEIGHT = 320, 190
 
 
 def native_splash_active() -> bool:
@@ -49,69 +43,54 @@ def _saved_accent() -> str:
     return PALETTES.get(theme, PALETTES[DEFAULT_THEME])
 
 
-def dpi_aware() -> None:
-    """Windows : rend le processus « DPI aware » AVANT la première fenêtre. customtkinter le fait
-    à la création de la fenêtre principale ; si l'écran de démarrage existe déjà à ce moment, Windows
-    le redimensionne et le déplace (constaté : il rétrécit vers le coin de l'écran)."""
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)     # même réglage que customtkinter
-        except Exception:  # noqa: BLE001 - Windows ancien : pas grave
-            pass
-
-
 class Splash:
-    """Fenêtre sans bordure, centrée. `close()` la détruit (idempotent)."""
+    """Fenêtre sans bordure, centrée (Qt gère le DPI). `close()` est idempotent."""
 
-    def __init__(self) -> None:
-        dpi_aware()
-        root = tk.Tk()
-        self.root: Optional[tk.Tk] = root
-        # Ce Tk temporaire ne doit pas devenir la racine par défaut de l'application (images,
-        # polices de customtkinter) : la vraie fenêtre la remplace dès sa création.
-        tk._default_root = None  # type: ignore[attr-defined]
-        root.withdraw()
-        root.overrideredirect(True)
-        root.configure(bg=SURFACE)
-        try:
-            root.attributes("-topmost", True)
-        except tk.TclError:
-            pass
-        k = max(1.0, root.winfo_fpixels("1i") / 96.0)          # facteur DPI de l'écran
-        w, h = int(WIDTH * k), int(HEIGHT * k)
-        x = (root.winfo_screenwidth() - w) // 2
-        y = (root.winfo_screenheight() - h) // 2
-        root.geometry(f"{w}x{h}+{x}+{y}")
+    def __init__(self, app: Any) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+        from PySide6.QtWidgets import QSplashScreen
 
-        accent = _saved_accent()
-        border = tk.Frame(root, bg=ELEV, padx=1, pady=1)
-        border.pack(fill="both", expand=True)
-        box = tk.Frame(border, bg=SURFACE)
-        box.pack(fill="both", expand=True)
-        logo = LogoCanvas(box, int(64 * k), accent, SURFACE, ELEV)
-        logo.pack(pady=(int(34 * k), int(12 * k)))
-        tk.Label(box, text="DJSync", bg=SURFACE, fg=TEXT, font=("Segoe UI", -int(24 * k), "bold")).pack()
-        tk.Label(box, text=f"Loading…   v{__version__}", bg=SURFACE, fg=DIM,
-                 font=("Segoe UI", -int(12 * k))).pack(pady=(int(6 * k), 0))
-        root.deiconify()
-        root.update()
+        from .logo import logo_pixmap
+
+        ratio = app.primaryScreen().devicePixelRatio() if app.primaryScreen() else 1.0
+        pm = QPixmap(int(WIDTH * ratio), int(HEIGHT * ratio))
+        pm.setDevicePixelRatio(ratio)
+        pm.fill(QColor(SURFACE))
+        p = QPainter(pm)
+        p.setPen(QColor(DIM))
+        p.drawRect(0, 0, WIDTH - 1, HEIGHT - 1)
+        logo = logo_pixmap(int(56 * ratio), _saved_accent(), SURFACE)
+        logo.setDevicePixelRatio(ratio)
+        p.drawPixmap((WIDTH - 56) // 2, 34, logo)
+        f = QFont(app.font())
+        f.setPointSizeF(18)
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(TEXT))
+        p.drawText(0, 100, WIDTH, 34, Qt.AlignCenter, "DJSync")
+        f.setPointSizeF(9)
+        f.setBold(False)
+        p.setFont(f)
+        p.setPen(QColor(DIM))
+        p.drawText(0, 136, WIDTH, 20, Qt.AlignCenter, f"Loading…   v{__version__}")
+        p.end()
+        self.widget: Optional[QSplashScreen] = QSplashScreen(pm, Qt.WindowStaysOnTopHint)
+        self.widget.show()
+        app.processEvents()
 
     def close(self) -> None:
-        root, self.root = self.root, None
-        if root is not None:
-            try:
-                root.destroy()
-            except tk.TclError:
-                pass
+        w, self.widget = self.widget, None
+        if w is not None:
+            w.close()
+            w.deleteLater()
 
 
-def show() -> Optional[Splash]:
-    """Affiche l'écran de démarrage (sauf si celui de l'exécutable est déjà visible ou sans écran)."""
+def show(app: Any) -> Optional[Splash]:
+    """Affiche l'écran de démarrage (sauf si celui de l'exécutable est déjà visible)."""
     if native_splash_active():
         return None
     try:
-        return Splash()
-    except tk.TclError:
+        return Splash(app)
+    except Exception:  # noqa: BLE001 - pas d'écran : on s'en passe
         return None

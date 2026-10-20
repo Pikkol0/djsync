@@ -1,6 +1,6 @@
 """Exécuteur de tâches : le réseau, la base et FFmpeg tournent hors du thread Tk.
 
-Tkinter n'est PAS thread-safe : les threads de travail ne touchent jamais un widget. Ils
+L'interface (Qt, comme Tk avant) n'est PAS thread-safe : les threads de travail ne touchent jamais un widget. Ils
 déposent un résultat dans une file ; un timer Tk (`after`) la vide dans le thread UI.
 
 Ramasse-miettes (V0.2.0) : un widget détruit forme des cycles de références (polices, variables,
@@ -24,8 +24,17 @@ _POOLS = {"net": 6, "db": 1, "dl": 2, "cover": 4, "match": 3, "analysis": 1}
 
 
 class UiDispatcher:
-    def __init__(self, root: Any, interval_ms: int = 25) -> None:
-        self._root = root
+    """V0.3.0 : indépendant de la bibliothèque d'interface. Le thread UI vide la file grâce à
+    `schedule(ms, fn)` (Qt : QTimer.singleShot ; tests sans interface : appel manuel de `drain`)."""
+
+    def __init__(self, schedule: Optional[Callable[[int, Callable[[], None]], None]] = None,
+                 interval_ms: int = 25) -> None:
+        if schedule is None:
+            from PySide6.QtCore import QTimer
+
+            def schedule(ms: int, fn: Callable[[], None]) -> None:
+                QTimer.singleShot(ms, fn)
+        self._schedule = schedule
         self._queue: "queue.Queue[Callable[[], None]]" = queue.Queue()
         self._pools: Dict[str, ThreadPoolExecutor] = {
             name: ThreadPoolExecutor(max_workers=n, thread_name_prefix=f"djsync-{name}")
@@ -36,7 +45,12 @@ class UiDispatcher:
         self._ticks = 0
         self._gc_was_enabled = gc.isenabled()
         gc.disable()
-        self._root.after(self._interval, self._drain)
+        self._schedule(self._interval, self._drain)
+
+    def call_later(self, ms: int, fn: Callable[[], None]) -> None:
+        """Appelle fn() dans le thread UI après `ms` millisecondes."""
+        if not self._closed:
+            self._schedule(ms, fn)
 
     # ---- thread-safe : appelable depuis n'importe quel thread
     def post(self, fn: Callable[..., None], *args: Any) -> None:
@@ -69,7 +83,7 @@ class UiDispatcher:
         self._pools[pool].submit(work)
 
     # ---- thread UI
-    def _drain(self) -> None:
+    def _drain_once(self) -> None:
         for _ in range(60):  # borne par tick : l'UI reste fluide même si le flux est dense
             try:
                 job = self._queue.get_nowait()
@@ -79,11 +93,20 @@ class UiDispatcher:
                 job()
             except Exception:  # noqa: BLE001
                 log.exception("Error in a UI callback")
+
+    def _drain(self) -> None:
+        if self._closed:
+            return
+        self._drain_once()
         self._ticks += 1
         if self._ticks % 80 == 0:               # ~2 s : jeunes générations ; ~20 s : tout
             gc.collect(2 if self._ticks % 800 == 0 else 1)
         if not self._closed:
-            self._root.after(self._interval, self._drain)
+            self._schedule(self._interval, self._drain)
+
+    def drain(self) -> None:
+        """Vide la file tout de suite (tests)."""
+        self._drain_once()
 
     def shutdown(self) -> None:
         self._closed = True

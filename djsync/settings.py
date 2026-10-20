@@ -69,7 +69,7 @@ class Settings:
     analyze_on_add: bool = False       # V0.2.0 : désactivé par défaut (menu Analyse) ; True = à chaque ajout
     key_notation: str = "auto"         # auto (celle de la clé) | camelot (« 8A ») | musical (« Am »)
     # ---- V0.2.0
-    zoom_auto: bool = True             # l'interface suit aussi la taille de la fenêtre
+    zoom_auto: bool = True             # inutilisé depuis la V0.3.0 (conservé pour les anciens réglages)
     sidebar_compact: str = "auto"      # auto (repliée si fenêtre étroite) | on | off
     harmonic_filter: bool = False      # dernier état du filtre « compatibles harmoniquement »
     # ---- V0.2.2
