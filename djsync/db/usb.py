@@ -110,7 +110,7 @@ def find_usb_drives() -> List[UsbDrive]:
             if (root / DB_RELATIVE_PATH).is_file():
                 drives.append(_make_drive(root))
         except OSError as exc:  # lecteur illisible : on l'ignore
-            log.debug("Lecteur %s ignoré : %s", root, exc)
+            log.debug("Drive %s skipped: %s", root, exc)
     return drives
 
 
@@ -125,7 +125,7 @@ def drive_from_letter(value: str) -> UsbDrive:
 
     db_path = root / DB_RELATIVE_PATH
     if not db_path.is_file():
-        raise DriveNotFoundError(f"Aucune bibliothèque Rekordbox trouvée : {db_path} n'existe pas.")
+        raise DriveNotFoundError(f"No Rekordbox library found: {db_path} does not exist.")
     return _make_drive(root)
 
 
@@ -142,8 +142,8 @@ def resolve_drive(forced: Optional[str] = None, preferred: Optional[str] = None)
     drives = find_usb_drives()
     if not drives:
         raise DriveNotFoundError(
-            "Aucune clé Rekordbox détectée (PIONEER\\rekordbox\\exportLibrary.db). "
-            "Branchez la clé ou indiquez la lettre du lecteur dans les Paramètres."
+            "No Rekordbox drive detected (PIONEER\\rekordbox\\exportLibrary.db). "
+            "Plug in the drive or set its letter in Settings."
         )
     if preferred:
         wanted = preferred.strip().rstrip(":\\/").upper()

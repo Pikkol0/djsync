@@ -110,7 +110,7 @@ def parse_item(item: Dict[str, Any], default_type: str = "song") -> Optional[Tra
     album = item.get("album")
     return TrackResult(
         video_id=video_id,
-        title=item.get("title") or "Sans titre",
+        title=item.get("title") or "Untitled",
         artist=artist,
         album=album.get("name") if isinstance(album, dict) else (album or None),
         duration_seconds=_duration_seconds(item),
@@ -164,7 +164,7 @@ class MusicSearcher:
             try:  # liste complète des titres de l'artiste
                 items = yt.get_playlist(songs["browseId"], limit=limit).get("tracks") or items
             except Exception as exc:  # noqa: BLE001 - on garde au moins les titres du résumé
-                log.warning("Liste complète de l'artiste indisponible : %s", exc)
+                log.warning("Full artist list unavailable: %s", exc)
         found = [parse_item(i, "song") for i in items]
         videos = (info.get("videos") or {}).get("results") or []
         found += [parse_item(i, "video") for i in videos]
@@ -198,7 +198,7 @@ class MusicSearcher:
         for group in groups:
             results += [t for t in group if flt.allows(t)][:limit]
         results = _dedupe(results)
-        log.info("Recherche %r (%s) : %d résultats", query, mode.value, len(results))
+        log.info("Search %r (%s): %d results", query, mode.value, len(results))
         return results
 
     def fetch_view_count(self, video_id: str) -> Optional[int]:
@@ -207,5 +207,5 @@ class MusicSearcher:
             details = self._client().get_song(video_id).get("videoDetails") or {}
             return parse_view_count(details.get("viewCount"))
         except Exception as exc:  # noqa: BLE001 - purement informatif, jamais bloquant
-            log.debug("Vues indisponibles pour %s : %s", video_id, exc)
+            log.debug("Views unavailable for %s: %s", video_id, exc)
             return None

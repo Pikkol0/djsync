@@ -103,10 +103,10 @@ def _decode_ffmpeg(path: Path, ffmpeg: str, sr: int) -> np.ndarray:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600,
                               creationflags=_no_window())
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DecodeError(f"FFmpeg n'a pas pu décoder le fichier : {exc}") from exc
+        raise DecodeError(f"FFmpeg could not decode the file: {exc}") from exc
     if proc.returncode != 0 and not proc.stdout:
         msg = proc.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise DecodeError(f"FFmpeg : {msg[-1] if msg else 'erreur inconnue'}")
+        raise DecodeError(f"FFmpeg: {msg[-1] if msg else 'unknown error'}")
     raw = proc.stdout
     usable = len(raw) - len(raw) % 4
     out = np.frombuffer(raw, dtype="<f4", count=usable // 4).copy()   # une seule copie (tampon libéré ensuite)
@@ -135,7 +135,7 @@ def _decode_wav(path: Path, sr: int) -> np.ndarray:
             ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
             raw = w.readframes(n)
     except (wave.Error, EOFError, OSError) as exc:
-        raise DecodeError(f"WAV illisible sans FFmpeg : {exc}") from exc
+        raise DecodeError(f"WAV unreadable without FFmpeg: {exc}") from exc
     if width == 2:
         data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     elif width == 3:
@@ -147,7 +147,7 @@ def _decode_wav(path: Path, sr: int) -> np.ndarray:
     elif width == 1:
         data = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
     else:
-        raise DecodeError(f"WAV {width * 8} bits non géré sans FFmpeg")
+        raise DecodeError(f"{width * 8}-bit WAV not supported without FFmpeg")
     if ch > 1:
         data = data[: data.size - data.size % ch].reshape(-1, ch).mean(axis=1)
     return _resample(data, rate, sr)
@@ -167,7 +167,7 @@ def decode(path: Union[str, Path], ffmpeg_location: Optional[str] = None, sr: in
     elif path.suffix.lower() == ".wav":
         samples = _decode_wav(path, sr)
     else:
-        raise DecodeError("FFmpeg introuvable : nécessaire pour analyser ce format (Paramètres > FFmpeg).")
+        raise DecodeError("FFmpeg not found: required to analyse this format (Settings > FFmpeg).")
     samples = samples.astype(np.float32, copy=False)
     np.nan_to_num(samples, copy=False)
     np.clip(samples, -1.0, 1.0, out=samples)

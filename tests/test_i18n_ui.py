@@ -1,6 +1,7 @@
-"""V0.2.0 : toute l'interface passe par l'i18n (anglais par défaut, français en option).
+"""V0.2.0 / V0.2.1 : le logiciel est en anglais ; les autres langues passent par l'i18n.
 
-  * aucune chaîne française « en dur » dans djsync/ui (hors docstrings, commentaires et journaux) ;
+  * aucune chaîne française « en dur » dans djsync/ (messages, exceptions, journaux, lignes de
+    commande) : seules les docstrings, les commentaires et le catalogue i18n/fr.py sont exclus ;
   * chaque clé utilisée existe en anglais ET en français, avec les mêmes paramètres {…}.
 """
 import ast
@@ -13,11 +14,15 @@ import pytest
 from djsync.i18n import en, fr
 
 UI = Path(__file__).resolve().parent.parent / "djsync" / "ui"
+PKG = UI.parent
 FRENCH = re.compile(r"[éèêàùçôîûœ«»]|\b(le|la|les|des|une|aucun|aucune|cliquez|clé|sons?|enregistrer|"
                     r"supprimer|télécharg\w*|playlist intelligente)\b", re.I)
 KEY_CALL = re.compile(r'''\b(?:t|plural)\(\s*"([a-z_]+\.[a-zA-Z0-9_]+)"(?:\s*,\s*"([a-z_]+\.[a-zA-Z0-9_]+)")?''')
 ALLOWED = {"Segoe UI", "Contents", "DJSync", "FFmpeg", "YouTube Music", "Spotify · YouTube · SoundCloud", "BPM",
-           "export.pdb"}
+           "export.pdb", "Français", r"^(\d+(?:[.,]\d+)?)\s*([a-zà-ÿ]+)?"}
+# mots français fréquents dans un message : repère les oublis hors interface (journaux, exceptions)
+FRENCH_WORDS = re.compile(r"\b(introuvable|impossible|fichier|aucune?|clé|sons?|dans|avec|sans|erreur|lecture|"
+                          r"illisible|déjà|ligne|réglages|platines?)\b", re.I)
 
 
 def _docstrings(tree: ast.AST) -> set:
@@ -45,7 +50,7 @@ def test_no_hard_coded_french_in_the_interface():
     offenders = []
     for path in sorted(UI.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        skip = _docstrings(tree) | _logging_args(tree)
+        skip = _docstrings(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip:
                 text = node.value
@@ -54,6 +59,23 @@ def test_no_hard_coded_french_in_the_interface():
                 if FRENCH.search(text):
                     offenders.append(f"{path.relative_to(UI)}:{node.lineno}: {text[:60]!r}")
     assert not offenders, "Textes à passer par t() :\n" + "\n".join(offenders)
+
+
+def test_whole_package_is_english_exceptions_and_logs_included():
+    offenders = []
+    for path in sorted(PKG.rglob("*.py")):
+        if path.name == "fr.py" and path.parent.name == "i18n":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        skip = _docstrings(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip:
+                text = node.value
+                if text in ALLOWED or not text.strip():
+                    continue
+                if re.search(r"[éèêàùçôîûœ«»]", text) or FRENCH_WORDS.search(text):
+                    offenders.append(f"{path.relative_to(PKG)}:{node.lineno}: {text[:60]!r}")
+    assert not offenders, "Textes français hors i18n :\n" + "\n".join(offenders)
 
 
 def _fields(text: str) -> set:

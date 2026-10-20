@@ -20,7 +20,7 @@ class PlaylistsMixin:
     def get_playlist(self, playlist_id: int) -> PlaylistInfo:
         rows = self._read(self._PLAYLIST_SELECT + " WHERE p.playlist_id = ?", (playlist_id,))
         if not rows:
-            raise PlaylistNotFoundError(f"Playlist introuvable (id {playlist_id}).")
+            raise PlaylistNotFoundError(f"Playlist not found (id {playlist_id}).")
         return PlaylistInfo(*rows[0])
 
     def get_playlist_tracks(self, playlist_id: int) -> List[LibraryTrack]:
@@ -37,7 +37,7 @@ class PlaylistsMixin:
     def _clean_name(name: str) -> str:
         name = (name or "").strip()
         if not name:
-            raise LibraryError("Le nom de la playlist ne peut pas être vide.")
+            raise LibraryError("The playlist name cannot be empty.")
         return name
 
     @staticmethod
@@ -47,9 +47,9 @@ class PlaylistsMixin:
             (playlist_id,),
         ).fetchone()
         if row is None:
-            raise PlaylistNotFoundError(f"Playlist introuvable (id {playlist_id}).")
+            raise PlaylistNotFoundError(f"Playlist not found (id {playlist_id}).")
         if editable and row[1] != PLAYLIST_KIND:
-            raise LibraryError(f"« {row[2]} » n'est pas une playlist classique : contenu non modifiable.")
+            raise LibraryError(f"\"{row[2]}\" is not a regular playlist: its content cannot be changed.")
         return row
 
     @staticmethod
@@ -71,9 +71,9 @@ class PlaylistsMixin:
         name = self._clean_name(name)
         with self._write() as conn:
             if parent_id != 0 and self._require_playlist(conn, parent_id)[1] != FOLDER_KIND:
-                raise LibraryError("Le parent doit être un dossier de playlists.")
+                raise LibraryError("The parent must be a playlist folder.")
             if self._name_taken(conn, name, parent_id):
-                raise DuplicatePlaylistError(f"Une playlist « {name} » existe déjà ici.")
+                raise DuplicatePlaylistError(f"A playlist \"{name}\" already exists here.")
             seq = conn.execute(
                 "SELECT COALESCE(MAX(sequenceNo), 0) + 1 FROM playlist "
                 "WHERE COALESCE(playlist_id_parent,0) = ?", (parent_id,),
@@ -95,7 +95,7 @@ class PlaylistsMixin:
                 "SELECT COALESCE(playlist_id_parent,0) FROM playlist WHERE playlist_id = ?", (playlist_id,)
             ).fetchone()[0]
             if self._name_taken(conn, new_name, parent, exclude_id=playlist_id):
-                raise DuplicatePlaylistError(f"Une playlist « {new_name} » existe déjà ici.")
+                raise DuplicatePlaylistError(f"A playlist \"{new_name}\" already exists here.")
             old_path = self._pl_path(conn, playlist_id)
             conn.execute("UPDATE playlist SET name = ? WHERE playlist_id = ?", (new_name, playlist_id))
             self._stage(lambda db, p=old_path, n=new_name: db.rename_playlist(p, n))
@@ -140,7 +140,7 @@ class PlaylistsMixin:
             if cid in present:
                 continue
             if conn.execute("SELECT 1 FROM content WHERE content_id = ?", (cid,)).fetchone() is None:
-                raise TrackNotFoundError(f"Son introuvable (id {cid}).")
+                raise TrackNotFoundError(f"Track not found (id {cid}).")
             seq += 1
             added += 1
             conn.execute(
@@ -188,7 +188,7 @@ class PlaylistsMixin:
                 [from_playlist_id, *content_ids])}
             missing = [c for c in content_ids if c not in found]
             if missing:
-                raise TrackNotFoundError(f"Sons absents de la playlist source : {missing}")
+                raise TrackNotFoundError(f"Tracks missing from the source playlist: {missing}")
             ordered = [c for c in content_ids if c in found]
             self._append(conn, to_playlist_id, ordered)
             conn.execute(
@@ -208,7 +208,7 @@ class PlaylistsMixin:
                 "SELECT content_id FROM playlist_content WHERE playlist_id = ? ORDER BY sequenceNo, rowid",
                 (playlist_id,))]
             if content_id not in ids:
-                raise TrackNotFoundError("Ce son n'est pas dans la playlist.")
+                raise TrackNotFoundError("This track is not in the playlist.")
             ids.remove(content_id)
             ids.insert(max(0, min(new_position - 1, len(ids))), content_id)
             conn.execute("DELETE FROM playlist_content WHERE playlist_id = ?", (playlist_id,))
@@ -226,7 +226,7 @@ class PlaylistsMixin:
             current = {r[0] for r in conn.execute(
                 "SELECT content_id FROM playlist_content WHERE playlist_id = ?", (playlist_id,))}
             if set(wanted) != current or len(wanted) != len(current):
-                raise LibraryError("La playlist a changé entre-temps : rechargez-la avant d'enregistrer l'ordre.")
+                raise LibraryError("The playlist changed in the meantime: reload it before saving the order.")
             conn.execute("DELETE FROM playlist_content WHERE playlist_id = ?", (playlist_id,))
             conn.executemany(
                 "INSERT INTO playlist_content (playlist_id, content_id, sequenceNo) VALUES (?, ?, ?)",

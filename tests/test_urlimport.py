@@ -65,7 +65,7 @@ def test_resolve_playlist_flat():
 
 def test_resolve_single_video_and_video_with_list_param():
     res = resolve_direct("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1", extractor=lambda u, o: {**YT, "webpage_url": u} | {"_o": o})
-    assert not res.is_playlist and len(res.tracks) == 1 and "seule la vidéo" in res.note
+    assert not res.is_playlist and len(res.tracks) == 1 and "only the video" in res.note
     seen = {}
     resolve_direct("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1", extractor=lambda u, o: seen.update(o=o) or YT)
     assert seen["o"]["noplaylist"] is True
@@ -74,12 +74,12 @@ def test_resolve_single_video_and_video_with_list_param():
 
 
 def test_resolve_errors_are_user_friendly():
-    with pytest.raises(UrlImportError, match="non prise en charge"):
+    with pytest.raises(UrlImportError, match="not supported"):
         resolve_direct("https://example.com/x")
     def boom(u, o): raise RuntimeError("\x1b[0;31mERROR:\x1b[0m Video unavailable")
     with pytest.raises(UrlImportError, match="Video unavailable"):
         resolve_direct("https://www.youtube.com/watch?v=dQw4w9WgXcQ", extractor=boom)
-    with pytest.raises(UrlImportError, match="Aucun morceau"):
+    with pytest.raises(UrlImportError, match="No playable track"):
         resolve_direct("https://www.youtube.com/playlist?list=P", extractor=lambda u, o: {"_type": "playlist", "entries": [{"id": "x", "title": "[Deleted video]", "url": "https://x"}]})
     assert resolve_direct("https://www.youtube.com/playlist?list=P", limit=2, extractor=lambda u, o: {"_type": "playlist", "entries": [YT, {**YT, "id": "BBBBBBBBBBB", "url": "https://www.youtube.com/watch?v=BBBBBBBBBBB"}]}).truncated
 

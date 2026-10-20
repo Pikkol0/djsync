@@ -32,7 +32,7 @@ def main() -> int:
     sheet.save(out / "apercu-toutes-couleurs.png")
     logo_image(256, PALETTES[DEFAULT_THEME]).save(
         ROOT / "packaging" / "djsync.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    print(f"{len(tiles)} logos -> {out} ; icône -> packaging/djsync.ico")
+    print(f"{len(tiles)} logos -> {out}; icon -> packaging/djsync.ico")
     return 0
 
 

@@ -196,7 +196,7 @@ class PdbDatabase:
         try:
             self.file.insert_row(T.KEYS, rows.build_key(new_id, name))
         except PdbCapacityError as exc:
-            self.summary.skipped.append(f"tonalité « {name} » non ajoutée : {exc}")
+            self.summary.skipped.append(f"key \"{name}\" not added: {exc}")
             return 0
         self._max["key"] = new_id
         self._keys[_key(name)] = new_id
@@ -218,7 +218,7 @@ class PdbDatabase:
         try:
             self.file.insert_row(T.ARTWORK, rows.build_artwork(new_id, path))
         except PdbCapacityError as exc:
-            self.summary.skipped.append(f"pochette non ajoutée : {exc}")
+            self.summary.skipped.append(f"artwork not added: {exc}")
             return 0
         self._max["artwork"] = new_id
         self._artworks[_key(path)] = new_id
@@ -341,7 +341,7 @@ class PdbDatabase:
     def rename_playlist(self, path: PlaylistPath, new_name: str) -> bool:
         node = self.find_playlist(path)
         if node is None:
-            self.summary.skipped.append("playlist introuvable : " + "/".join(path))
+            self.summary.skipped.append("playlist not found: " + "/".join(path))
             return False
         self.file.delete_row(node.page, node.slot)
         page, slot = self.file.insert_row(

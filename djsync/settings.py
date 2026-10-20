@@ -86,7 +86,7 @@ class Settings:
         except FileNotFoundError:
             return settings
         except (OSError, json.JSONDecodeError) as exc:
-            log.warning("Réglages illisibles (%s) : valeurs par défaut.", exc)
+            log.warning("Unreadable settings (%s): using defaults.", exc)
             return settings
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
@@ -113,4 +113,4 @@ class Settings:
             tmp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, path)
         except OSError as exc:
-            log.warning("Réglages non enregistrés : %s", exc)
+            log.warning("Settings not saved: %s", exc)

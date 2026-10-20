@@ -20,10 +20,10 @@ from ..core.camelot import to_camelot
 def _one(path: str, ffmpeg: str | None) -> None:
     r = analyze_file(path, ffmpeg)
     downbeat = next((t for n, t in r.grid.beats if n == 1), None)
-    print(f"{Path(path).name}\n  BPM {r.bpm:.2f}   tonalité {r.key.name or '?'} ({r.key.camelot or '?'})   "
-          f"1er temps {r.grid.first_beat * 1000:.0f} ms   1er temps fort "
+    print(f"{Path(path).name}\n  BPM {r.bpm:.2f}   key {r.key.name or '?'} ({r.key.camelot or '?'})   "
+          f"first beat {r.grid.first_beat * 1000:.0f} ms   first downbeat "
           f"{f'{downbeat:.3f}' if downbeat is not None else '?'} s\n"
-          f"  durée {r.duration:.1f} s, {r.waveforms.detail_count} points de forme d'onde, calcul {r.seconds:.1f} s")
+          f"  duration {r.duration:.1f} s, {r.waveforms.detail_count} waveform points, computed in {r.seconds:.1f} s")
 
 
 def _rekordbox_grid(lib, content_id: int):
@@ -81,7 +81,7 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                 grid = analyze_tempo(audio.samples, audio.sr, dbg)
                 key = analyze_key(audio.samples, audio.sr, dbg)
             except Exception as exc:  # noqa: BLE001
-                print(f"  ! {t.title} : {exc}")
+                print(f"  ! {t.title}: {exc}")
                 continue
             mine, theirs = key.camelot, to_camelot(t.key)
             gap, same_down, signed = _grid_gap(grid, _rekordbox_grid(lib, t.content_id))
@@ -98,28 +98,28 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                 down_ok += bool(same_down)
                 if gap < 0.25 * 60000 / grid.bpm:
                     by_format.setdefault(t.path.rsplit(".", 1)[-1].lower(), []).append(signed)
-                grid_txt = f"  grille {gap:5.1f} ms{'' if same_down else ' (temps fort décalé)'}"
+                grid_txt = f"  grid {gap:5.1f} ms{'' if same_down else ' (downbeat shifted)'}"
             flag = "" if (same_bpm and mine == theirs) else "   <--"
             print(f"{i:4} {t.title[:40]:40}  Rekordbox {t.bpm:7.2f} {theirs or '?':>4}   DJSync {grid.bpm:7.2f} "
                   f"{mine or '?':>4}{' (octave)' if is_oct else ''}{' [variable]' if grid.variable else ''}"
                   f"{grid_txt}{flag}", flush=True)
-            rows.append({"titre": t.title, "fichier": t.path, "duree": round(audio.duration, 1),
+            rows.append({"title": t.title, "file": t.path, "duration": round(audio.duration, 1),
                          "rb_bpm": t.bpm, "rb_key": theirs or "", "dj_bpm": grid.bpm, "dj_key": mine or "",
                          "dj_first_beat": round(grid.first_beat, 4), "dj_variable": grid.variable,
                          "grid_gap_ms": gap if gap is not None else "", "grid_signed_ms": signed if signed is not None else "",
                          "same_downbeat": same_down
                          if same_down is not None else "", **dbg})
         n = max(1, len(rows))
-        print(f"\nBPM identiques : {bpm_ok}/{len(rows)} ({100 * bpm_ok / n:.0f} %), erreurs d'octave : "
-              f"{octave}   tonalités identiques : {key_ok}/{len(rows)} ({100 * key_ok / n:.0f} %), "
-              f"relatif maj./min. : {key_rel}")
+        print(f"\nSame BPM: {bpm_ok}/{len(rows)} ({100 * bpm_ok / n:.0f} %), octave errors: "
+              f"{octave}   same key: {key_ok}/{len(rows)} ({100 * key_ok / n:.0f} %), "
+              f"relative maj./min.: {key_rel}")
         if grid_n:
-            print(f"Grilles (sons de même tempo) : temps à moins de 20 ms de Rekordbox : {grid_ok}/{grid_n}   "
-                  f"même 1er temps de mesure : {down_ok}/{grid_n}")
+            print(f"Grids (tracks with the same tempo): beats within 20 ms of Rekordbox: {grid_ok}/{grid_n}   "
+                  f"same downbeat: {down_ok}/{grid_n}")
             import statistics
 
             for fmt, vals in sorted(by_format.items()):
-                print(f"  .{fmt:4} : {len(vals):3} sons, décalage médian DJSync - Rekordbox {statistics.median(vals):+.1f} ms")
+                print(f"  .{fmt:4}: {len(vals):3} tracks, median offset DJSync - Rekordbox {statistics.median(vals):+.1f} ms")
     if csv_path:
         import csv
 
@@ -128,18 +128,20 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
             w = csv.DictWriter(fh, fieldnames=cols, delimiter=";")
             w.writeheader()
             w.writerows(rows)
-        print(f"Diagnostic écrit : {csv_path}  (à renvoyer pour calibrer l'analyse)")
+        print(f"Diagnostic written: {csv_path}  (send it back to calibrate the analysis)")
     return 0
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m djsync.analysis", description=__doc__,
+    ap = argparse.ArgumentParser(prog="python -m djsync.analysis", description="DJSync audio analysis (read-only): BPM, beat grid, key.\n\n"
+                                 "  python -m djsync.analysis track.m4a [track2.mp3 ...]\n"
+                                 "  python -m djsync.analysis --compare E:   compare with Rekordbox's analyses on a drive",
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="*")
-    ap.add_argument("--compare", metavar="CLÉ", help="comparer aux analyses Rekordbox de la clé (lecture seule)")
-    ap.add_argument("--limit", type=int, default=10_000, help="nombre maximal de sons comparés (défaut : tous)")
-    ap.add_argument("--csv", metavar="FICHIER", help="avec --compare : écrit les mesures détaillées (calibrage)")
-    ap.add_argument("--ffmpeg", default=None, help="dossier contenant ffmpeg(.exe)")
+    ap.add_argument("--compare", metavar="DRIVE", help="compare with the Rekordbox analyses of the drive (read-only)")
+    ap.add_argument("--limit", type=int, default=10_000, help="maximum number of tracks compared (default: all)")
+    ap.add_argument("--csv", metavar="FILE", help="with --compare: write detailed measurements (calibration)")
+    ap.add_argument("--ffmpeg", default=None, help="folder containing ffmpeg(.exe)")
     args = ap.parse_args(argv)
     if args.compare:
         return _compare(args.compare, args.ffmpeg, args.limit, args.csv)

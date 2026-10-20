@@ -69,7 +69,7 @@ def read_track(data, pos: int) -> Dict[str, object]:
     """Décode une piste (champs utiles à DJSync). `pos` = offset absolu de la ligne dans le buffer."""
     offs = [u16(data, pos + 0x5E + 2 * k) for k in range(21)]
     if any(o < TRACK_FIXED for o in offs):
-        raise PdbFormatError("ligne de piste : offsets de chaînes invalides")
+        raise PdbFormatError("track row: invalid string offsets")
     strings = {name: decode_string(data, pos + o, strict=name in ("file_path", "title"))
                for name, o in zip(STR_NAMES, offs)}
     return {
@@ -226,5 +226,5 @@ def row_end(ttype: int, data, pos: int) -> int:
     elif ttype == T.ARTWORK:
         end = pos + 4 + string_span(data, pos + 4)
     else:
-        raise PdbFormatError(f"table {ttype} non prise en charge")
+        raise PdbFormatError(f"table {ttype} not supported")
     return end + (-(end - pos) % 4)

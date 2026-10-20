@@ -30,10 +30,10 @@ class PdbMirrorMixin:
             self.pdb_problem = ""
         except PdbError as exc:
             self.pdb_state, self.pdb_problem = "stale", str(exc)
-            log.warning("export.pdb non mis à jour (exportLibrary.db l'est) : %s", exc)
+            log.warning("export.pdb not updated (exportLibrary.db is): %s", exc)
         except Exception as exc:  # noqa: BLE001 - jamais d'exception vers l'appelant
-            self.pdb_state, self.pdb_problem = "stale", f"{type(exc).__name__} : {exc}"
-            log.exception("export.pdb non mis à jour")
+            self.pdb_state, self.pdb_problem = "stale", f"{type(exc).__name__}: {exc}"
+            log.exception("export.pdb not updated")
 
     @staticmethod
     def _pl_path(conn: Any, playlist_id: int) -> PdbPath:
@@ -132,12 +132,12 @@ class PdbMirrorMixin:
         """Rattrapage ADDITIF : ajoute à export.pdb les sons et playlists de exportLibrary.db qui y
         manquent (ex. sons ajoutés par DJSync avant la V1.1-A3). Ne supprime et ne réordonne rien."""
         if self.read_only:
-            raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
+            raise ReadOnlyError("Library opened read-only.")
         if self.pdb_sync == "off":
-            raise LibraryError("La synchronisation de export.pdb est désactivée dans les Paramètres.")
+            raise LibraryError("export.pdb synchronisation is disabled in Settings.")
         store = self._pdb_store()
         if not store.exists():
-            raise LibraryError("Cette clé ne contient pas de export.pdb : rien à synchroniser.")
+            raise LibraryError("This drive has no export.pdb: nothing to synchronise.")
         metas, playlists = self._ol_snapshot()
         ops: List[PdbOp] = [lambda db, m=m: db.add_track(m) for m in metas]
         for path, is_folder, tracks in playlists:
@@ -149,7 +149,7 @@ class PdbMirrorMixin:
                 summary = store.apply(ops)
             except PdbError as exc:
                 self.pdb_state, self.pdb_problem = "stale", str(exc)
-                raise LibraryError(f"export.pdb non synchronisé (la clé n'a pas été modifiée) : {exc}") from exc
+                raise LibraryError(f"export.pdb not synchronised (the drive was not changed): {exc}") from exc
         self.pdb_state, self.pdb_problem, self.pdb_last_summary = "ok", "", summary
         return summary
 

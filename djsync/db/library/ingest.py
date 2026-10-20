@@ -52,8 +52,8 @@ class IngestMixin:
                 log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
                          ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
             except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
-                log.warning("Analyse impossible (%s) : %s", file_path.name, exc)
-                ex.problems.append(f"analyse : {exc}")
+                log.warning("Analysis failed (%s): %s", file_path.name, exc)
+                ex.problems.append(f"analysis: {exc}")
         if self.artwork and cover and self._has_image:
             try:
                 from ...audio.covers import extract_embedded_cover
@@ -61,8 +61,8 @@ class IngestMixin:
                 data = extract_embedded_cover(file_path)
                 ex.jpegs = _art.make_jpegs(data) if data else None
             except Exception as exc:  # noqa: BLE001
-                log.warning("Pochette illisible (%s) : %s", file_path.name, exc)
-                ex.problems.append(f"pochette : {exc}")
+                log.warning("Unreadable artwork (%s): %s", file_path.name, exc)
+                ex.problems.append(f"artwork: {exc}")
         return ex
 
     @staticmethod
@@ -160,11 +160,11 @@ class IngestMixin:
         """
         file_path = Path(file_path)
         if not file_path.is_file():
-            raise LibraryError(f"Fichier introuvable : {file_path}")
+            raise LibraryError(f"File not found: {file_path}")
         try:
             rel = file_path.resolve().relative_to(self.drive.root.resolve())
         except ValueError as exc:
-            raise LibraryError(f"Le fichier doit se trouver sur la clé ({self.drive.root}).") from exc
+            raise LibraryError(f"The file must be on the drive ({self.drive.root}).") from exc
         db_path = "/" + rel.as_posix()
 
         title = (title or "").strip() or file_path.stem
@@ -175,7 +175,7 @@ class IngestMixin:
                    else (source_url or "").split("?")[0].split("#")[0])
         audio = self._probe_audio(file_path)
         if self.read_only:
-            raise ReadOnlyError("Bibliothèque ouverte en lecture seule.")
+            raise ReadOnlyError("Library opened read-only.")
 
         with self._lock:
             existing = self._db().execute(
@@ -258,14 +258,14 @@ class IngestMixin:
         row = self._read("SELECT path, analysisDataFilePath, image_id, masterDbId, album_id, fileType, samplingRate "
                          "FROM content WHERE content_id = ?", (content_id,))
         if not row:
-            raise TrackNotFoundError(f"Son introuvable (id {content_id}).")
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
         db_path, anlz, image_id, master, album_id, ftype, rate = row[0]
         if master is not None or (anlz and not force):
             self.last_problems = []
             return None
         file_path = self.absolute_path(db_path)
         if not file_path.is_file():
-            raise LibraryError(f"Fichier introuvable : {file_path}")
+            raise LibraryError(f"File not found: {file_path}")
         ex = self._prepare_extras(file_path, db_path, {"fileType": int(ftype or 0), "samplingRate": int(rate or 44100)},
                                   analysis=force or not anlz, cover=image_id is None, explicit=True)
         self.last_problems = list(ex.problems)
@@ -323,7 +323,7 @@ class IngestMixin:
                         self._apply_analysis(job)
                         done += 1
                     except LibraryError as exc:
-                        log.warning("Analyse non enregistrée (id %s) : %s", job[0], exc)
+                        log.warning("Analysis not saved (id %s): %s", job[0], exc)
                         failed += 1
             pending.clear()
 
@@ -375,7 +375,7 @@ class IngestMixin:
                     done += 1 if t.is_analysed else 0
                     failed += 0 if t.is_analysed else 1
                 except LibraryError as exc:
-                    log.warning("Analyse de « %s » impossible : %s", track.title, exc)
+                    log.warning("Analysis of \"%s\" failed: %s", track.title, exc)
                     failed += 1
                 if on_progress:
                     on_progress(i, len(todo), track)

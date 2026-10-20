@@ -41,14 +41,14 @@ class PdbStore:
         try:
             return PdbDatabase(self.path.read_bytes(), allow_growth=self.allow_growth)
         except OSError as exc:
-            raise PdbError(f"export.pdb illisible : {exc}") from exc
+            raise PdbError(f"unreadable export.pdb: {exc}") from exc
 
     def apply(self, ops: Sequence[Op]) -> Summary:
         """Applique les opérations ; n'écrit sur la clé que si tout s'est bien passé."""
         try:
             original = self.path.read_bytes()
         except OSError as exc:
-            raise PdbError(f"export.pdb illisible : {exc}") from exc
+            raise PdbError(f"unreadable export.pdb: {exc}") from exc
         db = PdbDatabase(original, allow_growth=self.allow_growth)
         for op in ops:
             op(db)
@@ -68,12 +68,12 @@ class PdbStore:
             target = self.backup_dir / f"export-{stamp}-{tag}.pdb"
             target.write_bytes(original)
             if target.stat().st_size != len(original):
-                raise OSError("sauvegarde incomplète")
+                raise OSError("incomplete backup")
             for pattern, keep in (("export-*-auto.pdb", self.keep), ("export-*-session.pdb", self.session_keep)):
                 for old in sorted(self.backup_dir.glob(pattern))[: -keep or None]:
                     old.unlink(missing_ok=True)
         except OSError as exc:
-            raise PdbError(f"sauvegarde de export.pdb impossible, écriture annulée : {exc}") from exc
+            raise PdbError(f"export.pdb backup failed, write cancelled: {exc}") from exc
         self._session_backed_up = True
         log.info("Sauvegarde : %s", target.name)
 
@@ -86,7 +86,7 @@ class PdbStore:
                 os.fsync(fh.fileno())
             os.replace(tmp, self.path)
             if self.path.read_bytes() != data:
-                raise OSError("la relecture ne correspond pas à ce qui a été écrit")
+                raise OSError("read-back does not match what was written")
         except OSError as exc:
             tmp.unlink(missing_ok=True)
-            raise PdbError(f"écriture de export.pdb impossible (fichier utilisé par un autre programme ?) : {exc}") from exc
+            raise PdbError(f"cannot write export.pdb (file used by another program?): {exc}") from exc

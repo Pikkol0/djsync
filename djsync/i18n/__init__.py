@@ -54,7 +54,7 @@ def t(key: str, **params: Any) -> str:
         try:
             return text.format(**params)
         except (KeyError, IndexError, ValueError):
-            log.warning("Paramètres incorrects pour la clé i18n %r : %r", key, params)
+            log.warning("Wrong parameters for i18n key %r: %r", key, params)
     return text
 
 

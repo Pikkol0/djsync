@@ -67,7 +67,7 @@ def guess_artist_title(entry: Dict[str, Any]) -> Tuple[str, str]:
     artist, track = entry.get("artist") or entry.get("creator"), entry.get("track")
     if artist and track:
         return str(artist), str(track)
-    title = str(entry.get("title") or "Sans titre").strip()
+    title = str(entry.get("title") or "Untitled").strip()
     m = _ARTIST_TITLE.match(title)
     if m:
         return m.group(1).strip(), m.group(2).strip()
@@ -133,7 +133,7 @@ def resolve_direct(
     url = url.strip()
     kind = kind or classify_url(url)
     if kind not in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
-        raise UrlImportError("URL non prise en charge pour un téléchargement direct (YouTube ou SoundCloud).")
+        raise UrlImportError("URL not supported for a direct download (YouTube or SoundCloud).")
 
     single = kind == UrlKind.YOUTUBE and _single_video_of_playlist_url(url)
     opts: Dict[str, Any] = {
@@ -150,15 +150,15 @@ def resolve_direct(
                 info = ydl.extract_info(url, download=False)
     except Exception as exc:  # noqa: BLE001 - yt-dlp lève des erreurs variées (réseau, privé, supprimé…)
         text = re.sub(r"\x1b\[[0-9;]*m", "", str(exc)).replace("ERROR: ", "").strip()
-        raise UrlImportError(f"Lecture impossible : {text[:300] or 'URL non reconnue par yt-dlp.'}") from exc
+        raise UrlImportError(f"Cannot read: {text[:300] or 'URL not recognised by yt-dlp.'}") from exc
     if not info:
-        raise UrlImportError("Rien à importer à cette adresse.")
+        raise UrlImportError("Nothing to import at this address.")
 
     is_playlist = info.get("_type") == "playlist" or "entries" in info
     entries: List[Dict[str, Any]] = [e for e in (info.get("entries") or []) if e] if is_playlist else [info]
     tracks = [t for t in (entry_to_track(e, kind) for e in entries) if t]
     if not tracks:
-        raise UrlImportError("Aucun morceau lisible (contenu privé, supprimé ou vide).")
+        raise UrlImportError("No playable track (private, deleted or empty content).")
 
     seen, unique = set(), []
     for t in tracks:  # une playlist peut contenir le même morceau deux fois
@@ -171,6 +171,6 @@ def resolve_direct(
         tracks=unique,
         source_url=url,
         is_playlist=is_playlist,
-        note="Lien vidéo + playlist : seule la vidéo est importée." if single else "",
+        note="Video + playlist link: only the video is imported." if single else "",
         truncated=is_playlist and len(entries) >= limit,
     )

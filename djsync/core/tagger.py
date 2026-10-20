@@ -27,7 +27,7 @@ def _fetch_cover(url: Optional[str]) -> Optional[bytes]:
         resp.raise_for_status()
         return resp.content
     except requests.RequestException as exc:
-        log.warning("Pochette indisponible (%s) : on continue sans.", exc)
+        log.warning("Artwork unavailable (%s): continuing without it.", exc)
         return None
 
 
@@ -50,7 +50,7 @@ def _square(data: Optional[bytes]) -> Optional[bytes]:
         img.save(out, "JPEG", quality=92)
         return out.getvalue()
     except Exception as exc:  # noqa: BLE001 - Pillow absent ou image illisible : on garde l'original
-        log.debug("Pochette non recadrée : %s", exc)
+        log.debug("Artwork not cropped: %s", exc)
         return data
 
 
@@ -102,4 +102,4 @@ def tag_audio(file_path: str, track: TrackResult) -> None:
     elif suffix == ".mp3":
         tag_mp3(file_path, track)
     else:
-        log.warning("Format %s : tags non écrits.", suffix)
+        log.warning("Format %s: tags not written.", suffix)

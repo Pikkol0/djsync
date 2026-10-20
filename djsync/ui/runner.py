@@ -57,11 +57,11 @@ class UiDispatcher:
             try:
                 result = fn()
             except BaseException as exc:  # noqa: BLE001 - remonté à l'UI, jamais perdu
-                log.debug("Tâche %s en erreur", pool, exc_info=True)
+                log.debug("%s task failed", pool, exc_info=True)
                 if on_err:
                     self.post(on_err, exc)
                 else:
-                    log.error("Erreur non gérée dans une tâche %s : %s", pool, exc)
+                    log.error("Unhandled error in a %s task: %s", pool, exc)
                 return
             if on_ok:
                 self.post(on_ok, result)
@@ -78,7 +78,7 @@ class UiDispatcher:
             try:
                 job()
             except Exception:  # noqa: BLE001
-                log.exception("Erreur dans un callback d'interface")
+                log.exception("Error in a UI callback")
         self._ticks += 1
         if self._ticks % 80 == 0:               # ~2 s : jeunes générations ; ~20 s : tout
             gc.collect(2 if self._ticks % 800 == 0 else 1)

@@ -46,7 +46,7 @@ def _frame_features(x: np.ndarray, sr: int, n: int):
     pour un mix d'une heure (aucun signal de bande complet n'est conservé)."""
     hop = sr // DETAIL_RATE
     if hop * DETAIL_RATE != sr:
-        raise ValueError("fréquence d'analyse non multiple de 150 Hz")
+        raise ValueError("analysis rate is not a multiple of 150 Hz")
     total = n * hop
     if x.size < total:
         x = np.pad(x, (0, total - x.size))
