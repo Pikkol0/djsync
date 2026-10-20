@@ -22,14 +22,13 @@ class AnalysisDialog(BaseDialog):
         self.ctrl = controller
         self._tracks: List[LibraryTrack] = list(tracks or [])
         self._missing_mode = tracks is None
-        self.heading(t("analysis.title"), t("analysis.hint"))
+        self.heading(t("analysis.title"))
         self.what = label(t("analysis.counting"), wrap=True)
         self.body.addWidget(self.what)
         self.force = QCheckBox(t("analysis.force"))
         self.force.toggled.connect(lambda _c: self._describe())
         self.force.setVisible(not self._missing_mode)
         self.body.addWidget(self.force)
-        self.body.addWidget(label(t("analysis.background_hint"), "faint", wrap=True))
         self.start_btn = self.footer(t("analysis.start"), self._start, cancel_text=t("action.close"))
         if self._missing_mode:
             self.start_btn.setEnabled(False)

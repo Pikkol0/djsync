@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QLineEdit, QProgressBar, QSplitter, QTreeWidget, QTreeWidgetItem, QWidget,
+    QAbstractItemView, QHeaderView, QProgressBar, QSplitter, QTreeWidget, QTreeWidgetItem, QWidget,
 )
 
 from ...core.camelot import neighbors
@@ -23,7 +23,10 @@ from ...models import LibraryTrack, PlaylistInfo, format_duration
 from .. import theme
 from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
 from ..table import MIME_IDS, camelot_sort, popup_menu
-from ..widgets import Column, Row, TrackTable, button, hbox, icon_button, label, panel, restyle, vbox
+from ..icons import qicon
+from ..widgets import (
+    Column, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
+)
 from .common import View
 
 ALL = "all"
@@ -48,6 +51,11 @@ class NavTree(QTreeWidget):
         super().__init__()
         self.view = view
         self.setHeaderHidden(True)
+        self.setColumnCount(2)
+        self.header().setStretchLastSection(False)
+        self.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(False)
@@ -116,7 +124,7 @@ class LibraryView(View):
             Column("duration", t("track.duration"), 58, "e", priority=3,
                    sort=lambda r: r.data.duration_seconds if r.data else 0),
             Column("format", t("track.format"), 56, "center", priority=6),
-            Column("added", t("track.added"), 90, "center", priority=4,
+            Column("added", t("track.added"), 104, "center", priority=4,
                    sort=lambda r: r.data.date_added if r.data else ""),
         ]
 
@@ -133,9 +141,9 @@ class LibraryView(View):
         self.nav.itemSelectionChanged.connect(self._nav_selected)
         self.nav.customContextMenuRequested.connect(self._nav_context)
         lv.addWidget(self.nav, 1)
-        nb = hbox()
-        nb.addWidget(button("+ " + t("lib.playlist"), self._create_playlist))
-        nb.addWidget(button("+ " + t("lib.folder"), self._create_folder, tooltip=t("lib.new_folder")))
+        nb = hbox(spacing=theme.px(4))
+        nb.addWidget(button(t("lib.playlist"), self._create_playlist, icon="plus", tooltip=t("lib.new_playlist")))
+        nb.addWidget(button(t("lib.folder"), self._create_folder, icon="folder", tooltip=t("lib.new_folder")))
         self.rename_btn = icon_button("edit", self._rename_playlist, t("action.rename"))
         nb.addWidget(self.rename_btn)
         nb.addStretch(1)
@@ -152,21 +160,20 @@ class LibraryView(View):
         titles.addWidget(self.title_lbl)
         titles.addWidget(self.sub_lbl)
         head.addLayout(titles, 1)
-        self.filter = QLineEdit()
-        self.filter.setPlaceholderText(t("lib.filter"))
-        self.filter.setMaximumWidth(theme.px(220))
+        self.filter = line_edit(t("lib.filter"), "search")
+        self.filter.setMaximumWidth(theme.px(240))
         self.filter.textEdited.connect(lambda _t: self._filter_changed())
         head.addWidget(self.filter, 0, Qt.AlignTop)
         mv.addLayout(head)
 
-        bar = hbox()
-        self.add_btn = button(t("lib.add_to"), self._add_to)
-        self.move_btn = button(t("lib.move_to"), self._move_to)
-        self.remove_btn = button(t("lib.remove"), self._remove)
-        self.up_btn = button("↑", lambda: self._move(-1), tooltip=t("lib.up"))
-        self.down_btn = button("↓", lambda: self._move(+1), tooltip=t("lib.down"))
-        self.save_btn = button(t("lib.save_order"), self._save_order, kind="primary")
-        self.analyse_btn = button("", self._analyse_toggle, kind="primary")
+        bar = hbox(spacing=theme.px(6))
+        self.add_btn = button(t("lib.add_to"), self._add_to, icon="plus")
+        self.move_btn = button(t("lib.move_to"), self._move_to, icon="move")
+        self.remove_btn = button(t("lib.remove"), self._remove, icon="close")
+        self.up_btn = icon_button("up", lambda: self._move(-1), t("lib.up"))
+        self.down_btn = icon_button("down", lambda: self._move(+1), t("lib.down"))
+        self.save_btn = button(t("lib.save_order"), self._save_order, kind="primary", icon="check")
+        self.analyse_btn = button("", self._analyse_toggle, kind="primary", icon="wave")
         self.analysis_bar = QProgressBar()
         self.analysis_bar.setTextVisible(False)
         self.analysis_bar.setRange(0, 1000)
@@ -175,26 +182,27 @@ class LibraryView(View):
                   self.analyse_btn, self.analysis_bar):
             bar.addWidget(w)
         bar.addStretch(1)
-        self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic)
+        self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
         bar.addWidget(self.harm_btn)
         self.tools_btn = icon_button("menu", self._tools_menu, t("lib.tools"))
         bar.addWidget(self.tools_btn)
-        self.delete_btn = button(t("action.delete"), self._delete, kind="danger", tooltip=t("lib.delete"))
+        self.delete_btn = button("", self._delete, kind="danger", icon="trash", tooltip=t("lib.delete"))
         bar.addWidget(self.delete_btn)
         mv.addLayout(bar)
 
         self.banner = panel(role="banner")
-        bl = hbox(self.banner, margins=theme.px(6))
+        bl = hbox(self.banner, margins=theme.px(8), spacing=theme.px(8))
+        bl.addWidget(icon_label("key", 16, theme.ACCENT))
         self.banner_lbl = label("")
         bl.addWidget(self.banner_lbl, 1)
-        bl.addWidget(button(t("action.close"), self._clear_harmonic, kind="flat"))
+        bl.addWidget(icon_button("close", self._clear_harmonic, t("action.close"), size=14))
         self.banner.hide()
         mv.addWidget(self.banner)
 
         self.table = TrackTable(self, self.cols, reorderable=True)
         self.table.drag_out = True
-        self.table.set_empty("", t("lib.no_drive_title"), t("lib.no_drive_sub"))
+        self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: self._refresh_buttons()
         self.table.on_double = self._play
         self.table.on_reordered = self._mark_dirty
@@ -202,8 +210,6 @@ class LibraryView(View):
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
         mv.addWidget(self.table, 1)
-        self.status = label("", "faint")
-        mv.addWidget(self.status)
         split.addWidget(main)
         split.setStretchFactor(1, 1)
         split.setSizes([theme.px(220), theme.px(900)])
@@ -233,7 +239,7 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats, self._dirty = [], [], {}, False
             self._loaded_for = ""
             self._fill_nav()
-            self.table.set_empty("", t("lib.no_drive_title"), t("lib.no_drive_sub"))
+            self.table.set_empty("usb", t("lib.no_drive_title"))
             self.table.set_rows([], reset_sort=True)
             self._show_header()
             self._refresh_buttons()
@@ -268,18 +274,22 @@ class LibraryView(View):
         self._items = {}
         self._by_iid = {f"p{p.playlist_id}": p for p in self.playlists}
 
-        def item(parent: Any, iid: str, text: str, color: str = "") -> QTreeWidgetItem:
-            it = QTreeWidgetItem([text])
+        def item(parent: Any, iid: str, text: str, color: str = "", icon: str = "playlist",
+                 count: Any = "") -> QTreeWidgetItem:
+            it = QTreeWidgetItem([text, str(count)])
             it.setData(0, Qt.UserRole, iid)
+            it.setIcon(0, qicon(icon, 16, color or theme.DIM))
+            it.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+            it.setForeground(1, _qcolor(theme.FAINT))
             if color:
                 it.setForeground(0, _qcolor(color))
             (parent.addChild(it) if isinstance(parent, QTreeWidgetItem) else self.nav.addTopLevelItem(it))
             self._items[iid] = it
             return it
 
-        item(None, ALL, f"{t('lib.all_tracks')}  ·  {len(self.all_tracks)}")
+        item(None, ALL, t("lib.all_tracks"), icon="music", count=len(self.all_tracks))
         todo = self._unanalysed_count()
-        item(None, TODO, f"{t('lib.unanalysed')}  ·  {todo}", theme.WARN if todo else "")
+        item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -288,8 +298,8 @@ class LibraryView(View):
         def add(parent: Any, parent_id: int) -> None:
             for p in sorted(children.get(parent_id, []), key=lambda q: (q.sequence, q.name.lower())):
                 iid = f"p{p.playlist_id}"
-                text = p.name if p.is_folder else f"{p.name}  ·  {p.track_count}"
-                it = item(parent, iid, text, theme.DIM if p.is_folder else "")
+                it = item(parent, iid, p.name, icon="folder" if p.is_folder else "playlist",
+                          count="" if p.is_folder else p.track_count)
                 if p.is_folder:
                     add(it, p.playlist_id)
                     it.setExpanded(True)
@@ -370,15 +380,15 @@ class LibraryView(View):
         self._show_header()
         self._refresh_buttons()
         if self.current == TODO:
-            self.table.set_empty("", t("lib.empty_todo_title"), t("lib.empty_todo_sub"))
+            self.table.set_empty("check", t("lib.empty_todo_title"))
             self._apply_rows(self._unanalysed(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
             if self.current == ALL:
-                self.table.set_empty("", t("lib.empty_all_title"), t("lib.empty_all_sub"))
+                self.table.set_empty("music", t("lib.empty_all_title"))
             else:
-                self.table.set_empty("", t("lib.empty_folder_title"), t("lib.empty_folder_sub"))
+                self.table.set_empty("folder", t("lib.empty_folder_title"))
             self._apply_rows(tracks, pos=False)
             return
         pid, token = self.playlist.playlist_id, self.current
@@ -387,7 +397,7 @@ class LibraryView(View):
         def ok(tracks: List[LibraryTrack]) -> None:
             if token != self.current or self._dirty or not self.winfo_exists():
                 return
-            self.table.set_empty("", t("lib.empty_playlist_title"), t("lib.empty_playlist_sub"))
+            self.table.set_empty("playlist", t("lib.empty_playlist_title"))
             self._apply_rows(tracks, pos=True)
 
         self.ctrl.playlist_tracks(pid, ok)
@@ -530,22 +540,19 @@ class LibraryView(View):
             if q.running:
                 self.analyse_btn.setText(t("lib.analyse_stop"))
                 self.analyse_btn.setProperty("kind", "danger")
+                self.analyse_btn.setIcon(qicon("stop", 16, theme.ERR))
                 self.analyse_btn.setEnabled(not q.cancelled)
                 self.analysis_bar.setValue(int(1000 * q.done / max(1, q.total)))
             else:
                 n = self._unanalysed_count()
                 self.analyse_btn.setText(t("lib.analyse_all", n=n))
                 self.analyse_btn.setProperty("kind", "primary")
+                self.analyse_btn.setIcon(qicon("wave", 16, theme.ON_ACCENT))
                 self.analyse_btn.setEnabled(bool(n) and self.ctrl.has_library)
             restyle(self.analyse_btn)
-        hint = ""
-        if todo:
-            hint = t("lib.hint_todo")
-        elif playlist and editable:
-            hint = t("lib.hint_reorder") if not self.table.filter_active else t("lib.hint_clear_filter")
-        elif self.ctrl.has_library and self.table.total:
-            hint = t("lib.hint_drag")
-        self.status.setText(hint)
+        tip = t("lib.hint_clear_filter") if self.table.filter_active else ""
+        for b, base in ((self.up_btn, t("lib.up")), (self.down_btn, t("lib.down")), (self.save_btn, "")):
+            b.setToolTip(tip or base)
 
     def _ids(self) -> List[int]:
         return [int(i) for i in self.table.selected_iids()]
@@ -732,11 +739,12 @@ class LibraryView(View):
         sel = self._selected_tracks()
         entries: list = []
         if sel:
-            entries.append((t("lib.analyse_selection", n=len(sel)), lambda: self._analyse(sel)))
-        entries += [(t("lib.analyse_missing"), lambda: self._analyse(None)), None]
+            entries.append((t("lib.analyse_selection", n=len(sel)), lambda: self._analyse(sel), "wave"))
+        entries += [(t("lib.analyse_missing"), lambda: self._analyse(None), "wave"), None]
         if len(sel) == 1:
-            entries += [(t("lib.edit_grid"), self._edit_grid), (t("action.edit_metadata"), self._edit_metadata)]
-        entries.append((t("lib.find_duplicates"), self._duplicates))
+            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
+                        (t("action.edit_metadata"), self._edit_metadata, "edit")]
+        entries.append((t("lib.find_duplicates"), self._duplicates, "duplicates"))
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
 
@@ -744,16 +752,19 @@ class LibraryView(View):
     def _menu(self, iids: List[str]) -> list:
         if not iids:
             return []
-        entries: list = [(t("action.listen"), lambda: self._play(iids[0])), None, (t("lib.add_to"), self._add_to)]
+        entries: list = [(t("action.listen"), lambda: self._play(iids[0]), "play"), None,
+                         (t("lib.add_to"), self._add_to, "plus")]
         if self.in_playlist and self.playlist.is_editable:
-            entries += [(t("lib.move_to"), self._move_to), (t("lib.remove"), self._remove)]
+            entries += [(t("lib.move_to"), self._move_to, "move"), (t("lib.remove"), self._remove, "close")]
         tracks = self._selected_tracks()
-        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks))]
+        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave")]
         if len(tracks) == 1:
-            entries += [(t("lib.edit_grid"), self._edit_grid), (t("action.edit_metadata"), self._edit_metadata)]
+            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
+                        (t("action.edit_metadata"), self._edit_metadata, "edit")]
             if tracks[0].camelot:
-                entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0])))
-        entries += [None, (t("lib.delete") + "…", self._delete)]
+                entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
+                                "key"))
+        entries += [None, (t("lib.delete") + "…", self._delete, "trash")]
         return entries
 
     def _nav_context(self, pos: Any) -> None:
@@ -765,8 +776,9 @@ class LibraryView(View):
         p = self._by_iid.get(iid)
         if p is None or not p.is_editable and not p.is_folder:
             return
-        popup_menu(self.nav, [(t("action.rename") + "…", self._rename_playlist),
-                              (t("action.delete") + "…", self._delete_playlist)], self.nav.viewport().mapToGlobal(pos))
+        popup_menu(self.nav, [(t("action.rename") + "…", self._rename_playlist, "edit"),
+                              (t("action.delete") + "…", self._delete_playlist, "trash")],
+                   self.nav.viewport().mapToGlobal(pos))
 
 
 def _qcolor(color: str) -> Any:

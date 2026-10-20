@@ -57,8 +57,8 @@ class DuplicatesDialog(BaseDialog):
 
         bar = hbox()
         bar.addStretch(1)
-        self.skip_btn = button(t("dup.skip"), self._skip)
-        self.apply_btn = button(t("dup.apply"), self._apply, kind="primary")
+        self.skip_btn = button(t("dup.skip"), self._skip, icon="close")
+        self.apply_btn = button(t("dup.apply"), self._apply, kind="primary", icon="check")
         bar.addWidget(self.skip_btn)
         bar.addWidget(self.apply_btn)
         bar.addWidget(button(t("action.close"), self.close))
@@ -124,7 +124,7 @@ class DuplicatesDialog(BaseDialog):
         form.addRow(t("track.title"), self.title_entry)
         form.addRow(t("track.artist"), self.artist_entry)
         self.detail_lay.addLayout(form)
-        self.detail_lay.addWidget(label(t("dup.metadata_hint"), "faint", wrap=True))
+        self.title_entry.setToolTip(t("dup.metadata_hint"))
         self.detail_lay.addStretch(1)
         self._refresh_actions()
 

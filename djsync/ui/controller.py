@@ -222,7 +222,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             if remember:
                 self.settings.active_drive = self.drive.letter or str(self.drive.root)
                 self.settings.save()
-            self.message("ok", t("msg.drive_connected", drive=str(self.drive)))
+            self.message("ok", t("msg.drive_connected", drive=self.drive.label or str(self.drive.root)))
             self._emit("drive")
 
         def err(exc: BaseException) -> None:
@@ -265,7 +265,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
                 self._connect_failed.clear()
                 self._emit("drives")
             if self.drive is not None and self.drive is active and not still_there:
-                self.message("warn", t("msg.drive_unplugged", drive=str(active)))
+                self.message("warn", t("msg.drive_unplugged", drive=active.label or str(active.root)))
                 self.disconnect(by_user=False)
             elif self.library is None and changed:
                 self._auto_connect()

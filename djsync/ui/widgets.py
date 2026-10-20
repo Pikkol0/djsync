@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from . import theme
 from .icons import qicon
@@ -32,7 +32,9 @@ def button(text: str, command: Optional[Callable[[], None]] = None, kind: str = 
     if command is not None:
         b.clicked.connect(lambda _=False: command())
     if icon:
-        b.setIcon(qicon(icon, 14, theme.ON_ACCENT if kind == "primary" else theme.TEXT))
+        color = {"primary": theme.ON_ACCENT, "danger": theme.ERR, "flat": theme.DIM}.get(kind, theme.TEXT)
+        b.setIcon(qicon(icon, 16, color))
+        b.setIconSize(QSize(theme.px(16), theme.px(16)))
     if tooltip:
         b.setToolTip(tooltip)
     b.setCursor(Qt.PointingHandCursor)
@@ -50,6 +52,29 @@ def icon_button(icon: str, command: Optional[Callable[[], None]] = None, tooltip
         b.setToolTip(tooltip)
     b.setCursor(Qt.PointingHandCursor)
     return b
+
+
+def line_edit(placeholder: str = "", icon: str = "", big: bool = False, parent: Any = None) -> QLineEdit:
+    """Champ de saisie, avec une icône à gauche (recherche, lien…) et un bouton d'effacement."""
+    e = QLineEdit(parent)
+    e.setPlaceholderText(placeholder)
+    e.setClearButtonEnabled(True)
+    if icon:
+        e.addAction(qicon(icon, 16, theme.FAINT), QLineEdit.LeadingPosition)
+    if big:
+        e.setProperty("role", "big")
+    return e
+
+
+def chip(text: str, role: str = "chip") -> QLabel:
+    """Petite étiquette arrondie (« 12 titres », « connectée »…)."""
+    return label(text, role)
+
+
+def icon_label(icon: str, size: int = 16, color: str = "") -> QLabel:
+    w = QLabel()
+    w.setPixmap(qicon(icon, size, color or theme.DIM).pixmap(QSize(theme.px(size), theme.px(size))))
+    return w
 
 
 def panel(parent: Any = None, role: str = "panel") -> QFrame:

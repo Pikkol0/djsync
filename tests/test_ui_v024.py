@@ -65,7 +65,7 @@ def test_unanalysed_section_and_background_analysis(demo):
     demo.show_view("library")
     lib = demo.views["library"]
     assert pump(demo, 4, lambda: lib.table.total == 10)
-    assert TODO in lib._items and lib._items[TODO].text(0).rstrip().endswith("10")
+    assert TODO in lib._items and lib._items[TODO].text(1) == "10"
 
     demo.views["home"]._analysis()                      # Accueil ▸ Analyser : ouvre la section
     assert pump(demo, 2, lambda: lib.current == TODO)
@@ -174,4 +174,27 @@ def test_player_buttons_grid_editor_page_and_reveal(demo_grid):
     bar._show_in_library(target)
     assert app.current == "library"
     assert pump(app, 2, lambda: lib.table.selected_iids() == [str(target.content_id)])
+    assert not app.errors
+
+
+def test_downloads_and_analysis_page(demo_grid):
+    """V0.3.1 : « Downloads & analysis » : tableau des analyses (non analysés + recherche dans toute la
+    bibliothèque), réanalyse d'une sélection, icône d'éditeur de grille sur les sons analysés."""
+    app = demo_grid
+    app.show_view("downloads")
+    view = app.views["downloads"]
+    assert app._nav["downloads"].text().startswith("Downloads && analysis")
+    assert pump(app, 6, lambda: view.an_table.total == 10)            # les 10 sons non analysés
+    assert all(not r.data.is_analysed for r in view.an_table.all_rows())
+    assert "10" in view.analyse_btn.text()
+    view.search.setText("grid test")                                   # toute la bibliothèque, filtrée
+    assert pump(app, 2, lambda: len(view.an_table.displayed_rows()) == 1)
+    row = view.an_table.displayed_rows()[0]
+    assert row.data.is_analysed and row.values["grid"]
+    view._cell_click(row.iid, "grid")                                  # icône à droite : éditeur de grille
+    assert pump(app, 4, lambda: app.grid_editor is not None)
+    assert app.grid_editor.track.content_id == row.data.content_id
+    app.grid_editor.close()
+    view.search.setText("")
+    assert pump(app, 2, lambda: view.an_table.total == 10)
     assert not app.errors

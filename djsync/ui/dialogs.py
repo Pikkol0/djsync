@@ -138,7 +138,7 @@ class PlaylistPicker(BaseDialog):
         self._new.setPlaceholderText(t("picker.new_name"))
         self._new.returnPressed.connect(self._create)
         row.addWidget(self._new, 1)
-        row.addWidget(button("+ " + t("action.create"), self._create))
+        row.addWidget(button(t("action.create"), self._create, icon="plus"))
         self.body.addLayout(row)
         self._ok_btn = self.footer(confirm_text, self._confirm)
         self.show_dialog()
@@ -273,7 +273,6 @@ class MetadataDialog(BaseDialog):
         self.body.addWidget(label(t("track.artist"), "dim"))
         self._artist = QLineEdit(artist)
         self.body.addWidget(self._artist)
-        self.body.addWidget(label(t("meta.hint"), "faint", wrap=True))
         for e in (self._title, self._artist):
             e.returnPressed.connect(self._ok)
         self.footer(t("action.save"), self._ok)

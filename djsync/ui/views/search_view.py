@@ -9,12 +9,13 @@ from dataclasses import replace
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QLineEdit
 
 from ...i18n import plural, t
 from ...models import SEARCH_MODE_LABELS, SearchMode, TrackResult
 from ..dialogs import FiltersPopup
-from ..widgets import TrackTable, button, hbox, icon_button, label, restyle
+from .. import theme
+from ..icons import qicon
+from ..widgets import TrackTable, button, hbox, label, line_edit, restyle
 from .common import View, ask_and_download, result_columns, result_row
 
 DEBOUNCE_MS = 450      # pause de frappe avant de lancer la recherche
@@ -32,23 +33,22 @@ class SearchView(View):
         self._debounce.setInterval(DEBOUNCE_MS)
         self._debounce.timeout.connect(self._debounced)
 
-        self.root.addLayout(self.header(t("tab.search"), "YouTube Music"))
-        bar = hbox()
-        self.entry = QLineEdit()
-        self.entry.setPlaceholderText(t("search.placeholder"))
+        self.root.addLayout(self.header(t("tab.search")))
+        bar = hbox(spacing=theme.px(8))
+        self.entry = line_edit(t("search.placeholder"), "search", big=True)
         self.entry.returnPressed.connect(lambda: self.run_search(force=True))
         self.entry.textEdited.connect(lambda _t: self._debounce.start())
         bar.addWidget(self.entry, 1)
-        self.filter_btn = icon_button("filter", self._open_filters, t("search.filters"))
+        self.filter_btn = button(t("search.filters_short"), self._open_filters, icon="filter",
+                                 tooltip=t("search.filters"))
+        self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
-        self.search_btn = button(t("action.search"), lambda: self.run_search(force=True), kind="primary")
-        bar.addWidget(self.search_btn)
         self.root.addLayout(bar)
         self.info = label("", "dim")
         self.root.addWidget(self.info)
 
         self.table = TrackTable(self, result_columns(), click_columns=("dl",))
-        self.table.set_empty("", t("search.empty_title"), t("search.empty_sub"))
+        self.table.set_empty("search", t("search.empty_title"))
         self.table.on_double = self._play
         self.table.on_select = lambda _ids: self._refresh_buttons()
         self.table.on_cell_click = self._cell_click
@@ -56,10 +56,10 @@ class SearchView(View):
         self.root.addWidget(self.table, 1)
 
         actions = hbox()
-        self.preview_btn = button(t("action.listen"), self._preview)
+        self.preview_btn = button(t("action.listen"), self._preview, icon="play")
         actions.addWidget(self.preview_btn)
         actions.addStretch(1)
-        self.dl_btn = button(t("action.download"), self._download, kind="primary")
+        self.dl_btn = button(t("action.download"), self._download, kind="primary", icon="download")
         actions.addWidget(self.dl_btn)
         self.root.addLayout(actions)
         self._refresh_filter_label()
@@ -77,8 +77,8 @@ class SearchView(View):
     def _refresh_filter_label(self) -> None:
         s = self.ctrl.settings
         active = bool(s.exclude_words.strip()) or s.search_mode != SearchMode.ALL.value
-        self.filter_btn.setCheckable(True)
-        self.filter_btn.setChecked(active)
+        self.filter_btn.setProperty("kind", "primary" if active else "")
+        self.filter_btn.setIcon(qicon("filter", 16, theme.ON_ACCENT if active else theme.TEXT))
         restyle(self.filter_btn)
 
     def _open_filters(self) -> None:
@@ -126,7 +126,7 @@ class SearchView(View):
             if token != self._token or not self.winfo_exists():
                 return
             self._tracks = {x.video_id: x for x in results}
-            self.table.set_empty("", t("search.no_result_title"), t("search.no_result_sub"))
+            self.table.set_empty("search", t("search.no_result_title"))
             self.table.set_rows([result_row(x) for x in results], reset_sort=True, keep_selection=False)
             dups = sum(1 for x in results if x.is_duplicate)
             tail = "  ·  " + t("search.in_library", n=dups) if dups else ""
@@ -139,7 +139,7 @@ class SearchView(View):
             if token != self._token or not self.winfo_exists():
                 return
             self._last_query = ""
-            self.table.set_empty("", t("search.failed"), self.ctrl.error_text(exc))
+            self.table.set_empty("warn", t("search.failed"), self.ctrl.error_text(exc))
             self.table.set_rows([], keep_selection=False)
             self.info.setText(t("search.failed"))
 
@@ -188,7 +188,7 @@ class SearchView(View):
     def _menu(self, iids: List[str]) -> list:
         if not iids:
             return []
-        return [(t("action.listen"), self._preview), (t("dl.picker_title"), self._download)]
+        return [(t("action.listen"), self._preview, "play"), (t("dl.picker_title"), self._download, "download")]
 
     def refresh_duplicates(self) -> None:
         """Re-marque les doublons après un téléchargement ou un changement de clé."""

@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from PySide6.QtWidgets import QGridLayout, QLineEdit, QProgressBar, QWidget
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QProgressBar, QWidget
 
 from ...i18n import plural, t
 from .. import theme
 from ..ctrl.library_ops import DriveSummary
-from ..widgets import button, hbox, label, panel, vbox
+from ..icons import qicon
+from ..widgets import button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
 
 
@@ -20,39 +22,39 @@ class HomeView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
         self._summaries: List[DriveSummary] = []
+        self.root.setSpacing(theme.px(10))
         self.root.addWidget(label(t("home.title"), "title"))
-        self.root.addWidget(label(t("home.subtitle"), "dim"))
 
-        row = hbox()
-        self.omnibar = QLineEdit()
-        self.omnibar.setPlaceholderText(t("home.omnibar"))
+        row = hbox(spacing=theme.px(8))
+        self.omnibar = line_edit(t("home.omnibar"), "search", big=True)
         self.omnibar.returnPressed.connect(self._go)
-        self.omnibar.textEdited.connect(lambda _t: self._typed())
+        self.omnibar.textChanged.connect(lambda _t: self._typed())
         row.addWidget(self.omnibar, 1)
-        row.addWidget(button("→", self._go, kind="primary"))
+        self.go_btn = button("", self._go, kind="primary", icon="go", tooltip=t("action.search"))
+        self.go_btn.setMinimumHeight(self.omnibar.sizeHint().height())
+        row.addWidget(self.go_btn)
         self.root.addLayout(row)
-        self.omni_hint = label(t("home.omnibar_hint"), "faint")
-        self.root.addWidget(self.omni_hint)
 
         head = hbox()
         head.addWidget(label(t("home.drives"), "h2"))
         head.addStretch(1)
-        head.addWidget(button(t("action.refresh"), self.ctrl.refresh_drives, kind="flat"))
-        self.root.addSpacing(theme.px(10))
+        head.addWidget(button(t("action.refresh"), self.ctrl.refresh_drives, kind="flat", icon="refresh"))
+        self.root.addSpacing(theme.px(8))
         self.root.addLayout(head)
         self.cards = QWidget()
-        self.cards_lay = vbox(self.cards, spacing=theme.px(6))
+        self.cards_lay = vbox(self.cards, spacing=theme.px(8))
         self.root.addWidget(self.cards)
 
-        self.root.addSpacing(theme.px(10))
+        self.root.addSpacing(theme.px(8))
         self.root.addWidget(label(t("home.tools"), "h2"))
-        tools = hbox()
-        for key, cmd in (("home.tool_analysis", self._analysis),
-                         ("home.tool_duplicates", self._duplicates),
-                         ("home.tool_import", lambda: self.ctrl._emit("navigate", "import")),
-                         ("home.tool_help", self._help)):
-            tools.addWidget(button(t(key), cmd))
-        tools.addStretch(1)
+        tools = hbox(spacing=theme.px(10))
+        for key, icon, cmd in (("home.tool_analysis", "wave", self._analysis),
+                               ("home.tool_duplicates", "duplicates", self._duplicates),
+                               ("home.tool_import", "import", lambda: self.ctrl._emit("navigate", "import"))):
+            b = button(t(key), cmd, kind="tile", icon=icon)
+            b.setIconSize(QSize(theme.px(20), theme.px(20)))
+            b.setIcon(qicon(icon, 20, theme.ACCENT))
+            tools.addWidget(b, 1)
         self.root.addLayout(tools)
         self.root.addStretch(1)
 
@@ -67,7 +69,8 @@ class HomeView(View):
 
     def _typed(self) -> None:
         url = self.ctrl.is_url(self.omnibar.text())
-        self.omni_hint.setText(t("home.omnibar_hint_url") if url else t("home.omnibar_hint"))
+        self.go_btn.setIcon(qicon("import" if url else "go", 16, theme.ON_ACCENT))
+        self.go_btn.setToolTip(t("import.read_link") if url else t("action.search"))
 
     def _go(self) -> None:
         text = self.omnibar.text().strip()
@@ -98,9 +101,12 @@ class HomeView(View):
                 item.widget().deleteLater()
         if not summaries:
             box = panel()
-            lay = vbox(box, margins=theme.px(12))
-            lay.addWidget(label(t("home.no_drive_title"), "h2"))
-            lay.addWidget(label(t("home.no_drive_sub"), "dim", wrap=True))
+            lay = hbox(box, margins=theme.px(14), spacing=theme.px(12))
+            lay.addWidget(icon_label("usb", 28, theme.FAINT))
+            text = vbox(spacing=theme.px(2))
+            text.addWidget(label(t("home.no_drive_title"), "h2"))
+            text.addWidget(label(t("home.no_drive_sub"), "dim", wrap=True))
+            lay.addLayout(text, 1)
             self.cards_lay.addWidget(box)
             return
         for s in summaries:
@@ -108,42 +114,53 @@ class HomeView(View):
 
     def _card(self, s: DriveSummary) -> QWidget:
         box = panel()
-        grid = QGridLayout(box)
-        m = theme.px(10)
-        grid.setContentsMargins(m, m, m, m)
-        grid.setHorizontalSpacing(theme.px(14))
-        name = label(s.drive.label or str(s.drive.root), "h2")
-        grid.addWidget(name, 0, 0)
-        state = t("home.connected") if s.connected else t("home.detected")
-        grid.addWidget(label(f"{s.drive.root}  ·  {state}", "accent" if s.connected else "dim"), 1, 0)
-        info = []
+        lay = hbox(box, margins=theme.px(14), spacing=theme.px(14))
+        lay.addWidget(icon_label("usb", 28, theme.ACCENT if s.connected else theme.FAINT), 0, Qt.AlignTop)
+
+        mid = vbox(spacing=theme.px(6))
+        top = hbox(spacing=theme.px(8))
+        top.addWidget(label(s.drive.label or str(s.drive.root), "h2"))
+        top.addWidget(chip(t("home.connected") if s.connected else t("home.detected"),
+                           "chip_ok" if s.connected else "chip"))
+        top.addStretch(1)
+        mid.addLayout(top)
+        chips = hbox(spacing=theme.px(6))
         if s.tracks >= 0:
-            info.append(plural("lib.tracks_one", "lib.tracks_many", s.tracks) + "  ·  "
-                        + plural("home.playlists_one", "home.playlists_many", s.playlists))
-        info.append(t("home.pdb_yes") if s.has_pdb else t("home.pdb_no"))
-        grid.addWidget(label("\n".join(info), "dim"), 2, 0)
+            chips.addWidget(chip(plural("lib.tracks_one", "lib.tracks_many", s.tracks)))
+            chips.addWidget(chip(plural("home.playlists_one", "home.playlists_many", s.playlists)))
         if s.unanalysed > 0:
-            grid.addWidget(label(plural("home.unanalysed_one", "home.unanalysed_many", s.unanalysed), "warn"), 3, 0)
+            chips.addWidget(chip(plural("home.unanalysed_one", "home.unanalysed_many", s.unanalysed), "chip_warn"))
+        pdb = chip(t("home.pdb_short_yes") if s.has_pdb else t("home.pdb_short_no"))
+        pdb.setToolTip(t("home.pdb_yes") if s.has_pdb else t("home.pdb_no"))
+        chips.addWidget(pdb)
+        chips.addStretch(1)
+        mid.addLayout(chips)
+        actions = hbox()
+        if s.connected:
+            actions.addWidget(button(t("home.open_library"), lambda: self.ctrl._emit("navigate", "library"),
+                                     kind="primary", icon="library"))
+            if s.unanalysed > 0:
+                actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
+        else:
+            actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
+                                     icon="usb"))
+        actions.addStretch(1)
+        mid.addLayout(actions)
+        lay.addLayout(mid, 1)
+
         if s.total:
+            side = vbox(spacing=theme.px(6))
             used = 1 - s.free / s.total
             bar = QProgressBar()
             bar.setTextVisible(False)
             bar.setRange(0, 1000)
             bar.setValue(int(used * 1000))
-            bar.setFixedWidth(theme.px(180))
-            grid.addWidget(bar, 0, 1)
-            grid.addWidget(label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim"), 1, 1)
-        actions = hbox()
-        if s.connected:
-            actions.addWidget(button(t("home.open_library"), lambda: self.ctrl._emit("navigate", "library"),
-                                     kind="primary"))
-            if s.unanalysed > 0:
-                actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed")))
-        else:
-            actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary"))
-        actions.addStretch(1)
-        grid.addLayout(actions, 4, 0, 1, 2)
-        grid.setColumnStretch(0, 1)
+            bar.setFixedWidth(theme.px(200))
+            side.addWidget(label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim"))
+            side.addWidget(bar)
+            side.addStretch(1)
+            lay.addLayout(side)
+        box.setToolTip(str(s.drive.root))
         return box
 
     # ------------------------------------------------------------------- outils
@@ -158,5 +175,3 @@ class HomeView(View):
 
         DuplicatesDialog(self, self.ctrl)
 
-    def _help(self) -> None:
-        self.window().open_help()

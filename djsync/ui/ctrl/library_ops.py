@@ -276,6 +276,13 @@ class LibraryOpsMixin:
             self._analysis = AnalysisQueue()
         return self._analysis
 
+    @property
+    def analysis_results(self) -> Dict[int, str]:
+        """content_id -> « ok » / « failed » : sons analysés pendant cette session."""
+        if "_analysis_results" not in self.__dict__:
+            self._analysis_results: Dict[int, str] = {}
+        return self._analysis_results
+
     def analyze(self, content_ids: Sequence[int], force: bool = False,
                 on_progress: Optional[Callable[[int, int, Optional[LibraryTrack], str], None]] = None,
                 on_done: Optional[Callable[[Any], None]] = None) -> Optional[TaskHandle]:
@@ -351,6 +358,8 @@ class LibraryOpsMixin:
         return q
 
     def _analysis_progress(self, i: int, total: int, track: Optional[LibraryTrack], problem: str) -> None:
+        if track is not None:          # état par son pour Téléchargements & analyse (toute la session)
+            self.analysis_results[track.content_id] = "failed" if problem else "ok"
         for cb in list(self.analysis.on_progress):
             try:
                 cb(i, total, track, problem)
