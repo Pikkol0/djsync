@@ -64,7 +64,7 @@ class CoverLoader:
 
     @property
     def size(self) -> int:
-        return theme.px(theme.COVER_SIZE)
+        return theme.tkpx(theme.COVER_SIZE)
 
     def placeholder_photo(self) -> ImageTk.PhotoImage:
         if self._placeholder is None:

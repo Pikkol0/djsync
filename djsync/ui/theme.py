@@ -1,17 +1,28 @@
-"""Thème : noir/gris très foncé + une couleur signature « acid lime ».
+"""Thème : fond sombre neutre + UNE couleur d'accent choisie parmi ~20 palettes néon / pastel.
 
-Le lime est volontairement rare : onglet actif, bouton principal, curseurs, élément en
-lecture. Tout le reste est neutre. Pour changer d'ambiance, modifiez seulement ACCENT*
-(ex. "#FF3D81" magenta laser, "#36E2FF" cyan, "#FFB020" ambre VU-mètre).
+L'accent est volontairement rare : onglet actif, bouton principal, curseurs, élément en lecture.
+Tout le reste est neutre. Par défaut : « Violet clair » (`DEFAULT_THEME`).
+
+Fonctionnement :
+  * `apply_palette("cyan")` recalcule ACCENT, ACCENT_HOVER, ACCENT_DIM, ON_ACCENT (variables de ce
+    module, lues partout sous la forme `theme.ACCENT`) ;
+  * les widgets déjà créés gardent leurs anciennes couleurs : changer de thème en cours d'exécution
+    demande de reconstruire l'interface (prévu à l'étape Paramètres) ;
+  * `set_zoom(150)` agit sur customtkinter (widgets + fenêtre) ET sur les mesures Tk brutes.
+
+Deux fonctions de taille, à ne pas confondre :
+  * `px(n)`   : taille pour un widget customtkinter. Renvoie n tel quel : customtkinter applique
+                déjà DPI × zoom (mettre à l'échelle ici aussi la doublerait) ;
+  * `tkpx(n)` : taille pour Tk « brut » (ttk.Treeview, PhotoImage, colonnes, rowheight) : n × DPI × zoom.
 """
 from __future__ import annotations
 
 from tkinter import ttk
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import customtkinter as ctk
 
-# ---- palette
+# ---- palette neutre (identique pour tous les thèmes)
 BG = "#0B0B0D"          # fond de fenêtre
 SURFACE = "#121216"     # panneaux, tableaux
 ELEV = "#1A1A20"        # éléments surélevés (en-têtes, survol)
@@ -20,34 +31,141 @@ TEXT = "#ECECF1"
 DIM = "#8D8D99"
 FAINT = "#5A5A66"
 
-ACCENT = "#B6F23A"          # signature : acid lime
-ACCENT_HOVER = "#CBFA5E"
-ACCENT_DIM = "#27330F"      # sélection de ligne (lime très atténué)
-ON_ACCENT = "#0B0B0D"       # texte posé sur le lime
-
 WARN = "#F5A524"        # doublon / à vérifier
 ERR = "#F2555A"
 ERR_DIM = "#3A1517"
 
+# ---- accents : identifiant -> couleur (le nom affiché est la clé i18n « theme.<identifiant> »)
+DEFAULT_THEME = "violet_light"
+PALETTES: Dict[str, str] = {
+    "violet_light": "#B79CFF",   # défaut
+    "lavender": "#D2B8FF",
+    "neon_violet": "#A855FF",
+    "electric_blue": "#4D7CFF",
+    "sky": "#7CC4FF",
+    "cyan": "#36E2FF",
+    "turquoise": "#2EE6C5",
+    "mint": "#8FF5C8",
+    "neon_green": "#39FF88",
+    "lime": "#B6F23A",           # accent de la V0.1.0
+    "yellow": "#F5FF3D",
+    "amber": "#FFB020",
+    "orange": "#FF8A2B",
+    "coral": "#FF7A7A",
+    "red": "#FF3D5A",
+    "hot_pink": "#FF3D9A",
+    "magenta": "#F03DFF",
+    "pastel_pink": "#FFB3D9",
+    "pastel_peach": "#FFCBA4",
+    "pastel_blue": "#A9CCFF",
+}
+
+ACCENT = ACCENT_HOVER = ACCENT_DIM = ON_ACCENT = ""   # renseignés par apply_palette() ci-dessous
+CURRENT_THEME = DEFAULT_THEME
+
 FAMILY = "Segoe UI"     # repli automatique si absente (Linux/macOS)
-ROW_HEIGHT = 48         # px à 100 % : pochette 40 px + marge
+ROW_HEIGHT = 48         # unités de base : pochette 40 + marge
 COVER_SIZE = 40
 
-SCALE = 1.0
+
+def _rgb(color: str) -> Tuple[int, int, int]:
+    c = color.lstrip("#")
+    return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+
+def mix(a: str, b: str, ratio: float) -> str:
+    """Mélange de deux couleurs « #RRGGBB » : ratio 0 -> a, 1 -> b."""
+    ra, rb = _rgb(a), _rgb(b)
+    return "#%02X%02X%02X" % tuple(round(x + (y - x) * ratio) for x, y in zip(ra, rb))
+
+
+def luminance(color: str) -> float:
+    """Luminance relative (0 noir … 1 blanc), formule WCAG."""
+    def lin(v: int) -> float:
+        v_ = v / 255
+        return v_ / 12.92 if v_ <= 0.03928 else ((v_ + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(v) for v in _rgb(color))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a: str, b: str) -> float:
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def on_color(background: str) -> str:
+    """Texte (fond sombre du thème ou blanc) le plus lisible posé sur `background`."""
+    return BG if contrast(background, BG) >= contrast(background, "#FFFFFF") else "#FFFFFF"
+
+
+def palette_colors(accent: str) -> Dict[str, str]:
+    """Dérive les 4 couleurs d'un thème à partir de son accent."""
+    return {
+        "ACCENT": accent,
+        "ACCENT_HOVER": mix(accent, "#FFFFFF", 0.28),
+        "ACCENT_DIM": mix(SURFACE, accent, 0.20),                # sélection de ligne (accent très atténué)
+        "ON_ACCENT": on_color(accent),                          # texte posé sur l'accent
+    }
+
+
+def apply_palette(name: str) -> str:
+    """Active une palette (identifiant inconnu -> défaut). Renvoie l'identifiant réellement appliqué."""
+    global ACCENT, ACCENT_HOVER, ACCENT_DIM, ON_ACCENT, CURRENT_THEME
+    if name not in PALETTES:
+        name = DEFAULT_THEME
+    colors = palette_colors(PALETTES[name])
+    ACCENT, ACCENT_HOVER = colors["ACCENT"], colors["ACCENT_HOVER"]
+    ACCENT_DIM, ON_ACCENT = colors["ACCENT_DIM"], colors["ON_ACCENT"]
+    CURRENT_THEME = name
+    return name
+
+
+apply_palette(DEFAULT_THEME)
+
+# ---- échelle
+_DPI = 1.0       # facteur DPI de l'écran (Windows « 150 % »…)
+_ZOOM = 1.0      # option utilisateur 100–200 %
 
 
 def set_scale(value: float) -> None:
-    global SCALE
-    SCALE = max(0.75, float(value or 1.0))
+    """`value` = facteur total lu sur la fenêtre customtkinter (DPI × zoom déjà appliqué)."""
+    global _DPI
+    _DPI = max(0.5, float(value or 1.0)) / _ZOOM
+
+
+def set_zoom(percent: float, root: Optional[Any] = None) -> float:
+    """Zoom utilisateur (100–200 %). Applique customtkinter ; avec `root`, rafraîchit aussi les ttk."""
+    global _ZOOM
+    _ZOOM = max(1.0, min(2.0, float(percent) / 100.0))
+    ctk.set_widget_scaling(_ZOOM)
+    ctk.set_window_scaling(_ZOOM)
+    if root is not None:
+        apply_ttk_style(root)
+    return _ZOOM
+
+
+def zoom_factor() -> float:
+    return _ZOOM
 
 
 def px(n: float) -> int:
-    """Pixels mis à l'échelle de l'écran (Tk ne scale pas ttk tout seul)."""
-    return int(round(n * SCALE))
+    """Taille pour un widget customtkinter (déjà mis à l'échelle par la bibliothèque)."""
+    return int(round(n))
+
+
+def tkpx(n: float) -> int:
+    """Taille pour Tk brut (ttk, PhotoImage, colonnes) : DPI × zoom."""
+    return int(round(n * _DPI * _ZOOM))
 
 
 def font(size: int = 12, weight: str = "normal") -> ctk.CTkFont:
     return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
+
+
+def tk_font(size: int = 10, weight: str = "") -> Tuple[Any, ...]:
+    """Police pour ttk (non gérée par customtkinter) : suit le zoom."""
+    size = max(6, int(round(size * _ZOOM)))
+    return (FAMILY, size, weight) if weight else (FAMILY, size)
 
 
 # ------------------------------------------------------------------- fabriques de widgets
@@ -107,17 +225,17 @@ def apply_ttk_style(root: Any) -> None:
     style.theme_use("clam")
     style.configure(
         "Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=TEXT, borderwidth=0,
-        relief="flat", rowheight=px(ROW_HEIGHT), font=(FAMILY, 10),
+        relief="flat", rowheight=tkpx(ROW_HEIGHT), font=tk_font(10),
     )
     style.configure(
         "Treeview.Heading", background=ELEV, foreground=DIM, relief="flat", borderwidth=0,
-        font=(FAMILY, 9, "bold"), padding=(px(8), px(7)),
+        font=tk_font(9, "bold"), padding=(tkpx(8), tkpx(7)),
     )
     style.map("Treeview", background=[("selected", ACCENT_DIM)], foreground=[("selected", TEXT)])
     style.map("Treeview.Heading", background=[("active", BORDER)], foreground=[("active", TEXT)])
     style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # supprime le cadre pointillé
     # arbre de navigation (playlists) : lignes plus compactes, sans pochette
     style.configure("Nav.Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=TEXT, borderwidth=0,
-                    rowheight=px(30), font=(FAMILY, 10), indent=px(16))
+                    rowheight=tkpx(30), font=tk_font(10), indent=tkpx(16))
     style.map("Nav.Treeview", background=[("selected", ACCENT_DIM)], foreground=[("selected", ACCENT)])
     style.layout("Nav.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])

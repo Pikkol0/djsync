@@ -62,6 +62,23 @@ class SettingsView(View):
         self.ffmpeg_state.pack(fill="x", padx=18, pady=(6, 16))
         self.ffmpeg.bind("<KeyRelease>", lambda _e: self._ffmpeg_status())
 
+        # ---- anciennes platines : export.pdb
+        card = self._card(page, "Anciennes platines (export.pdb)",
+                          "CDJ/XDJ qui lisent export.pdb : DJSync le met à jour en même temps que exportLibrary.db "
+                          "(jamais créé, jamais modifié s'il n'est pas reconnu ; copie dans DJSync_Backups avant chaque écriture).")
+        self.pdb_var = ctk.BooleanVar(value=s.pdb_sync == "auto")
+        theme.checkbox(card, "Mettre à jour export.pdb", variable=self.pdb_var).pack(anchor="w", padx=18, pady=(0, 4))
+        self.pdb_growth_var = ctk.BooleanVar(value=s.pdb_allow_growth)
+        theme.checkbox(card, "Autoriser l'ajout de pages quand une table est pleine (expérimental, non validé sur platine)",
+                       variable=self.pdb_growth_var).pack(anchor="w", padx=18, pady=(0, 6))
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(0, 4))
+        theme.button(row, "Vérifier", self._pdb_refresh, kind="ghost", width=theme.px(90)).pack(side="left")
+        self.pdb_sync_btn = theme.button(row, "Synchroniser maintenant", self.ctrl.pdb_sync_now, kind="primary", width=theme.px(190))
+        self.pdb_sync_btn.pack(side="left", padx=8)
+        self.pdb_state = theme.label(card, "", 11, theme.DIM, anchor="w", justify="left", wraplength=theme.px(720))
+        self.pdb_state.pack(fill="x", padx=18, pady=(2, 16))
+
         # ---- recherche
         card = self._card(page, "Recherche", "")
         self.views_var = ctk.BooleanVar(value=s.fetch_views)
@@ -83,6 +100,7 @@ class SettingsView(View):
         self.saved = theme.label(bottom, "", 11, theme.ACCENT)
         self.saved.pack(side="right", padx=12)
 
+        controller.on("drive", lambda: self.after(300, self._pdb_refresh))
         controller.on("drives", self._refresh_drives)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
@@ -120,6 +138,24 @@ class SettingsView(View):
         if drive is not None:
             self.ctrl.connect(drive)
 
+    def _pdb_refresh(self) -> None:
+        if self.ctrl.library is None:
+            self.pdb_state.configure(text="Aucune clé connectée.", text_color=theme.DIM)
+            return
+        self.ctrl.pdb_status(self._pdb_show)
+
+    def _pdb_show(self, st: Any) -> None:
+        text, color = {
+            "off": ("Synchronisation désactivée : export.pdb n'est pas modifié.", theme.DIM),
+            "absent": ("Pas de export.pdb sur cette clé (OneLibrary seul) : rien à faire.", theme.DIM),
+            "ok": (f"export.pdb reconnu et à jour ({st.pdb_tracks} sons).", theme.ACCENT),
+            "stale": (f"export.pdb à rattraper : {st.missing_tracks} son(s) et {st.missing_playlists} playlist(s) "
+                      "absents. Cliquez « Synchroniser maintenant »." + (f"  [{st.detail}]" if st.detail else ""), theme.WARN),
+            "unsupported": (f"export.pdb non reconnu : DJSync n'y touchera pas. ({st.detail})", theme.WARN),
+        }.get(st.state, ("État inconnu.", theme.DIM))
+        self.pdb_state.configure(text=text, text_color=color)
+        self.pdb_sync_btn.configure(state="normal" if st.state == "stale" else "disabled")
+
     def _browse_ffmpeg(self) -> None:
         folder = filedialog.askdirectory(parent=self, title="Dossier contenant ffmpeg")
         if folder:
@@ -141,6 +177,8 @@ class SettingsView(View):
         s.ffmpeg_location = self.ffmpeg.get().strip()
         s.fetch_views = bool(self.views_var.get())
         s.backup_keep = int(self.keep.get())
+        s.pdb_sync = "auto" if self.pdb_var.get() else "off"
+        s.pdb_allow_growth = bool(self.pdb_growth_var.get())
         self.ctrl.apply_settings()
         if forced and changed_forced:
             self.ctrl.connect(forced, remember=False)

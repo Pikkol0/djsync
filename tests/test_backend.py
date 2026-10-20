@@ -30,7 +30,14 @@ def test_parse_view_count(text, expected):
     (1_200_000, "1,2 M"), (12_000_000, "12 M"), (3_400_000_000, "3,4 Md"),
 ])
 def test_format_views(n, expected):
-    assert format_views(n) == expected
+    from djsync import i18n
+    i18n.set_language("fr")          # ces valeurs de référence sont au format français (virgule)
+    try:
+        assert format_views(n) == expected
+        i18n.set_language("en")
+        assert format_views(n) == expected.replace(",", ".")
+    finally:
+        i18n.set_language("en")
 
 
 def test_split_exclusions():
@@ -94,10 +101,10 @@ class FakeYT:
 def test_search_all_distinguishes_types_and_reads_views():
     res = MusicSearcher(FakeYT()).search("daft punk", limit=10)
     by_id = {t.video_id: t for t in res}
-    assert by_id["SONGAAAAAAA"].is_song and by_id["SONGAAAAAAA"].kind_label == "Titre"
+    assert by_id["SONGAAAAAAA"].is_song and by_id["SONGAAAAAAA"].kind_label == "Song"
     assert by_id["SONGAAAAAAA"].views is None and by_id["SONGAAAAAAA"].album == "Discovery"
-    assert not by_id["VIDEOAAAAAA"].is_song and by_id["VIDEOAAAAAA"].kind_label == "Vidéo"
-    assert by_id["VIDEOAAAAAA"].views == 1_200_000_000 and by_id["VIDEOAAAAAA"].views_str == "1,2 Md"
+    assert not by_id["VIDEOAAAAAA"].is_song and by_id["VIDEOAAAAAA"].kind_label == "Video"
+    assert by_id["VIDEOAAAAAA"].views == 1_200_000_000 and by_id["VIDEOAAAAAA"].views_str == "1.2 Md"
     assert by_id["VIDEOAAAAAA"].duration_str == "5:22"
     assert by_id["SONGAAAAAAA"].thumbnail_url == "https://lh3/120"
     assert len(res) == 4                       # id manquant ignoré, doublon d'id dédoublonné

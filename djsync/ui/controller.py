@@ -14,6 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Union
 
+from .. import portable
 from ..audio.player import AudioPlayer, NowPlaying
 from ..core.service import MusicService
 from ..core.spotify import SpotifyError, parse_text_list
@@ -137,6 +138,10 @@ class AppController:
         if forced:
             self.connect(forced, remember=False)
             return
+        own = portable.own_drive_root()            # DJSync lancé depuis la clé : c'est elle, d'office
+        if own is not None:
+            self.connect(str(own), remember=False)
+            return
         candidates = [d for d in self.drives if str(d.root) not in self._connect_failed]
         preferred = self.settings.active_drive.strip().rstrip(":\\/").upper()
         pick = next((d for d in candidates if preferred and (d.letter == preferred or str(d.root) == self.settings.active_drive)), None)
@@ -160,6 +165,7 @@ class AppController:
             target = drive if isinstance(drive, UsbDrive) else drive_from_letter(str(drive))
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
+                pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
             ).connect()
             self.service.set_library(lib)
             if old is not None:
@@ -280,7 +286,9 @@ class AppController:
             return result
 
         def done(result: Any) -> None:
-            if success:
+            if lib.pdb_state == "stale" and lib.pdb_problem:
+                self.message("warn", f"Modifié dans exportLibrary.db, mais pas dans export.pdb : {lib.pdb_problem}")
+            elif success:
                 self.message("ok", success)
             self._emit("library")
             if ok:
@@ -322,6 +330,25 @@ class AppController:
             self.message("warn" if failures else "ok", text)
 
         self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done)
+
+    # ------------------------------------------------------------ export.pdb (anciennes platines)
+    def pdb_status(self, ok: Callback) -> None:
+        lib = self.library
+        if lib is not None:
+            self.dispatcher.submit(lib.pdb_status, ok, self._on_error, pool="db")
+
+    def pdb_sync_now(self, ok: Optional[Callback] = None) -> None:
+        def done(summary: Any) -> None:
+            self.message("ok", f"export.pdb synchronisé : {summary.tracks_added} son(s), "
+                               f"{summary.playlists_added} playlist(s) ajouté(s).")
+            self._emit("library")
+            if ok:
+                ok(summary)
+        lib = self.library
+        if lib is None:
+            self.message("error", "Aucune clé connectée.")
+            return
+        self.dispatcher.submit(lib.pdb_catch_up, done, self._on_error, pool="db")
 
     # ---------------------------------------------------------------- recherche
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
@@ -452,6 +479,9 @@ class AppController:
             )
             self.service.refresh_library()
             job.file_path, job.content_id, job.status = result.file_path, added.content_id, "done"
+            if lib.pdb_state == "stale" and lib.pdb_problem:
+                self.dispatcher.post(self.message, "warn",
+                                     f"« {track.title} » est dans exportLibrary.db mais pas dans export.pdb : {lib.pdb_problem}")
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Téléchargement %s en échec : %s", job.track.video_id, exc)
             job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
@@ -518,6 +548,8 @@ class AppController:
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep
+            self.library.pdb_sync = s.pdb_sync
+            self.library.pdb_allow_growth = s.pdb_allow_growth
         s.save()
 
     @staticmethod

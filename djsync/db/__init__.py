@@ -14,10 +14,10 @@ from .errors import (
 )
 from ..models import LibraryTrack, PlaylistInfo
 from .usb import UsbDrive, drive_from_letter, find_usb_drives, resolve_drive
-from .usb_library import RekordboxUsbLibrary, extract_video_id
+from .usb_library import PdbStatus, RekordboxUsbLibrary, extract_video_id
 
 __all__ = [
-    "LibraryBackend", "RekordboxUsbLibrary", "LibraryTrack", "PlaylistInfo",
+    "LibraryBackend", "RekordboxUsbLibrary", "PdbStatus", "LibraryTrack", "PlaylistInfo",
     "UsbDrive", "find_usb_drives", "drive_from_letter", "resolve_drive", "extract_video_id",
     "LibraryError", "DriveNotFoundError", "AmbiguousDriveError", "DatabaseOpenError",
     "DatabaseLockedError", "ReadOnlyError", "PlaylistNotFoundError", "TrackNotFoundError",

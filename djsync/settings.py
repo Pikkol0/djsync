@@ -20,9 +20,27 @@ def settings_dir() -> Path:
     override = os.environ.get("DJSYNC_HOME")
     if override:
         return Path(override)
+    from .portable import portable_data_dir     # import tardif : portable.py n'importe pas settings
+    portable = portable_data_dir()
+    if portable is not None:
+        return portable
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", Path.home())) / "DJSync"
     return Path.home() / ".config" / "djsync"
+
+
+ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 100, 200, 10   # pourcentage d'affichage (option « Zoom »)
+DEFAULT_LANGUAGE = "en"
+DEFAULT_THEME = "violet_light"
+LANGUAGE_CODES = ("en", "fr")
+
+
+def clamp_zoom(value: object) -> int:
+    """Ramène n'importe quelle valeur dans [100, 200] (entier)."""
+    try:
+        return max(ZOOM_MIN, min(ZOOM_MAX, int(round(float(value)))))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return ZOOM_MIN
 
 
 @dataclass
@@ -38,6 +56,14 @@ class Settings:
     backup_keep: int = 10
     volume: float = 0.8
     geometry: str = ""
+    # ---- V1.1
+    language: str = DEFAULT_LANGUAGE   # "en" (défaut) | "fr"
+    theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
+    zoom: int = ZOOM_MIN               # 100..200 (%)
+    last_tab: str = "home"             # onglet rouvert au prochain démarrage
+    # ---- V1.1-A3
+    pdb_sync: str = "auto"             # "auto" : met aussi à jour export.pdb s'il existe | "off"
+    pdb_allow_growth: bool = False     # autorise l'ajout de pages à export.pdb (non validé sur platine)
 
     @classmethod
     def path(cls) -> Path:
@@ -57,10 +83,20 @@ class Settings:
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
                 setattr(settings, f.name, raw[f.name])  # type incorrect : on garde la valeur par défaut
+        settings.normalize()
         return settings
+
+    def normalize(self) -> "Settings":
+        """Valeurs hors limites / inconnues ramenées à des valeurs valides (fichier édité à la main)."""
+        self.zoom = clamp_zoom(self.zoom)
+        self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
+        self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
+        self.volume = max(0.0, min(1.0, float(self.volume)))
+        return self
 
     def save(self, path: Optional[Path] = None) -> None:
         path = path or self.path()
+        self.normalize()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")

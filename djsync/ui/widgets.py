@@ -105,11 +105,11 @@ class TrackTable(ctk.CTkFrame):
         self.tree.configure(yscrollcommand=self._on_yscroll)
 
         if self._show_covers:
-            self.tree.column("#0", width=theme.px(theme.COVER_SIZE + 16), minwidth=theme.px(theme.COVER_SIZE + 16),
+            self.tree.column("#0", width=theme.tkpx(theme.COVER_SIZE + 16), minwidth=theme.tkpx(theme.COVER_SIZE + 16),
                              stretch=False, anchor="center")
             self.tree.heading("#0", text="")
         for col in self.columns:
-            self.tree.column(col.key, width=theme.px(col.width), minwidth=theme.px(col.min_width),
+            self.tree.column(col.key, width=theme.tkpx(col.width), minwidth=theme.tkpx(col.min_width),
                              stretch=col.stretch, anchor=col.anchor)
             self.tree.heading(col.key, text=col.title, anchor=col.anchor,
                               command=lambda c=col: self._heading_clicked(c))
@@ -322,10 +322,10 @@ class TrackTable(ctk.CTkFrame):
         self._after_cover = None
         if not self._show_covers or not self.winfo_exists():
             return
-        step = max(8, theme.px(theme.ROW_HEIGHT))
+        step = max(8, theme.tkpx(theme.ROW_HEIGHT))
         height = self.tree.winfo_height()
         seen: List[str] = []
-        for y in range(step // 2 + theme.px(24), max(height, step) + step, step):
+        for y in range(step // 2 + theme.tkpx(24), max(height, step) + step, step):
             iid = self.tree.identify_row(y)
             if iid and iid not in seen:
                 seen.append(iid)
@@ -401,9 +401,9 @@ class TrackTable(ctk.CTkFrame):
         d["moved"] = True
         self.tree.configure(cursor="hand2")
         height = self.tree.winfo_height()
-        if e.y < theme.px(40):
+        if e.y < theme.tkpx(40):
             self.tree.yview_scroll(-1, "units")
-        elif e.y > height - theme.px(24):
+        elif e.y > height - theme.tkpx(24):
             self.tree.yview_scroll(1, "units")
         target = self.tree.identify_row(e.y)
         self._set_drop(target if target and target not in d["ids"] else None)

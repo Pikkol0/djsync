@@ -26,3 +26,6 @@ sqlcipher3-wheels>=0.5.5   # remplace sqlite3 : le module standard ne peut PAS o
 #    dossier indiqué dans Paramètres > FFmpeg.
 #  * Deno (ou Node) : yt-dlp en a besoin pour YouTube (résolution du JavaScript du lecteur).
 #    Sans lui, certains téléchargements YouTube échouent. https://deno.com
+
+# NOTE V1.1-A3 : export.pdb est écrit par djsync/db/pdb (Python pur) : aucune dépendance en plus.
+# Mode portable : voir djsync/portable.py et packaging/DJSync.spec.

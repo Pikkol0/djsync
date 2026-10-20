@@ -23,6 +23,8 @@ DDL = [
     "CREATE TABLE artist(artist_id integer primary key, name varchar, nameForSearch varchar)",
     "CREATE TABLE album(album_id integer primary key, name varchar, artist_id integer, image_id integer, isComplation integer, nameForSearch varchar)",
     "CREATE TABLE image(image_id integer primary key, path varchar)",
+    "CREATE TABLE key(key_id integer primary key, name varchar)",
+    "CREATE TABLE color(color_id integer primary key, name varchar)",
     "CREATE TABLE property(deviceName varchar, dbVersion varchar, numberOfContents integer, createdDate varchar, backGroundColorType integer, myTagMasterDBID integer)",
 ]
 
@@ -222,3 +224,70 @@ def test_artwork_path_and_absolute_path(lib, usb):
     t = lib.get_track(t.content_id)
     assert t.artwork_path == "/PIONEER/Artwork/00001/b1.jpg"
     assert lib.artwork_file(t) == art / "b1.jpg"
+
+
+# ------------------------------------------------------------------ V1.1 : compatibilité Rekordbox
+def _content_row(lib, content_id):
+    cols = ["color_id", "artist_id_lyricist", "artist_id_remixer", "genre_id", "label_id", "key_id",
+            "image_id", "titleForSearch"]
+    return dict(zip(cols, lib._read(f"SELECT {', '.join(cols)} FROM content WHERE content_id = ?", (content_id,))[0]))
+
+
+def test_new_track_follows_native_conventions(lib):
+    """color_id / artist_id_lyricist = 0 comme les sons natifs de Rekordbox (constaté sur une vraie clé)."""
+    t = lib.add_track(make_wav(lib, "Leto", "x"), "Macaroni", "Leto", "Album")
+    row = _content_row(lib, t.content_id)
+    assert row["color_id"] == 0 and row["artist_id_lyricist"] == 0
+    assert all(row[c] is None for c in ("artist_id_remixer", "genre_id", "label_id", "key_id", "image_id")), row
+    assert row["titleForSearch"] == "Macaroni"
+    assert lib._read("SELECT nameForSearch FROM artist")[0][0] == "Leto"
+
+
+def test_inspect_conventions_is_read_only_and_counts(lib):
+    lib.add_track(make_wav(lib, "A", "a"), "a", "A", "Alb")
+    before = lib._read("SELECT * FROM content")
+    conv = lib.inspect_conventions()
+    assert conv["color_id"]["zero"] == 1 and conv["genre_id"]["NULL"] == 1
+    assert conv["content.titleForSearch"]["filled"] == 1
+    assert lib._read("SELECT * FROM content") == before
+
+
+def test_legacy_format_detection(lib, usb):
+    assert lib.legacy_format_present is False
+    (usb / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"\0" * 16)
+    assert lib.legacy_format_present is True
+
+
+def test_track_key_and_camelot(lib):
+    t = lib.add_track(make_wav(lib, "K", "k"), "k", "K")
+    assert t.key is None and t.camelot is None
+    with lib._write() as conn:
+        kid = conn.execute("INSERT INTO key (name) VALUES ('F#m')").lastrowid
+        conn.execute("UPDATE content SET key_id = ? WHERE content_id = ?", (kid, t.content_id))
+    t = lib.get_track(t.content_id)
+    assert t.key == "F#m" and t.camelot == "11A"
+
+
+def test_diagnose_report(lib, usb):
+    from djsync.db.diagnose import diagnose
+
+    with lib._write() as conn:   # son référencé dont le fichier est absent
+        conn.execute("INSERT INTO content (title, path, fileName, fileSize, fileType, color_id) "
+                     "VALUES ('x', '/Contents/Old/o.wav', 'o.wav', 1, 11, 0)")
+    (usb / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"\0")
+    rep = diagnose(lib)
+    assert rep.legacy_files == ["export.pdb"]
+    assert rep.missing_files == ["/Contents/Old/o.wav"]
+    assert any("Ancien format" in p for p in rep.problems)
+    assert rep.counter_mismatch                  # property.numberOfContents = 0, 1 son en base
+    assert not any("étrangères" in p for p in rep.problems)   # 0 = « aucun » : pas une erreur
+
+
+def test_diagnose_cli_clean_drive(lib, usb, capsys):
+    from djsync.db.diagnose import main
+
+    lib.add_track(make_wav(lib, "A", "a"), "a", "A", playlist_ids=[1])
+    lib.close()
+    assert main([str(usb), "--inspect"]) == 0
+    out = capsys.readouterr().out
+    assert "Aucun problème" in out and "color_id" in out

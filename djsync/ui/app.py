@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 import customtkinter as ctk
 
+from .. import i18n
 from ..settings import Settings
 from . import theme
 from .controller import AppController
@@ -30,11 +31,20 @@ TABS = [  # (clé, libellé, classe)
     ("downloads", "Téléchargements récents", DownloadsView),
     ("settings", "Paramètres", SettingsView),
 ]
-STATUS_COLORS = {"info": theme.DIM, "ok": theme.ACCENT, "warn": theme.WARN, "error": theme.ERR}
+
+
+def status_color(kind: str) -> str:
+    """Couleur d'un message d'état (lue à l'appel : dépend du thème actif)."""
+    return {"info": theme.DIM, "ok": theme.ACCENT, "warn": theme.WARN, "error": theme.ERR}.get(kind, theme.DIM)
 
 
 class DJSyncApp(ctk.CTk):
     def __init__(self, settings: Optional[Settings] = None, controller: Optional[AppController] = None) -> None:
+        settings = settings or Settings.load()
+        # Langue, couleur et zoom DOIVENT être appliqués avant la création du moindre widget.
+        i18n.set_language(settings.language)
+        theme.apply_palette(settings.theme)
+        theme.set_zoom(settings.zoom)
         super().__init__(fg_color=theme.BG)
         ctk.set_appearance_mode("dark")
         try:
@@ -45,7 +55,6 @@ class DJSyncApp(ctk.CTk):
 
         self.title("DJSync")
         self.minsize(theme.px(1020), theme.px(640))
-        settings = settings or Settings.load()
         self.geometry(settings.geometry or f"{theme.px(1240)}x{theme.px(780)}")
 
         self.dispatcher = UiDispatcher(self)
@@ -151,7 +160,7 @@ class DJSyncApp(ctk.CTk):
 
     # ------------------------------------------------------------------- état
     def _message(self, kind: str, text: str) -> None:
-        self.status.configure(text=text, text_color=STATUS_COLORS.get(kind, theme.DIM))
+        self.status.configure(text=text, text_color=status_color(kind))
         if self._status_after:
             self.after_cancel(self._status_after)
         delay = 12000 if kind in ("error", "warn") else 6000
@@ -167,6 +176,8 @@ class DJSyncApp(ctk.CTk):
 
 
 def main() -> None:
+    from .. import portable
+    portable.prepare_environment()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     app = DJSyncApp()
     app.mainloop()

@@ -12,6 +12,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional, Tuple
 
+from .core.camelot import to_camelot
+from .i18n import LazyLabels, get_language, t
+
 # ======================================================================================
 # 1. Recherche & téléchargement
 # ======================================================================================
@@ -26,12 +29,13 @@ class SearchMode(str, Enum):
     ARTISTS = "artists"
 
 
-SEARCH_MODE_LABELS = {
-    SearchMode.ALL: "Tout",
-    SearchMode.SONGS: "Titres",
-    SearchMode.VIDEOS: "Vidéos",
-    SearchMode.ARTISTS: "Artistes",
-}
+# Libellés traduits à la lecture (suivent la langue active) : SEARCH_MODE_LABELS[mode] -> "All" / "Tout"
+SEARCH_MODE_LABELS = LazyLabels(lambda: {
+    SearchMode.ALL: "mode.all",
+    SearchMode.SONGS: "mode.songs",
+    SearchMode.VIDEOS: "mode.videos",
+    SearchMode.ARTISTS: "mode.artists",
+})
 
 SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud"}
 
@@ -44,14 +48,15 @@ def format_duration(seconds: int) -> str:
 
 
 def format_views(n: Optional[int]) -> str:
-    """1 234 -> '1,2 k' ; 1 250 000 -> '1,3 M' ; None -> '—'."""
+    """1 234 -> '1.2 k' (EN) / '1,2 k' (FR) ; 1 250 000 -> '1.3 M' ; None -> '—'."""
     if n is None:
         return "—"
     for limit, unit in ((1_000_000_000, "Md"), (1_000_000, "M"), (1_000, "k")):
         if n >= limit:
             value = n / limit
             text = f"{value:.1f}" if value < 10 else f"{value:.0f}"
-            return text.replace(".", ",").removesuffix(",0") + f" {unit}"
+            sep = "," if get_language() == "fr" else "."
+            return text.replace(".", sep).removesuffix(sep + "0") + f" {unit}"
     return str(n)
 
 
@@ -90,7 +95,7 @@ class TrackResult:
 
     @property
     def kind_label(self) -> str:
-        return "Titre" if self.is_song else "Vidéo"
+        return t("track.song") if self.is_song else t("track.video")
 
     @property
     def source_label(self) -> str:
@@ -196,11 +201,11 @@ class MatchPreference(str, Enum):
     VIDEO = "video"
 
 
-PREFERENCE_LABELS = {
-    MatchPreference.AUTO: "Automatique",
-    MatchPreference.SONG: "Titre prioritaire",
-    MatchPreference.VIDEO: "Vidéo prioritaire",
-}
+PREFERENCE_LABELS = LazyLabels(lambda: {
+    MatchPreference.AUTO: "match.auto",
+    MatchPreference.SONG: "match.song",
+    MatchPreference.VIDEO: "match.video",
+})
 
 
 @dataclass
@@ -283,6 +288,12 @@ class LibraryTrack:
     is_analysed: bool
     artwork_path: Optional[str] = None   # pochette Rekordbox (ex. "/PIONEER/Artwork/00001/b1.jpg")
     sequence: int = 0                    # position dans la playlist (0 hors vue playlist)
+    key: Optional[str] = None            # tonalité Rekordbox brute ("Am", "F#m"…), None si non analysé
+
+    @property
+    def camelot(self) -> Optional[str]:
+        """Tonalité en notation Camelot ("8A"), None si inconnue."""
+        return to_camelot(self.key)
 
     @property
     def display_name(self) -> str:
@@ -293,15 +304,15 @@ class LibraryTrack:
 # 5. File de téléchargements (historique de la session)
 # ======================================================================================
 
-JOB_STATUS_LABELS = {
-    "queued": "En attente",
-    "downloading": "Téléchargement",
-    "converting": "Conversion…",
-    "tagging": "Tags…",
-    "adding": "Ajout à la clé…",
-    "done": "✓ Terminé",
-    "error": "✗ Erreur",
-}
+JOB_STATUS_LABELS = LazyLabels(lambda: {
+    "queued": "job.queued",
+    "downloading": "job.downloading",
+    "converting": "job.converting",
+    "tagging": "job.tagging",
+    "adding": "job.adding",
+    "done": "job.done",
+    "error": "job.error",
+})
 
 
 @dataclass
