@@ -220,9 +220,7 @@ class PlayerBar(QWidget):
             if not track.is_analysed:
                 self.ctrl.message("info", t("grid.not_analysed"))
                 return
-            from .grid_editor import GridEditor
-
-            GridEditor(self, self.ctrl, track)
+            self.ctrl._emit("open_grid", track)
 
         self._with_track(go)
 

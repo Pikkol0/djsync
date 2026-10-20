@@ -68,6 +68,25 @@ def set_bpm(beats: Sequence[Beat], bpm: float, anchor_index: int, duration_ms: i
     return extend([(n, tempo, ms)], duration_ms)
 
 
+def bar_at(beats: Sequence[Beat], ms: float, duration_ms: int) -> Tuple[List[Beat], int]:
+    """Un temps tombe exactement à `ms` et devient un 1er temps de mesure (toute la grille est décalée
+    d'autant). Renvoie (grille, indice de ce temps)."""
+    if not beats:
+        return list(beats), -1
+    i = nearest(beats, ms)
+    moved = shift(beats, int(round(ms - beats[i][2])), duration_ms)
+    j = nearest(moved, ms)
+    return set_downbeat(moved, j), j
+
+
+def scale_tempo(beats: Sequence[Beat], factor: float, anchor_index: int, duration_ms: int) -> List[Beat]:
+    """BPM x `factor` (2 ou 0,5) : grille constante ancrée sur le temps `anchor_index`."""
+    if not beats:
+        return list(beats)
+    tempos = sorted(b[1] for b in beats)
+    return set_bpm(beats, tempos[len(tempos) // 2] / 100.0 * factor, anchor_index, duration_ms)
+
+
 def nearest(beats: Sequence[Beat], ms: float) -> int:
     """Indice du temps le plus proche de `ms`."""
     if not beats:

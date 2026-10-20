@@ -57,11 +57,18 @@ class DownloadsMixin:
         try:
             lib = job.library
             track = job.track
+            if self.settings.fetch_metadata:          # album, année, genre, label… (Deezer, sans compte)
+                from ...core.metadata import enrich
+
+                track = enrich(track)
             result = self.service.download(track, lib.default_download_dir(track.artist, track.album), on_progress=progress)
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
+            meta = {"year": track.year, "release_date": track.release_date, "genre": track.genre,
+                    "label": track.label, "track_no": track.track_no, "isrc": track.isrc}
             added = lib.add_track(
-                Path(result.file_path), track.title, track.artist, track.album, track.url, job.playlist_ids
+                Path(result.file_path), track.title, track.artist, track.album, track.url, job.playlist_ids,
+                meta=meta,
             )
             self.service.refresh_library()
             job.file_path, job.content_id, job.status = result.file_path, added.content_id, "done"

@@ -111,9 +111,13 @@ Aussi testé : m4a/AAC, mp3 VBR, intro silencieuse de 8 s, vidéo désaccordée 
 * Choix d'octave : aucune mesure du signal ne prédisait mieux le choix de Rekordbox que le seuil de
   168 BPM ; ~12 sons sur 53 restent « doublés » (ex. rap à 75 affiché 150).
 * Pas de hot cues / memory cues automatiques.
-* Non écrits : `.2EX` (forme d'onde 3 bandes du CDJ-3000 : une balise, PWVC, n'est pas décodée
-  publiquement), PQT2, PSSI (phrases). Les platines utilisent alors les formes d'onde du `.EXT`,
-  comme pour une clé exportée par Rekordbox 5.
+* `.2EX` (formes d'onde « 3 bandes » de Rekordbox 6/7 et du CDJ-3000) écrit depuis la V0.3.0, calé
+  sur les 10 sons réels : PWV7 = basses / médiums / aigus à 150 points/s (erreur moyenne 8/127),
+  PWV6 = aperçu 1200 colonnes (corrélation 0,93 avec Rekordbox), PWVC = 3 facteurs ≈ k / (bande au
+  centile 99,9) (±15 %). Sans ce fichier, Rekordbox réglé sur « 3Band » montrait un aperçu bleu des sons
+  DJSync dans la liste et sous les platines. Les sons analysés avant la V0.3.0 l'obtiennent avec
+  « Analyser à nouveau ».
+* Non écrits : PQT2, PSSI (phrases).
 * Le dossier `USBANLZ/Pxxx/xxxxxxxx` est un hachage DJSync (celui de Rekordbox n'est pas documenté) ;
   les platines suivent le chemin inscrit dans la base, quel qu'il soit.
 

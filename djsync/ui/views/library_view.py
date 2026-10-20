@@ -709,9 +709,7 @@ class LibraryView(View):
         if not tracks[0].is_analysed:
             self.ctrl.message("info", t("grid.not_analysed"))
             return
-        from ..grid_editor import GridEditor
-
-        GridEditor(self, self.ctrl, tracks[0])
+        self.ctrl._emit("open_grid", tracks[0])
 
     def _edit_metadata(self) -> None:
         tracks = self._selected_tracks()

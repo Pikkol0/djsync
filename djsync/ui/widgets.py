@@ -91,7 +91,7 @@ class CamelotPill(QLabel):
             color = theme.camelot_color(code)
             self.setText(code)
             self.setStyleSheet(f"background:{color}; color:{theme.on_color(color)}; padding:0 {theme.px(5)}px;"
-                               "font-weight:600;")
+                               f"border-radius:{theme.px(3)}px; font-weight:600;")
             self.show()
         else:
             self.setText("")

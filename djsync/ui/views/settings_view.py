@@ -183,7 +183,10 @@ class SettingsView(View):
         card = self._card(t("tab.search"), "")
         self.views_var = QCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
+        self.meta_var = QCheckBox(t("settings.fetch_metadata"))
+        self.meta_var.setChecked(s.fetch_metadata)
         card.addWidget(self.views_var)
+        card.addWidget(self.meta_var)
 
         # ---- sauvegardes
         card = self._card(t("settings.backups"), t("settings.backups_hint"))
@@ -329,6 +332,7 @@ class SettingsView(View):
         s.contents_dir = self.contents.text().strip().strip("/\\") or "Contents"
         s.ffmpeg_location = self.ffmpeg.text().strip()
         s.fetch_views = self.views_var.isChecked()
+        s.fetch_metadata = self.meta_var.isChecked()
         s.backup_keep = int(self.keep.currentText())
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()

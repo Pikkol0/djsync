@@ -107,6 +107,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("restyle", self.restyle)
         self.ctrl.on("zoom", self.restyle)
         self.ctrl.on("analysis", self._analysis_changed)
+        self.ctrl.on("open_grid", self.open_grid_editor)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()
@@ -173,6 +174,8 @@ class DJSyncApp(QMainWindow):
         right.addWidget(self.status)
         body.addLayout(right, 1)
         self.views = {}
+        self.grid_editor: Any = None
+        self._grid_return: Optional[str] = None
         for key, _label, _icon, cls in TABS:
             view = cls(self.stack, self.ctrl, self.loader)
             self.stack.addWidget(view)
@@ -422,6 +425,36 @@ class DJSyncApp(QMainWindow):
         view = self.views.get(self._current or "")
         if view is not None:
             view.focus_filter()
+
+    # ----------------------------------------------------------- éditeur de grille : une page
+    def open_grid_editor(self, track: Any) -> None:
+        """Ouvre la page « Grille de temps » dans la zone de contenu. Changer d'onglet la cache sans la
+        fermer : la rouvrir pour le même son retrouve les modifications en cours."""
+        from .grid_editor import GridEditor
+
+        ed = self.grid_editor
+        if ed is not None and ed.winfo_exists():
+            if ed.track.content_id == track.content_id:
+                self._show_page(ed)
+                return
+            ed._on_close = None
+            ed.close()
+        self._grid_return = self._current or "library"
+        self.grid_editor = GridEditor(self.stack, self.ctrl, track, on_close=self._grid_closed)
+        self.stack.addWidget(self.grid_editor)
+        self._show_page(self.grid_editor)
+
+    def _show_page(self, page: QWidget) -> None:
+        for b in self._nav.values():
+            b.setChecked(False)
+        self.stack.setCurrentWidget(page)
+        page.setFocus()
+
+    def _grid_closed(self) -> None:
+        ed, self.grid_editor = self.grid_editor, None
+        if ed is not None:
+            self.stack.removeWidget(ed)
+        self.show_view(self._grid_return or "library")
 
     def open_help(self) -> None:
         from .help_dialog import HelpDialog

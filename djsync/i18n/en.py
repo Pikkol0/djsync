@@ -284,6 +284,7 @@ STRINGS = {
 
     # ---- beat grid editor
     "grid.title": "Beat grid",
+    "grid.back": "Back",
     "grid.loading": "Loading the grid…",
     "grid.not_analysed": "Analyse this track first (Tools ▸ Analyse).",
     "grid.view": "View",
@@ -294,9 +295,16 @@ STRINGS = {
     "grid.apply_bpm": "Set BPM",
     "grid.apply_bpm_tip": "Constant grid at this BPM, anchored on the selected beat",
     "grid.bpm_range": "BPM must be between 40 and 300.",
-    "grid.play_tip": "Play from the dashed cursor (click on the waveform to place it)",
-    "grid.hint": "Click: place the cursor and select the nearest beat  ·  drag / wheel: scroll  ·  "
-                 "bar starts are thick and numbered.",
+    "grid.play_tip": "Play from the cursor (click or drag on the waveform to place it)",
+    "grid.hint": "Click or drag: move the listening cursor (selects the nearest beat)  ·  right-drag, wheel or "
+                 "scroll bar: scroll  ·  bar starts are thick and numbered.",
+    "grid.bar_here": "Bar starts here",
+    "grid.bar_here_tip": "A beat is placed exactly on the cursor and becomes the first beat of a bar "
+                         "(the whole grid moves with it)",
+    "grid.double": "BPM × 2",
+    "grid.half": "BPM ÷ 2",
+    "grid.double_tip": "Twice as many beats, anchored on the selected beat",
+    "grid.half_tip": "Half as many beats, anchored on the selected beat",
     "grid.reset": "Undo changes",
     "grid.saving": "Saving…",
     "grid.modified": "Modified (selected beat {ms} ms)",
@@ -430,6 +438,7 @@ STRINGS = {
     "settings.check": "Check",
     "settings.sync_now": "Synchronise now",
     "settings.fetch_views": "Load the view count of songs (extra background requests)",
+    "settings.fetch_metadata": "Complete album, year, genre, label and track number when downloading (Deezer)",
     "settings.backups": "Database backups",
     "settings.backups_hint": "Before each change of exportLibrary.db, a copy is made in the DJSync_Backups folder "
                              "of the drive.",

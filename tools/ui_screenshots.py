@@ -48,7 +48,6 @@ def _visible(cls):
 def shoot_dialogs(app, out: Path) -> None:
     from djsync.ui.analysis_dialog import AnalysisDialog
     from djsync.ui.duplicates_dialog import DuplicatesDialog
-    from djsync.ui.grid_editor import GridEditor
     from djsync.ui.help_dialog import HelpDialog
 
     app.resize(1280, 800)
@@ -75,11 +74,15 @@ def shoot_dialogs(app, out: Path) -> None:
     gate.set()
     _pump(20, lambda: not q.running)
     app.ctrl.library.analyze_tracks = real
+    app.open_grid_editor(target)                        # V0.2.4 : page de la fenêtre principale
+    _pump(1.5)
+    capture(app, out / "grid_editor.png")
+    app.grid_editor.close()
+    _pump(0.3)
     for opener, cls, name in (
         (app.open_help, HelpDialog, "dialog_help"),
         (lib._duplicates, DuplicatesDialog, "dialog_duplicates"),
         (lambda: AnalysisDialog(lib, app.ctrl, [target]), AnalysisDialog, "dialog_analysis"),
-        (lambda: GridEditor(lib, app.ctrl, target), GridEditor, "dialog_grid"),
     ):
         opener()
         _pump(1.5)

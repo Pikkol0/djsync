@@ -111,9 +111,10 @@ def test_stop_analysis_empties_the_queue(demo):
     assert not demo.errors
 
 
-def test_player_buttons_grid_editor_and_reveal(demo_grid):
+def test_player_buttons_grid_editor_page_and_reveal(demo_grid):
     from PySide6.QtWidgets import QApplication
 
+    from djsync.analysis import grid as G
     from djsync.ui.grid_editor import GridEditor
 
     app = demo_grid
@@ -125,21 +126,51 @@ def test_player_buttons_grid_editor_and_reveal(demo_grid):
     target = next(r.data for r in lib.table.all_rows() if r.data.title == "Grid Test")
     lib._play(str(target.content_id))
     assert pump(app, 4, lambda: bar.grid_btn.isEnabled())
+    app.show_view("search")
     bar._edit_grid()
-    assert pump(app, 4, lambda: find(app, GridEditor) is not None)
-    ed = find(app, GridEditor)
+    assert pump(app, 4, lambda: app.grid_editor is not None)
+    ed = app.grid_editor
+    assert isinstance(ed, GridEditor) and ed.window() is app            # une page, pas une fenêtre
+    assert app.stack.currentWidget() is ed
     assert pump(app, 4, lambda: bool(ed.beats))
-    assert QApplication.activeModalWidget() is None         # non modale : l'appli reste utilisable
+    assert QApplication.activeModalWidget() is None
     ed.grab()                                               # dessin de la forme d'onde et de la grille
+
+    # décalages ±1 / ±10 / ±100 ms
     before = ed.beats[ed.selected][2]
-    ed._shift(10)
-    assert ed.beats[ed.selected][2] == before + 10 and ed.save_btn.isEnabled()
-    ed._reset()
-    ed.close()
+    ed._shift(100)
+    assert ed.beats[ed.selected][2] == before + 100 and ed.save_btn.isEnabled()
+    ed._shift(-100)
+    # glisser sur la forme d'onde : le curseur d'écoute suit
+    w = ed.canvas.width()
+    ed.press(w * 0.25)
+    first = ed.cursor_ms
+    ed.press(w * 0.6, dragging=True)
+    assert ed.cursor_ms > first
+    ed.release()
+    # début de mesure exactement sur le curseur
+    cursor = ed.beats[3][2] + 37
+    ed.cursor_ms = cursor
+    ed._bar_here()
+    assert ed.beats[ed.selected][2] == cursor and ed.beats[ed.selected][0] == 1
+    # BPM x 2 puis / 2
+    bpm = sorted(b[1] for b in ed.beats)[len(ed.beats) // 2]
+    n = len(ed.beats)
+    ed._scale(2.0)
+    assert abs(sorted(b[1] for b in ed.beats)[len(ed.beats) // 2] - 2 * bpm) <= 1 and len(ed.beats) > 1.8 * n
+    ed._scale(0.5)
+    assert abs(sorted(b[1] for b in ed.beats)[len(ed.beats) // 2] - bpm) <= 1
+    assert G.nearest(ed.beats, ed.cursor_ms) >= 0
+
+    app.show_view("library")                                # changer d'onglet cache la page…
+    bar._edit_grid()                                        # …la rouvrir garde les modifications
+    assert pump(app, 2, lambda: app.grid_editor is ed and app.stack.currentWidget() is ed)
+    assert ed.beats != ed.original
+    ed.close()                                              # retour à l'onglet d'avant
+    assert app.grid_editor is None and app.current == "search"
     app.ctrl.player.stop()
 
     # « Afficher dans la bibliothèque »
-    app.show_view("search")
     bar._show_in_library(target)
     assert app.current == "library"
     assert pump(app, 2, lambda: lib.table.selected_iids() == [str(target.content_id)])

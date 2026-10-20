@@ -11,6 +11,12 @@ Rekordbox (6 morceaux, jeux DAT/EXT/2EX) :
   * PWV4        : 1200 colonnes de 6 octets. Mesuré sur les fichiers réels : d2 ≈ 1,12 x crête des
                   basses (R² = 0,98), d3 ≈ moyenne quadratique des basses, d4 ≈ 0,5 x crête des
                   médiums, d5 ≈ 1,6 x moyenne des aigus, d0 ≈ 0,8 x somme des moyennes, d1 ≈ 130-250.
+  * .2EX (V0.3.0, formes d'onde « 3 bandes » de Rekordbox 6/7 et du CDJ-3000), mesuré sur 10 sons réels :
+      PWV7 : 150/s, 3 octets = basses, médiums, aigus (0-127) ; ≈ a x 127 x (bande / crête p99)^0,6,
+             a = 0,97 / 0,96 / 0,68 (erreur moyenne 8/127) ;
+      PWV6 : 1200 colonnes x 3 octets = moyenne du PWV7 sur la colonne, chaque bande ramenée à la même
+             moyenne (≈ 0,55 x moyenne des basses) ;
+      PWVC : 3 entiers ≈ k / (bande au centile 99,9), k = 81 / 54 / 42 (erreur ±15 %).
 """
 from __future__ import annotations
 
@@ -23,6 +29,9 @@ DETAIL_RATE = 150            # points par seconde (PWV3 / PWV5)
 PREVIEW_COLS = 400           # PWAV
 TINY_COLS = 100              # PWV2
 COLOR_PREVIEW_COLS = 1200    # PWV4
+THREE_BAND_COLS = 1200       # PWV6
+THREE_BAND_GAIN = (0.973, 0.964, 0.682)
+THREE_BAND_NORM_K = (81.0, 54.0, 42.0)
 LOW_CUT, HIGH_CUT = 250.0, 2500.0
 
 
@@ -33,6 +42,9 @@ class Waveforms:
     preview: bytes           # PWAV : 400 octets
     tiny_preview: bytes      # PWV2 : 100 octets
     color_preview: bytes     # PWV4 : 1200 x 6 octets
+    band_detail: bytes = b""          # PWV7 : 150/s, 3 octets (basses, médiums, aigus)
+    band_preview: bytes = b""         # PWV6 : 1200 x 3 octets
+    band_norm: tuple = (0, 0, 0)      # PWVC
 
     @property
     def detail_count(self) -> int:
@@ -145,5 +157,30 @@ def compute_waveforms(x: np.ndarray, sr: int, duration: float) -> Waveforms:
         vals = PWV4_MODEL @ f if s > 0.5 else np.zeros(6)
         lim = (127, 255, 127, 127, 127, 127)
         color_prev += bytes(int(min(lim[j], max(0, round(float(vals[j]))))) for j in range(6))
+    band_detail, band_preview, band_norm = _three_band(peak, L, M, H, n)
     return Waveforms(detail=detail.tobytes(), color_detail=color_detail, preview=bytes(prev),
-                     tiny_preview=bytes(tiny), color_preview=bytes(color_prev))
+                     tiny_preview=bytes(tiny), color_preview=bytes(color_prev), band_detail=band_detail,
+                     band_preview=band_preview, band_norm=band_norm)
+
+
+def _three_band(peak: np.ndarray, L: np.ndarray, M: np.ndarray, H: np.ndarray, n: int):
+    """Formes d'onde 3 bandes (.2EX) : PWV7, PWV6, PWVC (voir l'en-tête du module)."""
+    ref = float(np.percentile(peak, 99)) if np.any(peak) else 0.0
+    kernel = np.ones(3) / 3
+    det = np.zeros((n, 3))
+    norm = []
+    for j, band in enumerate((L, M, H)):
+        sm = np.convolve(band, kernel, "same") if n >= 3 else band
+        if ref > 0:
+            det[:, j] = np.clip(THREE_BAND_GAIN[j] * 127 * (np.maximum(sm, 0) / ref) ** 0.6, 0, 127)
+        top = float(np.percentile(band, 99.9)) if np.any(band) else 0.0
+        norm.append(int(min(65535, max(1, round(THREE_BAND_NORM_K[j] / top)))) if top > 0 else 0)
+    det = np.round(det)
+    cols = np.array([det[a:z].mean(axis=0) for a, z in _columns(n, THREE_BAND_COLS)])
+    target = 0.55 * float(cols[:, 0].mean())
+    for j in range(3):
+        m = float(cols[:, j].mean())
+        if m > 0:
+            cols[:, j] *= target / m
+    prev = np.clip(np.round(cols), 0, 127)
+    return det.astype(np.uint8).tobytes(), prev.astype(np.uint8).tobytes(), tuple(norm)

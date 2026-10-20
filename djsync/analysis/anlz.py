@@ -4,12 +4,12 @@ Structure recopiée de VRAIS fichiers exportés par Rekordbox (constantes vérif
   en-tête   « PMAI », 0x1C, taille totale, 1, 0x10000, 0x10000, 0 (entiers big-endian) ;
   .DAT      PPTH, PVBR, PQTZ, PWAV, PWV2, PCOB (hot cues), PCOB (mémoires)
   .EXT      PPTH, PWV3, PCOB, PCOB, PCO2, PCO2, PWV5, PWV4
+  .2EX      PPTH, PWV7, PWV6, PWVC (formes d'onde 3 bandes, V0.3.0)
 Chaque balise : code 4 lettres, longueur d'en-tête, longueur totale, puis contenu.
 
-Non écrits (facultatifs, absents des exports de Rekordbox 5) : PQT2 (grille étendue), PSSI
-(phrases, nécessite l'analyse « phrase » de Rekordbox) et le fichier .2EX (forme d'onde 3 bandes
-du CDJ-3000, dont une balise reste non décodée publiquement). Les platines utilisent alors les
-formes d'onde du .EXT, comme pour une clé exportée par Rekordbox 5.
+Non écrits (facultatifs) : PQT2 (grille étendue) et PSSI (phrases, nécessite l'analyse « phrase » de
+Rekordbox). Le .2EX est écrit depuis la V0.3.0 : sans lui, Rekordbox 6/7 réglé sur « 3Band » montrait un
+aperçu bleu (liste, aperçu du morceau entier) au lieu de l'aperçu 3 bandes des sons qu'il a analysés.
 """
 from __future__ import annotations
 
@@ -59,6 +59,16 @@ def _pco2(kind: int) -> bytes:
 
 def _pwv(code: bytes, entry_bytes: int, count: int, unknown: int, data: bytes) -> bytes:
     return _tag(code, struct.pack(">III", entry_bytes, count, unknown), data)
+
+
+def build_2ex(track_path: str, wf: Waveforms) -> bytes:
+    n = len(wf.band_detail) // 3
+    return _file([
+        _ppth(track_path),
+        _pwv(b"PWV7", 3, n, 0x00960000, wf.band_detail),
+        _tag(b"PWV6", struct.pack(">II", 3, len(wf.band_preview) // 3), wf.band_preview),
+        _tag(b"PWVC", b"\x00\x00", struct.pack(">HHH", *wf.band_norm)),
+    ])
 
 
 def _file(tags: List[bytes]) -> bytes:
@@ -147,15 +157,18 @@ def _write_atomic(target: Path, data: bytes) -> None:
 
 def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, int, int]], wf: Waveforms,
                 total_samples: int = 0, rel_dir: Optional[str] = None) -> str:
-    """Écrit ANLZ0000.DAT et .EXT ; renvoie le chemin de base à inscrire (…/ANLZ0000.DAT)."""
+    """Écrit ANLZ0000.DAT, .EXT et .2EX ; renvoie le chemin de base à inscrire (…/ANLZ0000.DAT)."""
     rel_dir = rel_dir or choose_anlz_dir(drive_root, track_path)
     folder = Path(drive_root) / rel_dir.lstrip("/")
     dat = build_dat(track_path, beats, wf, total_samples)
     ext = build_ext(track_path, wf)
-    for blob in (dat, ext):                      # contrôle avant écriture : relisible
+    two = build_2ex(track_path, wf) if wf.band_detail else b""
+    for blob in (dat, ext) + ((two,) if two else ()):    # contrôle avant écriture : relisible
         parse(blob)
     _write_atomic(folder / "ANLZ0000.DAT", dat)
     _write_atomic(folder / "ANLZ0000.EXT", ext)
+    if two:
+        _write_atomic(folder / "ANLZ0000.2EX", two)
     return f"{rel_dir}/ANLZ0000.DAT"
 
 

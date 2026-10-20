@@ -2,12 +2,16 @@
 
 Pour corriger un décalage observé sur les platines : la forme d'onde détaillée du son (ANLZ) avec
 ses temps (1ers temps de mesure plus épais, à la couleur d'accent). On peut :
-  * décaler toute la grille (±1 ms, ±10 ms) ;
-  * choisir le 1er temps de mesure (« le temps sélectionné devient le 1 ») ;
-  * imposer un BPM (grille constante ancrée sur le temps sélectionné) ;
-  * écouter à partir d'un endroit (clic sur la forme d'onde puis Lecture) ;
+  * décaler toute la grille (±1, ±10, ±100 ms) ;
+  * placer un début de mesure exactement sur le curseur, ou faire du temps sélectionné le 1 ;
+  * imposer un BPM, le doubler ou le diviser par 2 (grille constante ancrée sur le temps sélectionné) ;
+  * écouter à partir d'un endroit (clic ou glisser sur la forme d'onde : le curseur suit ; en lecture,
+    la lecture saute à cet endroit) ;
 puis Enregistrer : le .DAT est réécrit (copie d'origine dans DJSync_Backups/anlz), le BPM mis à
 jour dans exportLibrary.db et export.pdb.
+
+C'est une PAGE de la fenêtre principale (comme un onglet), ouverte par `DJSyncApp.open_grid_editor` :
+changer d'onglet la cache sans perdre les modifications ; « Retour » ou Échap la ferme.
 """
 from __future__ import annotations
 
@@ -22,9 +26,9 @@ from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
 from . import theme
-from .dialogs import BaseDialog, ConfirmDialog
+from .dialogs import ConfirmDialog
 from .icons import qicon
-from .widgets import button, hbox, icon_button, label, vbox
+from .widgets import button, hbox, icon_button, label, restyle, vbox
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
 VIEW_CHOICES = (4, 8, 16, 32)
@@ -47,28 +51,42 @@ class GridCanvas(QWidget):
         p.end()
 
     def mousePressEvent(self, e: Any) -> None:      # noqa: N802
+        """Clic gauche : curseur d'écoute ; clic droit / milieu : faire défiler en glissant."""
+        self.setFocus()
         x = e.position().x()
-        self._drag_x, self._drag_start = x, self.ed.start_ms
-        self.ed.press(x)
+        if e.button() == Qt.LeftButton:
+            self.ed.press(x)
+        else:
+            self._drag_x, self._drag_start = x, self.ed.start_ms
 
     def mouseMoveEvent(self, e: Any) -> None:       # noqa: N802
-        if self._drag_x is not None and e.buttons() & Qt.LeftButton:
-            self.ed.start_ms = self._drag_start - (e.position().x() - self._drag_x) / self.ed.px_per_ms
+        x = e.position().x()
+        if e.buttons() & Qt.LeftButton:
+            self.ed.press(x, dragging=True)
+        elif self._drag_x is not None and e.buttons() & (Qt.RightButton | Qt.MiddleButton):
+            self.ed.start_ms = self._drag_start - (x - self._drag_x) / self.ed.px_per_ms
             self.ed.draw()
 
-    def mouseReleaseEvent(self, _e: Any) -> None:   # noqa: N802
+    def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
+        if e.button() == Qt.LeftButton:
+            self.ed.release()
         self._drag_x = None
+
+    def contextMenuEvent(self, e: Any) -> None:     # noqa: N802
+        e.accept()                                  # clic droit = défilement, pas de menu
 
     def wheelEvent(self, e: Any) -> None:           # noqa: N802
         self.ed.pan(-0.15 if e.angleDelta().y() > 0 else 0.15)
 
 
-class GridEditor(BaseDialog):
-    modal = False           # le lecteur et la bibliothèque restent utilisables pendant l'édition
+class GridEditor(QWidget):
+    """Page « Grille de temps » (dans la zone de contenu de la fenêtre principale)."""
 
-    def __init__(self, parent: Any, controller: Any, track: LibraryTrack) -> None:
-        super().__init__(parent, t("grid.title"), 900, 520)
+    def __init__(self, parent: Any, controller: Any, track: LibraryTrack, on_close: Optional[Any] = None) -> None:
+        super().__init__(parent)
         self.ctrl, self.track = controller, track
+        self._on_close = on_close
+        self._closed = False
         self.original: List[Tuple[int, int, int]] = []
         self.beats: List[Tuple[int, int, int]] = []
         self.detail: List[Tuple[float, str]] = []
@@ -78,10 +96,13 @@ class GridEditor(BaseDialog):
         self.cursor_ms = 0.0
         self.selected = 0
         self._native = False
+        self._scrubbing = False
+        self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
         head = hbox()
+        head.addWidget(button("←  " + t("grid.back"), self.close, kind="flat"))
         titles = vbox(spacing=0)
-        titles.addWidget(label(track.display_name, "h2"))
+        titles.addWidget(label(track.display_name, "title"))
         self.info = label(t("grid.loading"), "dim")
         titles.addWidget(self.info)
         head.addLayout(titles, 1)
@@ -94,6 +115,7 @@ class GridEditor(BaseDialog):
         self.body.addLayout(head)
 
         self.canvas = GridCanvas(self)
+        self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.body.addWidget(self.canvas, 1)
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
@@ -104,20 +126,32 @@ class GridEditor(BaseDialog):
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
         tools.addWidget(self.play_btn)
+        self.time_lbl = label("0:00.000", "dim")
+        self.time_lbl.setMinimumWidth(theme.px(64))
+        tools.addWidget(self.time_lbl)
         tools.addSpacing(theme.px(8))
         tools.addWidget(label(t("grid.shift"), "dim"))
-        for ms in (-10, -1, 1, 10):
-            tools.addWidget(button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m),
-                                   tooltip=t("grid.shift_tip", ms=ms)))
-        tools.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
+        for ms in (-100, -10, -1, 1, 10, 100):
+            b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
+            b.setMinimumWidth(theme.px(40))
+            tools.addWidget(b)
         tools.addStretch(1)
-        tools.addWidget(label("BPM", "dim"))
+        self.body.addLayout(tools)
+
+        tools2 = hbox()
+        tools2.addWidget(button(t("grid.bar_here"), self._bar_here, kind="primary", tooltip=t("grid.bar_here_tip")))
+        tools2.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
+        tools2.addStretch(1)
+        tools2.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
+        tools2.addWidget(button(t("grid.double"), lambda: self._scale(2.0), tooltip=t("grid.double_tip")))
+        tools2.addSpacing(theme.px(8))
+        tools2.addWidget(label("BPM", "dim"))
         self.bpm_entry = QLineEdit()
         self.bpm_entry.setFixedWidth(theme.px(70))
         self.bpm_entry.returnPressed.connect(self._apply_bpm)
-        tools.addWidget(self.bpm_entry)
-        tools.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, tooltip=t("grid.apply_bpm_tip")))
-        self.body.addLayout(tools)
+        tools2.addWidget(self.bpm_entry)
+        tools2.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, tooltip=t("grid.apply_bpm_tip")))
+        self.body.addLayout(tools2)
         self.body.addWidget(label(t("grid.hint"), "faint", wrap=True))
 
         bar = hbox()
@@ -128,18 +162,24 @@ class GridEditor(BaseDialog):
         self.save_btn = button(t("action.save"), self._save, kind="primary")
         self.save_btn.setEnabled(False)
         bar.addWidget(self.save_btn)
-        bar.addWidget(button(t("action.cancel"), self.close))
+        bar.addWidget(button(t("grid.back"), self.close))
         self.body.addLayout(bar)
 
-        for seq, ms in ((Qt.Key_Left, -1), (Qt.Key_Right, 1)):
+        for seq, fn in ((Qt.Key_Left, lambda: self._shift(-1)), (Qt.Key_Right, lambda: self._shift(1)),
+                        (Qt.Key_Escape, self.close)):
             sc = QShortcut(QKeySequence(seq), self)
-            sc.activated.connect(lambda m=ms: self._shift(m) if not self.bpm_entry.hasFocus() else None)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(lambda f=fn: f() if not self.bpm_entry.hasFocus() else None)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(100)
-        self.show_dialog()
+        self._timer.start(60)
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
+
+    def winfo_exists(self) -> bool:
+        from shiboken6 import isValid
+
+        return not self._closed and isValid(self)
 
     # ------------------------------------------------------------------ chargement
     def _loaded(self, data: Any) -> None:
@@ -161,8 +201,6 @@ class GridEditor(BaseDialog):
         if self.winfo_exists():
             self.info.setText(self.ctrl.error_text(exc))
             self.info.setProperty("role", "err")
-            from .widgets import restyle
-
             restyle(self.info)
 
     # ---------------------------------------------------------------- géométrie
@@ -276,6 +314,26 @@ class GridEditor(BaseDialog):
             self._refresh_info()
             self.draw()
 
+    def _bar_here(self) -> None:
+        """Un temps exactement sur le curseur, qui devient le 1er temps d'une mesure."""
+        if self.beats:
+            self.beats, self.selected = G.bar_at(self.beats, self.cursor_ms, self.duration_ms)
+            self._refresh_info()
+            self.draw()
+
+    def _scale(self, factor: float) -> None:
+        if not self.beats:
+            return
+        tempos = sorted(b[1] for b in self.beats)
+        if not 40 <= tempos[len(tempos) // 2] / 100.0 * factor <= 300:
+            self.ctrl.message("warn", t("grid.bpm_range"))
+            return
+        anchor = self.beats[self.selected][2]
+        self.beats = G.scale_tempo(self.beats, factor, self.selected, self.duration_ms)
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
+
     def _apply_bpm(self) -> None:
         try:
             bpm = float(self.bpm_entry.text().replace(",", "."))
@@ -311,14 +369,33 @@ class GridEditor(BaseDialog):
         self.start_ms += fraction * self.view_s * 1000
         self.draw()
 
-    def press(self, x: float) -> None:
-        self.cursor_ms = max(0.0, self._ms(x))
+    def press(self, x: float, dragging: bool = False) -> None:
+        """Le curseur d'écoute suit la souris (clic ou glisser) ; en lecture, la lecture y saute au
+        relâchement (et pendant le glisser, au plus toutes les ~60 ms)."""
+        w = max(1, self.canvas.width())
+        x = min(max(0.0, x), float(w))
+        self.cursor_ms = min(max(0.0, self._ms(x)), float(self.duration_ms))
+        self._scrubbing = True
         if self.beats:
             self.selected = G.nearest(self.beats, self.cursor_ms)
             self._refresh_info()
+        if dragging:                         # au bord : la vue défile pour suivre
+            span = self.view_s * 1000.0
+            if x >= w - 4:
+                self.start_ms += span * 0.05
+            elif x <= 4:
+                self.start_ms -= span * 0.05
+        self._show_time()
         self.draw()
+
+    def release(self) -> None:
+        self._scrubbing = False
         if self.ctrl.player.state in (PLAYING, PAUSED) and self._is_playing_this():
             self.ctrl.player.seek(self.cursor_ms / 1000.0)
+
+    def _show_time(self) -> None:
+        s_ = self.cursor_ms / 1000.0
+        self.time_lbl.setText(f"{int(s_ // 60)}:{s_ % 60:06.3f}")
 
     # ------------------------------------------------------------------- écoute
     def _is_playing_this(self) -> bool:
@@ -345,8 +422,9 @@ class GridEditor(BaseDialog):
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
-        if playing:
+        if playing and not self._scrubbing:
             self.cursor_ms = player.position() * 1000.0
+            self._show_time()
             span = self.view_s * 1000.0
             if not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
                 self.start_ms = self.cursor_ms - span * 0.15
@@ -375,8 +453,15 @@ class GridEditor(BaseDialog):
         else:
             go()
 
-    def closeEvent(self, e: Any) -> None:         # noqa: N802
+    def close(self) -> bool:                 # noqa: D401
+        """Quitte la page (sans enregistrer) ; la lecture du son continue."""
+        if self._closed:
+            return True
+        self._closed = True
         self._timer.stop()
-        if self._is_playing_this() and self.ctrl.player.state == PLAYING:
-            self.ctrl.player.toggle_pause()
-        super().closeEvent(e)
+        callback, self._on_close = self._on_close, None
+        self.hide()
+        self.deleteLater()
+        if callback:
+            callback()
+        return True

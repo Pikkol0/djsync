@@ -53,6 +53,7 @@ class Settings:
     exclude_words: str = ""         # ex. "remix, live"
     search_mode: str = "all"        # all | songs | videos | artists
     fetch_views: bool = True        # charger les vues des Titres en arrière-plan
+    fetch_metadata: bool = True     # V0.3.0 : album, année, genre, label… (Deezer) au téléchargement
     spotify_preference: str = "auto"
     backup_keep: int = 10
     volume: float = 0.8

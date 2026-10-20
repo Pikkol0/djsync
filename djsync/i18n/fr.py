@@ -286,6 +286,7 @@ STRINGS = {
 
     # ---- éditeur de grille
     "grid.title": "Grille de temps",
+    "grid.back": "Retour",
     "grid.loading": "Chargement de la grille…",
     "grid.not_analysed": "Analysez d'abord ce titre (Outils ▸ Analyser).",
     "grid.view": "Vue",
@@ -296,9 +297,16 @@ STRINGS = {
     "grid.apply_bpm": "Imposer le BPM",
     "grid.apply_bpm_tip": "Grille constante à ce BPM, ancrée sur le temps sélectionné",
     "grid.bpm_range": "Le BPM doit être compris entre 40 et 300.",
-    "grid.play_tip": "Écouter depuis le curseur pointillé (clic sur la forme d'onde pour le placer)",
-    "grid.hint": "Clic : place le curseur et sélectionne le temps le plus proche  ·  glisser / molette : défiler  ·  "
-                 "les débuts de mesure sont épais et numérotés.",
+    "grid.play_tip": "Écouter depuis le curseur (clic ou glisser sur la forme d'onde pour le placer)",
+    "grid.hint": "Clic ou glisser : déplace le curseur d'écoute (sélectionne le temps le plus proche)  ·  "
+                 "clic droit glissé, molette ou barre : défiler  ·  les débuts de mesure sont épais et numérotés.",
+    "grid.bar_here": "Début de mesure ici",
+    "grid.bar_here_tip": "Un temps est placé exactement sur le curseur et devient le 1er temps d'une mesure "
+                         "(toute la grille suit)",
+    "grid.double": "BPM × 2",
+    "grid.half": "BPM ÷ 2",
+    "grid.double_tip": "Deux fois plus de temps, ancrés sur le temps sélectionné",
+    "grid.half_tip": "Deux fois moins de temps, ancrés sur le temps sélectionné",
     "grid.reset": "Annuler les modifs",
     "grid.saving": "Enregistrement…",
     "grid.modified": "Modifiée (temps choisi {ms} ms)",
@@ -439,6 +447,7 @@ STRINGS = {
     "settings.check": "Vérifier",
     "settings.sync_now": "Synchroniser maintenant",
     "settings.fetch_views": "Charger le nombre de vues des Titres (requêtes supplémentaires en arrière-plan)",
+    "settings.fetch_metadata": "Compléter album, année, genre, label et n° de piste au téléchargement (Deezer)",
     "settings.backups": "Sauvegardes de la base",
     "settings.backups_hint": "Avant chaque modification de exportLibrary.db, une copie est faite dans le dossier "
                              "DJSync_Backups de la clé.",
