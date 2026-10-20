@@ -73,7 +73,9 @@ class DJSyncApp(ctk.CTk):
         theme.set_zoom(settings.zoom, settings.zoom_auto)
         theme.apply_ttk_style(self)
 
-        self.withdraw()                       # montrée une fois construite (pas de fenêtre à moitié dessinée)
+        # PAS de withdraw() ici : sous Windows, customtkinter ne réaffiche jamais une fenêtre masquée
+        # avant son premier affichage (astuce de la barre de titre sombre) -> fenêtre invisible.
+        # La fenêtre n'est de toute façon dessinée qu'au démarrage de la boucle Tk, une fois construite.
         self.title("DJSync")
         self._place_window(settings)
         self._set_window_icon()
@@ -140,24 +142,29 @@ class DJSyncApp(ctk.CTk):
         self._start_maximized = bool(settings.maximized)
 
     def _reveal(self, splash: Any) -> None:
-        """Affiche la fenêtre construite puis ferme l'écran de démarrage (Python ou PyInstaller)."""
-        self.update_idletasks()
-        self.deiconify()
-        if self._start_maximized:
-            try:
-                self.state("zoomed")          # Windows
-            except Exception:  # noqa: BLE001 - Linux : attribut -zoomed
+        """Quand la fenêtre s'affiche (boucle Tk démarrée) : agrandie si elle l'était, au premier
+        plan, puis fermeture de l'écran de démarrage (Python ou PyInstaller)."""
+        def done() -> None:
+            if self._start_maximized:
                 try:
-                    self.attributes("-zoomed", True)
-                except Exception:  # noqa: BLE001
-                    pass
-        self.lift()
-        self.focus_force()
-        if splash is not None:
-            self.after(60, splash.close)
-        from .splash import close_native
+                    self.state("zoomed")          # Windows
+                except Exception:  # noqa: BLE001 - Linux : attribut -zoomed
+                    try:
+                        self.attributes("-zoomed", True)
+                    except Exception:  # noqa: BLE001
+                        pass
+            try:
+                self.lift()
+                self.focus_force()
+            except Exception:  # noqa: BLE001
+                pass
+            if splash is not None:
+                splash.close()
+            from .splash import close_native
 
-        close_native()
+            close_native()
+
+        self.after(120, done)
 
     # ------------------------------------------------------------------ construction
     def _set_window_icon(self) -> None:

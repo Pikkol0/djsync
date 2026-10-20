@@ -10,6 +10,7 @@ déjà la décompression ; celui-ci n'est alors pas affiché et `close_native()`
 from __future__ import annotations
 
 import json
+import sys
 import tkinter as tk
 from typing import Optional
 
@@ -48,10 +49,24 @@ def _saved_accent() -> str:
     return PALETTES.get(theme, PALETTES[DEFAULT_THEME])
 
 
+def dpi_aware() -> None:
+    """Windows : rend le processus « DPI aware » AVANT la première fenêtre. customtkinter le fait
+    à la création de la fenêtre principale ; si l'écran de démarrage existe déjà à ce moment, Windows
+    le redimensionne et le déplace (constaté : il rétrécit vers le coin de l'écran)."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)     # même réglage que customtkinter
+        except Exception:  # noqa: BLE001 - Windows ancien : pas grave
+            pass
+
+
 class Splash:
     """Fenêtre sans bordure, centrée. `close()` la détruit (idempotent)."""
 
     def __init__(self) -> None:
+        dpi_aware()
         root = tk.Tk()
         self.root: Optional[tk.Tk] = root
         # Ce Tk temporaire ne doit pas devenir la racine par défaut de l'application (images,
