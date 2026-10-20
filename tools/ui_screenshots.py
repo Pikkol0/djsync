@@ -80,10 +80,29 @@ def shoot_dialogs(app, out: Path) -> None:
     _pump(app, 2.5)
     capture(app, out / "player_waveform.png")
     app.ctrl.player.stop()
+    # V0.2.3 : Bibliothèque ▸ Non analysés pendant une analyse en arrière-plan (carte de la barre latérale)
+    import threading
+    gate = threading.Event()
+    real = app.ctrl.library.analyze_tracks
+    app.ctrl.library.analyze_tracks = lambda ids, **kw: (gate.wait(20), real(ids, **kw))[1]
+    lib.show_unanalysed()
+    lib._analyse_all()
+    q = app.ctrl.analysis
+    q.done, q.current = 3, "Daft Punk - One More Time"
+    app.ctrl._emit("analysis")
+    _pump(app, 1.0)
+    capture(app, out / "library_unanalysed.png")
+    app.ctrl.stop_analysis()
+    gate.set()
+    end = time.time() + 20
+    while q.running and time.time() < end:
+        app.update()
+        time.sleep(0.02)
+    app.ctrl.library.analyze_tracks = real
     for opener, cls, name in (
         (app.open_help, HelpDialog, "dialog_help"),
         (lambda: lib._duplicates(), DuplicatesDialog, "dialog_duplicates"),
-        (lambda: lib._analyse(None), AnalysisDialog, "dialog_analysis"),
+        (lambda: AnalysisDialog(lib, app.ctrl, [target]), AnalysisDialog, "dialog_analysis"),
         (lambda: GridEditor(lib, app.ctrl, target), GridEditor, "dialog_grid"),
     ):
         opener()

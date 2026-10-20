@@ -25,6 +25,7 @@ from ..widgets import Column, Row, TrackTable, icon_button, popup_menu
 from .common import View
 
 ALL = "all"
+TODO = "todo"             # V0.2.3 : sons pas encore analysés
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -89,6 +90,7 @@ class LibraryView(View):
         self.nav.bind("<Button-3>", self._nav_context)
         self.nav.tag_configure("section", foreground=theme.TEXT)
         self.nav.tag_configure("folder", foreground=theme.DIM)
+        self.nav.tag_configure("todo", foreground=theme.WARN)
         self.nav.tag_configure("droptarget", background=theme.ACCENT_DIM, foreground=theme.ACCENT)
         navbar = ctk.CTkFrame(nav, fg_color="transparent")
         navbar.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
@@ -133,6 +135,12 @@ class LibraryView(View):
         self.harm_btn = theme.button(bar, t("lib.harmonic"), self._toggle_harmonic, kind="ghost", width=110)
         self.harm_btn.configure(image=ctk_icon("key", 16, theme.TEXT), compound="left")
         self.harm_btn.pack(side="right", padx=(0, 6))
+        # V0.2.3 : vue « À analyser » : lancer / arrêter l'analyse en arrière-plan, progression
+        self.analyse_btn = theme.button(bar, "", self._analyse_all, kind="primary", width=170)
+        self.analyse_btn.configure(image=ctk_icon("wave", 16, theme.ON_ACCENT), compound="left")
+        self.analysis_bar = ctk.CTkProgressBar(bar, height=6, corner_radius=3, fg_color=theme.BORDER,
+                                               progress_color=theme.ACCENT, width=160)
+        self.analysis_bar.set(0)
 
         self.banner = ctk.CTkFrame(main, fg_color=theme.ACCENT_DIM, corner_radius=8)
         self.banner_lbl = theme.label(self.banner, "", 11, theme.TEXT, anchor="w")
@@ -162,6 +170,8 @@ class LibraryView(View):
         controller.on("drive", lambda: self.reload(full=True))
         controller.on("queue", self._mark_playing)
         controller.on("player", lambda kind, _p: self._mark_playing() if kind == "loaded" else None)
+        controller.on("analysis", self._analysis_changed)
+        controller.on("show_unanalysed", self.show_unanalysed)
 
     # =============================================================== chargement
     def on_show(self) -> None:
@@ -208,7 +218,7 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats = data["playlists"], data["tracks"], data.get("stats", {})
             if full:
                 self.current, self._dirty = ALL, False
-            if self.current != ALL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
+            if self.current not in (ALL, TODO) and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
@@ -227,6 +237,9 @@ class LibraryView(View):
         self._by_iid = {f"p{p.playlist_id}": p for p in self.playlists}
         self.nav.insert("", "end", iid=ALL, text=f"  {t('lib.all_tracks')}  ·  {len(self.all_tracks)}",
                         image=self._nav_icon("music"), tags=("section",))
+        todo = self._unanalysed_count()
+        self.nav.insert("", "end", iid=TODO, text=f"  {t('lib.unanalysed')}  ·  {todo}",
+                        image=self._nav_icon("wave"), tags=("todo",) if todo else ("section",))
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -351,9 +364,19 @@ class LibraryView(View):
             CoverRef(key, load), (), x, badge=(code, theme.camelot_color(code)) if code else ("", theme.FAINT),
         )
 
+    def _unanalysed(self) -> List[LibraryTrack]:
+        return [x for x in self.all_tracks if not x.is_analysed]
+
+    def _unanalysed_count(self) -> int:
+        return len(self._unanalysed())
+
     def _fill_table(self) -> None:
         self._show_header()
         self._refresh_buttons()
+        if self.current == TODO:
+            self._apply_rows(self._unanalysed(), pos=False)
+            self.table.set_empty("check", t("lib.empty_todo_title"), t("lib.empty_todo_sub"))
+            return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
             self._apply_rows(tracks, pos=False)
@@ -386,7 +409,14 @@ class LibraryView(View):
         self._show_header()
 
     def _show_header(self) -> None:
-        if self.current == ALL:
+        if self.current == TODO:
+            self.title_lbl.configure(text=t("lib.unanalysed"))
+            parts = [plural("lib.tracks_one", "lib.tracks_many", self._unanalysed_count())]
+            q = self.ctrl.analysis
+            if q.running:
+                parts.append(t("lib.analysing", i=q.done, n=q.total) + (f"  ·  {q.current}" if q.current else ""))
+            self.sub_lbl.configure(text="  ·  ".join(parts))
+        elif self.current == ALL:
             st = self.stats.get(0)
             self.title_lbl.configure(text=t("lib.all_tracks"))
             parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.all_tracks))]
@@ -499,12 +529,33 @@ class LibraryView(View):
                                 text=t("lib.save_order") + (" •" if self._dirty else ""))
         rename_ok = self.playlist is not None and (self.playlist.is_editable or self.playlist.is_folder)
         self.rename_btn.configure(state="normal" if rename_ok else "disabled")
+        self.analyse_btn.pack_forget()
+        self.analysis_bar.pack_forget()
+        if self.current == TODO:
+            q = self.ctrl.analysis
+            if q.running:
+                self.analyse_btn.configure(text=t("lib.analyse_stop"), command=self.ctrl.stop_analysis,
+                                           state="normal" if not q.cancelled else "disabled",
+                                           fg_color=theme.ERR_DIM, hover_color=theme.ERR_DIM, text_color=theme.TEXT,
+                                           image=ctk_icon("stop", 16, theme.TEXT))
+                self.analysis_bar.set(q.done / max(1, q.total))
+            else:
+                n = self._unanalysed_count()
+                self.analyse_btn.configure(text=t("lib.analyse_all", n=n), command=self._analyse_all,
+                                           state="normal" if n and self.ctrl.has_library else "disabled",
+                                           fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
+                                           text_color=theme.ON_ACCENT, image=ctk_icon("wave", 16, theme.ON_ACCENT))
+            self.analyse_btn.pack(side="left", padx=(8, 0))
+            if q.running:
+                self.analysis_bar.pack(side="left", padx=(12, 0))
         on = self._harmonic is not None
         self.harm_btn.configure(fg_color=theme.ACCENT_DIM if on else "transparent",
                                 text_color=theme.ACCENT if on else theme.TEXT,
                                 image=ctk_icon("key", 16, theme.ACCENT if on else theme.TEXT))
         hint = ""
-        if playlist and editable:
+        if self.current == TODO:
+            hint = t("lib.hint_todo")
+        elif playlist and editable:
             hint = t("lib.hint_reorder") if not self.table.filter_active else t("lib.hint_clear_filter")
         elif self.ctrl.has_library and self.table.total:
             hint = t("lib.hint_drag")
@@ -602,11 +653,61 @@ class LibraryView(View):
 
     # ------------------------------------------------------------- analyse, grille, doublons
     def _analyse(self, tracks: Optional[List[LibraryTrack]] = None) -> None:
+        """Sélection : fenêtre de lancement (option « analyser à nouveau »). Sans sélection : vue « À
+        analyser » et analyse lancée en arrière-plan."""
         if not self.ctrl.has_library:
+            return
+        if tracks is None:
+            self.show_unanalysed()
+            self._analyse_all()
+            return
+        if all(not x.is_analysed for x in tracks):          # rien à choisir : on lance directement
+            self.ctrl.analyze([x.content_id for x in tracks])
             return
         from ..analysis_dialog import AnalysisDialog
 
         AnalysisDialog(self, self.ctrl, tracks)
+
+    def _analyse_all(self) -> None:
+        todo = self._unanalysed()
+        if todo:
+            self.ctrl.analyze([x.content_id for x in todo])
+        else:
+            self.ctrl.message("info", t("analysis.nothing_missing"))
+
+    def show_unanalysed(self) -> None:
+        """Ouvre Bibliothèque ▸ « À analyser » (Accueil, Paramètres, barre latérale)."""
+        self.ctrl._emit("navigate", "library")
+        if self.current != TODO:
+            if self._dirty:
+                self.nav.selection_set(TODO)          # même chemin qu'un clic : confirmation si ordre non enregistré
+            elif self.nav.exists(TODO):
+                self._goto(TODO)
+            else:
+                self.current = TODO
+
+    def reveal(self, content_id: int) -> None:
+        """Montre un son dans « Tous les titres » (lecteur ▸ Afficher dans la bibliothèque)."""
+        iid = str(content_id)
+        if self.current != ALL and not self._dirty:
+            self._goto(ALL)
+        elif self.current == ALL and self.table.filter_active:
+            self.filter.delete(0, "end")
+            self.table.set_filter("")
+        if self.table.row(iid) is None:
+            return
+        if self._harmonic is not None and self.table.row_filter and not self.table.row_filter(self.table.row(iid)):
+            self._clear_harmonic()
+        self.table.select([iid])
+        if self.table.tree.exists(iid):
+            self.table.tree.see(iid)
+
+    def _analysis_changed(self) -> None:
+        if not self.winfo_exists():
+            return
+        if self.current == TODO:
+            self._show_header()
+            self._refresh_buttons()
 
     def _edit_grid(self) -> None:
         tracks = self._selected_tracks()
@@ -666,7 +767,7 @@ class LibraryView(View):
 
     def _nav_context(self, e: Any) -> None:
         iid = self.nav.identify_row(e.y)
-        if not iid or iid == ALL:
+        if not iid or iid in (ALL, TODO):
             return
         self.nav.selection_set(iid)
         p = self._by_iid.get(iid)

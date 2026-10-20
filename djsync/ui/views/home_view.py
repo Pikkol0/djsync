@@ -195,9 +195,7 @@ class HomeView(View):
         if not self.ctrl.has_library:
             self.ctrl.message("error", t("msg.no_drive"))
             return
-        from ..analysis_dialog import AnalysisDialog
-
-        AnalysisDialog(self, self.ctrl, None)
+        self.ctrl._emit("show_unanalysed")      # V0.2.3 : Bibliothèque ▸ « À analyser »
 
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:

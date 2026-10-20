@@ -328,3 +328,83 @@ def test_real_export_growth_beyond_end_of_file_candidate():
         db.add_track(sample_track(i, artist=f"Art{i}", album=f"Alb{i}"))
     again = PdbDatabase(db.to_bytes())
     assert again.track_count == PdbDatabase(data).track_count + 300
+
+
+# ------------------------------------------------- V0.2.3 : mises à jour sans consommer la marge
+def _last_track_page(db):
+    return db.file.page(db.file.data_pages(T.TRACKS)[-1])
+
+
+def test_bpm_update_is_done_in_place_and_uses_no_room():
+    db = PdbDatabase(base_pdb())
+    before = _last_track_page(db).free
+    ref = db._tracks[P1.casefold()]
+    assert db.update_track(P1, bpmx100=12345)
+    after = db._tracks[P1.casefold()]
+    assert (after.page, after.slot) == (ref.page, ref.slot) and _last_track_page(db).free == before
+    again = PdbDatabase(db.to_bytes())
+    assert again.track_row(P1)["bpmx100"] == 12345 and again.track_count == 3
+
+
+def test_updates_on_a_full_page_reuse_the_room_of_replaced_rows():
+    """Analyse de sons déjà présents (ligne qui grandit) répétée sur une page pleine : la place des
+    anciennes lignes est récupérée au lieu d'échouer (« last page full »)."""
+    data, n = fill_tracks_page()
+    db = PdbDatabase(data)
+    page = _last_track_page(db)
+    paths = [db.track_row(p)["path"] for p in sorted(db._tracks)]
+    on_last = [p for p in paths if db._tracks[p.casefold()].page == page.index][:5]
+    assert len(on_last) >= 3
+    for rnd in range(4):              # tour 1 : lignes plus longues (une ligne morte par son) ; puis sur place
+        for p in on_last:
+            db.update_track(p, title=f"Un titre plus long {rnd}")
+    new = db.to_bytes()
+    again = PdbDatabase(new)
+    assert again.track_count == n
+    for p in on_last:
+        assert again.track_row(p)["strings"]["title"] == "Un titre plus long 3"
+    validate_against(data, new, db.file.touched)
+
+
+def test_compaction_keeps_row_numbers_and_playlist_entries():
+    data = base_pdb(6, {("Rap",): [sample_track(i).path for i in range(1, 7)]})
+    db = PdbDatabase(data)
+    for i in (2, 4):
+        db.delete_track(sample_track(i).path)
+    page = _last_track_page(db)
+    kept = {i: db.file.data[page.base + page.row_offset(i): page.base + page.row_offset(i) + page.row_span(T.TRACKS, i)]
+            for i, _o in page.present_rows()}
+    gained = page.compact(T.TRACKS, db.file.seq)
+    assert gained > 0
+    page.check_data_page()
+    for i, raw in kept.items():
+        assert page.present(i)
+        assert db.file.data[page.base + page.row_offset(i): page.base + page.row_offset(i) + len(raw)] == raw
+    db.file.touched.add(page.index)
+    again = PdbDatabase(db.to_bytes())
+    assert again.track_count == 4
+    assert [e.track for e in again._ordered_entries(again.find_playlist(("Rap",)).id)] == [1, 3, 5, 6]
+
+
+def test_real_export_analysing_many_tracks_without_growth():
+    """Clé réelle, ajout de pages désactivé : ajouter des sons puis les « analyser » (ligne réécrite plus
+    longue) ne doit pas épuiser la dernière page plus vite que les ajouts eux-mêmes."""
+    if not REAL.is_file():
+        pytest.skip("tests/data/real_export.pdb absent")
+    import dataclasses
+    data = REAL.read_bytes()
+    db = PdbDatabase(data)
+    added = []
+    for i in range(5):
+        m = sample_track(500 + i)
+        db.add_track(m)
+        added.append(m)
+    for m in added:
+        db.add_track(dataclasses.replace(m, analyze_path="/PIONEER/USBANLZ/P000/00000000/ANLZ0000.DAT",
+                                         analyze_date="2026-10-20", key="Am"))
+    for m in added:
+        db.update_track(m.path, bpmx100=12000)
+    again = PdbDatabase(db.to_bytes())
+    for m in added:
+        row = again.track_row(m.path)
+        assert row["strings"]["analyze_path"].endswith("ANLZ0000.DAT") and row["bpmx100"] == 12000

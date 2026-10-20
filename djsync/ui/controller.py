@@ -200,6 +200,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         self._connecting = True
         self._user_disconnected = False
         old = self.library
+        if old is not None and self.analysis.running:
+            self.analysis.cancel()
 
         def work() -> Any:
             target = drive if isinstance(drive, UsbDrive) else drive_from_letter(str(drive))
@@ -233,6 +235,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
 
     def disconnect(self, by_user: bool = True) -> None:
         lib = self.library
+        if self.analysis.running:            # V0.2.3 : la file d'analyse ne survit pas à la clé
+            self.analysis.cancel()
         self.library, self.drive = None, None
         self._user_disconnected = by_user
         self.playlists = []
@@ -388,6 +392,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
 
     # ------------------------------------------------------------------- fermeture
     def shutdown(self) -> None:
+        self.analysis.cancel()
         self.settings.volume = self.player.volume
         self.settings.save()
         self.player.close()

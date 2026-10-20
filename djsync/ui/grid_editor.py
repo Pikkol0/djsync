@@ -30,6 +30,8 @@ VIEW_CHOICES = (4, 8, 16, 32)
 
 
 class GridEditor(BaseDialog):
+    modal = False           # V0.2.3 : le lecteur et la bibliothèque restent utilisables pendant l'édition
+
     def __init__(self, parent: Any, controller: Any, track: LibraryTrack) -> None:
         super().__init__(parent, t("grid.title"), 940, 560)
         self.resizable(True, True)

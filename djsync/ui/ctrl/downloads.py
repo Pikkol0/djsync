@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Sequence
 
 from ...i18n import plural, t
 from ...models import DownloadJob, TrackResult
+from .library_ops import pdb_warning
 
 log = logging.getLogger(__name__)
 
@@ -67,9 +68,9 @@ class DownloadsMixin:
             if lib.last_problems:
                 self.dispatcher.post(self.message, "warn", t("msg.added_with_problems", title=track.title,
                                                              detail=" ; ".join(lib.last_problems)[:200]))
-            if lib.pdb_state == "stale" and lib.pdb_problem:
-                self.dispatcher.post(self.message, "warn", t("msg.pdb_not_updated_track", title=track.title,
-                                                             detail=lib.pdb_problem))
+            warning = pdb_warning(lib, track.title)
+            if warning:
+                self.dispatcher.post(self.message, "warn", warning)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Download %s failed: %s", job.track.video_id, exc)
             job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
