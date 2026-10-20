@@ -156,9 +156,19 @@ class PlayerBar(ctk.CTkFrame):
         self.seek.bind("<ButtonRelease-1>", self._seek_release, add="+")
         self.seek.configure(command=self._seek_moved)
 
-        # ---- droite : volume
+        # ---- droite : outils du son en cours (V0.2.4) + volume
         right = ctk.CTkFrame(self, fg_color="transparent")
         right.grid(row=0, column=2, sticky="e", padx=(8, 18))
+        self.grid_btn = ctk.CTkButton(right, text="", image=ctk_icon("grid", 17, theme.TEXT), width=34, height=34,
+                                      corner_radius=8, fg_color="transparent", hover_color=theme.ELEV,
+                                      command=self._edit_grid)
+        self.grid_btn.pack(side="left", padx=(0, 2))
+        Tooltip(self.grid_btn, t("player.edit_grid"))
+        self.more_btn = ctk.CTkButton(right, text="", image=ctk_icon("menu", 17, theme.TEXT), width=34, height=34,
+                                      corner_radius=8, fg_color="transparent", hover_color=theme.ELEV,
+                                      command=self._track_menu)
+        self.more_btn.pack(side="left", padx=(0, 14))
+        Tooltip(self.more_btn, t("player.track_options"))
         ctk.CTkLabel(right, text="", image=ctk_icon("volume", 18, theme.DIM)).pack(side="left", padx=(0, 8))
         self.volume = theme.slider(right, from_=0, to=1, width=100, command=self._volume_changed)
         self.volume.set(self.player.volume)
@@ -193,6 +203,67 @@ class PlayerBar(ctk.CTkFrame):
     def _refresh_nav(self) -> None:
         self.prev_btn.configure(state="normal" if self.ctrl.current_item is not None else "disabled")
         self.next_btn.configure(state="normal" if self.ctrl.has_next else "disabled")
+        on_drive = self.ctrl.current_library_id() is not None
+        for b in (self.grid_btn, self.more_btn):
+            b.configure(state="normal" if on_drive else "disabled")
+
+    # ------------------------------------------------- outils du son en cours (V0.2.4)
+    def _with_track(self, action: Any) -> None:
+        """Relit le son en cours dans la base (analyse, BPM, tonalité à jour) puis lance l'action."""
+        cid = self.ctrl.current_library_id()
+        if cid is None:
+            self.ctrl.message("info", t("player.not_on_drive"))
+            return
+        self.ctrl.fresh_track(cid, lambda track: action(track) if self.winfo_exists() else None)
+
+    def _edit_grid(self) -> None:
+        def go(track: Any) -> None:
+            if not track.is_analysed:
+                self.ctrl.message("info", t("grid.not_analysed"))
+                return
+            from .grid_editor import GridEditor
+
+            GridEditor(self.winfo_toplevel(), self.ctrl, track)
+
+        self._with_track(go)
+
+    def _track_menu(self) -> None:
+        def show(track: Any) -> None:
+            from .widgets import popup_menu
+
+            entries: list = []
+            if track.is_analysed:
+                entries.append((t("lib.edit_grid"), lambda: self._edit_grid()))
+            entries.append((t("action.edit_metadata"), lambda: self._edit_metadata(track)))
+            entries.append((t("player.analyse_again") if track.is_analysed else t("action.analyse"),
+                            lambda: self.ctrl.analyze([track.content_id], force=track.is_analysed)))
+            if track.camelot:
+                entries += [None, (t("lib.show_compatible", code=track.camelot), lambda: self._compatible(track))]
+            entries += [None, (t("player.show_in_library"), lambda: self._show_in_library(track))]
+            b = self.more_btn
+            popup_menu(b, entries, b.winfo_rootx(), b.winfo_rooty())
+
+        self._with_track(show)
+
+    def _edit_metadata(self, track: Any) -> None:
+        from .dialogs import MetadataDialog
+
+        MetadataDialog(self.winfo_toplevel(), track.title, track.artist,
+                       lambda title, artist: self.ctrl.update_metadata(track.content_id, title, artist))
+
+    def _library_view(self) -> Any:
+        self.ctrl._emit("navigate", "library")
+        return getattr(self.winfo_toplevel(), "views", {}).get("library")
+
+    def _compatible(self, track: Any) -> None:
+        view = self._library_view()
+        if view is not None:
+            view.set_harmonic(track)
+
+    def _show_in_library(self, track: Any) -> None:
+        view = self._library_view()
+        if view is not None:
+            view.reveal(track.content_id)
 
     # ---------------------------------------------------------------- évènements
     def _on_player(self, kind: str, payload: Any) -> None:

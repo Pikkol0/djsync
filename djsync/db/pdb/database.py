@@ -119,6 +119,14 @@ class PdbDatabase:
             self._entries.setdefault(r["playlist"], []).append(e)
 
     # ------------------------------------------------------------------ lecture
+    def _pos(self, ref: _Ref) -> int:
+        """Position absolue de la ligne, relue à chaque fois : un compactage de page (V0.2.4) peut
+        déplacer une ligne dans sa page (son numéro, lui, ne change jamais)."""
+        return ref.page * PAGE_SIZE + self.file.page(ref.page).row_offset(ref.slot)
+
+    def _off(self, ref: _Ref) -> int:
+        return self.file.page(ref.page).row_offset(ref.slot)
+
     def has_track(self, path: str) -> bool:
         return _key(path) in self._tracks
 
@@ -234,7 +242,7 @@ class PdbDatabase:
         ref = self._tracks.get(_key(path))
         if ref is None:
             return None
-        return rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+        return rows.read_track(self.file.data, self._pos(ref))
 
     def add_track(self, meta: rows.TrackMeta) -> int:
         """Ajoute la piste. Renvoie son id dans export.pdb.
@@ -250,14 +258,16 @@ class PdbDatabase:
             return existing.id
         return self._insert_track(meta, self._max["track"] + 1)
 
-    def _insert_track(self, meta: rows.TrackMeta, track_id: int) -> int:
+    def _build_track(self, meta: rows.TrackMeta, track_id: int) -> bytes:
         artist_id = self._ensure_artist(meta.artist)
         album_id = self._ensure_album(meta.album, artist_id)
         key_id = self._ensure_key(meta.key)
         art_id = self._ensure_artwork(meta.artwork_path)
-        row = rows.build_track(meta, track_id, artist_id, album_id, self._shift(T.TRACKS), self._template,
-                               key_id=key_id, artwork_id=art_id)
-        page, slot = self.file.insert_row(T.TRACKS, row)
+        return rows.build_track(meta, track_id, artist_id, album_id, self._shift(T.TRACKS), self._template,
+                                key_id=key_id, artwork_id=art_id)
+
+    def _insert_track(self, meta: rows.TrackMeta, track_id: int) -> int:
+        page, slot = self.file.insert_row(T.TRACKS, self._build_track(meta, track_id))
         off = self.file.page(page).row_offset(slot)
         self._tracks[_key(meta.path)] = _Ref(track_id, page, slot, off)
         self._max["track"] = max(self._max["track"], track_id)
@@ -265,21 +275,16 @@ class PdbDatabase:
         return track_id
 
     def _upgrade_track(self, ref: _Ref, meta: rows.TrackMeta) -> None:
-        row = rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+        row = rows.read_track(self.file.data, self._pos(ref))
         strings = row["strings"]                                             # type: ignore[index]
         if strings["analyze_path"]:                                          # type: ignore[index]
             return                                                           # déjà analysée (Rekordbox ou DJSync)
         if not meta.analyze_path and (row["artwork_id"] or not meta.artwork_path):
             return
-        # Nouvelle ligne d'abord (si la page est pleine : exception AVANT toute suppression)
-        self._tracks.pop(_key(meta.path))
-        try:
-            self._insert_track(meta, ref.id)
-        except Exception:
-            self._tracks[_key(meta.path)] = ref
-            raise
-        self.file.delete_row(ref.page, ref.slot)
-        self.summary.tracks_added -= 1
+        # Même id ; sur place si possible, sinon nouvelle ligne puis suppression de l'ancienne (une page
+        # pleine lève l'exception AVANT toute suppression).
+        page, slot = self.file.replace_row(T.TRACKS, ref.page, ref.slot, self._build_track(meta, ref.id))
+        self._tracks[_key(meta.path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))
         self.summary.tracks_updated += 1
 
     def update_track(self, path: str, title: Optional[str] = None, artist: Optional[str] = None,
@@ -290,12 +295,12 @@ class PdbDatabase:
         if ref is None:
             self.summary.skipped.append(path)
             return False
-        row = rows.read_track(self.file.data, ref.page * PAGE_SIZE + ref.off)
+        row = rows.read_track(self.file.data, self._pos(ref))
         strings = {"title": title} if title is not None else {}
         artist_id = self._ensure_artist(artist) if artist is not None else None
-        new = rows.patch_track(row, artist_id=artist_id, bpmx100=bpmx100, index_shift=self._shift(T.TRACKS), **strings)
-        page, slot = self.file.insert_row(T.TRACKS, new)          # nouvelle ligne d'abord
-        self.file.delete_row(ref.page, ref.slot)
+        new = rows.patch_track(row, artist_id=artist_id, bpmx100=bpmx100, **strings)
+        # V0.2.4 : sur place quand la ligne ne grandit pas (BPM, titre plus court…) : aucune place consommée
+        page, slot = self.file.replace_row(T.TRACKS, ref.page, ref.slot, new)
         self._tracks[_key(path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))
         self.summary.tracks_updated += 1
         return True
@@ -343,9 +348,9 @@ class PdbDatabase:
         if node is None:
             self.summary.skipped.append("playlist not found: " + "/".join(path))
             return False
-        self.file.delete_row(node.page, node.slot)
-        page, slot = self.file.insert_row(
-            T.PLAYLIST_TREE, rows.build_tree(node.parent, node.sort, node.id, node.folder, new_name.strip()))
+        page, slot = self.file.replace_row(
+            T.PLAYLIST_TREE, node.page, node.slot,
+            rows.build_tree(node.parent, node.sort, node.id, node.folder, new_name.strip()))
         node.page, node.slot, node.off = page, slot, self.file.page(page).row_offset(slot)
         node.name = new_name.strip()
         return True
@@ -371,7 +376,7 @@ class PdbDatabase:
     def _renumber(self, pl_id: int) -> None:
         for n, e in enumerate(self._ordered_entries(pl_id), start=1):
             if e.index != n:
-                self.file.patch_u32(e.page, e.off, 0, n)
+                self.file.patch_u32(e.page, self._off(e), 0, n)
                 e.index = n
 
     def _track_ids(self, track_paths: Sequence[str]) -> List[int]:
@@ -406,7 +411,7 @@ class PdbDatabase:
                 e = _Entry(0, page, slot, self.file.page(page).row_offset(slot), n, track_id, pl_id)
                 self.summary.entries_added += 1
             elif e.index != n:
-                self.file.patch_u32(e.page, e.off, 0, n)
+                self.file.patch_u32(e.page, self._off(e), 0, n)
                 e.index = n
             entries.append(e)
         self._entries[pl_id] = entries

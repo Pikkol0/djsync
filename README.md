@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.3-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.4-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -26,10 +26,11 @@ exported by Rekordbox:
 - **Write directly into the drive's library**: `exportLibrary.db` (OneLibrary, recent players) **and**
   `export.pdb` (older players), with date added and artwork.
 - **Analyse tracks** without Rekordbox: BPM, beat grid, key (shown in Camelot notation), Pioneer waveforms
-  (ANLZ files). Tracks already analysed by Rekordbox are never changed.
+  (ANLZ files), in the background (Library ▸ *Not analysed*). Tracks already analysed by Rekordbox are never
+  changed.
 - **Manage the library** like a mini Rekordbox: playlists and folders, drag and drop, track order,
   harmonic filter, built-in player with waveform.
-- **Fix** a shifted beat grid, **find and merge duplicates**, edit title / artist.
+- **Fix** a shifted beat grid (also straight from the player), **find and merge duplicates**, edit title / artist.
 - **Back up before every change**: a copy of the database goes to `DJSync_Backups/` on the drive.
 
 English interface (French available in Settings; other languages can be added — see below), 20 colour
@@ -136,7 +137,8 @@ Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 
 
 | Version | Changes |
 |---|---|
-| **0.2.3** | Windows start-up fix: the main window stayed invisible after the splash screen, and the splash shrank to a corner (DPI awareness set too late). |
+| **0.2.4** | Background analysis: Library ▸ *Not analysed* section with "Analyse all" / "Stop", progress card in the sidebar, the rest of the app stays usable. Player: beat grid button and track options (title/artist, analyse again, compatible keys, show in library). export.pdb: track updates no longer eat the free space (in-place rewrite, deleted rows reclaimed), clearer "export.pdb is full" message. Fixes: dialogs sized for the zoom and kept on screen (beat grid editor could look frozen), key pill now shown right after analysis. |
+| 0.2.3 | Windows start-up fix: the main window stayed invisible after the splash screen, and the splash shrank to a corner (DPI awareness set too late). |
 | 0.2.2 | Window always opens inside the screen (saved size/position clamped, maximised state remembered); lightweight splash screen at launch (also a native splash for the Windows executable). |
 | 0.2.1 | Fully English software: error messages, logs and command-line tools included; French kept as an optional interface translation (partial translations fall back to English). English README, obsolete console demos removed. |
 | 0.2.0 | New interface: Home + omnibar, search as you type, "All tracks", Camelot pills, drag and drop onto playlists, harmonic filter, player previous/next + waveform, zoom and small windows, English by default, logo per colour. On-demand analysis, beat grid editor, duplicates tool, help and shortcuts. Code split (library, controller). |
@@ -146,7 +148,8 @@ Screenshot tool: `python tools/ui_screenshots.py shots --sizes 860x560,1280x800 
 ## Roadmap
 - [ ] Measure and fix the beat grid offset of m4a (AAC) files
 - [ ] Validate the executable and the display on Windows (125–150 % DPI)
-- [ ] Test on real players (recent CDJ and an older model reading export.pdb)
+- [ ] Test on real players (recent CDJ and an older model reading export.pdb), then enable adding
+      export.pdb pages by default
 
 ## Credits
 - [pyrekordbox](https://github.com/dylanljones/pyrekordbox) and the community documentation

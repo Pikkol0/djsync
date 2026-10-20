@@ -266,10 +266,15 @@ class TrackTable(ctk.CTkFrame):
         self._skeleton = False
         selected = set(self.tree.selection()) if keep_selection else set()
         top = self.tree.yview()[0] if keep_selection else 0.0
+        old = self._rows
         self._rows = {r.iid: r for r in rows}
         self._order = [r.iid for r in rows]
-        self._covered &= set(self._rows)
-        for iid in [i for i in self._photos if i not in self._rows]:
+        # V0.2.4 : une ligne déjà affichée dont la pastille (tonalité trouvée par l'analyse) ou la pochette a
+        # changé doit être redessinée ; avant, l'ancienne image (sans pastille) restait jusqu'au redémarrage.
+        changed = {iid for iid, r in self._rows.items() if iid in old and
+                   (old[iid].badge != r.badge or getattr(old[iid].cover, "key", None) != getattr(r.cover, "key", None))}
+        self._covered &= set(self._rows) - changed
+        for iid in [i for i in self._photos if i not in self._rows or i in changed]:
             del self._photos[iid]
         if reset_sort:
             self._sort_key, self._sort_desc = None, False

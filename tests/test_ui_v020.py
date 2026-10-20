@@ -175,7 +175,7 @@ def test_dialogs_open(demo):
     lib = demo.views["library"]
     assert pump(demo, 4, lambda: lib.table.total == 10)
     lib.table.select(lib.table.displayed_iids()[:2])
-    lib._analyse(lib._selected_tracks())
+    AnalysisDialog(lib, demo.ctrl, lib._selected_tracks())     # V0.2.4 : lancement seulement
     assert pump(demo, 2, lambda: _find(demo, AnalysisDialog) is not None)
     an = _find(demo, AnalysisDialog)
     assert "2 tracks to analyse" in an.what.cget("text")

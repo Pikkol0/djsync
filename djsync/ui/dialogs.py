@@ -15,25 +15,79 @@ class BaseDialog(ctk.CTkToplevel):
         super().__init__(parent, fg_color=theme.BG)
         self.title(title)
         self.withdraw()
-        w, h = theme.px(width), theme.px(height)
+        self._base_size = (width, height)
         top = parent.winfo_toplevel()
-        x = top.winfo_rootx() + max(0, (top.winfo_width() - w) // 2)
-        y = top.winfo_rooty() + max(0, (top.winfo_height() - h) // 3)
-        self.geometry(f"{w}x{h}+{x}+{y}")
-        self.minsize(w, min(h, theme.px(200)))
+        self._place(top, width, height)
         self.transient(top)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.bind("<Escape>", lambda _e: self.close())
         self.after(30, self._show)
 
+    def _scaling(self) -> float:
+        try:
+            return max(0.5, float(self._get_window_scaling()))
+        except Exception:  # noqa: BLE001 - autre version de customtkinter
+            return 1.0
+
+    def _place(self, top: Any, width: float, height: float) -> None:
+        """Taille et position, TOUJOURS entièrement dans l'écran (V0.2.4).
+
+        customtkinter met le CONTENU à l'échelle DPI × zoom (`ui_factor`) mais la TAILLE de la fenêtre
+        seulement au DPI, et ne convertit pas la position (pixels réels). Avant, une fenêtre de 940 × 560
+        gardait cette taille alors que son contenu grandissait (×1,45 avec une grande fenêtre) : boutons du
+        bas coupés, texte tronqué, voire fenêtre en partie hors de l'écran ; comme elle est modale, l'appli
+        semblait bloquée (éditeur de grille)."""
+        k = self._scaling()
+        f = theme.ui_factor()
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()        # pixels réels
+        w = min(width * f, sw / k * 0.96)
+        h = min(height * f, sh / k * 0.88)
+        wp, hp = w * k, h * k
+        x = top.winfo_rootx() + (top.winfo_width() - wp) / 2
+        y = top.winfo_rooty() + (top.winfo_height() - hp) / 3
+        x = int(min(max(0, x), max(0, sw - wp)))
+        y = int(min(max(0, y), max(0, sh - hp - 48 * k)))       # 48 : barre des tâches / titre
+        self.geometry(f"{int(w)}x{int(h)}+{x}+{y}")
+        self.minsize(int(min(w, 320 * f)), int(min(h, 200 * f)))
+
+    def fit_content(self) -> None:
+        """Agrandit la fenêtre (sans sortir de l'écran) si son contenu ne tient pas en hauteur."""
+        try:
+            self.update_idletasks()
+            k = self._scaling()
+            need = self.winfo_reqheight() / k
+            cur = self.winfo_height() / k
+            if need > cur + 2:
+                limit = self.winfo_screenheight() / k * 0.88
+                self.geometry(f"{int(self.winfo_width() / k)}x{int(min(need + 8, limit))}")
+        except Exception:  # noqa: BLE001 - fenêtre fermée entre-temps
+            pass
+
+    modal = True            # False : la fenêtre ne bloque pas le reste de l'appli
+
     def _show(self) -> None:
         try:
             self.deiconify()
             self.lift()
-            self.wait_visibility()
-            self.grab_set()
             self.focus_set()
-        except Exception:  # noqa: BLE001 - grab impossible (fenêtre fermée trop vite…)
+        except Exception:  # noqa: BLE001 - fenêtre fermée trop vite
+            return
+        self.fit_content()
+        if self.modal:
+            self._grab()
+
+    def _grab(self, tries: int = 0) -> None:
+        """Modale seulement une fois VISIBLE (sans `wait_visibility`, qui peut attendre indéfiniment
+        sous Windows) : une fenêtre modale invisible bloquerait toute l'appli."""
+        try:
+            if not self.winfo_exists():
+                return
+            if self.winfo_viewable():
+                self.grab_set()
+                self.focus_set()
+            elif tries < 40:
+                self.after(50, lambda: self._grab(tries + 1))
+        except Exception:  # noqa: BLE001 - grab impossible (autre fenêtre modale…) : reste non modale
             pass
 
     def close(self) -> None:

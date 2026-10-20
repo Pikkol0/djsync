@@ -20,7 +20,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from . import rows as _rows
 from .format import (
     EMPTY_ENTRY, FILE_TABLES_AT, GROUP, HEADER, MAX_SLOTS, PAGE_SIZE,
-    PdbCapacityError, PdbFormatError, index_size, u16, u32,
+    PdbCapacityError, PdbFormatError, T, index_size, u16, u32,
 )
 
 
@@ -177,6 +177,66 @@ class Page:
         self.set_u32(0x10, seq)
         return n
 
+    def row_span(self, ttype: int, i: int) -> int:
+        """Octets occupés par la ligne `i` (alignés sur 4)."""
+        off = self.row_offset(i)
+        return _rows.row_end(ttype, self.data, self.base + off) - self.base - off
+
+    def dead_bytes(self, ttype: int) -> int:
+        """Octets du tas qui n'appartiennent à aucune ligne valide (lignes supprimées, remplacées)."""
+        return self.used - sum(self.row_span(ttype, i) for i, _off in self.present_rows())
+
+    def overwrite(self, i: int, row: bytes, ttype: int, seq: int) -> None:
+        """V0.2.4 : remplace la ligne `i` SUR PLACE (même numéro, même offset). Seulement si la nouvelle
+        ligne n'est pas plus longue ; les octets restants de l'ancienne ligne sont mis à zéro."""
+        span = self.row_span(ttype, i)
+        if len(row) % 4 or len(row) > span:
+            raise PdbCapacityError(f"page {self.index}: row {i} cannot be replaced in place")
+        start = self.base + self.row_offset(i)
+        self.data[start: start + span] = row + b"\x00" * (span - len(row))
+        self._mark(i)
+        self.set_u32(0x10, seq)
+
+    def _rebuilt_heap(self, ttype: int, replace: Optional[Dict[int, bytes]] = None) -> Tuple[bytearray, Dict[int, int]]:
+        replace = replace or {}
+        live = sorted(((self.row_offset(i), i, self.row_span(ttype, i)) for i, _o in self.present_rows()))
+        heap = bytearray()
+        moved: Dict[int, int] = {}
+        for off, i, span in live:
+            moved[i] = len(heap)
+            heap += replace[i] if i in replace else self.data[self.base + off: self.base + off + span]
+        return heap, moved
+
+    def can_rebuild(self, ttype: int, replace: Dict[int, bytes]) -> bool:
+        heap, _ = self._rebuilt_heap(ttype, replace)
+        return HEADER + len(heap) + index_size(self.num_slots) <= PAGE_SIZE
+
+    def compact(self, ttype: int, seq: int, replace: Optional[Dict[int, bytes]] = None) -> int:
+        """V0.2.4 : récupère la place des lignes supprimées. Les lignes valides sont recopiées l'une après
+        l'autre au début du tas, dans leur ordre actuel ; leur numéro (et donc l'index de la page) ne change
+        pas, seul leur offset change. `replace` : lignes remplacées au passage (même numéro). Les emplacements
+        supprimés gardent leur bit à 0 et pointent sur le début du tas. Renvoie les octets récupérés."""
+        n = self.num_slots
+        if any(len(r) % 4 or not self.present(i) for i, r in (replace or {}).items()):
+            raise PdbFormatError(f"page {self.index}: invalid replacement row")
+        heap, moved = self._rebuilt_heap(ttype, replace)
+        if HEADER + len(heap) + index_size(n) > PAGE_SIZE:
+            raise PdbCapacityError(f"page {self.index}: not enough room even after compaction")
+        gained = self.used - len(heap)
+        if gained <= 0 and not replace:
+            return 0
+        old_used = self.used
+        self.data[self.base + HEADER: self.base + HEADER + max(old_used, len(heap))] = \
+            bytes(heap) + b"\x00" * max(0, old_used - len(heap))
+        for i in range(n):
+            self.set_u16(self._slot_pos(i), moved.get(i, 0))
+        self.set_u16(0x1E, len(heap))
+        self.set_u16(0x1C, PAGE_SIZE - index_size(n) - (HEADER + len(heap)))
+        for i in (replace or {}):
+            self._mark(i)
+        self.set_u32(0x10, seq)
+        return gained
+
     def delete(self, i: int, seq: int) -> None:
         """Marque la ligne supprimée (comme Rekordbox : bit de présence à 0, octets conservés)."""
         g, k = divmod(i, 16)
@@ -274,6 +334,18 @@ class PdbFile:
 
     def insert_row(self, ttype: int, row: bytes) -> Tuple[int, int]:
         """Ajoute une ligne à la table ; renvoie (page, numéro de ligne)."""
+        page, slot = self._insert_row(ttype, row)
+        self._fix_shift(ttype, page, slot)
+        return page, slot
+
+    def _fix_shift(self, ttype: int, page: int, slot: int) -> None:
+        """Champ `index_shift` (u16 à +2 des pistes, artistes, albums) = 0x20 × numéro de la ligne dans sa
+        page, comme Rekordbox : recalculé une fois la place de la ligne connue."""
+        if ttype in (T.TRACKS, T.ARTISTS, T.ALBUMS):
+            pg = self.page(page)
+            pg.set_u16(pg.row_offset(slot) + 2, (0x20 * slot) & 0xFFFF)
+
+    def _insert_row(self, ttype: int, row: bytes) -> Tuple[int, int]:
         if len(row) % 4:
             raise PdbFormatError("row not aligned on 4 bytes")
         self._begin()
@@ -284,6 +356,17 @@ class PdbFile:
             if last.can_fit(len(row)):
                 self.touched.add(last.index)
                 return last.index, last.append(row, self.seq)
+        # V0.2.4 : avant d'agrandir la table, on récupère la place des lignes supprimées (chaque mise à
+        # jour d'une piste en laisse une), d'abord dans la dernière page, puis dans les autres.
+        for p in reversed(pages):
+            pg = self.page(p)
+            pg.check_data_page()
+            if pg.num_valid < pg.num_slots and pg.can_fit(len(row) - pg.dead_bytes(ttype)):
+                pg.compact(ttype, self.seq)
+                pg.check_data_page()
+                self.touched.add(p)
+                if pg.can_fit(len(row)):
+                    return p, pg.append(row, self.seq)
         if not self.allow_growth:
             raise PdbCapacityError(
                 f"table {ttype}: last page full (growing a table is disabled for safety)")
@@ -291,6 +374,29 @@ class PdbFile:
         if not page.can_fit(len(row)):
             raise PdbFormatError("row larger than a page")
         return page.index, page.append(row, self.seq)
+
+    def replace_row(self, ttype: int, page: int, slot: int, row: bytes) -> Tuple[int, int]:
+        """Remplace une ligne : sur place si elle n'est pas plus longue (aucune place consommée), sinon
+        nouvelle ligne puis suppression de l'ancienne. Renvoie (page, numéro de ligne)."""
+        self._begin()
+        pg = self.page(page)
+        pg.check_data_page()
+        if not pg.present(slot):
+            raise PdbFormatError(f"page {page}: row {slot} is deleted")
+        if len(row) <= pg.row_span(ttype, slot):
+            pg.overwrite(slot, row, ttype, self.seq)
+            self._fix_shift(ttype, page, slot)
+            self.touched.add(page)
+            return page, slot
+        if pg.can_rebuild(ttype, {slot: row}):          # même page, même numéro : page réorganisée
+            pg.compact(ttype, self.seq, {slot: row})
+            pg.check_data_page()
+            self._fix_shift(ttype, page, slot)
+            self.touched.add(page)
+            return page, slot
+        new = self.insert_row(ttype, row)
+        self.delete_row(page, slot)
+        return new
 
     def delete_row(self, page: int, slot: int) -> None:
         self._begin()
