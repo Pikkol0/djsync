@@ -2,6 +2,7 @@
 
     python -m djsync.analysis "E:\\Contents\\Artiste\\Album\\son.m4a" [autres fichiers…]
     python -m djsync.analysis --compare E:\\     (compare aux BPM/tonalités de Rekordbox sur la clé, lecture seule)
+    python -m djsync.analysis --compare E:\\ --csv diag.csv     (+ mesures détaillées pour calibrage)
 
 --compare lit exportLibrary.db en LECTURE SEULE, réanalyse les sons déjà analysés par Rekordbox et
 affiche les écarts : c'est le meilleur moyen de juger la précision sur VOTRE musique.
@@ -25,29 +26,100 @@ def _one(path: str, ffmpeg: str | None) -> None:
           f"  durée {r.duration:.1f} s, {r.waveforms.detail_count} points de forme d'onde, calcul {r.seconds:.1f} s")
 
 
-def _compare(drive: str, ffmpeg: str | None, limit: int) -> int:
-    from ..db import RekordboxUsbLibrary, drive_from_letter
+def _rekordbox_grid(lib, content_id: int):
+    """(temps en s, numéros 1-4) de la grille Rekordbox (balise PQTZ du ANLZ0000.DAT sur la clé)."""
+    import struct
 
+    from .anlz import parse
+
+    row = lib._read("SELECT analysisDataFilePath FROM content WHERE content_id = ?", (content_id,))
+    if not row or not row[0][0]:
+        return None
+    try:
+        tags = parse(lib.absolute_path(row[0][0]).read_bytes())
+        body = tags["PQTZ"][0][1]
+    except (OSError, ValueError, KeyError):
+        return None
+    beats = [struct.unpack(">HHI", body[i:i + 8]) for i in range(0, len(body) - 7, 8)]
+    return [b[2] / 1000.0 for b in beats], [b[0] for b in beats]
+
+
+def _grid_gap(mine, theirs) -> tuple:
+    """(écart médian en ms entre chaque temps Rekordbox et le temps DJSync le plus proche,
+    même 1er temps de mesure ?) ; None si pas comparable."""
+    import numpy as np
+
+    if not theirs or not mine.beats:
+        return None, None
+    rb_t, rb_n = np.array(theirs[0]), theirs[1]
+    my_t = np.array([t for _, t in mine.beats])
+    idx = np.clip(np.searchsorted(my_t, rb_t), 1, my_t.size - 1)
+    near = np.where(np.abs(my_t[idx] - rb_t) < np.abs(my_t[idx - 1] - rb_t), idx, idx - 1)
+    gap = float(np.median(np.abs(my_t[near] - rb_t))) * 1000
+    rb_down = next((t for t, n in zip(rb_t, rb_n) if n == 1), None)
+    my_downs = np.array([t for n, t in mine.beats if n == 1])
+    same_down = bool(rb_down is not None and my_downs.size and np.min(np.abs(my_downs - rb_down)) < 0.03)
+    return round(gap, 1), same_down
+
+
+def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = None) -> int:
+    from ..db import RekordboxUsbLibrary, drive_from_letter
+    from .decode import ANALYSIS_SR, decode
+    from .key import analyze_key
+    from .tempo import analyze_tempo
+
+    rows = []
     with RekordboxUsbLibrary(drive_from_letter(drive), read_only=True) as lib:
         tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0][:limit]
-        bpm_ok = key_ok = key_same_number = 0
-        for t in tracks:
+        bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = 0
+        for i, t in enumerate(tracks, start=1):
+            dbg: dict = {}
             try:
-                r = analyze_file(lib.absolute_path(t), ffmpeg)
+                audio = decode(lib.absolute_path(t), ffmpeg, ANALYSIS_SR)
+                grid = analyze_tempo(audio.samples, audio.sr, dbg)
+                key = analyze_key(audio.samples, audio.sr, dbg)
             except Exception as exc:  # noqa: BLE001
                 print(f"  ! {t.title} : {exc}")
                 continue
-            ok_bpm = abs(r.bpm - t.bpm) <= 0.05 or abs(r.bpm - 2 * t.bpm) <= 0.1 or abs(2 * r.bpm - t.bpm) <= 0.1
-            mine, theirs = r.key.camelot, to_camelot(t.key)
-            bpm_ok += abs(r.bpm - t.bpm) <= 0.05
+            mine, theirs = key.camelot, to_camelot(t.key)
+            gap, same_down = _grid_gap(grid, _rekordbox_grid(lib, t.content_id))
+            same_bpm = abs(grid.bpm - t.bpm) <= 0.05
+            is_oct = not same_bpm and (abs(grid.bpm - 2 * t.bpm) <= 0.1 or abs(2 * grid.bpm - t.bpm) <= 0.1)
+            bpm_ok += same_bpm
+            octave += is_oct
             key_ok += bool(mine and mine == theirs)
-            key_same_number += bool(mine and theirs and mine[:-1] == theirs[:-1])
-            flag = "" if (abs(r.bpm - t.bpm) <= 0.05 and mine == theirs) else "   <--"
-            print(f"  {t.title[:40]:40}  Rekordbox {t.bpm:7.2f} {theirs or '?':>4}   DJSync {r.bpm:7.2f} {mine or '?':>4}"
-                  f"{' (octave)' if ok_bpm and abs(r.bpm - t.bpm) > 0.05 else ''}{flag}")
-        n = max(1, len(tracks))
-        print(f"\nBPM identiques : {bpm_ok}/{len(tracks)} ({100 * bpm_ok / n:.0f} %)   tonalités identiques : "
-              f"{key_ok}/{len(tracks)} ({100 * key_ok / n:.0f} %)   même numéro Camelot : {key_same_number}/{len(tracks)}")
+            key_rel += bool(mine and theirs and mine != theirs and mine[:-1] == theirs[:-1])
+            grid_txt = ""
+            if gap is not None and (same_bpm or is_oct):
+                grid_n += 1
+                grid_ok += gap <= 20
+                down_ok += bool(same_down)
+                grid_txt = f"  grille {gap:5.1f} ms{'' if same_down else ' (temps fort décalé)'}"
+            flag = "" if (same_bpm and mine == theirs) else "   <--"
+            print(f"{i:4} {t.title[:40]:40}  Rekordbox {t.bpm:7.2f} {theirs or '?':>4}   DJSync {grid.bpm:7.2f} "
+                  f"{mine or '?':>4}{' (octave)' if is_oct else ''}{' [variable]' if grid.variable else ''}"
+                  f"{grid_txt}{flag}", flush=True)
+            rows.append({"titre": t.title, "fichier": t.path, "duree": round(audio.duration, 1),
+                         "rb_bpm": t.bpm, "rb_key": theirs or "", "dj_bpm": grid.bpm, "dj_key": mine or "",
+                         "dj_first_beat": round(grid.first_beat, 4), "dj_variable": grid.variable,
+                         "grid_gap_ms": gap if gap is not None else "", "same_downbeat": same_down
+                         if same_down is not None else "", **dbg})
+        n = max(1, len(rows))
+        print(f"\nBPM identiques : {bpm_ok}/{len(rows)} ({100 * bpm_ok / n:.0f} %), erreurs d'octave : "
+              f"{octave}   tonalités identiques : {key_ok}/{len(rows)} ({100 * key_ok / n:.0f} %), "
+              f"relatif maj./min. : {key_rel}")
+        if grid_n:
+            print(f"Grilles (sons de même tempo) : temps à moins de 20 ms de Rekordbox : {grid_ok}/{grid_n}   "
+                  f"même 1er temps de mesure : {down_ok}/{grid_n}")
+    if csv_path:
+        import csv
+
+        cols = list(dict.fromkeys(k for r in rows for k in r))
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter=";")
+            w.writeheader()
+            w.writerows(rows)
+        print(f"Diagnostic écrit : {csv_path}  (à renvoyer pour calibrer l'analyse)")
     return 0
 
 
@@ -56,11 +128,12 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="*")
     ap.add_argument("--compare", metavar="CLÉ", help="comparer aux analyses Rekordbox de la clé (lecture seule)")
-    ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--limit", type=int, default=10_000, help="nombre maximal de sons comparés (défaut : tous)")
+    ap.add_argument("--csv", metavar="FICHIER", help="avec --compare : écrit les mesures détaillées (calibrage)")
     ap.add_argument("--ffmpeg", default=None, help="dossier contenant ffmpeg(.exe)")
     args = ap.parse_args(argv)
     if args.compare:
-        return _compare(args.compare, args.ffmpeg, args.limit)
+        return _compare(args.compare, args.ffmpeg, args.limit, args.csv)
     if not args.files:
         ap.print_help()
         return 1

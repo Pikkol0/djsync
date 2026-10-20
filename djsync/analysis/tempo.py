@@ -1,24 +1,28 @@
 """BPM et grille de temps (beatgrid), en numpy pur.
 
-Méthode (classique, robuste sur les musiques à tempo constant : rap, house, techno, pop…) :
+Méthode (V1.1-A4.1, recalibrée sur 213 sons réels analysés par Rekordbox) :
   1. enveloppe d'attaques : flux spectral (log-magnitude, différence positive) à ~86 images/s,
      plus une enveloppe « basses » (< 150 Hz) pour repérer les temps forts ;
-  2. tempo grossier : autocorrélation de l'enveloppe, renforcée par ses multiples (2, 3, 4 temps),
-     pondérée par un a priori doux (log-normal centré sur 115 BPM) ;
-  3. tempo FIN et phase : transformée de Fourier de l'enveloppe à la période exacte du tempo,
-     sur TOUT le morceau. L'amplitude n'est forte que si la grille reste en phase du début à la
-     fin, ce qui donne une précision de l'ordre du centième de BPM ; l'argument donne la position
-     des temps à une fraction d'image près ;
-  4. arrondi à l'entier si l'entier est (presque) aussi cohérent : la plupart des productions sont
-     à tempo entier, c'est ce que fait aussi Rekordbox ;
-  5. premier temps de la mesure : le décalage (0-3) qui concentre le plus d'énergie de basses.
+  2. CANDIDATS : pics de l'autocorrélation de l'enveloppe (renforcée par ses multiples), plus leurs
+     rapports 3/2 et 2/3, ramenés dans une octave de référence [90, 180) ;
+  3. chaque candidat est AFFINÉ (±2 %, puis 0,002 BPM) par alignement direct : force moyenne des
+     attaques sous la grille, au meilleur calage. On compare ensuite les candidats affinés : une
+     grille juste tombe sur les attaques du début à la fin, une grille aux 2/3 ou dérivant de 0,5
+     BPM non. (Mesuré : la transformée de Fourier, utilisée avant, donnait parfois un pic plus haut
+     au mauvais tempo : 129,5 au lieu de 128,99 ; et comparer des candidats NON affinés produisait
+     des erreurs x1,375 comme 127 -> 174,6.) ;
+  4. arrondi à l'entier si l'entier aligne (presque) aussi bien : 92,46 reste 92,46 ;
+  5. OCTAVE : entre X (140-180) et X/2 (70-90), même règle que celle observée chez Rekordbox sur
+     la bibliothèque de référence : il garde le plus souvent le tempo rapide sous 168 (31 sons sur
+     44), et le lent au-dessus (8 sur 9). Aucune mesure du signal n'a mieux prédit son choix ;
+  6. premier temps de la mesure : le décalage (0-3) qui concentre le plus d'énergie de basses.
 
 Comme Rekordbox en mode « grille constante », on renvoie une grille à tempo unique.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -38,6 +42,15 @@ class BeatGrid:
     downbeat_offset: int = 0                           # numéro (0..3) du 1er temps de la grille dans la mesure
     confidence: float = 0.0                            # 0..1
     beats: List[Tuple[int, float]] = field(default_factory=list)   # (1..4, secondes)
+    variable: bool = False                             # grille qui suit un tempo changeant (voir _warp)
+
+    def beat_tempos(self) -> List[float]:
+        """Tempo de chaque temps (BPM) : constant, ou mesuré d'un temps au suivant si la grille varie."""
+        if not self.variable or len(self.beats) < 2:
+            return [self.bpm] * len(self.beats)
+        t = [b for _, b in self.beats]
+        out = [60.0 / (t[i + 1] - t[i]) for i in range(len(t) - 1)]
+        return out + out[-1:]
 
     @property
     def bpmx100(self) -> int:
@@ -121,41 +134,6 @@ def _fourier(env: np.ndarray, fps: float, bpms: np.ndarray) -> np.ndarray:
     return out
 
 
-def _refine(env: np.ndarray, fps: float, bpm0: float) -> Tuple[float, float]:
-    """Tempo exact autour de bpm0 ; renvoie (bpm, cohérence 0..1).
-
-    1. Fourier (±3 %) : le pic n'est net que si la grille tient tout le morceau -> ±0,05 BPM ;
-    2. alignement direct (±0,15 BPM par pas de 0,005) : force moyenne des attaques sous la grille,
-       au meilleur calage. Une grille fausse de 0,07 BPM dérive de ~55 ms en une minute : le score
-       chute nettement, d'où une précision de l'ordre de 0,01 BPM même sur un extrait court ;
-    3. arrondi à l'entier s'il aligne (presque) aussi bien : productions à tempo entier, comme
-       l'affiche Rekordbox ; un vrai 92,46 reste 92,46."""
-    norm = float(np.abs(env).sum()) or 1.0
-    coarse = np.arange(bpm0 * 0.97, bpm0 * 1.03, 0.02)
-    c = _fourier(env, fps, coarse)
-    b1 = coarse[int(np.argmax(np.abs(c)))]
-    fine = np.arange(b1 - 0.03, b1 + 0.0301, 0.002)
-    cf = _fourier(env, fps, fine)
-    k = int(np.argmax(np.abs(cf)))
-    bpm_f, coherence = float(fine[k]), abs(complex(cf[k])) / norm
-
-    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
-    cands = np.arange(bpm_f - 0.15, bpm_f + 0.1501, 0.005)
-    scores = np.array([_alignment(smooth, fps * 60.0 / b) for b in cands])
-    j = int(np.argmax(scores))
-    bpm = float(cands[j])
-    if 0 < j < cands.size - 1:                       # sommet parabolique entre deux pas
-        a, b, cc = scores[j - 1], scores[j], scores[j + 1]
-        den = a - 2 * b + cc
-        if den < 0:
-            bpm += 0.005 * 0.5 * (a - cc) / den
-    integer = float(round(bpm))
-    if integer != bpm and abs(integer - bpm) <= 0.05:
-        if _alignment(smooth, fps * 60.0 / integer) >= 0.99 * float(scores[j]):
-            bpm = integer
-    return round(bpm, 2), coherence
-
-
 def _sample(env: np.ndarray, pos: np.ndarray) -> np.ndarray:
     """Valeurs de l'enveloppe (interpolation linéaire) aux positions fractionnaires `pos`."""
     pos = np.clip(pos, 0, env.size - 1.000001)
@@ -185,40 +163,162 @@ def _alignment(smooth: np.ndarray, period: float, step: float = 0.25) -> float:
     return float(_sample(smooth, phases[:, None] + k[None, :] * period).mean(axis=1).max())
 
 
-def _resolve_ternary(env: np.ndarray, fps: float, bpm: float) -> float:
-    """Garde-fou contre la confusion 2/3 – 3/2 (ex. 116 au lieu de 174) : la grille juste place ses
-    temps sur les attaques ; une grille à 2/3 ou 3/2 tombe une fois sur deux ou trois entre elles."""
-    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
-    best, best_score = bpm, _alignment(smooth, fps * 60.0 / bpm)
-    for ratio in (1.5, 2.0 / 3.0):
-        alt = bpm * ratio
-        if BPM_MIN <= alt < BPM_MAX:
-            score = _alignment(smooth, fps * 60.0 / alt)
-            if score > 1.15 * best_score:
-                best, best_score = alt, score
-    return best
+REF_LO, REF_HI = 90.0, 180.0         # octave de référence des candidats
+OCTAVE_SLOW_FROM = 168.0             # au-delà, Rekordbox affiche presque toujours la moitié (84-90)
 
 
-def _choose_octave(env: np.ndarray, benv: np.ndarray, fps: float, bpm: float) -> float:
-    """Entre un tempo et son double (tous deux dans la plage, ex. 75/150, 87/174), on garde le LENT
-    si ses demi-temps sont nettement moins accentués que ses temps (kick/caisse claire sur les temps,
-    charleston entre les deux : rap à 75), le RAPIDE si les demi-temps sont presque aussi forts (le
-    « lent » ne serait qu'un temps sur deux : drum'n'bass à 174, techno à 140)."""
-    slow, fast = (bpm / 2, bpm) if bpm / 2 >= BPM_MIN else (bpm, bpm * 2)
-    if fast >= BPM_MAX or slow < BPM_MIN:
+def _fold(bpm: float) -> float:
+    while bpm < REF_LO:
+        bpm *= 2
+    while bpm >= REF_HI:
+        bpm /= 2
+    return bpm
+
+
+def _candidates(env: np.ndarray, fps: float, n: int = 6) -> List[float]:
+    """Tempos candidats (dans [90, 180)) : pics de l'autocorrélation + rapports 3/2 et 2/3."""
+    ac = _autocorr(env)
+    cands = np.arange(35.0, 360.0, 0.25)
+    lag = 60.0 * fps / cands
+    l = np.clip(lag[:, None] * np.array([1, 2, 3, 4])[None, :], 0, ac.size - 2)
+    i = l.astype(int)
+    f = l - i
+    vals = ac[i] * (1 - f) + ac[i + 1] * f
+    score = np.maximum(vals @ np.array([1.0, 0.5, 0.33, 0.25]), 0)
+    peaks = [k for k in range(1, score.size - 1) if score[k] >= score[k - 1] and score[k] > score[k + 1]]
+    peaks.sort(key=lambda k: -score[k])
+    out: List[float] = []
+    for k in peaks[:n]:
+        for b in (cands[k], cands[k] * 1.5, cands[k] * 2 / 3):
+            fb = _fold(float(b))
+            if all(abs(fb - o) / o > 0.012 for o in out):
+                out.append(fb)
+    return out
+
+
+def _refine_align(smooth: np.ndarray, fps: float, bpm0: float, span: float = 0.02) -> Tuple[float, float]:
+    """Tempo exact près de bpm0 par alignement direct ; renvoie (bpm arrondi au centième, score)."""
+    c1 = np.arange(bpm0 * (1 - span), bpm0 * (1 + span), 0.04)
+    s1 = np.array([_alignment(smooth, fps * 60.0 / b, 0.5) for b in c1])
+    b1 = float(c1[int(np.argmax(s1))])
+    c2 = np.arange(b1 - 0.06, b1 + 0.0601, 0.01)
+    s2 = np.array([_alignment(smooth, fps * 60.0 / b, 0.25) for b in c2])
+    b2 = float(c2[int(np.argmax(s2))])
+    c3 = np.arange(b2 - 0.012, b2 + 0.0121, 0.002)
+    s3 = np.array([_alignment(smooth, fps * 60.0 / b, 0.1) for b in c3])
+    j = int(np.argmax(s3))
+    bpm, best = float(c3[j]), float(s3[j])
+    integer = float(round(bpm))
+    if integer != bpm and abs(integer - bpm) <= 0.06:
+        si = _alignment(smooth, fps * 60.0 / integer, 0.1)
+        if si >= 0.985 * best:
+            bpm, best = integer, si
+    return round(bpm, 2), best
+
+
+def _choose_octave(env: np.ndarray, benv: np.ndarray, fps: float, bpm: float, debug: Optional[Dict] = None) -> float:
+    """`bpm` est dans [90, 180). S'il est >= 140, sa moitié (70-90) est aussi dans la plage :
+    règle calée sur Rekordbox (213 sons de référence) : rapide sous 168 BPM, lent au-dessus."""
+    slow = bpm / 2
+    if slow < BPM_MIN:
         return bpm
     period = fps * 60.0 / slow
-    _, on, half = _best_phase(env, period)
     _, b_on, b_half = _best_phase(benv, period)
-    full_ratio = half / on if on > 0 else 1.0
-    # Les basses (kick) tranchent le mieux : sur des tests calibrés, ~0,06 pour un vrai tempo lent
-    # (kick sur les temps seulement) contre ~0,8 pour un vrai tempo rapide ; le global (charleston
-    # en croches partout) ne sépare qu'à peine (0,7 contre 0,8).
-    ratio = 0.7 * (b_half / b_on) + 0.3 * full_ratio if b_on > 0.05 else full_ratio
-    return fast if ratio >= 0.55 else slow
+    bass_ratio = b_half / b_on if b_on > 0 else 0.0
+    if debug is not None:
+        debug.update(oct_slow=round(slow, 2), oct_bass_ratio=round(bass_ratio, 3))
+    # (Une exception « basses rapides » pour la drum'n'bass a été essayée : sur les 9 sons concernés
+    # de la référence, elle ne séparait pas Rekordbox ; la mesure reste dans le diagnostic.)
+    return bpm if bpm < OCTAVE_SLOW_FROM else slow
 
 
-def analyze_tempo(x: np.ndarray, sr: int) -> BeatGrid:
+DRIFT_LIMIT = 0.030       # s : en deçà, la grille constante est gardée (imperceptible, comme Rekordbox)
+# Gain d'alignement exigé pour passer en grille variable. Mesuré : tempo qui accélère (120 -> 126,
+# 126 -> 121) : x4,2 à x4,4 ; 10 sons réels à tempo fixe : x0,83 à x1,23 (le suivi colle aux
+# micro-décalages humains sans être plus juste). 1,5 laisse une marge nette des deux côtés.
+VARIABLE_GAIN = 1.5
+
+
+def _warp(env: np.ndarray, fps: float, bpm: float, phase0: float, debug: Optional[Dict] = None) -> Optional[np.ndarray]:
+    """Grille VARIABLE, seulement si elle est nettement meilleure. On calcule la grille constante et
+    une grille suivie (_track_beats) ; on garde la suivie si (1) elle s'écarte de la constante de plus
+    de 30 ms de façon durable (médiane glissante sur 9 temps) ET (2) elle colle au moins 1,5 fois
+    mieux aux attaques. Une grille constante juste n'est jamais remplacée : sur 10 sons réels testés,
+    aucun n'a basculé ; sur des tempos qui accélèrent (120 -> 126), la grille suit à < 5 ms."""
+    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
+    period = fps * 60.0 / bpm
+    n_beats = int((env.size - 1 - phase0) // period) + 1
+    if n_beats < 40:
+        return None
+    base = phase0 + np.arange(n_beats) * period
+    tracked = _track_beats(smooth, period)
+    if tracked is None or tracked.size < 40:
+        return None
+    inside = tracked[(tracked >= 0) & (tracked <= env.size - 1)]
+    score_c = float(_sample(smooth, base).mean())
+    score_t = float(_sample(smooth, inside).mean())
+    # écart de chaque temps suivi au temps constant le plus proche (repliement sur ±1/2 temps)
+    dev = (inside - phase0) / period
+    dev = (dev - np.round(dev)) * period
+    dev = np.array([np.median(dev[max(0, i - 4): i + 5]) for i in range(dev.size)])
+    drift = float(np.max(np.abs(dev))) / fps
+    if debug is not None:
+        debug.update(drift_ms=round(drift * 1000, 1), grid_gain=round(score_t / max(score_c, 1e-9), 3))
+    if drift <= DRIFT_LIMIT or score_t < VARIABLE_GAIN * score_c:
+        return None
+    return tracked
+
+
+def _track_beats(smooth: np.ndarray, period: float, tightness: float = 60.0) -> Optional[np.ndarray]:
+    """Suivi de temps par programmation dynamique (Ellis, 2007) : chaque temps vient 0,8 à 1,25
+    période après le précédent, pénalisé selon log(écart/période)² ; on maximise la force des
+    attaques sous les temps. Le tempo peut donc évoluer (accélération, live). Les positions (images)
+    sont ensuite lissées par régression locale sur 8 temps : pas d'à-coups sur la platine."""
+    n = smooth.size
+    lo, hi = int(np.floor(period * 0.8)), int(np.ceil(period * 1.25))
+    if n < hi * 8:
+        return None
+    taus = np.arange(lo, hi + 1)
+    penalty = -tightness * np.log(taus / period) ** 2
+    norm = smooth / (smooth.std() or 1.0)
+    score = norm.copy()
+    back = np.full(n, -1, dtype=np.int64)
+    for t in range(lo, n):
+        prev = t - taus
+        ok = prev >= 0
+        cand = score[prev[ok]] + penalty[ok]
+        j = int(np.argmax(cand))
+        if cand[j] > 0:
+            score[t] = norm[t] + cand[j]
+            back[t] = prev[ok][j]
+    # fin : meilleur score dans la dernière période
+    t = int(n - hi + np.argmax(score[n - hi:]))
+    beats = [t]
+    while back[t] >= 0:
+        t = int(back[t])
+        beats.append(t)
+    b = np.array(beats[::-1], dtype=np.float64)
+    if b.size < 16:
+        return None
+    # lissage : chaque temps = valeur d'une droite ajustée sur ses 8 voisins (garde la dérive, ôte le grain)
+    out = b.copy()
+    idx = np.arange(b.size)
+    for i in range(b.size):
+        a, z = max(0, i - 4), min(b.size, i + 5)
+        coef = np.polyfit(idx[a:z], b[a:z], 1)
+        out[i] = coef[0] * i + coef[1]
+    # temps manquants avant le premier détecté (intro) : on prolonge à la période locale
+    step = out[1] - out[0]
+    head = []
+    first = out[0] - step
+    while first >= 0:
+        head.append(first)
+        first -= step
+    return np.concatenate([np.array(head[::-1]), out])
+
+
+def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatGrid:
+    """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque."""
     duration = x.size / float(sr)
     if duration < 4.0 or float(np.max(np.abs(x), initial=0.0)) < 1e-3:
         return BeatGrid()
@@ -226,11 +326,21 @@ def analyze_tempo(x: np.ndarray, sr: int) -> BeatGrid:
     if env.size < fps * 3 or not np.any(env):
         return BeatGrid()
     bpm0, strength = _coarse_tempo(env, fps)
+    if debug is not None:
+        debug.update(coarse=bpm0, coarse_strength=round(strength, 3))
     if strength < 0.05:
         return BeatGrid()
-    bpm0 = _resolve_ternary(env, fps, bpm0)
-    bpm0 = _choose_octave(env, benv, fps, bpm0)
-    bpm, coherence = _refine(env, fps, bpm0)
+    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
+    refined = sorted({_refine_align(smooth, fps, c) for c in _candidates(env, fps)}, key=lambda r: -r[1])
+    if not refined:
+        return BeatGrid()
+    rep, rep_score = refined[0]
+    if debug is not None:
+        debug["candidats"] = " ".join(f"{b:.2f}:{sc:.2f}" for b, sc in refined[:5])
+    bpm = _choose_octave(env, benv, fps, rep, debug)
+    coherence = abs(complex(_fourier(env, fps, np.array([bpm]))[0])) / (float(np.abs(env).sum()) or 1.0)
+    if debug is not None:
+        debug.update(before_refine=round(rep, 2), coherence=round(coherence, 4))
     period = fps * 60.0 / bpm                                   # images par temps
     # position du 1er temps (en images) par recherche directe ; la différence spectrale place une
     # attaque entre deux images (-0.5 image) et l'image est centrée sur sa fenêtre (+N_FFT/2)
@@ -239,8 +349,15 @@ def analyze_tempo(x: np.ndarray, sr: int) -> BeatGrid:
     first = t_of(phase_frames)
     beat_len = 60.0 / bpm
     first %= beat_len
-    # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
     times = np.arange(first, duration, beat_len)
+    warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
+    variable = warped is not None
+    if variable:
+        times = t_of(warped)
+        times = times[(times >= 0) & (times < duration)]
+        first = float(times[0])
+        bpm = round(float(np.median(60.0 / np.diff(times))), 2)        # tempo affiché : tempo médian
+    # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
     frames = ((times - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5
 
     def sample(e: np.ndarray) -> np.ndarray:
@@ -253,4 +370,4 @@ def analyze_tempo(x: np.ndarray, sr: int) -> BeatGrid:
     down = int(np.argmax(scores))
     beats = [(((k - down) % 4) + 1, float(t)) for k, t in enumerate(times)]
     return BeatGrid(bpm=bpm, first_beat=float(first), downbeat_offset=down,
-                    confidence=float(min(1.0, coherence * 4)), beats=beats)
+                    confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable)

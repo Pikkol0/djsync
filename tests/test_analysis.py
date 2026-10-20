@@ -38,7 +38,7 @@ def _to22k(y: np.ndarray) -> np.ndarray:
 CASES = [  # bpm, 1er temps fort (s), accords, mineurs, tonalité attendue, Camelot
     (128.0, 0.37, ["A", "F", "E", "A"], [1, 0, 0, 1], "Am", "8A"),
     (92.46, 0.81, ["F#", "D", "C#", "F#"], [1, 0, 0, 1], "F#m", "11A"),
-    (75.0, 0.20, ["C", "Ab", "Eb", "G"], [1, 0, 0, 0], "Cm", "5A"),
+    (75.0, 0.20, ["C", "F", "G", "C"], [1, 1, 0, 1], "Cm", "5A"),       # i-iv-V-i (sans ambiguïté)
     (174.0, 0.10, ["D", "Bb", "A", "D"], [1, 0, 0, 1], "Dm", "7A"),
     (124.0, 0.05, ["E", "A", "B", "E"], [0, 0, 0, 0], "E", "12B"),
 ]
@@ -48,14 +48,50 @@ CASES = [  # bpm, 1er temps fort (s), accords, mineurs, tonalité attendue, Came
 def test_tempo_grid_and_key(bpm, first, chords, minors, key, camelot):
     y = _to22k(song(bpm, first, 60, chords, minors))
     grid = analyze_tempo(y, 22050)
-    assert abs(grid.bpm - bpm) <= 0.02, grid.bpm
+    # octave : règle de Rekordbox (rapide sous 168, moitié au-dessus) -> 75 s'affiche 150, 174 -> 87
+    expected = bpm * 2 if bpm < 90 else (bpm / 2 if bpm >= 168 else bpm)
+    assert abs(grid.bpm - expected) <= 0.02, grid.bpm
     beat = 60.0 / bpm
-    downbeats = [t for n, t in grid.beats if n == 1]
-    assert abs(downbeats[0] - first) <= 0.006                       # 1er temps fort à ±6 ms
-    assert abs(grid.first_beat - first % beat) <= 0.006
+    # chaque temps de la grille tombe sur un vrai temps (ou un demi-temps si tempo doublé), à ±6 ms
+    step = 60.0 / max(grid.bpm, bpm)
+    phase = (grid.first_beat - first) % step
+    assert min(phase, step - phase) <= 0.006
+    if expected == bpm:
+        downbeats = [t for n, t in grid.beats if n == 1]
+        assert abs(downbeats[0] - first) <= 0.006                   # 1er temps fort à ±6 ms
+        assert abs(grid.first_beat - first % beat) <= 0.006
     assert all(1 <= n <= 4 for n, _ in grid.beats)
     res = analyze_key(y, 22050)
     assert (res.name, res.camelot) == (key, camelot)
+
+
+def test_octave_rule_matches_rekordbox():
+    from djsync.analysis.tempo import OCTAVE_SLOW_FROM, _choose_octave
+
+    env = np.random.default_rng(0).random(5000)
+    assert OCTAVE_SLOW_FROM == 168.0
+    assert _choose_octave(env, env, 86.0, 120.0) == 120.0       # moitié hors plage : inchangé
+    assert _choose_octave(env, env, 86.0, 150.0) == 150.0       # 75/150 : Rekordbox affiche 150 le plus souvent
+    assert _choose_octave(env, env, 86.0, 174.0) == 87.0        # 87/174 : Rekordbox affiche 87
+
+
+@pytest.mark.parametrize("start,end", [(120.0, 126.0), (126.0, 121.0)])
+def test_variable_tempo_gets_a_following_grid(start, end):
+    """Tempo qui change (live, raccord) : la grille suit chaque temps au lieu de dériver."""
+    truth = []
+    y = _to22k(song(start, 0.3, 120, ["A", "F", "E", "A"], [1, 0, 0, 1], bpm_end=end, beats_out=truth))
+    grid = analyze_tempo(y, 22050)
+    assert grid.variable
+    truth = np.array(truth)
+    err = [np.min(np.abs(truth - t)) for _, t in grid.beats if t > 0.2]
+    assert np.max(err) <= 0.010                                         # chaque temps à ±10 ms
+    tempos = grid.beat_tempos()
+    assert tempos[0] != tempos[-1] and min(start, end) - 1 < np.median(tempos) < max(start, end) + 1
+
+
+def test_constant_tempo_keeps_a_constant_grid():
+    grid = analyze_tempo(_to22k(song(124, 0.3, 90, ["A", "F", "E", "A"], [1, 0, 0, 1])), 22050)
+    assert not grid.variable and set(grid.beat_tempos()) == {124.0}
 
 
 def test_key_survives_detuned_upload():

@@ -37,13 +37,28 @@ orpheline n'est jamais écrasée). Les sons d'un même album partagent la pochet
 Dépendances : **numpy + FFmpeg** (déjà requis). Pas de librosa/scipy/numba : +15-20 Mo dans l'exe.
 Environ **1 s par minute de musique**, ~80 Mo de mémoire au pic pour un morceau de 5 min.
 
-* **BPM / grille** : flux spectral → tempo grossier par autocorrélation → tempo fin par Fourier puis
-  alignement direct sur les attaques (précision ~0,01 BPM) → arrondi à l'entier s'il aligne aussi
-  bien (92,46 reste 92,46) → temps fort par l'énergie des basses. Grille constante, comme Rekordbox
-  par défaut. Plage 70–180 BPM ; choix 75/150 et 87/174 par l'accentuation des basses.
-* **Tonalité** : spectre moyen, correction d'accordage (vidéos accélérées), chromagramme, profils de
-  Sha'ath (KeyFinder), 24 tonalités.
+* **BPM / grille** (V1.1-A4.1, recalibré sur ta clé) : flux spectral → candidats (pics
+  d'autocorrélation + rapports 3/2 et 2/3) → chaque candidat est **affiné puis comparé** par
+  alignement direct sur les attaques → arrondi à l'entier s'il aligne aussi bien → temps fort par
+  l'énergie des basses. Octave : règle observée chez Rekordbox (rapide sous 168, moitié au-dessus).
+* **Grille variable** : si (et seulement si) une grille qui suit le morceau colle 1,5 fois mieux
+  aux attaques et s'écarte de plus de 30 ms, la grille ANLZ porte un tempo par temps (balise PQTZ).
+  Mesuré : accélérations 120→126 suivies à ±5 ms ; 0 bascule sur 10 sons réels à tempo fixe.
+* **Tonalité** : spectre moyen, chromagramme (moyenne accordé / 440 Hz), profils 50 % Sha'ath +
+  50 % appris sur 206 sons analysés par Rekordbox, 24 tonalités.
 * **Formes d'onde** : 3 bandes (basses < 250 Hz, médiums, aigus > 2,5 kHz) à 150 points/s.
+
+### Calibrage sur une vraie clé (213 sons, `python -m djsync.analysis --compare E:\ --csv diag.csv`)
+| | V1.1-A4 | V1.1-A4.1 |
+|---|---|---|
+| Tonalité identique à Rekordbox | 67,5 % | 71,8 % (validation croisée) |
+| Tonalité compatible (même, ±1, relatif) | 83,5 % | 90,3 % (validation croisée) |
+| BPM, 10 sons « difficiles » envoyés | 0/10 | 6/10 exacts (+ Freestyle Funk à 0,05) |
+| Choix d'octave dans la zone 70-90 / 140-180 | 30/53 | 40/53 (règle sur le CSV) |
+
+Le BPM global sur les 213 sons n'a pas pu être remesuré ici (il faut l'audio) : relancer
+`--compare`, qui affiche aussi désormais l'écart de **grille** avec Rekordbox (temps à ±20 ms,
+même temps fort), lu dans les ANLZ de Rekordbox présents sur la clé.
 
 ### Fichiers ANLZ
 Constantes et ordre des balises recopiés de **vrais fichiers exportés par Rekordbox 6** (jeu de
@@ -76,7 +91,11 @@ Aussi testé : m4a/AAC, mp3 VBR, intro silencieuse de 8 s, vidéo désaccordée 
 * Tonalité : confusion possible majeur/mineur relatif sur les progressions éoliennes ambiguës
   (ex. Bm-G-D-A = aussi vi-IV-I-V de Ré). L'erreur garde le même numéro Camelot (10A ↔ 10B) :
   le mix harmonique reste compatible.
-* Grille constante seulement (pas de tempo variable). Pas de hot cues / memory cues automatiques.
+* Rekordbox lui-même n'est pas une vérité absolue (Cloud Analysis activé : certaines valeurs viennent
+  de la base partagée Pioneer ; grilles parfois mal calées) : 100 % d'accord n'est pas atteignable.
+* Choix d'octave : aucune mesure du signal ne prédisait mieux le choix de Rekordbox que le seuil de
+  168 BPM ; ~12 sons sur 53 restent « doublés » (ex. rap à 75 affiché 150).
+* Pas de hot cues / memory cues automatiques.
 * Non écrits : `.2EX` (forme d'onde 3 bandes du CDJ-3000 : une balise, PWVC, n'est pas décodée
   publiquement), PQT2, PSSI (phrases). Les platines utilisent alors les formes d'onde du `.EXT`,
   comme pour une clé exportée par Rekordbox 5.

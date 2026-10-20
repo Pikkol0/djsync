@@ -43,8 +43,8 @@ class AnalysisResult:
 
     def pqtz_beats(self) -> List[Tuple[int, int, int]]:
         """(numéro dans la mesure 1-4, tempo x100, temps en ms) pour la balise PQTZ."""
-        tempo = self.grid.bpmx100
-        return [(n, tempo, int(round(t * 1000))) for n, t in self.grid.beats]
+        tempos = self.grid.beat_tempos()
+        return [(n, int(round(bpm * 100)), int(round(t * 1000))) for (n, t), bpm in zip(self.grid.beats, tempos)]
 
 
 def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) -> AnalysisResult:

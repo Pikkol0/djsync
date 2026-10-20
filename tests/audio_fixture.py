@@ -32,7 +32,10 @@ def _chord(root: str, minor: bool, dur: float) -> np.ndarray:
     return sum(_tone(440 * 2 ** (n / 12), dur) for n in notes) + 0.8 * _tone(440 * 2 ** ((r - 9 - 24) / 12), dur)
 
 
-def song(bpm: float, first: float, duration: float, chords: Sequence[str], minors: Sequence[bool]) -> np.ndarray:
+def song(bpm: float, first: float, duration: float, chords: Sequence[str], minors: Sequence[bool],
+         bpm_end: Optional[float] = None, beats_out: Optional[list] = None) -> np.ndarray:
+    """bpm_end : tempo final (accélération linéaire, comme un batteur live) ; beats_out reçoit les
+    instants exacts des temps (vérité terrain)."""
     rng = np.random.default_rng(7)
     t = np.arange(int(0.25 * SR)) / SR
     kick = np.sin(2 * np.pi * np.cumsum(50 + 100 * np.exp(-t * 30)) / SR) * np.exp(-t * 12)
@@ -48,9 +51,12 @@ def song(bpm: float, first: float, duration: float, chords: Sequence[str], minor
             e = min(y.size, i + sig.size)
             y[i:e] += sig[: e - i]
 
-    beat, k, c = 60.0 / bpm, 0, 0
-    while first + k * beat < duration:
-        at = first + k * beat
+    beat, k, c, at = 60.0 / bpm, 0, 0, first
+    while at < duration:
+        if bpm_end is not None:
+            beat = 60.0 / (bpm + (bpm_end - bpm) * at / duration)
+        if beats_out is not None:
+            beats_out.append(at)
         add(kick * (1.0 if k % 4 == 0 else 0.7), at)
         if k % 4 in (1, 3):
             add(snare, at)
@@ -60,6 +66,7 @@ def song(bpm: float, first: float, duration: float, chords: Sequence[str], minor
             add(0.25 * _chord(chords[c % len(chords)], minors[c % len(minors)], beat * 4), at)
             c += 1
         k += 1
+        at += beat
     y = y[: int(duration * SR)]
     return (y / np.max(np.abs(y)) * 0.9).astype(np.float32)
 
