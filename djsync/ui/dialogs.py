@@ -75,6 +75,17 @@ class BaseDialog(ctk.CTkToplevel):
         self.fit_content()
         if self.modal:
             self._grab()
+        self.after(400, self._ensure_shown)
+
+    def _ensure_shown(self) -> None:
+        """Filet de sécurité (V0.2.4) : sous Windows, customtkinter peut cacher une fenêtre juste après
+        son ouverture (couleur de la barre de titre) ; on la remontre."""
+        try:
+            if self.winfo_exists() and self.state() == "withdrawn":
+                self.deiconify()
+                self.lift()
+        except Exception:  # noqa: BLE001 - fenêtre fermée entre-temps
+            pass
 
     def _grab(self, tries: int = 0) -> None:
         """Modale seulement une fois VISIBLE (sans `wait_visibility`, qui peut attendre indéfiniment

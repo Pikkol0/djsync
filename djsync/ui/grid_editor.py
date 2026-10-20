@@ -8,6 +8,11 @@ ses temps (1ers temps de mesure plus épais, à la couleur d'accent). On peut :
   * écouter à partir d'un endroit (clic sur la forme d'onde puis Lecture) ;
 puis Enregistrer : le .DAT est réécrit (copie d'origine dans DJSync_Backups/anlz), le BPM mis à
 jour dans exportLibrary.db et export.pdb.
+
+V0.2.4 : ce n'est plus une fenêtre séparée mais une PAGE de la fenêtre principale (comme un onglet),
+ouverte par `DJSyncApp.open_grid_editor`. Sous Windows, la fenêtre séparée était cachée par
+customtkinter un instant après son ouverture (changement de couleur de la barre de titre déclenché par
+`resizable`) : elle « se fermait » toute seule, ou bloquait l'appli tant qu'elle était modale.
 """
 from __future__ import annotations
 
@@ -21,7 +26,7 @@ from ..audio.player import PAUSED, PLAYING
 from ..i18n import t
 from ..models import LibraryTrack, format_duration
 from . import theme
-from .dialogs import BaseDialog, ConfirmDialog
+from .dialogs import ConfirmDialog
 from .icons import ctk_icon
 from .widgets import Tooltip
 
@@ -29,13 +34,15 @@ COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par s
 VIEW_CHOICES = (4, 8, 16, 32)
 
 
-class GridEditor(BaseDialog):
-    modal = False           # V0.2.4 : le lecteur et la bibliothèque restent utilisables pendant l'édition
+class GridEditor(ctk.CTkFrame):
+    """Page « Grille de temps » (dans la zone de contenu de la fenêtre principale)."""
 
-    def __init__(self, parent: Any, controller: Any, track: LibraryTrack) -> None:
-        super().__init__(parent, t("grid.title"), 940, 560)
-        self.resizable(True, True)
+    def __init__(self, parent: Any, controller: Any, track: LibraryTrack,
+                 on_close: Optional[Any] = None) -> None:
+        super().__init__(parent, fg_color=theme.BG, corner_radius=0)
         self.ctrl, self.track = controller, track
+        self._on_close = on_close
+        self._closed = False
         self.original: List[Tuple[int, int, int]] = []
         self.beats: List[Tuple[int, int, int]] = []
         self.detail: List[Tuple[float, str]] = []
@@ -49,7 +56,7 @@ class GridEditor(BaseDialog):
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(side="bottom", fill="x", padx=18, pady=(0, 16))
-        theme.button(bar, t("action.cancel"), self.close, kind="ghost", width=90).pack(side="right")
+        theme.button(bar, t("grid.back"), self.close, kind="ghost", width=110).pack(side="right")
         self.save_btn = theme.button(bar, t("action.save"), self._save, kind="primary", width=130)
         self.save_btn.pack(side="right", padx=(0, 8))
         self.reset_btn = theme.button(bar, t("grid.reset"), self._reset, kind="ghost", width=110)
@@ -59,6 +66,7 @@ class GridEditor(BaseDialog):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(16, 4))
+        theme.button(head, "←  " + t("grid.back"), self.close, kind="ghost", width=90).pack(side="left", padx=(0, 14))
         ctk.CTkLabel(head, text="", image=ctk_icon("grid", 22, theme.ACCENT)).pack(side="left")
         box = ctk.CTkFrame(head, fg_color="transparent")
         box.pack(side="left", padx=(10, 0))
@@ -119,8 +127,10 @@ class GridEditor(BaseDialog):
         self.canvas.bind("<MouseWheel>", self._wheel)
         self.canvas.bind("<Button-4>", lambda _e: self._pan(-0.15))
         self.canvas.bind("<Button-5>", lambda _e: self._pan(0.15))
-        self.bind("<Left>", lambda _e: self._shift(-1))
-        self.bind("<Right>", lambda _e: self._shift(1))
+        for w in (self, self.canvas):
+            w.bind("<Left>", lambda _e: self._shift(-1))
+            w.bind("<Right>", lambda _e: self._shift(1))
+            w.bind("<Escape>", lambda _e: self.close())
         self.save_btn.configure(state="disabled")
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
         self._tick()
@@ -289,6 +299,7 @@ class GridEditor(BaseDialog):
         self._pan(-0.15 if e.delta > 0 else 0.15)
 
     def _press(self, e: Any) -> None:
+        self.canvas.focus_set()                  # flèches gauche/droite = décaler la grille
         self._drag_x = e.x
         self._drag_start = self.start_ms
         self._moved = False
@@ -363,9 +374,14 @@ class GridEditor(BaseDialog):
             go()
 
     def close(self) -> None:
-        if self._is_playing_this() and self.ctrl.player.state == PLAYING:
-            self.ctrl.player.toggle_pause()
-        super().close()
+        """Quitte la page (sans enregistrer) ; la lecture du son continue."""
+        if self._closed:
+            return
+        self._closed = True
+        callback = self._on_close
+        self.destroy()
+        if callback:
+            callback()
 
 
 def plural_beats(n: int) -> str:

@@ -221,9 +221,7 @@ class PlayerBar(ctk.CTkFrame):
             if not track.is_analysed:
                 self.ctrl.message("info", t("grid.not_analysed"))
                 return
-            from .grid_editor import GridEditor
-
-            GridEditor(self.winfo_toplevel(), self.ctrl, track)
+            self.ctrl._emit("open_grid", track)
 
         self._with_track(go)
 
