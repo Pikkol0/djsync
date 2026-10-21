@@ -56,6 +56,7 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 Get **`DJSync-<version>-windows.zip`** from the [latest release](https://github.com/Pikkol0/djsync/releases/latest),
 unzip it at the root of your USB drive and double-click `DJSync.exe` — nothing to install, FFmpeg and the
 JavaScript runtime needed for YouTube are included. Its companion folder `.djsync` is hidden at first launch.
+Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/INSTALL.fr.md)).
 
 ## Run from source
 

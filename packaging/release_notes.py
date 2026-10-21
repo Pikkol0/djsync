@@ -25,6 +25,9 @@ If Windows SmartScreen warns about an unknown publisher (unsigned build): *More 
 
 Close Rekordbox while DJSync writes to a library, and keep a copy of your drive.
 SHA-256 of the zip: see `{zip}.sha256`.
+
+Quick installation guide: [English](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.md) ·
+[français](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.fr.md)
 """
 
 
