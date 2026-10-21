@@ -42,7 +42,11 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: packaging/build_ffmpeg.sh ffmpeg-out
       - name: Single-file launcher
-        run: packaging/build_launcher.sh launcher-out
+        run: |
+          if ! packaging/build_launcher.sh launcher-out > launcher.log 2>&1; then
+            echo "::error title=launcher::$(tail -c 3000 launcher.log | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: ffmpeg
