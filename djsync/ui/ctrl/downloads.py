@@ -80,7 +80,10 @@ class DownloadsMixin:
                 self.dispatcher.post(self.message, "warn", warning)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Download %s failed: %s", job.track.video_id, exc)
-            job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
+            from ..controller import is_offline_error
+
+            job.status, job.message = "error", (t("error.offline") if is_offline_error(exc)
+                                                else str(exc).replace("ERROR: ", "")[:300])
             self.dispatcher.post(self.engine_failure, job.message)
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":

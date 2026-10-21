@@ -52,6 +52,25 @@ Callback = Callable[[Any], None]
 POLL_MS = 4000
 
 
+_OFFLINE = ("max retries exceeded", "failed to establish a new connection", "getaddrinfo failed",
+            "name or service not known", "temporary failure in name resolution", "nodename nor servname",
+            "network is unreachable", "no route to host", "unable to connect to proxy", "connecttimeout",
+            "connection refused", "urlopen error", "errno 11001")
+
+
+def is_offline_error(exc: Any) -> bool:
+    """Pas d'Internet (ou serveur injoignable) : message clair plutôt que la trace technique."""
+    try:
+        import requests
+
+        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+            return True
+    except ImportError:                 # pragma: no cover
+        pass
+    text = str(exc).lower()
+    return any(k in text for k in _OFFLINE)
+
+
 def _same_path(a: Any, b: Any) -> bool:
     try:
         return Path(a).resolve() == Path(b).resolve()
@@ -175,6 +194,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
     def error_text(self, exc: BaseException) -> str:
         """Messages d'exception écrits en anglais (V0.2.1) ; les plus fréquents sont traduits dans
         les autres langues, les autres restent en anglais."""
+        if is_offline_error(exc):
+            return t("error.offline")
         if get_language() != "en":
             for cls, key in self._ERROR_KEYS:
                 if isinstance(exc, cls):

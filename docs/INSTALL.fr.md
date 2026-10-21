@@ -40,6 +40,8 @@ besoin (FFmpeg et le moteur JavaScript pour YouTube sont inclus).
 - DJSync **sauvegarde la base avant chaque modification** (dossier `DJSync_Backups` sur la clé). Gardez
   quand même une copie de votre clé.
 - Lancé depuis une clé, DJSync **demande avant** d'ouvrir la bibliothèque Rekordbox d'un ordinateur.
+- **Sans Internet**, DJSync fonctionne quand même : playlists, lecture, analyse, grille, doublons, copie
+  entre bibliothèques. Seuls la recherche, les téléchargements et les pochettes en ligne en ont besoin.
 
 ## Mettre à jour DJSync
 Remplacez `DJSync.exe` par le nouveau : au lancement suivant, il se met à jour tout seul et garde vos
@@ -52,5 +54,5 @@ réglages.
 | « La base est verrouillée : fermez Rekordbox… » | Quittez Rekordbox (et vérifiez qu'il ne tourne plus dans la barre des tâches). |
 | La clé n'est pas détectée | *Paramètres* ▸ *Clé USB Rekordbox* ▸ **Lettre de lecteur** (ex. `E`) ▸ *Enregistrer*. |
 | Voir le dossier caché `.djsync` | Tapez `E:\.djsync` dans la barre d'adresse de l'Explorateur (le dossier est protégé comme un fichier système). |
-| L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (la somme SHA-256 du zip est publiée avec la release). |
+| L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (son empreinte SHA-256 est publiée avec la release). |
 | Autre problème | Joignez le journal `.djsync\data\djsync.log` à votre message (tapez `E:\.djsync\data` dans la barre d'adresse de l'Explorateur, avec la lettre de votre clé). |

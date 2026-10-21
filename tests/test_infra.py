@@ -135,3 +135,17 @@ def test_settings_migration_enables_pdb_growth(tmp_path):
     s.pdb_allow_growth = False
     s.save(path)
     assert Settings.load(path).pdb_allow_growth is False
+
+
+def test_offline_errors_get_a_clear_message():
+    """Sans Internet : message clair au lieu de « HTTPSConnectionPool… Max retries exceeded »."""
+    import requests
+
+    from djsync.ui.controller import is_offline_error
+
+    raw = ("HTTPSConnectionPool(host='music.youtube.com', port=443): Max retries exceeded with url: / "
+           "(Caused by NameResolutionError(...))")
+    assert is_offline_error(requests.ConnectionError(raw)) and is_offline_error(Exception(raw))
+    assert is_offline_error(Exception("ERROR: [youtube] x: Unable to download webpage: <urlopen error [Errno 11001] "
+                                      "getaddrinfo failed>"))
+    assert not is_offline_error(Exception("ERROR: [youtube] x: Video unavailable"))

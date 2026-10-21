@@ -38,6 +38,8 @@ needs (FFmpeg and the JavaScript runtime for YouTube are included).
 - DJSync **backs up the database before every change** (`DJSync_Backups` folder on the drive). Still keep
   a copy of your drive.
 - Running from a drive, DJSync **asks first** before opening a computer's Rekordbox library.
+- **Without internet**, DJSync still works: playlists, player, analysis, beat grid, duplicates, copying
+  between libraries. Only search, downloads and online artwork need it.
 
 ## Updating DJSync
 Replace `DJSync.exe` with the new one: at the next launch it updates itself and keeps your settings.
@@ -49,5 +51,5 @@ Replace `DJSync.exe` with the new one: at the next launch it updates itself and 
 | "The database is locked: close Rekordbox…" | Quit Rekordbox (check it is not still running in the taskbar). |
 | The drive is not detected | *Settings* ▸ *Rekordbox USB drive* ▸ **Drive letter** (e.g. `E`) ▸ *Save*. |
 | See the hidden `.djsync` folder | Type `E:\.djsync` in File Explorer's address bar (the folder is protected like a system file). |
-| The antivirus blocks `DJSync.exe` | Allow it: unsigned app (the zip's SHA-256 is published with the release). |
+| The antivirus blocks `DJSync.exe` | Allow it: unsigned app (its SHA-256 is published with the release). |
 | Anything else | Attach the log `.djsync\data\djsync.log` to your report (type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter). |
