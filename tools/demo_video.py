@@ -545,17 +545,9 @@ def scenario(app: Any, rec: Recorder, text: dict, usb: Path) -> None:
     rec.card(*text["outro"], seconds=3.4)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("out", type=Path)
-    ap.add_argument("--lang", default="fr")
-    ap.add_argument("--fps", type=int, default=25)
-    args = ap.parse_args()
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        print("FFmpeg is required.")
-        return 1
-    text = TEXT[args.lang]
+def build_app(lang: str, size: Tuple[int, int] = (0, 0)) -> Tuple[Any, Path, Path, str]:
+    """Fausse clé (artistes fictifs) + bibliothèque du PC de démonstration + DJSyncApp hors écran, sans réseau.
+    Renvoie (fenêtre, clé, dossier des images, couleur d'accent)."""
     tmp = Path(tempfile.mkdtemp(prefix="djsync_video_"))
     frames = tmp / "frames"
     frames.mkdir()
@@ -589,28 +581,54 @@ def main() -> int:
     from djsync.ui import theme
 
     settings = Settings()
-    settings.language = args.lang
+    settings.language = lang
     settings.local_db_dir, settings.local_music_dir = str(db_dir), str(tmp / "Music")
     settings.active_drive = str(usb)
     app = DJSyncApp(settings)
-    app.resize(W, H)
+    app.resize(*(size if size[0] else (W, H)))
     app.reveal()
-    rec = Recorder(app, frames, args.fps, getattr(theme, "ACCENT", "#B388FF"))
+    return app, usb, frames, getattr(theme, "ACCENT", "#B388FF")
+
+
+def settle(app: Any, rec: "Recorder", usb: Path) -> None:
+    """Attend l'ouverture de la clé (et pas celle du PC)."""
+    from djsync.db import UsbDrive
+
     rec.pump(4)
     deadline = time.time() + 10
     while not app.ctrl.has_library and time.time() < deadline:
         rec.pump(0.2)
-    if app.ctrl.is_local:                                   # on veut ouvrir la clé, pas le PC
+    if app.ctrl.is_local:
         app.ctrl.connect(UsbDrive(root=usb, label="DJ KEY"))
         rec.pump(3)
+
+
+def encode(ffmpeg: str, frames: Path, fps: int, out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [ffmpeg, "-y", "-v", "error", "-framerate", str(fps), "-i", str(frames / "f%05d.png"),
+           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
+           "-movflags", "+faststart", str(out)]
+    subprocess.run(cmd, check=True)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out", type=Path)
+    ap.add_argument("--lang", default="fr")
+    ap.add_argument("--fps", type=int, default=25)
+    args = ap.parse_args()
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("FFmpeg is required.")
+        return 1
+    text = TEXT[args.lang]
+    app, usb, frames, accent = build_app(args.lang)
+    rec = Recorder(app, frames, args.fps, accent)
+    settle(app, rec, usb)
     scenario(app, rec, text, usb)
     app.close()
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [ffmpeg, "-y", "-v", "error", "-framerate", str(args.fps), "-i", str(frames / "f%05d.png"),
-           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
-           "-movflags", "+faststart", str(args.out)]
-    subprocess.run(cmd, check=True)
+    encode(ffmpeg, frames, args.fps, args.out)
     print(f"video: {args.out}  ({rec.n / args.fps:.0f} s, {rec.n} frames)")
     return 0
 
