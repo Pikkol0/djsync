@@ -197,4 +197,14 @@ def test_downloads_and_analysis_page(demo_grid):
     app.grid_editor.close()
     view.search.setText("")
     assert pump(app, 2, lambda: view.an_table.total == 10)
+    # V1.0.0 : un son calculé mais pas encore écrit (lots de 8) n'est jamais affiché « Not analysed »
+    x = view.an_table.all_rows()[0].data
+    app.ctrl.analysis_results[x.content_id] = "ok"
+    assert view._state(x)[0] == "Analysed · saving…"
+    app.ctrl.analysis_results.clear()
+    app.ctrl.analyze([r.data.content_id for r in view.an_table.all_rows()])
+    assert pump(app, 30, lambda: app.ctrl.analysis.finished)
+    pump(app, 1)
+    done = {k for k, v in app.ctrl.analysis_results.items() if v == "ok"}
+    assert done and all(r.values["state"] == "Analysed" for r in view.an_table.all_rows() if r.data.content_id in done)
     assert not app.errors

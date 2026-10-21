@@ -299,7 +299,7 @@ class GridEditor(QWidget):
         a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
         b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
         inside = (pos[:-1] < n) & (pos[1:] > 0)
-        scale = h * 0.43 / 127.0
+        scale = h * 0.27 / 127.0                 # amplitude réduite : temps plus lisibles
         p.setPen(Qt.NoPen)
         for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
             # maximum sur [a_i, a_i+1) (bornes croissantes) ; un 0 ajouté en fin sert de borne finale

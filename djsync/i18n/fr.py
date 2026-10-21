@@ -535,6 +535,7 @@ STRINGS = {
     "an.running": "Analyse…",
     "an.failed": "Échec",
     "an.done": "Analysé",
+    "an.saving": "Analysé · enregistrement…",
     "local.name": "Cet ordinateur",
     "local.rekordbox_open": "Rekordbox ouvert",
     "local.rekordbox_open_tip": "Fermez Rekordbox pour que DJSync puisse modifier cette bibliothèque (la lecture reste possible).",

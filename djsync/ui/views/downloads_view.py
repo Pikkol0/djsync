@@ -218,6 +218,10 @@ class DownloadsView(View):
         result = self.ctrl.analysis_results.get(cid)
         if result == "failed":
             return t("an.failed"), ("err",)
+        if result == "ok" and not x.is_analysed:
+            # calculé, pas encore écrit : l'analyse enregistre par lots de 8 sons (une seule sauvegarde
+            # et réécriture d'export.pdb par lot) ; la ligne passe à « Analysé » dès le lot écrit
+            return t("an.saving"), ("playing",)
         if x.is_analysed:
             return t("an.done"), ()
         return t("lib.unanalysed"), ()

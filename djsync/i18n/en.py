@@ -528,6 +528,7 @@ STRINGS = {
     "an.running": "Analysing…",
     "an.failed": "Failed",
     "an.done": "Analysed",
+    "an.saving": "Analysed · saving…",
     "local.name": "This computer",
     "local.rekordbox_open": "Rekordbox open",
     "local.rekordbox_open_tip": "Close Rekordbox to let DJSync change this library (reading still works).",
