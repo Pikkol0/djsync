@@ -96,11 +96,27 @@ jobs:
         run: |
           Invoke-WebRequest https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -OutFile dist/DJSync/.djsync/tools/qjs.exe
           New-Item dist/DJSync/.djsync/portable.flag -ItemType File | Out-Null
-      - name: Smoke test
+      - name: Smoke test (the built exe tests itself)
         shell: pwsh
         run: |
           dist/DJSync/.djsync/tools/ffmpeg.exe -hide_banner -version | Select-Object -First 1
           dist/DJSync/.djsync/tools/qjs.exe -e "print(1+1)"
+          $report = "$env:RUNNER_TEMP\selftest.json"
+          $env:DJSYNC_SELFTEST = $report
+          $p = Start-Process dist/DJSync/DJSync.exe -Wait -PassThru
+          Remove-Item Env:DJSYNC_SELFTEST
+          Get-Content $report
+          $r = Get-Content $report | ConvertFrom-Json
+          $bad = @($r.checks.PSObject.Properties | Where-Object { -not $_.Value.ok } | ForEach-Object { "$($_.Name): $($_.Value.error)" })
+          if (-not $r.checks.yt_dlp.value.ejs) { $bad += "yt_dlp: yt-dlp-ejs (YouTube JavaScript solver) missing" }
+          if (-not $r.checks.tools.value.js.quickjs) { $bad += "tools: bundled QuickJS not found" }
+          $files = (Get-ChildItem dist/DJSync -Recurse -File).Count
+          "::notice title=exe::$files files, self-test exit code $($p.ExitCode)"
+          if ($bad.Count -gt 0 -or $p.ExitCode -ne 0) {
+            foreach ($b in $bad) { "::error title=self-test::$b" }
+            exit 1
+          }
+          Remove-Item -Recurse -Force dist/DJSync/.djsync/data -ErrorAction SilentlyContinue
       - name: Sign
         if: ${{ env.SIGN_CERT_PFX != '' }}
         shell: pwsh

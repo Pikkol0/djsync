@@ -31,6 +31,12 @@ def _setup_logging() -> None:
 
 
 def main() -> int:
+    import os
+
+    if os.environ.get("DJSYNC_SELFTEST"):           # CI / dépannage : autotest sans interface
+        from ..selftest import run
+
+        return run(os.environ["DJSYNC_SELFTEST"])
     from .. import portable
 
     _setup_logging()
