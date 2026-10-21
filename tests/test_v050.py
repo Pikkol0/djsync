@@ -246,3 +246,23 @@ def test_finalize_mp3_and_normalize(tmp_path):
     assert out == src and after.integrated > before.integrated + 5 and after.true_peak <= -0.5
     mp3 = finalize(out, ffmpeg, "mp3")
     assert mp3.suffix == ".mp3" and mp3.is_file() and not src.exists()
+
+
+def test_grid_band_wave_is_fine_and_aligned():
+    """V1.0.0 : forme d'onde 3 bandes de l'éditeur de grille, 450 points/s, calée sur les attaques."""
+    import numpy as np
+
+    from djsync.analysis.waveform import GRID_RATE, band_wave
+
+    sr = 22050
+    x = np.zeros(sr * 4, dtype=np.float32)
+    for k in range(4):                                   # 4 « kicks » graves, un par seconde
+        start = k * sr
+        t = np.arange(2000) / sr
+        x[start:start + 2000] = 0.9 * np.sin(2 * np.pi * 60 * t) * np.exp(-t * 30)
+    w = band_wave(x, sr)
+    assert w.rate == GRID_RATE and w.low.size == 4 * GRID_RATE and w.duration_ms == 4000
+    for k in range(4):
+        onset = int(np.argmax(w.low[k * GRID_RATE:(k + 1) * GRID_RATE] > 20))
+        assert onset * 1000 / GRID_RATE < 6                 # attaque visible à moins de 6 ms près
+    assert w.low.max() > 3 * max(1, w.high.max())           # un kick, c'est des basses

@@ -60,6 +60,17 @@ def _sort_value(row: Row, col: Column) -> Tuple[int, Any]:
     return (0, value.lower() if isinstance(value, str) else value)
 
 
+def _rounded(img: Any, radius: int) -> Any:
+    """Coins arrondis (masque alpha) pour les vignettes."""
+    from PIL import Image, ImageDraw
+
+    img = img.convert("RGBA")
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, img.width - 1, img.height - 1), radius=radius * 2, fill=255)
+    img.putalpha(mask)
+    return img
+
+
 def camelot_sort(row: Row) -> Any:
     code = row.values.get("key") or ""
     try:
@@ -113,6 +124,8 @@ class _Model(QAbstractTableModel):
                 return qicon(ICON_COLUMNS[col.key][0], 16, theme.ACCENT)
             if col.key == "title" and "playing" in row.tags:
                 return qicon("volume", 14, theme.ACCENT)
+            if col.key == "title" and self.table.show_covers:
+                return self.table._cover_for(row)
             return None
         if role == Qt.ForegroundRole:
             for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
@@ -132,6 +145,16 @@ class _Model(QAbstractTableModel):
     def refresh(self) -> None:
         self.beginResetModel()
         self.endResetModel()
+
+
+class _CoverDelegate(QStyledItemDelegate):
+    """Colonne « title » avec pochette : icône à la taille de la vignette (les autres colonnes gardent
+    des icônes de 16 px)."""
+
+    def initStyleOption(self, option: Any, index: QModelIndex) -> None:  # noqa: N802 (API Qt)
+        super().initStyleOption(option, index)
+        size = theme.px(TrackTable.COVER_PX)
+        option.decorationSize = QSize(size, size)
 
 
 class _KeyDelegate(QStyledItemDelegate):
@@ -171,6 +194,12 @@ class TrackTable(QTableView):
                  badges: bool = False) -> None:
         super().__init__(parent)
         self.columns = list(columns)
+        # V1.0.0 : petite pochette devant le titre (recherche), chargée seulement pour les lignes
+        # affichées (Qt ne demande l'icône que des lignes visibles), gardée en mémoire (≈ 4 Ko chacune)
+        self.loader = loader
+        self.show_covers = bool(show_covers and loader is not None)
+        self._covers: Dict[str, Any] = {}
+        self._cover_pending: set = set()
         self.reorderable = reorderable
         self.drag_out = False
         self._click_cols = set(click_columns)
@@ -239,6 +268,8 @@ class TrackTable(QTableView):
         for i, col in enumerate(self.columns):
             if col.key == "key":
                 self.setItemDelegateForColumn(i, _KeyDelegate(self))
+            if col.key == "title" and self.show_covers:
+                self.setItemDelegateForColumn(i, _CoverDelegate(self))
         self.setMouseTracking(True)
         self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self.apply_metrics()
@@ -247,7 +278,10 @@ class TrackTable(QTableView):
     def apply_metrics(self) -> None:
         """Hauteur de ligne et largeurs au zoom courant (appelé aussi après un changement de zoom)."""
         h = self.fontMetrics().height()
-        self.verticalHeader().setDefaultSectionSize(int(h * 2.0))
+        row_h = int(h * 2.0)
+        if self.show_covers:
+            row_h = max(row_h, theme.px(self.COVER_PX) + theme.px(8))
+        self.verticalHeader().setDefaultSectionSize(row_h)
         self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self._fit_columns()
 
@@ -341,6 +375,38 @@ class TrackTable(QTableView):
 
     def refresh_cover(self, iid: str) -> None:
         self.update_values(iid)
+
+    COVER_PX = 30
+
+    def _cover_for(self, row: Row) -> Any:
+        key = getattr(row.data, "thumbnail_url", None)
+        if not key:
+            return None
+        pm = self._covers.get(key)
+        if pm is None and key not in self._cover_pending:
+            self._cover_pending.add(key)
+            from .covers import url_cover
+
+            size = theme.px(self.COVER_PX)
+
+            def done(img: Any, k: str = key, iid: str = row.iid) -> None:
+                from shiboken6 import isValid
+
+                from .icons import to_qpixmap
+
+                self._cover_pending.discard(k)
+                if not isValid(self):
+                    return
+                pix = to_qpixmap(_rounded(img, max(2, size // 8)))
+                pix.setDevicePixelRatio(2.0)
+                self._covers[k] = pix
+                if len(self._covers) > 600:                # les plus anciennes d'abord
+                    for old in list(self._covers)[:100]:
+                        del self._covers[old]
+                self.update_values(iid)
+
+            self.loader.load_pil(url_cover(key), size * 2, done)
+        return pm
 
     @property
     def count(self) -> int:

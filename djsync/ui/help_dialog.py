@@ -39,7 +39,7 @@ class HelpDialog(BaseDialog):
     modal = False
 
     def __init__(self, parent: Any) -> None:
-        super().__init__(parent, t("help.title"), 600, 540)
+        super().__init__(parent, t("help.title"), 720, 680)
         self.heading(t("help.title"), f"DJSync {__version__}")
         tabs = QTabWidget()
 
@@ -67,5 +67,5 @@ class HelpDialog(BaseDialog):
         tabs.addTab(_scroll(guide), t("help.guide"))
 
         self.body.addWidget(tabs, 1)
-        self.footer(t("action.close"), self.close, show_cancel=False)
+        self.footer(t("action.close"), self.close, show_cancel=False, stretch=False)
         self.show_dialog()

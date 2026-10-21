@@ -47,7 +47,7 @@ class SearchView(View):
         self.info = label("", "dim")
         self.root.addWidget(self.info)
 
-        self.table = TrackTable(self, result_columns(), click_columns=("dl",))
+        self.table = TrackTable(self, result_columns(), loader=loader, show_covers=True, click_columns=("dl",))
         self.table.set_empty("search", t("search.empty_title"))
         self.table.on_double = self._play
         self.table.on_select = lambda _ids: self._refresh_buttons()

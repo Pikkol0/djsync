@@ -31,7 +31,9 @@ from .icons import qicon
 from .widgets import button, hbox, icon_button, label, restyle, vbox
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
-VIEW_CHOICES = (4, 8, 16, 32)
+VIEW_CHOICES = (2, 4, 8, 16, 32)
+# Couleurs de la forme d'onde 3 bandes de Rekordbox (basses, médiums, aigus), quel que soit le thème
+BAND_COLORS = ("#1f6fe5", "#f0982c", "#f6ead2")
 SCROLL_STEPS = 1000
 
 
@@ -90,6 +92,7 @@ class GridEditor(QWidget):
         self.original: List[Tuple[int, int, int]] = []
         self.beats: List[Tuple[int, int, int]] = []
         self.detail: List[Tuple[float, str]] = []
+        self.wave: Any = None                  # BandWave fine (calculée depuis l'audio), sinon ANLZ
         self.duration_ms = max(1, track.duration_seconds * 1000)
         self.view_s = 8
         self.start_ms = 0.0
@@ -197,6 +200,12 @@ class GridEditor(QWidget):
         self.start_ms = max(0.0, self.cursor_ms - 1000)
         self._refresh_info()
         self.draw()
+        self.ctrl.load_grid_wave(self.track, self._wave_loaded)
+
+    def _wave_loaded(self, wave: Any) -> None:
+        if self.winfo_exists() and wave is not None:
+            self.wave = wave
+            self.draw()
 
     def _load_failed(self, exc: BaseException) -> None:
         if self.winfo_exists():
@@ -232,7 +241,9 @@ class GridEditor(QWidget):
             return
         self._clamp_view()
         mid = h * 0.55
-        if self.detail:              # une colonne par pixel, max des colonnes ANLZ couvertes
+        if self.wave is not None:
+            self._paint_bands(p, w, h, mid)
+        elif self.detail:            # une colonne par pixel, max des colonnes ANLZ couvertes
             n = len(self.detail)
             for x in range(w):
                 a = int(self._ms(x) / 1000.0 * COLS_PER_S)
@@ -275,6 +286,32 @@ class GridEditor(QWidget):
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 2, -6, 0), Qt.AlignRight | Qt.AlignTop,
                    format_duration(int(self.start_ms / 1000)))
+
+    def _paint_bands(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """Forme d'onde 3 bandes façon Rekordbox : basses (bleu) derrière, médiums (orange), aigus
+        (blanc) devant, symétrique ; chaque pixel = maximum des points qu'il couvre."""
+        import numpy as np
+
+        wave = self.wave
+        n = wave.low.size
+        xs = np.arange(w + 1, dtype=np.float64)
+        pos = (self.start_ms + xs / self.px_per_ms) / 1000.0 * wave.rate
+        a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
+        b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
+        inside = (pos[:-1] < n) & (pos[1:] > 0)
+        scale = h * 0.43 / 127.0
+        p.setPen(Qt.NoPen)
+        for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
+            # maximum sur [a_i, a_i+1) (bornes croissantes) ; un 0 ajouté en fin sert de borne finale
+            vals = np.maximum.reduceat(np.append(band, 0), np.append(a, b[-1]))[:-1]
+            vals = np.where(inside, vals, 0).astype(np.float64) * scale
+            top = [QPointF(float(x) + 0.5, mid - v) for x, v in enumerate(vals)]
+            bottom = [QPointF(float(x) + 0.5, mid + v) for x, v in reversed(list(enumerate(vals)))]
+            p.setBrush(QColor(color))
+            p.drawPolygon(QPolygonF(top + bottom))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
+        p.drawLine(QPointF(0, mid), QPointF(w, mid))
 
     def _refresh_info(self) -> None:
         if not self.beats:

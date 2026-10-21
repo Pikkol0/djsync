@@ -604,4 +604,7 @@ STRINGS = {
     "settings.format_mp3": "MP3 320 kbit/s (anciens lecteurs)",
     "settings.normalize": "Même volume pour tous les téléchargements",
     "settings.normalize_hint": "Mesure la sonie et applique un gain fixe (sans compression, crêtes sous -1 dBTP). Le fichier est ré-encodé.",
+    # ---- V1.0.0
+    "msg.pdb_repaired": "Il manquait {tracks} son(s) et {playlists} playlist(s) dans export.pdb (Device Library, anciennes platines) : c'est réparé.",
+    "msg.rekordbox_open_usb": "Rekordbox est ouvert : il garde sa propre copie de la Device Library de la clé et peut écraser les changements de DJSync. Fermez Rekordbox (ou éjectez-y la clé) pendant que DJSync ajoute des sons.",
 }
