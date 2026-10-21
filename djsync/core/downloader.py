@@ -6,6 +6,9 @@ Repli : si seul un flux Opus est disponible, on le convertit en AAC (un ré-enco
 dans DownloadProgress.message) pour que le fichier reste lisible par Rekordbox.
 
 FFmpeg reste utile : yt-dlp s'en sert pour réparer le conteneur m4a, et pour le repli.
+V0.5.0 : format de sortie au choix (m4a natif / MP3 320) et normalisation du volume (audio_post).
+yt-dlp est importé au premier téléchargement (démarrage plus rapide, et une version mise à jour
+par core.engine est prise en compte sans redémarrer).
 """
 from __future__ import annotations
 
@@ -14,9 +17,9 @@ import re
 from pathlib import Path
 from typing import Callable, Optional
 
-import yt_dlp
-
 from ..models import DownloadedTrack, DownloadProgress, TrackResult
+from .audio_post import finalize
+from .engine import ydl_options
 from .tagger import tag_audio
 
 log = logging.getLogger(__name__)
@@ -39,13 +42,21 @@ def sanitize_filename(name: str, max_len: int = 150) -> str:
 
 
 class Downloader:
-    def __init__(self, ffmpeg_location: Optional[str] = None, fallback_bitrate: str = "256") -> None:
+    def __init__(self, ffmpeg_location: Optional[str] = None, fallback_bitrate: str = "256",
+                 audio_format: str = "m4a", normalize: bool = False) -> None:
         """
         ffmpeg_location  : dossier contenant ffmpeg(.exe) ; None/"" = chercher dans le PATH.
         fallback_bitrate : débit (kbps) de l'AAC produit si le flux natif est indisponible.
         """
         self._ffmpeg = ffmpeg_location or None
         self._fallback_bitrate = fallback_bitrate
+        self.audio_format = audio_format
+        self.normalize = normalize
+
+    def _ffmpeg_exe(self) -> Optional[str]:
+        from ..analysis.decode import find_ffmpeg
+
+        return find_ffmpeg(self._ffmpeg)
 
     def download(
         self,
@@ -55,6 +66,8 @@ class Downloader:
         tag: bool = True,
     ) -> DownloadedTrack:
         """Télécharge (m4a natif), puis tagge (sauf tag=False : préécoute). Renvoie le chemin."""
+        import yt_dlp
+
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
         base = sanitize_filename(f"{track.artist} - {track.title}")
@@ -89,6 +102,12 @@ class Downloader:
             notify(DownloadProgress("error", message=str(exc)))
             raise
 
+        if tag and (self.normalize or self.audio_format != "m4a"):
+            notify(DownloadProgress("converting", 100.0, "Converting…"))
+            try:
+                path = finalize(path, self._ffmpeg_exe(), self.audio_format, self.normalize)
+            except Exception as exc:  # noqa: BLE001 - le fichier d'origine reste utilisable
+                log.warning("Post-processing failed for %s: %s", path, exc)
         if tag:
             notify(DownloadProgress("tagging", 100.0, "Writing tags…"))
             tag_audio(str(path), track)
@@ -104,7 +123,10 @@ class Downloader:
                 pct = d.get("downloaded_bytes", 0) / total * 100 if total else 0.0
                 notify(DownloadProgress("downloading", pct))
 
+        import yt_dlp
+
         opts = {
+            "js_runtimes": ydl_options()["js_runtimes"],
             "outtmpl": str(dest / f"{base}.%(ext)s"),
             "noplaylist": True,
             "quiet": True,

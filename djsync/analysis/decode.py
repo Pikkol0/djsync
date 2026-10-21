@@ -57,6 +57,13 @@ def mp3_priming_samples(path: Union[str, Path]) -> int:
     return delay + MP3_DECODER_DELAY if 0 < delay < 4096 else 0
 
 
+def peak_level(x: np.ndarray) -> float:
+    """max |x| sans copie du signal (np.abs(x) en créerait une de la taille du son)."""
+    if x.size == 0:
+        return 0.0
+    return float(max(x.max(), -x.min()))
+
+
 def _native_rate(path: Path) -> int:
     try:
         import mutagen
@@ -79,7 +86,7 @@ class Decoded:
 
     @property
     def is_silent(self) -> bool:
-        return self.samples.size == 0 or float(np.max(np.abs(self.samples))) < 1e-4
+        return self.samples.size == 0 or peak_level(self.samples) < 1e-4
 
 
 def find_ffmpeg(location: Optional[str] = None) -> Optional[str]:
@@ -96,21 +103,63 @@ def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
+def _duration_hint(path: Path) -> float:
+    try:
+        import mutagen
+
+        info = mutagen.File(str(path)).info
+        return float(getattr(info, "length", 0.0) or 0.0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def _decode_ffmpeg(path: Path, ffmpeg: str, sr: int) -> np.ndarray:
+    """V0.5.0 : lecture en flux directement dans un tableau pré-alloué (durée connue d'avance) —
+    plus de copie intégrale du tampon de sortie : le pic mémoire d'un mix d'1 h passe d'environ
+    800 Mo à la taille du signal mono (≈ 320 Mo à 22 kHz)."""
     cmd = [ffmpeg, "-v", "error", "-nostdin", "-i", str(path), "-map", "0:a:0", "-vn",
            "-ac", "1", "-ar", str(sr), "-f", "f32le", "-acodec", "pcm_f32le", "-"]
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600,
-                              creationflags=_no_window())
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                creationflags=_no_window())
+    except OSError as exc:
         raise DecodeError(f"FFmpeg could not decode the file: {exc}") from exc
-    if proc.returncode != 0 and not proc.stdout:
-        msg = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+    import threading
+
+    errors: list = []
+    reader = threading.Thread(target=lambda: errors.append(proc.stderr.read()), daemon=True)
+    reader.start()
+    capacity = max(int((_duration_hint(path) + 2.0) * sr), sr * 10)
+    out = np.empty(capacity, dtype="<f4")
+    filled = 0                                          # octets reçus
+    pending = b""
+    try:
+        while True:
+            chunk = proc.stdout.read(1 << 20)
+            if not chunk:
+                break
+            data = pending + chunk
+            usable = len(data) - len(data) % 4
+            pending = data[usable:]
+            n = usable // 4
+            start = filled // 4
+            if start + n > out.size:
+                out = np.resize(out, max(out.size * 3 // 2, start + n))
+            out[start:start + n] = np.frombuffer(data, dtype="<f4", count=n)
+            filled += usable
+        proc.wait(timeout=600)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        raise DecodeError(f"FFmpeg could not decode the file: {exc}") from exc
+    finally:
+        proc.stdout.close()
+    reader.join(5)
+    if proc.returncode != 0 and not filled:
+        msg = (errors[0] if errors else b"").decode("utf-8", "replace").strip().splitlines()
         raise DecodeError(f"FFmpeg: {msg[-1] if msg else 'unknown error'}")
-    raw = proc.stdout
-    usable = len(raw) - len(raw) % 4
-    out = np.frombuffer(raw, dtype="<f4", count=usable // 4).copy()   # une seule copie (tampon libéré ensuite)
-    del raw, proc
+    count = filled // 4
+    if count < out.size:
+        out = out[:count].copy() if out.size - count > sr * 30 else out[:count]
     return out
 
 

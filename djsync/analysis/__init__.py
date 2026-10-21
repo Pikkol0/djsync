@@ -41,6 +41,14 @@ class AnalysisResult:
     def bpmx100(self) -> int:
         return self.grid.bpmx100
 
+    @property
+    def first_downbeat_ms(self) -> Optional[int]:
+        """Premier temps fort (temps 1 d'une mesure), en ms : position de la mémoire automatique."""
+        for n, t in self.grid.beats:
+            if n == 1:
+                return int(round(t * 1000))
+        return None
+
     def pqtz_beats(self) -> List[Tuple[int, int, int]]:
         """(numéro dans la mesure 1-4, tempo x100, temps en ms) pour la balise PQTZ."""
         tempos = self.grid.beat_tempos()
@@ -58,8 +66,10 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) 
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,
-               native_sr: int = 44100, rel_dir: Optional[str] = None) -> str:
+               native_sr: int = 44100, rel_dir: Optional[str] = None, auto_cue: bool = False) -> str:
     """Écrit les fichiers d'analyse sur la clé (ou dans le dossier « share » de Rekordbox sur
     l'ordinateur : `rel_dir` imposé) ; renvoie « /PIONEER/USBANLZ/…/ANLZ0000.DAT »."""
     total = int(round(result.duration * native_sr)) if file_type == MP3_FILE_TYPE else 0
-    return write_files(Path(drive_root), track_path, result.pqtz_beats(), result.waveforms, total, rel_dir=rel_dir)
+    cue = result.first_downbeat_ms if auto_cue else None
+    return write_files(Path(drive_root), track_path, result.pqtz_beats(), result.waveforms, total, rel_dir=rel_dir,
+                       memory_cues=[cue] if cue is not None else ())

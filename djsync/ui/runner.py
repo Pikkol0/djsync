@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Optional
 log = logging.getLogger(__name__)
 
 # Un pool par nature de travail : la base est sérialisée (1 thread), le reste en parallèle.
-_POOLS = {"net": 6, "db": 1, "dl": 2, "cover": 4, "match": 3, "analysis": 1}
+_POOLS = {"net": 6, "db": 1, "dl": 2, "cover": 4, "match": 3, "analysis": 1, "tools": 1}
 
 
 class UiDispatcher:

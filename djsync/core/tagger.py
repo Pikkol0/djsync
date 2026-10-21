@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import Optional
 
-import requests
 from mutagen.id3 import APIC, ID3, TALB, TCON, TIT2, TPE1, TPUB, TRCK, TSRC, TYER, ID3NoHeaderError
 from mutagen.mp4 import MP4, MP4Cover
 
@@ -23,6 +22,8 @@ def _fetch_cover(url: Optional[str]) -> Optional[bytes]:
         return None
     url = _SIZE_SUFFIX.sub("=w600-h600", url)
     try:
+        import requests                  # import tardif : démarrage plus rapide
+
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         return resp.content

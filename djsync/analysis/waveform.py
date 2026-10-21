@@ -60,15 +60,17 @@ def _frame_features(x: np.ndarray, sr: int, n: int):
     if hop * DETAIL_RATE != sr:
         raise ValueError("analysis rate is not a multiple of 150 Hz")
     total = n * hop
-    if x.size < total:
-        x = np.pad(x, (0, total - x.size))
-    peak = np.abs(x[:total]).reshape(n, hop).max(axis=1).astype(np.float64)
+    peak = np.zeros(n, dtype=np.float64)
     feats = np.zeros((3, n), dtype=np.float64)
     frames_per_block, pad = 1800, 4096                    # 12 s par bloc
     for f0 in range(0, n, frames_per_block):
         f1 = min(n, f0 + frames_per_block)
         a, b = max(0, f0 * hop - pad), min(total, f1 * hop + pad)
         seg = x[a:b].astype(np.float64)
+        if seg.size < b - a:                                # fin du son : complétée par du silence
+            seg = np.pad(seg, (0, b - a - seg.size))
+        lo0 = f0 * hop - a
+        peak[f0:f1] = np.abs(seg[lo0: lo0 + (f1 - f0) * hop]).reshape(f1 - f0, hop).max(axis=1)
         spec = np.fft.rfft(seg)
         f = np.fft.rfftfreq(seg.size, 1.0 / sr)
         # transitions douces (évite les oscillations d'un filtre « mur »)

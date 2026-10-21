@@ -1,1 +1,1 @@
-"""Lecture audio légère (pygame) et pochettes."""
+"""Lecture audio légère (miniaudio) et pochettes."""

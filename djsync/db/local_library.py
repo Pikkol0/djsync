@@ -207,6 +207,7 @@ class LocalRekordboxLibrary:
         self.drive = target
         self.backup_keep = backup_keep
         self.analyze = analyze
+        self.auto_cue = False                  # V0.5.0 : mémoire cue sur le premier temps fort
         self.artwork = artwork
         self.ffmpeg_location = ffmpeg_location or None
         self.key_notation = key_notation
@@ -718,6 +719,8 @@ class LocalRekordboxLibrary:
             content.AnalysisDataPath = ex.anlz_path
             content.Analysed = ANALYSED_FLAG
             content.AnalysisUpdated = str(int(content.AnalysisUpdated or 0) + 1)
+            if self.auto_cue:
+                self._memory_cue(db, content, ex.analysis.first_downbeat_ms)
             for ext in (".DAT", ".EXT", ".2EX"):
                 rel = ex.anlz_path[:-4] + ext
                 if (self.share_dir / rel.lstrip("/")).is_file():
@@ -726,6 +729,28 @@ class LocalRekordboxLibrary:
             content.ImagePath = ex.jpegs["path"]
             self._file_row(db, content, ex.jpegs["path"])
         content.updated_at = now
+
+    @staticmethod
+    def _memory_cue(db: Any, content: Any, ms: Optional[int]) -> None:
+        """Mémoire cue (Kind 0) au premier temps fort : djmdCue + contentCue, comme Rekordbox. Seulement
+        si le son n'a encore aucun cue (jamais de modification des cues de l'utilisateur)."""
+        from pyrekordbox.masterdb import models
+
+        if ms is None or db.query(models.DjmdCue).filter_by(ContentID=content.ID).first() is not None:
+            return
+        now = datetime.now()
+        cue = dict(ID=str(db.generate_unused_id(models.DjmdCue)), ContentID=content.ID, ContentUUID=content.UUID,
+                   InMsec=int(ms), InFrame=int(ms) * 150 // 1000, InMpegFrame=0, InMpegAbs=0, OutMsec=-1,
+                   OutFrame=0, OutMpegFrame=0, OutMpegAbs=0, Kind=0, Color=-1, UUID=str(uuid4()))
+        db.add(models.DjmdCue.create(**cue, ActiveLoop=0, BeatLoopSize=0, CueMicrosec=0,
+                                     created_at=now, updated_at=now))
+        stamp = now.astimezone().isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        entry = dict(cue, created_at=stamp, updated_at=stamp)
+        row = db.query(models.ContentCue).filter_by(ContentID=content.ID).one_or_none()
+        if row is None:
+            db.add(models.ContentCue.create(ID=content.UUID, ContentID=content.ID, Cues=json.dumps([entry]),
+                                            rb_cue_count=1, UUID=str(uuid4()), created_at=now, updated_at=now))
+        content.CueUpdated = str(int(content.CueUpdated or 0) + 1)
 
     @staticmethod
     def _discard(paths: Sequence[Path]) -> None:
@@ -868,7 +893,70 @@ class LocalRekordboxLibrary:
                 on_progress(i, len(ids), t, problem)
         return done, skipped, failed
 
+    def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
+                        key: Optional[str] = None) -> LibraryTrack:
+        """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante au lieu de recalculer."""
+        from ..analysis.anlz import _write_atomic, retarget
+
+        self.ensure_writable()
+        rows = self._read("SELECT FolderPath, AnalysisDataPath, UUID FROM djmdContent WHERE ID = :id",
+                          {"id": str(content_id)})
+        if not rows:
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
+        folder_path, anlz, uuid = rows[0]
+        if anlz or ".DAT" not in files:
+            return self.get_track(content_id)
+        rel_dir = f"/PIONEER/USBANLZ/{self._uuid_dir(uuid)}"
+        written = []
+        try:
+            for ext, data in files.items():
+                target = self.share_dir / rel_dir.lstrip("/") / f"ANLZ0000{ext}"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                _write_atomic(target, retarget(data, f"?/{Path(folder_path).name}"))
+                written.append(target)
+            with self._write() as db:
+                c = self._content(content_id)
+                if bpm > 0:
+                    c.BPM = int(round(bpm * 100))
+                key_id = self._key_id(db, key) if key else None
+                if key_id:
+                    c.KeyID = key_id
+                c.AnalysisDataPath = f"{rel_dir}/ANLZ0000.DAT"
+                c.Analysed = ANALYSED_FLAG
+                c.AnalysisUpdated = str(int(c.AnalysisUpdated or 0) + 1)
+                for f in written:
+                    self._file_row(db, c, f"{rel_dir}/{f.name}")
+                c.updated_at = datetime.now()
+        except BaseException:
+            self._discard(written)
+            raise
+        return self.get_track(content_id)
+
     # ---------------------------------------------------------------- métadonnées
+    def complete_metadata(self, content_id: int, meta: Dict[str, Any], album: Optional[str] = None) -> bool:
+        """V0.5.0 : complète les champs VIDES seulement (album, année, genre, label, n° de piste, ISRC)."""
+        with self._write() as db:
+            c = self._content(content_id)
+            changed = False
+            if meta.get("year") and not c.ReleaseYear:
+                c.ReleaseYear, changed = int(meta["year"]), True
+            if meta.get("release_date") and not c.ReleaseDate:
+                c.ReleaseDate, changed = str(meta["release_date"])[:10], True
+            if meta.get("track_no") and not c.TrackNo:
+                c.TrackNo, changed = int(meta["track_no"]), True
+            if meta.get("isrc") and not c.ISRC:
+                c.ISRC, changed = str(meta["isrc"]), True
+            if meta.get("genre") and not c.GenreID:
+                c.GenreID, changed = self._genre_id(db, meta["genre"]), True
+            if meta.get("label") and not c.LabelID:
+                c.LabelID, changed = self._label_id(db, meta["label"]), True
+            if album and album.strip() and not c.AlbumID:
+                c.AlbumID, changed = self._album_id(db, album.strip()), True
+            if changed:
+                c.TrackInfoUpdated = str(int(c.TrackInfoUpdated or 0) + 1)
+                c.updated_at = datetime.now()
+        return changed
+
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
         title = title.strip() if title is not None else None

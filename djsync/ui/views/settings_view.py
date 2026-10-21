@@ -119,6 +119,9 @@ class SettingsView(View):
         self.connect_btn = button(t("action.connect"), self._connect, kind="primary", icon="usb")
         row.addWidget(self.connect_btn)
         row.addWidget(button(t("action.disconnect"), lambda: self.ctrl.disconnect(True), icon="close"))
+        self.eject_btn = button(t("action.eject"), self.ctrl.eject, icon="eject")
+        self.eject_btn.setToolTip(t("eject.hint"))
+        row.addWidget(self.eject_btn)
         row.addStretch(1)
         card.addLayout(row)
         self.drive_state = label("", "dim")
@@ -185,6 +188,10 @@ class SettingsView(View):
         self.analyze_var = QCheckBox(t("settings.analyze_on_add"))
         self.analyze_var.setChecked(s.analyze_on_add)
         card.addWidget(self.analyze_var)
+        self.cue_var = QCheckBox(t("settings.auto_cue"))
+        self.cue_var.setChecked(s.auto_cue)
+        self.cue_var.setToolTip(t("settings.auto_cue_hint"))
+        card.addWidget(self.cue_var)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.key_notation"))))
         self._notation_labels = {k: t(f"settings.notation_{k}") for k in KEY_NOTATIONS}
@@ -224,6 +231,35 @@ class SettingsView(View):
         self.meta_var.setChecked(s.fetch_metadata)
         card.addWidget(self.views_var)
         card.addWidget(self.meta_var)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.format"))))
+        self._format_labels = {"m4a": t("settings.format_m4a"), "mp3": t("settings.format_mp3")}
+        self.format_menu = QComboBox()
+        self.format_menu.addItems(list(self._format_labels.values()))
+        self.format_menu.setCurrentText(self._format_labels.get(s.audio_format, self._format_labels["m4a"]))
+        row.addWidget(self.format_menu)
+        row.addStretch(1)
+        card.addLayout(row)
+        self.normalize_var = QCheckBox(t("settings.normalize"))
+        self.normalize_var.setChecked(s.normalize_volume)
+        self.normalize_var.setToolTip(t("settings.normalize_hint"))
+        card.addWidget(self.normalize_var)
+
+        # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement
+        card = self._card(t("engine.title"), "refresh", t("engine.hint"))
+        self.engine_state = label("", "dim", wrap=True)
+        card.addWidget(self.engine_state)
+        row = hbox()
+        self.engine_check_btn = button(t("engine.check"), self._engine_check, icon="search")
+        row.addWidget(self.engine_check_btn)
+        self.engine_install_btn = button(t("engine.install"), self._engine_install, kind="primary", icon="download")
+        self.engine_install_btn.hide()
+        row.addWidget(self.engine_install_btn)
+        self.engine_back_btn = button(t("engine.rollback"), self._engine_rollback, kind="flat", icon="back")
+        row.addWidget(self.engine_back_btn)
+        row.addStretch(1)
+        card.addLayout(row)
+        self._engine_release = None
 
         # ---- sauvegardes
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
@@ -242,6 +278,7 @@ class SettingsView(View):
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
         self._ffmpeg_status()
+        self._engine_show()
 
     def _card(self, title: str, icon: str = "", hint: str = "") -> Any:
         """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ)."""
@@ -320,6 +357,7 @@ class SettingsView(View):
             self.drive_menu.setCurrentText(current)
         self.drive_menu.blockSignals(False)
         self.connect_btn.setEnabled(bool(self._drives))
+        self.eject_btn.setEnabled(self.ctrl.drive is not None and not self.ctrl.is_local)
         if self.ctrl.drive:
             self.drive_state.setText(t("settings.connected", drive=str(self.ctrl.drive)))
         else:
@@ -370,6 +408,61 @@ class SettingsView(View):
         self.ffmpeg_state.style().unpolish(self.ffmpeg_state)
         self.ffmpeg_state.style().polish(self.ffmpeg_state)
 
+    # ------------------------------------------------------- moteur de téléchargement
+    def _engine_show(self, extra: str = "") -> None:
+        from ...core import engine
+
+        version = engine.current_version() or "?"
+        updated = engine.override_version() and engine.parse_version(engine.override_version()) > engine.parse_version(
+            engine.bundled_version())
+        runtime = next(iter(engine.js_runtimes()), "deno")
+        js_names = {"deno": t("engine.js_deno"), "node": t("engine.js_node"), "quickjs": t("engine.js_quickjs")}
+        text = t("engine.state", version=version, origin=t("engine.updated") if updated else t("engine.bundled"),
+                 js=js_names.get(runtime, runtime))
+        self.engine_state.setText(text + (f"\n{extra}" if extra else ""))
+        self.engine_back_btn.setEnabled(bool(engine.engine_dir().exists()))
+
+    def _engine_check(self) -> None:
+        self.engine_check_btn.setEnabled(False)
+        self._engine_show(t("engine.checking"))
+
+        def done(release: Any, current: str, error: Any) -> None:
+            if not self.winfo_exists():
+                return
+            self.engine_check_btn.setEnabled(True)
+            if error:
+                self._engine_show(t("engine.check_failed", error=str(error)[:160]))
+            elif release is not None and release.newer_than(current):
+                self._engine_release = release
+                self.engine_install_btn.setText(t("engine.install_version", version=release.version))
+                self.engine_install_btn.show()
+                self._engine_show(t("engine.available", version=release.version))
+            else:
+                self.engine_install_btn.hide()
+                self._engine_show(t("engine.up_to_date"))
+
+        self.ctrl.engine_check(done)
+
+    def _engine_install(self) -> None:
+        if self._engine_release is None:
+            return
+        self.engine_install_btn.setEnabled(False)
+
+        def done(ok: bool, _info: str) -> None:
+            if not self.winfo_exists():
+                return
+            self.engine_install_btn.setEnabled(True)
+            if ok:
+                self.engine_install_btn.hide()
+            self._engine_show()
+
+        self.ctrl.engine_install(self._engine_release, done)
+
+    def _engine_rollback(self) -> None:
+        self.ctrl.engine_rollback()
+        self.engine_install_btn.hide()
+        self._engine_show()
+
     # --------------------------------------------------------------- enregistrer
     def _save(self) -> None:
         s = self.ctrl.settings
@@ -384,6 +477,9 @@ class SettingsView(View):
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
         s.analyze_on_add = self.analyze_var.isChecked()
+        s.auto_cue = self.cue_var.isChecked()
+        s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
+        s.normalize_volume = self.normalize_var.isChecked()
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
                                                                                             s.local_music_dir)

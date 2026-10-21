@@ -22,6 +22,8 @@ from typing import Dict, Optional
 
 import numpy as np
 
+from .decode import peak_level
+
 from ..core.camelot import to_camelot
 
 NAMES = ("C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
@@ -59,7 +61,7 @@ def _spectra(x: np.ndarray):
 
 
 def analyze_key(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> KeyResult:
-    if x.size < N_FFT * 4 or float(np.max(np.abs(x), initial=0.0)) < 1e-3:
+    if x.size < N_FFT * 4 or peak_level(x) < 1e-3:
         return KeyResult()
     freqs = np.fft.rfftfreq(N_FFT, 1.0 / sr)
     lo_f = 440.0 * 2 ** ((MIDI_LO - 0.5 - 69) / 12)

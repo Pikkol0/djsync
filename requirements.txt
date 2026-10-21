@@ -3,7 +3,7 @@
 # --- Interface ---
 PySide6-Essentials>=6.6    # Qt interface (QtCore/QtGui/QtWidgets only, no QtWebEngine)
 Pillow>=10.0.0             # artwork, thumbnails, icons
-pygame>=2.5.0              # built-in audio player (mixer only)
+miniaudio>=1.59            # built-in audio player (~1 MB, no SDL)
 
 # --- Search, URL import, download ---
 ytmusicapi>=1.8.0          # YouTube Music search (no authentication)
@@ -26,9 +26,9 @@ pyrekordbox>=0.5.0         # master.db access: update counters, masterPlaylists6
 # pyinstaller>=6.0.0
 
 # NOTES (not pip packages)
-#  * FFmpeg (ffmpeg + ffprobe): required (download, m4a playback, analysis). In the PATH, or the
-#    folder set in Settings > FFmpeg.
-#  * Deno (or Node): needed by yt-dlp for YouTube (player JavaScript). Without it, some YouTube
-#    downloads fail. https://deno.com
+#  * FFmpeg: required (download, m4a playback, analysis). In the PATH, or the folder set in
+#    Settings > FFmpeg. The Windows build ships an audio-only one (packaging/build_ffmpeg.sh).
+#  * A JavaScript runtime for yt-dlp (YouTube): Deno, Node.js or QuickJS-NG (qjs, 2.5 MB, shipped
+#    with the Windows build). Without one, some YouTube downloads fail.
 #  * export.pdb is written by djsync/db/pdb (pure Python) and the analysis (djsync/analysis) only
 #    uses numpy + FFmpeg: no librosa/scipy/numba (~150 MB).

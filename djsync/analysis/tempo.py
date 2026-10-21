@@ -26,6 +26,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .decode import peak_level
+
 N_FFT = 1024
 HOP = 256
 BPM_MIN, BPM_MAX = 70.0, 180.0      # plage de sortie (comme les réglages par défaut des logiciels DJ)
@@ -363,7 +365,7 @@ def _harmonic_change(x: np.ndarray, sr: int, times: np.ndarray) -> np.ndarray:
 def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatGrid:
     """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque."""
     duration = x.size / float(sr)
-    if duration < 4.0 or float(np.max(np.abs(x), initial=0.0)) < 1e-3:
+    if duration < 4.0 or peak_level(x) < 1e-3:
         return BeatGrid()
     env, benv, fps = onset_envelopes(x, sr)
     if env.size < fps * 3 or not np.any(env):

@@ -141,6 +141,7 @@ class _Extras:
     jpegs: Optional[Dict[str, bytes]] = None
     problems: List[str] = field(default_factory=list)
     written: List[Path] = field(default_factory=list)   # fichiers créés (supprimés si la base refuse)
+    cue_ms: Optional[int] = None            # V0.5.0 : mémoire automatique (premier temps fort)
 
 
 @dataclass

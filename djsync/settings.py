@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Optional
 
@@ -78,6 +78,11 @@ class Settings:
     # ---- V0.4.0 : bibliothèque Rekordbox de cet ordinateur
     local_db_dir: str = ""             # dossier de master.db ; vide = emplacement standard de Rekordbox
     local_music_dir: str = ""          # dossier des sons téléchargés ; vide = Musique/DJSync
+    # ---- V0.5.0
+    audio_format: str = "m4a"          # m4a (flux d'origine, sans perte) | mp3 (MP3 320, ré-encodé)
+    normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
+    auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
+    local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
 
     @classmethod
     def path(cls) -> Path:
@@ -108,6 +113,8 @@ class Settings:
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
+        self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
+        self.local_hosts = [str(h) for h in self.local_hosts][:50]
         return self
 
     def save(self, path: Optional[Path] = None) -> None:

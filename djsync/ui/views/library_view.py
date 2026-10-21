@@ -745,6 +745,9 @@ class LibraryView(View):
             entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
                         (t("action.edit_metadata"), self._edit_metadata, "edit")]
         entries.append((t("lib.find_duplicates"), self._duplicates, "duplicates"))
+        target = sel or None
+        entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
+                        lambda: self._complete_metadata(target), "tag"))
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
 
@@ -764,8 +767,29 @@ class LibraryView(View):
             if tracks[0].camelot:
                 entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
                                 "key"))
+        entries.append((t("meta.complete_sel", n=len(tracks)), lambda: self._complete_metadata(tracks), "tag"))
         entries += [None, (t("lib.delete") + "…", self._delete, "trash")]
         return entries
+
+    def _complete_metadata(self, tracks: Any) -> None:
+        if self.ctrl.tool_busy:
+            self.ctrl.message("warn", t("tools.busy"))
+            return
+        if tracks is None:
+            self.ctrl.dispatcher.submit(lambda: [x.content_id for x in self.ctrl.library.list_tracks()],
+                                        self.ctrl.complete_metadata, self.ctrl._on_error, pool="db")
+        else:
+            self.ctrl.complete_metadata([x.content_id for x in tracks])
+
+    def _copy_playlist(self, playlist_id: int, target: Any, name: str) -> None:
+        if self.ctrl.tool_busy:
+            self.ctrl.message("warn", t("tools.busy"))
+            return
+        from ..dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("copy.title"), t("copy.confirm", target=name),
+                      lambda: self.ctrl.copy_playlist(playlist_id, target), confirm_text=t("copy.ok"),
+                      detail=t("copy.detail"))
 
     def _nav_context(self, pos: Any) -> None:
         it = self.nav.itemAt(pos)
@@ -774,11 +798,19 @@ class LibraryView(View):
             return
         self.nav.setCurrentItem(it)
         p = self._by_iid.get(iid)
-        if p is None or not p.is_editable and not p.is_folder:
+        if p is None:
             return
-        popup_menu(self.nav, [(t("action.rename") + "…", self._rename_playlist, "edit"),
-                              (t("action.delete") + "…", self._delete_playlist, "trash")],
-                   self.nav.viewport().mapToGlobal(pos))
+        entries: list = []
+        if p.is_editable:
+            for name, target in self.ctrl.copy_targets():
+                entries.append((t("copy.to", target=name) + "…",
+                                lambda pid=p.playlist_id, tg=target, n=name: self._copy_playlist(pid, tg, n), "copy"))
+            if entries:
+                entries.append(None)
+        if p.is_editable or p.is_folder:
+            entries += [(t("action.rename") + "…", self._rename_playlist, "edit"),
+                        (t("action.delete") + "…", self._delete_playlist, "trash")]
+        popup_menu(self.nav, entries, self.nav.viewport().mapToGlobal(pos))
 
 
 def _qcolor(color: str) -> Any:

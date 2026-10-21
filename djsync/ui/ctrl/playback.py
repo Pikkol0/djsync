@@ -168,7 +168,11 @@ class PlaybackMixin:
                 return
             self.player.play(path, NowPlaying(track.title, track.artist, path, cover_url=track.thumbnail_url))
 
-        self.dispatcher.submit(work, ok, self._on_error, pool="net")
+        def err(exc: BaseException) -> None:
+            self._on_error(exc)
+            self.engine_failure(str(exc))
+
+        self.dispatcher.submit(work, ok, err, pool="net")
 
     # ---------------------------------------------------------------- formes d'onde
     def load_overview(self, track: LibraryTrack, ok: Callable[[list], None]) -> None:
