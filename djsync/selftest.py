@@ -37,7 +37,7 @@ def _ytdlp() -> Dict[str, Any]:
 def run(target: str) -> int:
     from . import __version__, portable
 
-    portable.prepare_environment()
+    portable.prepare_environment(hide=False)      # l'autotest ne touche à rien (CI : zip fait ensuite)
     report: Dict[str, Any] = {"djsync": __version__, "frozen": bool(getattr(sys, "frozen", False)), "checks": {}}
     ok = True
 

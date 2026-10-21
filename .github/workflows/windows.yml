@@ -110,7 +110,8 @@ jobs:
           $bad = @($r.checks.PSObject.Properties | Where-Object { -not $_.Value.ok } | ForEach-Object { "$($_.Name): $($_.Value.error)" })
           if (-not $r.checks.yt_dlp.value.ejs) { $bad += "yt_dlp: yt-dlp-ejs (YouTube JavaScript solver) missing" }
           if (-not $r.checks.tools.value.js.quickjs) { $bad += "tools: bundled QuickJS not found" }
-          $files = (Get-ChildItem dist/DJSync -Recurse -File).Count
+          attrib -h -s dist\DJSync\.djsync          # never ship it hidden: Compress-Archive would skip it
+          $files = (Get-ChildItem dist/DJSync -Recurse -File -Force).Count
           "::notice title=exe::$files files, self-test exit code $($p.ExitCode)"
           if ($bad.Count -gt 0 -or $p.ExitCode -ne 0) {
             foreach ($b in $bad) { "::error title=self-test::$b" }
@@ -128,7 +129,11 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
+          attrib -h -s dist\DJSync\.djsync
+          $n = (Get-ChildItem dist/DJSync -Recurse -File -Force).Count
+          if ($n -lt 50) { "::error title=package::only $n files in dist/DJSync"; exit 1 }   # .djsync missing
           Compress-Archive -Path dist/DJSync/* -DestinationPath ${{ steps.name.outputs.zip }}
+          if ((Get-Item ${{ steps.name.outputs.zip }}).Length -lt 40MB) { "::error title=package::zip too small"; exit 1 }
           $h = (Get-FileHash ${{ steps.name.outputs.zip }} -Algorithm SHA256).Hash.ToLower()
           "$h  ${{ steps.name.outputs.zip }}" | Out-File -Encoding ascii "${{ steps.name.outputs.zip }}.sha256"
       - uses: actions/upload-artifact@v7
