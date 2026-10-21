@@ -51,18 +51,18 @@ class Waveforms:
         return len(self.detail)
 
 
-def _frame_features(x: np.ndarray, sr: int, n: int):
+def _frame_features(x: np.ndarray, sr: int, n: int, rate: int = DETAIL_RATE):
     """(crête, RMS basses, RMS médiums, RMS aigus) par point de forme d'onde (150/s).
 
     Traitement par blocs recouvrants alignés sur les points : la mémoire reste de quelques Mo même
     pour un mix d'une heure (aucun signal de bande complet n'est conservé)."""
-    hop = sr // DETAIL_RATE
-    if hop * DETAIL_RATE != sr:
-        raise ValueError("analysis rate is not a multiple of 150 Hz")
+    hop = sr // rate
+    if hop * rate != sr:
+        raise ValueError(f"analysis rate is not a multiple of {rate} Hz")
     total = n * hop
     peak = np.zeros(n, dtype=np.float64)
     feats = np.zeros((3, n), dtype=np.float64)
-    frames_per_block, pad = 1800, 4096                    # 12 s par bloc
+    frames_per_block, pad = 12 * rate, 4096               # 12 s par bloc
     for f0 in range(0, n, frames_per_block):
         f1 = min(n, f0 + frames_per_block)
         a, b = max(0, f0 * hop - pad), min(total, f1 * hop + pad)
@@ -186,3 +186,35 @@ def _three_band(peak: np.ndarray, L: np.ndarray, M: np.ndarray, H: np.ndarray, n
             cols[:, j] *= target / m
     prev = np.clip(np.round(cols), 0, 127)
     return det.astype(np.uint8).tobytes(), prev.astype(np.uint8).tobytes(), tuple(norm)
+
+
+# ------------------------------------------------- éditeur de grille (V1.0.0)
+GRID_RATE = 450              # points par seconde (2,2 ms) : 3 fois plus fin que le PWV7 des platines
+
+
+@dataclass
+class BandWave:
+    """Forme d'onde 3 bandes fine, pour placer les temps à l'œil comme dans Rekordbox."""
+    rate: int
+    low: np.ndarray          # uint8 0-127, une valeur par point
+    mid: np.ndarray
+    high: np.ndarray
+
+    @property
+    def duration_ms(self) -> float:
+        return self.low.size * 1000.0 / self.rate
+
+
+def band_wave(x: np.ndarray, sr: int, rate: int = GRID_RATE) -> BandWave:
+    """Même échelle que le PWV7 calé sur Rekordbox (gain par bande, exposant 0,6 sur la crête p99),
+    à `rate` points par seconde."""
+    n = max(1, int(math.ceil(x.size / sr * rate)))
+    peak, L, M, H = _frame_features(x, sr, n, rate)
+    ref = float(np.percentile(peak, 99)) if np.any(peak) else 0.0
+    kernel = np.ones(3) / 3
+    out = []
+    for j, band in enumerate((L, M, H)):
+        sm = np.convolve(band, kernel, "same") if n >= 3 else band
+        v = np.zeros(n) if ref <= 0 else np.clip(THREE_BAND_GAIN[j] * 127 * (np.maximum(sm, 0) / ref) ** 0.6, 0, 127)
+        out.append(np.round(v).astype(np.uint8))
+    return BandWave(rate, *out)
