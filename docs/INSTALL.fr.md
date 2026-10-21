@@ -12,17 +12,19 @@ besoin (FFmpeg et le moteur JavaScript pour YouTube sont inclus).
   *Ou* Rekordbox installé sur l'ordinateur, si vous voulez mettre à jour sa collection.
 - Environ **250 Mo** libres sur la clé pour DJSync (plus la place de vos sons).
 
-## Installer (2 minutes)
-1. Téléchargez **`DJSync-<version>-windows.zip`** depuis la
-   [dernière release](https://github.com/Pikkol0/djsync/releases/latest).
-2. Clic droit sur le zip ▸ **Extraire tout…** ▸ choisissez **la racine de la clé** (par exemple `E:\`).
-3. Ouvrez la clé et double-cliquez sur **`DJSync.exe`**.
+## Installer (1 minute)
+1. **[Téléchargez DJSync.exe](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe)** :
+   un seul fichier, rien à décompresser.
+2. Copiez-le **à la racine de votre clé** (par exemple `E:\`).
+3. **Double-cliquez dessus.**
    - Windows affiche « Windows a protégé votre ordinateur » ? Cliquez sur **Informations
      complémentaires** ▸ **Exécuter quand même** (application non signée, une seule fois par PC).
+   - Le premier lancement prend un moment : DJSync prépare ses fichiers sur la clé (une seule fois).
 4. C'est prêt : DJSync reconnaît la clé sur laquelle il se trouve et l'ouvre tout seul.
 
-> À côté de `DJSync.exe` se trouve un dossier `.djsync`, caché au premier lancement : il contient le
-> programme et vos réglages. **Ne séparez pas `DJSync.exe` de ce dossier** (copiez toujours les deux).
+> DJSync range ses fichiers et vos réglages dans un dossier caché à côté de lui. Si vous le copiez
+> ailleurs ou supprimez ce dossier, il le recrée tout seul au lancement suivant (les réglages repartent
+> alors de zéro).
 
 ## Premiers pas
 - **Français** : *Settings* ▸ *Appearance* ▸ *Language* ▸ **Français**.
@@ -38,10 +40,12 @@ besoin (FFmpeg et le moteur JavaScript pour YouTube sont inclus).
 - DJSync **sauvegarde la base avant chaque modification** (dossier `DJSync_Backups` sur la clé). Gardez
   quand même une copie de votre clé.
 - Lancé depuis une clé, DJSync **demande avant** d'ouvrir la bibliothèque Rekordbox d'un ordinateur.
+- **Sans Internet**, DJSync fonctionne quand même : playlists, lecture, analyse, grille, doublons, copie
+  entre bibliothèques. Seuls la recherche, les téléchargements et les pochettes en ligne en ont besoin.
 
 ## Mettre à jour DJSync
-Téléchargez le nouveau zip et extrayez-le **au même endroit** en acceptant de remplacer les fichiers :
-vos réglages sont conservés.
+Remplacez `DJSync.exe` par le nouveau : au lancement suivant, il se met à jour tout seul et garde vos
+réglages.
 
 ## En cas de souci
 | Problème | Solution |
@@ -50,5 +54,5 @@ vos réglages sont conservés.
 | « La base est verrouillée : fermez Rekordbox… » | Quittez Rekordbox (et vérifiez qu'il ne tourne plus dans la barre des tâches). |
 | La clé n'est pas détectée | *Paramètres* ▸ *Clé USB Rekordbox* ▸ **Lettre de lecteur** (ex. `E`) ▸ *Enregistrer*. |
 | Voir le dossier caché `.djsync` | Tapez `E:\.djsync` dans la barre d'adresse de l'Explorateur (le dossier est protégé comme un fichier système). |
-| L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (la somme SHA-256 du zip est publiée avec la release). |
+| L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (son empreinte SHA-256 est publiée avec la release). |
 | Autre problème | Joignez le journal `.djsync\data\djsync.log` à votre message (tapez `E:\.djsync\data` dans la barre d'adresse de l'Explorateur, avec la lettre de votre clé). |

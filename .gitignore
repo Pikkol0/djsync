@@ -233,3 +233,4 @@ DJSync_Backups/
 .idea/
 .DS_Store
 Thumbs.db
+!packaging/launcher/launcher.manifest

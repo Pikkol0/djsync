@@ -53,9 +53,11 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 
 ## Download (Windows)
 
-Get **`DJSync-<version>-windows.zip`** from the [latest release](https://github.com/Pikkol0/djsync/releases/latest),
-unzip it at the root of your USB drive and double-click `DJSync.exe` — nothing to install, FFmpeg and the
-JavaScript runtime needed for YouTube are included. Its companion folder `.djsync` is hidden at first launch.
+### ⬇ [Download DJSync.exe](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe)
+
+One file: put it on your USB drive and double-click it. Nothing to unzip or install, FFmpeg and the
+JavaScript runtime needed for YouTube are included. The first launch prepares DJSync's files in a hidden
+folder next to it (once); to update, replace DJSync.exe. Pre-releases: [all releases](https://github.com/Pikkol0/djsync/releases).
 Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/INSTALL.fr.md)).
 
 ## Run from source
@@ -78,18 +80,20 @@ python app.py
 ```
 ### Building the Windows executable
 The **Windows build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or
-by pushing a `v*` tag) produces `DJSync-windows.zip`: unzip it at the root of the USB drive. The user only
-sees **`DJSync.exe`**; everything else (Python, Qt, an audio-only FFmpeg of ~6 MB, QuickJS for yt-dlp,
-settings) lives in the `.djsync` folder next to it, hidden by DJSync at first launch. Folder build rather
-than a one-file exe: instant start from a USB stick, nothing unpacked on the computer. Optional code
-signing with the `SIGN_CERT_PFX` / `SIGN_CERT_PASSWORD` secrets. By hand:
+by pushing a `v*` tag) produces a **single `DJSync.exe`**: a 150 KB launcher (`packaging/launcher`, C +
+miniz) with the application folder zipped behind it. On first launch (or after an update, or if the
+folder was deleted) it extracts the application into the hidden `.djsync/app` next to itself, keeps
+`.djsync/data` (settings), then starts it — later launches are instant. Unlike a PyInstaller one-file
+exe, nothing is unpacked to the computer at every launch. The workflow tests the result like a user would
+(DJSync.exe alone in an empty folder, self-test of the application). Optional code signing with the
+`SIGN_CERT_PFX` / `SIGN_CERT_PASSWORD` secrets. By hand:
 ```bash
 pip install pyinstaller
-pyinstaller packaging/DJSync.spec              # -> dist/DJSync/DJSync.exe + dist/DJSync/.djsync/
-packaging/build_ffmpeg.sh out/                  # (Linux, mingw-w64) -> ffmpeg.exe, ffprobe.exe
+pyinstaller packaging/DJSync.spec              # -> dist/DJSync/ (DJSync.exe + _internal)
+packaging/build_ffmpeg.sh out/                  # (Linux, mingw-w64) -> ffmpeg.exe, ffprobe.exe -> dist/DJSync/tools/
+packaging/build_launcher.sh out/                # (Linux, mingw-w64) -> launcher.exe
+python packaging/pack_single_exe.py out/launcher.exe dist/DJSync 1.0.0 DJSync.exe
 ```
-Put `ffmpeg.exe`, `ffprobe.exe` and `qjs.exe` in `.djsync/tools/` and an empty `.djsync/portable.flag`.
-*(Build not yet validated on a Windows machine.)*
 
 ### Download engine updates
 yt-dlp is **never updated on its own**. When a download or a link import fails in a way that looks like
@@ -160,7 +164,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **1.0.0** | First release: portable Windows build published as a GitHub release (zip + SHA-256, notes built from this table). Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
+| **1.0.0** | First release: ONE file to download, DJSync.exe (prepares itself on first launch, repairs itself if moved or deleted, keeps settings across updates), published as a GitHub release with its SHA-256 and notes built from this table. Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
 | 0.5.1 | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
 | 0.5.0 | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
 | 0.4.0 | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |

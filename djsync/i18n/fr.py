@@ -608,4 +608,5 @@ STRINGS = {
     # ---- V1.0.0
     "msg.pdb_repaired": "Il manquait {tracks} son(s) et {playlists} playlist(s) dans export.pdb (Device Library, anciennes platines) : c'est réparé.",
     "msg.rekordbox_open_usb": "Rekordbox est ouvert : il garde sa propre copie de la Device Library de la clé et peut écraser les changements de DJSync. Fermez Rekordbox (ou éjectez-y la clé) pendant que DJSync ajoute des sons.",
+    "error.offline": "Pas de connexion Internet : la recherche, les téléchargements et les pochettes en ont besoin. Bibliothèques, playlists, lecture et analyse fonctionnent quand même.",
 }

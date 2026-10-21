@@ -601,4 +601,5 @@ STRINGS = {
     # ---- V1.0.0
     "msg.pdb_repaired": "export.pdb (Device Library, older players) was missing {tracks} track(s) and {playlists} playlist(s): repaired.",
     "msg.rekordbox_open_usb": "Rekordbox is open: it keeps its own copy of the drive's Device Library and may overwrite DJSync's changes. Close Rekordbox (or eject the drive in it) while DJSync adds tracks.",
+    "error.offline": "No internet connection: search, downloads and artwork need it. Your libraries, playlists, player and analysis still work.",
 }

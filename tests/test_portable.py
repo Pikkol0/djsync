@@ -88,7 +88,7 @@ def test_release_notes_match_version_and_history(capsys):
     v = djsync.__version__
     assert notes.main(f"v{v}") == 0
     out = capsys.readouterr().out
-    assert f"**Release {v}**" in out and f"DJSync-{v}-windows.zip" in out and notes.history_row(v)
+    assert f"**Release {v}**" in out and "**DJSync.exe**" in out and notes.history_row(v)
     assert notes.main(f"v{v}-rc.1") == 0 and "Pre-release" in capsys.readouterr().out
     assert notes.main("v0.0.1") == 1                          # tag ≠ version : publication refusée
 
@@ -156,3 +156,41 @@ def test_selftest_report(tmp_path):
     assert report["checks"]["yt_dlp"]["ok"] and report["checks"]["yt_dlp"]["value"]["extractors"] > 100
     assert report["checks"]["miniaudio"]["ok"] and report["checks"]["sqlcipher3"]["ok"]
     assert code == (0 if report["ok"] else 1)          # FFmpeg absent du PATH (CI) : signalé, sans planter
+
+
+def test_single_file_launcher_layout(tmp_path, monkeypatch):
+    """V1.0.0 : DJSync.exe (lanceur) extrait l'application dans .djsync/app et transmet son dossier."""
+    usb = tmp_path / "usb"
+    (usb / portable.CONTENTS / "app" / "tools").mkdir(parents=True)
+    monkeypatch.setenv("DJSYNC_APP_DIR", str(usb))
+    assert portable.app_dir() == usb and portable.is_portable(usb)
+    assert portable.portable_data_dir() == usb / portable.CONTENTS / "data"
+    assert portable.tool_dirs() == [usb / portable.CONTENTS / "app" / "tools"]
+
+
+def test_pack_single_exe(tmp_path):
+    """Le lanceur trouve l'application grâce au bloc de fin : zip complet, version, position."""
+    import importlib.util
+    import struct
+    import zipfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "pack", Path(__file__).resolve().parent.parent / "packaging" / "pack_single_exe.py")
+    pack = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pack)
+    app = tmp_path / "app"
+    (app / "_internal" / "sub").mkdir(parents=True)
+    (app / "DJSync.exe").write_bytes(b"MZ inner")
+    (app / "_internal" / "sub" / "café.txt").write_text("x", encoding="utf-8")
+    launcher = tmp_path / "launcher.exe"
+    launcher.write_bytes(b"MZ" + b"\0" * 1000)
+    out = tmp_path / "usb" / "DJSync.exe"
+    assert pack.pack(launcher, app, "1.0.0", out) == 2
+    data = out.read_bytes()
+    magic, start, size = data[-56:-48], *struct.unpack("<QQ", data[-48:-32])
+    assert magic == b"DJSYNCPK" and data[-32:].rstrip(b"\0") == b"1.0.0" and start == 1002
+    import io
+
+    names = zipfile.ZipFile(io.BytesIO(data[start:start + size])).namelist()
+    assert sorted(names) == ["DJSync.exe", "_internal/sub/café.txt"]
