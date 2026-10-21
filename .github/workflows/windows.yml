@@ -17,8 +17,8 @@ jobs:
   ffmpeg:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         id: cache
         with:
           path: ffmpeg-out
@@ -29,7 +29,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q gcc-mingw-w64-x86-64 nasm make
           packaging/build_ffmpeg.sh ffmpeg-out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ffmpeg
           path: ffmpeg-out
@@ -41,8 +41,8 @@ jobs:
       SIGN_CERT_PFX: ${{ secrets.SIGN_CERT_PFX }}
       SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Clean environment
@@ -54,10 +54,15 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           DJSYNC_AUDIO_NULL: "1"
-        run: python -m pytest -q
+        shell: pwsh
+        run: |
+          python -m pytest -q -rfE --junitxml=pytest.xml
+          $code = $LASTEXITCODE
+          python packaging/ci_annotate.py pytest.xml
+          exit $code
       - name: Build
         run: pyinstaller --noconfirm packaging/DJSync.spec
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ffmpeg
           path: dist/DJSync/.djsync/tools
@@ -82,7 +87,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path dist/DJSync/* -DestinationPath DJSync-windows.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: DJSync-windows
           path: DJSync-windows.zip
