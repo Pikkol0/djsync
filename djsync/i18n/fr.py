@@ -416,7 +416,7 @@ STRINGS = {
                          "(jamais créé, jamais modifié s'il n'est pas reconnu ; copie dans DJSync_Backups avant "
                          "chaque écriture).",
     "settings.pdb_sync": "Mettre à jour export.pdb",
-    "settings.pdb_growth": "Autoriser l'ajout de pages quand une table est pleine (expérimental, non validé sur platine)",
+    "settings.pdb_growth": "Agrandir export.pdb quand une table est pleine (recommandé)",
     "settings.check": "Vérifier",
     "settings.sync_now": "Synchroniser maintenant",
     "settings.fetch_views": "Charger le nombre de vues des Titres (requêtes supplémentaires en arrière-plan)",
@@ -535,6 +535,7 @@ STRINGS = {
     "an.running": "Analyse…",
     "an.failed": "Échec",
     "an.done": "Analysé",
+    "an.saving": "Analysé · enregistrement…",
     "local.name": "Cet ordinateur",
     "local.rekordbox_open": "Rekordbox ouvert",
     "local.rekordbox_open_tip": "Fermez Rekordbox pour que DJSync puisse modifier cette bibliothèque (la lecture reste possible).",

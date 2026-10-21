@@ -409,7 +409,7 @@ STRINGS = {
     "settings.pdb_hint": "CDJ/XDJ reading export.pdb: DJSync updates it together with exportLibrary.db (never "
                          "created, never changed if not recognised; copied to DJSync_Backups before each write).",
     "settings.pdb_sync": "Update export.pdb",
-    "settings.pdb_growth": "Allow adding pages when a table is full (experimental, not validated on a player)",
+    "settings.pdb_growth": "Allow export.pdb to grow when a table is full (recommended)",
     "settings.check": "Check",
     "settings.sync_now": "Synchronise now",
     "settings.fetch_views": "Load the view count of songs (extra background requests)",
@@ -528,6 +528,7 @@ STRINGS = {
     "an.running": "Analysing…",
     "an.failed": "Failed",
     "an.done": "Analysed",
+    "an.saving": "Analysed · saving…",
     "local.name": "This computer",
     "local.rekordbox_open": "Rekordbox open",
     "local.rekordbox_open_tip": "Close Rekordbox to let DJSync change this library (reading still works).",

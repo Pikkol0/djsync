@@ -113,10 +113,10 @@ def hide_support_files(start: Optional[Path] = None) -> None:
         hide(here / name)
 
 
-def prepare_environment(start: Optional[Path] = None) -> list:
+def prepare_environment(start: Optional[Path] = None, hide: bool = True) -> list:
     """Ajoute les dossiers d'outils embarqués au PATH du processus (ffmpeg, deno pour yt-dlp) et
     cache les fichiers d'accompagnement de l'exe."""
-    if getattr(sys, "frozen", False) and start is None:
+    if hide and getattr(sys, "frozen", False) and start is None:
         hide_support_files()
     added = [str(d) for d in tool_dirs(start)]
     if added:

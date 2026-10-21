@@ -42,7 +42,7 @@ def test_tools_are_added_to_path(tmp_path):
 
 def test_settings_defaults_and_normalisation(tmp_path):
     s = Settings()
-    assert s.pdb_sync == "auto" and s.pdb_allow_growth is False
+    assert s.pdb_sync == "auto" and s.pdb_allow_growth is True          # V1.0.0 : agrandissement par défaut
     s.pdb_sync = "bizarre"
     assert s.normalize().pdb_sync == "auto"
     path = tmp_path / "s.json"
@@ -142,3 +142,17 @@ def test_hide_sets_hidden_and_system_on_windows(tmp_path, monkeypatch):
     assert portable.hide(folder) is True and len(calls) == 1          # déjà caché : rien à refaire
     attrs.clear()
     assert portable.hide(folder) is False                             # attributs illisibles : signalé, sans planter
+
+
+def test_selftest_report(tmp_path):
+    """Autotest de l'exe (CI) : rapport JSON, yt-dlp et ses extracteurs YouTube / SoundCloud chargés."""
+    import json
+
+    from djsync.selftest import run
+
+    target = tmp_path / "selftest.json"
+    code = run(str(target))
+    report = json.loads(target.read_text(encoding="utf-8"))
+    assert report["checks"]["yt_dlp"]["ok"] and report["checks"]["yt_dlp"]["value"]["extractors"] > 100
+    assert report["checks"]["miniaudio"]["ok"] and report["checks"]["sqlcipher3"]["ok"]
+    assert code == (0 if report["ok"] else 1)          # FFmpeg absent du PATH (CI) : signalé, sans planter

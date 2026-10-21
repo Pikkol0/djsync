@@ -23,8 +23,25 @@ Corrigé grâce à ce fichier (le premier modèle était faux sur ces points) :
   supprimées) : l'ancien code qui y enregistrait les nouvelles pages a été supprimé ;
 * champs « inconnus » d'une piste : seuls `kuvo_public`/`autoload_hot_cues` (« ON ») sont repris d'une piste existante.
 
+## V1.0.0 : agrandissement activé par défaut
+Sans ajout de pages, une clé fraîchement exportée par Rekordbox est **pleine en une quinzaine de sons**
+(table des albums d'abord : Rekordbox laisse peu de place dans chaque page). Validation faite sur le vrai
+`export.pdb` d'une clé (236 pistes, 20 tables) :
+* les 20 tables s'agrandissent (page vide candidate -> dernière page, nouvelle candidate réservée), contrôle
+  d'intégrité passé à chaque fois ;
+* 400 pistes (artistes et albums neufs) et 40 playlists ajoutées : fichier de 84 -> 116 pages, relu par
+  DJSync **et par un lecteur indépendant** (`rekordcrate` 0.3.0, Rust : `dump-pdb`, `list-playlists`) qui
+  retrouve les 400 pistes, artistes, albums et les 40 playlists ;
+* Rekordbox 7 affiche la Device Library d'une clé modifiée par DJSync.
+L'option reste désactivable (Paramètres ▸ Anciennes platines). Les réglages existants passent à « activé »
+une fois (migration `settings_version` 1). À l'ouverture d'une clé, les sons et playlists absents
+d'export.pdb (par exemple après une réécriture par Rekordbox ouvert en même temps) sont rajoutés.
+
+Revalider avec rekordcrate : `cargo install rekordcrate --features cli`, puis
+`rekordcrate dump-pdb PIONEER/rekordbox/export.pdb`.
+
 ## Ce qui reste NON validé
-* Aucune platine n'a lu un fichier écrit par DJSync. Les tests (fichier réel + fichier synthétique)
+* Aucune platine (CDJ) n'a encore lu un fichier écrit par DJSync. Les tests (fichier réel + fichier synthétique)
   prouvent la cohérence structurelle, pas l'acceptation matérielle.
 * Les pages touchées par une suppression passent en 0x34 mais DJSync n'ajoute pas ces pages à la page
   d'index (Rekordbox le fait). Sans effet probable en lecture ; non prouvé.

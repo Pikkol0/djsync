@@ -10,18 +10,18 @@
 # Tools (added by the GitHub workflow, .github/workflows/windows.yml), in .djsync/tools/:
 #   ffmpeg.exe + ffprobe.exe  audio-only build (~6 MB instead of ~150 MB)
 #   qjs.exe                   QuickJS-NG, JavaScript runtime for yt-dlp (~2.5 MB instead of Deno ~100 MB)
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
+# Python code is compiled into ONE archive inside the exe: only real data files (and native
+# libraries) are copied next to it. collect_all() would also copy every .py source as a loose file
+# (≈ 1 000 for yt-dlp's site extractors alone): useless, and slow to unzip onto a USB stick.
+# yt-dlp ships its own PyInstaller hook (hidden imports, yt-dlp-ejs JavaScript files).
 datas, binaries, hidden = [], [], []
-for pkg in ("yt_dlp", "ytmusicapi", "sqlcipher3", "mutagen", "pyrekordbox", "miniaudio"):   # numpy: native hook
-    d, b, h = collect_all(pkg)
-    datas += d; binaries += b; hidden += h
-for pkg in ("yt_dlp_ejs",):                # JavaScript solver used by yt-dlp for YouTube (optional at build)
-    try:
-        d, b, h = collect_all(pkg)
-        datas += d; binaries += b; hidden += h
-    except Exception:
-        pass
+for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3"):    # numpy: native hook
+    datas += collect_data_files(pkg)               # .py excluded by default
+    binaries += collect_dynamic_libs(pkg)
+    hidden += collect_submodules(pkg)
+hidden += ["_cffi_backend"]               # native part of cffi, used by miniaudio (player): not auto-detected
 datas += copy_metadata("yt-dlp")           # version of the built-in engine (djsync/core/engine.py)
 
 # Big packages that must never end up in the exe (pulled in by optional imports of dependencies).
