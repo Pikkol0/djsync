@@ -218,3 +218,48 @@ def band_wave(x: np.ndarray, sr: int, rate: int = GRID_RATE) -> BandWave:
         v = np.zeros(n) if ref <= 0 else np.clip(THREE_BAND_GAIN[j] * 127 * (np.maximum(sm, 0) / ref) ** 0.6, 0, 127)
         out.append(np.round(v).astype(np.uint8))
     return BandWave(rate, *out)
+
+
+_WAVE_MEMORY: dict = {}
+CACHE_FILES = 300                    # ≈ 300 Ko par son de 4 min : ~100 Mo au plus
+
+
+def cached_band_wave(path, ffmpeg_location=None, cache_dir=None) -> BandWave:
+    """band_wave d'un fichier, en mémoire puis sur disque (clé : chemin, taille, date) : rouvrir la
+    grille d'un son est immédiat."""
+    import hashlib
+    from pathlib import Path
+
+    from .decode import decode
+
+    path = Path(path)
+    st = path.stat()
+    key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{GRID_RATE}".encode()).hexdigest()[:20]
+    if key in _WAVE_MEMORY:
+        return _WAVE_MEMORY[key]
+    target = Path(cache_dir) / f"{key}.npz" if cache_dir else None
+    wave = None
+    if target is not None and target.is_file():
+        try:
+            with np.load(target) as z:
+                wave = BandWave(int(z["rate"]), z["low"], z["mid"], z["high"])
+        except Exception:                      # noqa: BLE001 - cache illisible : on recalcule
+            wave = None
+    if wave is None:
+        audio = decode(path, ffmpeg_location)
+        wave = band_wave(audio.samples, audio.sr)
+        if target is not None:
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_suffix(".tmp.npz")
+                np.savez_compressed(tmp, rate=wave.rate, low=wave.low, mid=wave.mid, high=wave.high)
+                tmp.replace(target)
+                olds = sorted(target.parent.glob("*.npz"), key=lambda f: f.stat().st_mtime)
+                for old in olds[:-CACHE_FILES]:
+                    old.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if len(_WAVE_MEMORY) > 20:
+        _WAVE_MEMORY.pop(next(iter(_WAVE_MEMORY)))
+    _WAVE_MEMORY[key] = wave
+    return wave

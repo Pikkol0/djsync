@@ -22,6 +22,7 @@ class HomeView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
         self._summaries: List[DriveSummary] = []
+        self._pending_diag: str = ""          # bibliothèque à diagnostiquer dès qu'elle est ouverte
         self.root.setSpacing(theme.px(10))
         self.root.addWidget(label(t("home.title"), "title"))
 
@@ -90,6 +91,10 @@ class HomeView(View):
 
     def refresh(self) -> None:
         self.ctrl.drive_summaries(self._show)
+        if self._pending_diag and self.ctrl.has_library and self.ctrl.drive is not None \
+                and str(self.ctrl.drive.db_path) == self._pending_diag:
+            self._pending_diag = ""
+            self._open_diagnostic()
 
     def _show(self, summaries: List[DriveSummary]) -> None:
         if not self.winfo_exists():
@@ -152,6 +157,9 @@ class HomeView(View):
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
                                      icon=icon))
+        diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
+        diag.setToolTip(t("diag.button_tip"))
+        actions.addWidget(diag)
         actions.addStretch(1)
         mid.addLayout(actions)
         lay.addLayout(mid, 1)
@@ -172,6 +180,19 @@ class HomeView(View):
         return box
 
     # ------------------------------------------------------------------- outils
+    def diagnose(self, drive: Any, connected: bool) -> None:
+        """Bouton « Diagnostic » d'une carte : ouvre d'abord cette bibliothèque si besoin."""
+        if connected and self.ctrl.has_library:
+            self._open_diagnostic()
+            return
+        self._pending_diag = str(drive.db_path)
+        self.ctrl.connect(drive)
+
+    def _open_diagnostic(self) -> None:
+        from ..diagnostic_dialog import DiagnosticDialog
+
+        DiagnosticDialog(self, self.ctrl)
+
     def _analysis(self) -> None:
         self.ctrl._emit("show_unanalysed")
 

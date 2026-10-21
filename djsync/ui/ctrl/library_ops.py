@@ -444,18 +444,18 @@ class LibraryOpsMixin:
 
     def load_grid_wave(self, track: LibraryTrack, ok: Callback) -> None:
         """Forme d'onde 3 bandes fine de l'éditeur de grille, calculée depuis le fichier audio (≈ 1 à
-        2 s, hors base et hors file d'analyse). ok(None) si impossible : l'éditeur garde l'ANLZ."""
+        2 s la première fois, puis lue dans le cache des réglages). ok(None) si impossible : l'éditeur
+        affiche alors la forme d'onde des fichiers d'analyse."""
         lib = self.library
         if lib is None:
             return
 
         def work() -> Any:
-            from ...analysis.decode import decode
-            from ...analysis.waveform import band_wave
+            from ...analysis.waveform import cached_band_wave
+            from ...settings import settings_dir
 
-            path = lib.absolute_path(track)
-            audio = decode(path, self.settings.ffmpeg_location or None)
-            return band_wave(audio.samples, audio.sr)
+            return cached_band_wave(lib.absolute_path(track), self.settings.ffmpeg_location or None,
+                                    settings_dir() / "cache" / "grid")
 
         def failed(exc: BaseException) -> None:
             log.info("Grid waveform not computed: %s", exc)

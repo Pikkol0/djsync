@@ -308,6 +308,13 @@ def _tag(p: _Pen) -> None:
     p.circle(8.5, 8.5, 1.4, fill=True)
 
 
+def _diagnostic(p: _Pen) -> None:
+    """Loupe + pouls : diagnostic de la bibliothèque (V1.1.0)."""
+    p.circle(10, 10, 7)
+    p.line(15, 15, 21, 21, w=2.4)
+    p.line(5.5, 10.5, 7.5, 10.5, 9, 7, 11, 13.5, 12.5, 10.5, 14.5, 10.5, w=1.6)
+
+
 DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
@@ -317,6 +324,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
     "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
+    "diagnostic": _diagnostic,
 }
 
 

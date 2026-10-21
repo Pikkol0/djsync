@@ -79,7 +79,22 @@ def shoot_dialogs(app, out: Path) -> None:
     capture(app, out / "grid_editor.png")
     app.grid_editor.close()
     _pump(0.3)
+    # V1.1.0 : diagnostic (propositions de remplacement et débit simulés : aucun réseau)
+    import djsync.core.quality as quality
+    import djsync.ui.ctrl.diagnostic as diagnostic
+    from djsync.models import Candidate, TrackResult
+    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+
+    real_probe = quality.probe
+    quality.probe = lambda p: quality.AudioInfo("mp3", 128, 44100) if p.name == "Rihanna - Umbrella.wav" else real_probe(p)
+    diagnostic.soundcloud_search = lambda q, limit=3: []
+    app.ctrl.service.match_spotify = lambda src, per_type=5: [
+        Candidate(TrackResult(video_id="demo0000001", title=src.title, artist=src.artist,
+                              duration_seconds=src.duration_seconds + 2), 96.0),
+        Candidate(TrackResult(video_id="demo0000002", title=f"{src.title} (Remastered)", artist=src.artist,
+                              duration_seconds=src.duration_seconds + 6, result_type="video"), 81.0)]
     for opener, cls, name in (
+        (app.views["home"]._open_diagnostic, DiagnosticDialog, "dialog_diagnostic"),
         (app.open_help, HelpDialog, "dialog_help"),
         (lib._duplicates, DuplicatesDialog, "dialog_duplicates"),
         (lambda: AnalysisDialog(lib, app.ctrl, [target]), AnalysisDialog, "dialog_analysis"),

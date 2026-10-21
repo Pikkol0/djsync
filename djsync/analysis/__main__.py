@@ -3,9 +3,11 @@
     python -m djsync.analysis "E:\\Contents\\Artiste\\Album\\son.m4a" [autres fichiers…]
     python -m djsync.analysis --compare E:\\     (compare aux BPM/tonalités de Rekordbox sur la clé, lecture seule)
     python -m djsync.analysis --compare E:\\ --csv diag.csv     (+ mesures détaillées pour calibrage)
+    python -m djsync.analysis --compare local --under "E:\\Contents"   (V1.1.0 : collection Rekordbox du PC,
+        sons importés depuis la clé et analysés par Rekordbox)
 
---compare lit exportLibrary.db en LECTURE SEULE, réanalyse les sons déjà analysés par Rekordbox et
-affiche les écarts : c'est le meilleur moyen de juger la précision sur VOTRE musique.
+--compare lit exportLibrary.db (ou master.db) en LECTURE SEULE, réanalyse les sons analysés par
+REKORDBOX (jamais ceux que DJSync a analysés lui-même) et affiche les écarts : c'est le meilleur moyen de juger la précision sur VOTRE musique.
 """
 from __future__ import annotations
 
@@ -26,22 +28,55 @@ def _one(path: str, ffmpeg: str | None) -> None:
           f"  duration {r.duration:.1f} s, {r.waveforms.detail_count} waveform points, computed in {r.seconds:.1f} s")
 
 
-def _rekordbox_grid(lib, content_id: int):
-    """(temps en s, numéros 1-4) de la grille Rekordbox (balise PQTZ du ANLZ0000.DAT sur la clé)."""
+def _rekordbox_grid(lib, track):
+    """(temps en s, numéros 1-4) de la grille Rekordbox (balise PQTZ de son ANLZ0000.DAT)."""
     import struct
 
     from .anlz import parse
 
-    row = lib._read("SELECT analysisDataFilePath FROM content WHERE content_id = ?", (content_id,))
-    if not row or not row[0][0]:
+    if not track.analysis_path:
         return None
     try:
-        tags = parse(lib.absolute_path(row[0][0]).read_bytes())
+        tags = parse(lib.absolute_path(track.analysis_path).read_bytes())
         body = tags["PQTZ"][0][1]
     except (OSError, ValueError, KeyError):
         return None
     beats = [struct.unpack(">HHI", body[i:i + 8]) for i in range(0, len(body) - 7, 8)]
     return [b[2] / 1000.0 for b in beats], [b[0] for b in beats]
+
+
+def _open_source(source: str):
+    """« local » = collection Rekordbox de cet ordinateur (master.db), sinon une clé (« E: »).
+    Toujours en LECTURE SEULE. Renvoie (bibliothèque, ids des sons analysés par REKORDBOX)."""
+    if source.lower() in ("local", "pc", "computer"):
+        from ..db.local_library import LocalRekordboxLibrary, find_local_rekordbox
+        from ..settings import Settings
+
+        s = Settings.load()
+        target = find_local_rekordbox(s.local_db_dir, s.local_music_dir)
+        if target is None:
+            raise SystemExit("Rekordbox (master.db) not found on this computer.")
+        lib = LocalRekordboxLibrary(target, read_only=True).__enter__()
+        owned = set(lib.owned.all())
+        mine = {int(r[0]) for r in lib._read("SELECT ID, UUID FROM djmdContent") if r[1] in owned}
+        native = {t.content_id for t in lib.list_tracks()} - mine
+        return lib, native
+    from ..db import RekordboxUsbLibrary, drive_from_letter
+
+    lib = RekordboxUsbLibrary(drive_from_letter(source), read_only=True).__enter__()
+    native = {int(r[0]) for r in lib._read("SELECT content_id FROM content WHERE masterDbId IS NOT NULL")}
+    return lib, native
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple:
+    """Intervalle de confiance à 95 % d'une proportion k/n (Wilson), en %."""
+    if n <= 0:
+        return 0.0, 100.0
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return round(100 * max(0.0, c - h), 1), round(100 * min(1.0, c + h), 1)
 
 
 def _grid_gap(mine, theirs) -> tuple:
@@ -63,15 +98,21 @@ def _grid_gap(mine, theirs) -> tuple:
     return round(gap, 1), same_down, round(signed, 1)
 
 
-def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = None) -> int:
-    from ..db import RekordboxUsbLibrary, drive_from_letter
+def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None = None,
+             under: str | None = None) -> int:
     from .decode import ANALYSIS_SR, decode
     from .key import analyze_key
     from .tempo import analyze_tempo
 
     rows = []
-    with RekordboxUsbLibrary(drive_from_letter(drive), read_only=True) as lib:
-        tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0][:limit]
+    lib, native = _open_source(source)
+    try:
+        prefix = under.replace("\\", "/").rstrip("/").lower() if under else ""
+        tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0 and t.content_id in native
+                  and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())][:limit]
+        skipped = sum(1 for t in lib.list_tracks() if t.is_analysed and t.content_id not in native)
+        print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
+              f"{f' ({skipped} analysed by DJSync ignored)' if skipped else ''}.\n", flush=True)
         bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = 0
         by_format: dict = {}
         for i, t in enumerate(tracks, start=1):
@@ -84,7 +125,7 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                 print(f"  ! {t.title}: {exc}")
                 continue
             mine, theirs = key.camelot, to_camelot(t.key)
-            gap, same_down, signed = _grid_gap(grid, _rekordbox_grid(lib, t.content_id))
+            gap, same_down, signed = _grid_gap(grid, _rekordbox_grid(lib, t))
             same_bpm = abs(grid.bpm - t.bpm) <= 0.05
             is_oct = not same_bpm and (abs(grid.bpm - 2 * t.bpm) <= 0.1 or abs(2 * grid.bpm - t.bpm) <= 0.1)
             bpm_ok += same_bpm
@@ -109,17 +150,14 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
                          "grid_gap_ms": gap if gap is not None else "", "grid_signed_ms": signed if signed is not None else "",
                          "same_downbeat": same_down
                          if same_down is not None else "", **dbg})
-        n = max(1, len(rows))
-        print(f"\nSame BPM: {bpm_ok}/{len(rows)} ({100 * bpm_ok / n:.0f} %), octave errors: "
-              f"{octave}   same key: {key_ok}/{len(rows)} ({100 * key_ok / n:.0f} %), "
-              f"relative maj./min.: {key_rel}")
-        if grid_n:
-            print(f"Grids (tracks with the same tempo): beats within 20 ms of Rekordbox: {grid_ok}/{grid_n}   "
-                  f"same downbeat: {down_ok}/{grid_n}")
+        _summary(len(rows), bpm_ok, octave, key_ok, key_rel, grid_n, grid_ok, down_ok)
+        if by_format:
             import statistics
 
             for fmt, vals in sorted(by_format.items()):
                 print(f"  .{fmt:4}: {len(vals):3} tracks, median offset DJSync - Rekordbox {statistics.median(vals):+.1f} ms")
+    finally:
+        lib.__exit__(None, None, None)
     if csv_path:
         import csv
 
@@ -132,19 +170,41 @@ def _compare(drive: str, ffmpeg: str | None, limit: int, csv_path: str | None = 
     return 0
 
 
+def _summary(n: int, bpm_ok: int, octave: int, key_ok: int, key_rel: int, grid_n: int, grid_ok: int,
+             down_ok: int) -> None:
+    """Résumé avec intervalles de confiance à 95 % : au-dessous de ~100 sons, ils sont larges."""
+    def line(name: str, k: int, total: int) -> str:
+        lo, hi = wilson(k, total)
+        pct = 100 * k / total if total else 0
+        return f"  {name:34} {k:4}/{total:<4} {pct:5.1f} %   (95 % CI {lo:.0f}-{hi:.0f} %)"
+
+    print("\n==== Summary (DJSync vs Rekordbox) ====")
+    print(line("Same BPM (±0.05)", bpm_ok, n))
+    print(line("Same BPM or ×2 / ÷2", bpm_ok + octave, n))
+    print(line("Same key", key_ok, n))
+    print(line("Same key or relative maj./min.", key_ok + key_rel, n))
+    if grid_n:
+        print(line("Grid: beats within 20 ms", grid_ok, grid_n))
+        print(line("Grid: same downbeat (bar start)", down_ok, grid_n))
+    if n < 100:
+        print(f"\n  Only {n} tracks: margins of error are wide. 300-500 varied tracks give ±3-5 %.")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m djsync.analysis", description="DJSync audio analysis (read-only): BPM, beat grid, key.\n\n"
                                  "  python -m djsync.analysis track.m4a [track2.mp3 ...]\n"
                                  "  python -m djsync.analysis --compare E:   compare with Rekordbox's analyses on a drive",
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="*")
-    ap.add_argument("--compare", metavar="DRIVE", help="compare with the Rekordbox analyses of the drive (read-only)")
+    ap.add_argument("--compare", metavar="DRIVE|local",
+                    help="compare with Rekordbox's analyses: of a drive (E:) or of this computer's collection (local)")
+    ap.add_argument("--under", metavar="FOLDER", help="with --compare: only the tracks whose file is in this folder")
     ap.add_argument("--limit", type=int, default=10_000, help="maximum number of tracks compared (default: all)")
     ap.add_argument("--csv", metavar="FILE", help="with --compare: write detailed measurements (calibration)")
     ap.add_argument("--ffmpeg", default=None, help="folder containing ffmpeg(.exe)")
     args = ap.parse_args(argv)
     if args.compare:
-        return _compare(args.compare, args.ffmpeg, args.limit, args.csv)
+        return _compare(args.compare, args.ffmpeg, args.limit, args.csv, args.under)
     if not args.files:
         ap.print_help()
         return 1

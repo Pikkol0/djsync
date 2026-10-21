@@ -83,6 +83,7 @@ class Settings:
     normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
+    diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 
@@ -120,6 +121,7 @@ class Settings:
             self.settings_version = 1
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
+        self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         return self
 
     def save(self, path: Optional[Path] = None) -> None:

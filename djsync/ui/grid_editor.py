@@ -93,6 +93,7 @@ class GridEditor(QWidget):
         self.beats: List[Tuple[int, int, int]] = []
         self.detail: List[Tuple[float, str]] = []
         self.wave: Any = None                  # BandWave fine (calculée depuis l'audio), sinon ANLZ
+        self._wave_state = "loading"           # loading | ready | failed (ANLZ affichée seulement si échec)
         self.duration_ms = max(1, track.duration_seconds * 1000)
         self.view_s = 8
         self.start_ms = 0.0
@@ -203,9 +204,11 @@ class GridEditor(QWidget):
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
 
     def _wave_loaded(self, wave: Any) -> None:
-        if self.winfo_exists() and wave is not None:
-            self.wave = wave
-            self.draw()
+        if not self.winfo_exists():
+            return
+        self.wave = wave
+        self._wave_state = "ready" if wave is not None else "failed"
+        self.draw()
 
     def _load_failed(self, exc: BaseException) -> None:
         if self.winfo_exists():
@@ -243,6 +246,9 @@ class GridEditor(QWidget):
         mid = h * 0.55
         if self.wave is not None:
             self._paint_bands(p, w, h, mid)
+        elif self._wave_state == "loading":         # pas d'ancienne forme d'onde le temps du calcul
+            p.setPen(QColor(theme.FAINT))
+            p.drawText(self.canvas.rect(), Qt.AlignCenter, t("grid.wave_loading"))
         elif self.detail:            # une colonne par pixel, max des colonnes ANLZ couvertes
             n = len(self.detail)
             for x in range(w):
