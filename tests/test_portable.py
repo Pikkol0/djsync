@@ -42,7 +42,7 @@ def test_tools_are_added_to_path(tmp_path):
 
 def test_settings_defaults_and_normalisation(tmp_path):
     s = Settings()
-    assert s.pdb_sync == "auto" and s.pdb_allow_growth is False
+    assert s.pdb_sync == "auto" and s.pdb_allow_growth is True          # V1.0.0 : agrandissement par défaut
     s.pdb_sync = "bizarre"
     assert s.normalize().pdb_sync == "auto"
     path = tmp_path / "s.json"

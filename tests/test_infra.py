@@ -119,3 +119,19 @@ def test_zoom_is_fixed_by_the_setting_only():
         assert not hasattr(theme, "update_auto")
     finally:
         theme.set_zoom(100)
+
+
+def test_settings_migration_enables_pdb_growth(tmp_path):
+    """V1.0.0 : des réglages enregistrés avec l'ajout de pages désactivé passent à « activé » (une fois) ;
+    l'utilisateur peut ensuite le désactiver, ce choix est respecté."""
+    import json
+
+    from djsync.settings import Settings
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"pdb_allow_growth": False, "language": "fr"}), encoding="utf-8")
+    s = Settings.load(path)
+    assert s.pdb_allow_growth and s.settings_version == 1 and s.language == "fr"
+    s.pdb_allow_growth = False
+    s.save(path)
+    assert Settings.load(path).pdb_allow_growth is False

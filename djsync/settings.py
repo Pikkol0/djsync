@@ -65,7 +65,7 @@ class Settings:
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
     # ---- V1.1-A3
     pdb_sync: str = "auto"             # "auto" : met aussi à jour export.pdb s'il existe | "off"
-    pdb_allow_growth: bool = False     # autorise l'ajout de pages à export.pdb (non validé sur platine)
+    pdb_allow_growth: bool = True      # V1.0.0 : ajout de pages à export.pdb (validé, voir docs/export_pdb.md)
     # ---- V1.1-A4
     analyze_on_add: bool = False       # V0.2.0 : désactivé par défaut (menu Analyse) ; True = à chaque ajout
     key_notation: str = "auto"         # auto (celle de la clé) | camelot (« 8A ») | musical (« Am »)
@@ -83,6 +83,8 @@ class Settings:
     normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
+    # ---- V1.0.0
+    settings_version: int = 0          # migrations des réglages enregistrés
 
     @classmethod
     def path(cls) -> Path:
@@ -113,6 +115,9 @@ class Settings:
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
+        if self.settings_version < 1:      # V1.0.0 : l'ajout de pages à export.pdb devient le défaut
+            self.pdb_allow_growth = True   # (sans lui, une clé exportée par Rekordbox est pleine en ~15 sons)
+            self.settings_version = 1
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         return self

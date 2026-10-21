@@ -564,6 +564,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation
             self.library.auto_cue = s.auto_cue
+            if s.pdb_sync != "off" and not self.is_local:
+                self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         s.save()
 
     def _apply_output(self) -> None:
