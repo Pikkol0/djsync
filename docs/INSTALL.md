@@ -47,5 +47,6 @@ Download the new zip and extract it **to the same place**, replacing the files: 
 | YouTube downloads fail | DJSync offers the engine update itself; otherwise *Settings* ▸ **Download engine** ▸ *Check for an update*. |
 | "The database is locked: close Rekordbox…" | Quit Rekordbox (check it is not still running in the taskbar). |
 | The drive is not detected | *Settings* ▸ *Rekordbox USB drive* ▸ **Drive letter** (e.g. `E`) ▸ *Save*. |
-| See the hidden `.djsync` folder | File Explorer ▸ *View* ▸ **Hidden items**. |
+| See the hidden `.djsync` folder | Type `E:\.djsync` in File Explorer's address bar (the folder is protected like a system file). |
 | The antivirus blocks `DJSync.exe` | Allow it: unsigned app (the zip's SHA-256 is published with the release). |
+| Anything else | Attach the log `.djsync\data\djsync.log` to your report (type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter). |

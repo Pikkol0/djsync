@@ -49,5 +49,6 @@ vos réglages sont conservés.
 | Les téléchargements YouTube échouent | DJSync propose lui-même la mise à jour du moteur ; sinon *Paramètres* ▸ **Moteur de téléchargement** ▸ *Rechercher une mise à jour*. |
 | « La base est verrouillée : fermez Rekordbox… » | Quittez Rekordbox (et vérifiez qu'il ne tourne plus dans la barre des tâches). |
 | La clé n'est pas détectée | *Paramètres* ▸ *Clé USB Rekordbox* ▸ **Lettre de lecteur** (ex. `E`) ▸ *Enregistrer*. |
-| Voir le dossier caché `.djsync` | Explorateur ▸ *Affichage* ▸ **Éléments masqués**. |
+| Voir le dossier caché `.djsync` | Tapez `E:\.djsync` dans la barre d'adresse de l'Explorateur (le dossier est protégé comme un fichier système). |
 | L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (la somme SHA-256 du zip est publiée avec la release). |
+| Autre problème | Joignez le journal `.djsync\data\djsync.log` à votre message (tapez `E:\.djsync\data` dans la barre d'adresse de l'Explorateur, avec la lettre de votre clé). |

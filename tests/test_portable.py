@@ -107,3 +107,38 @@ def test_release_notes_script_works_with_a_windows_console_encoding():
     proc = subprocess.run([sys.executable, str(script), f"v{djsync.__version__}-rc.1"], capture_output=True, env=env)
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")
     assert "▸" in proc.stdout.decode("utf-8")
+
+
+def test_hide_sets_hidden_and_system_on_windows(tmp_path, monkeypatch):
+    """Windows simulé : caché + système (invisible même avec « Éléments masqués »), une seule fois."""
+    import ctypes
+    import sys
+
+    folder = tmp_path / ".djsync"
+    folder.mkdir()
+    attrs = {str(folder): 0x10}                              # FILE_ATTRIBUTE_DIRECTORY
+    calls = []
+
+    class Fn:
+        def __init__(self, impl):
+            self.impl = impl
+
+        def __call__(self, *a):
+            return self.impl(*a)
+
+    class K32:
+        GetFileAttributesW = Fn(lambda p: attrs.get(p, 0xFFFFFFFF))
+
+        def _set(p, v):
+            calls.append(v)
+            attrs[p] = v
+            return 1
+        SetFileAttributesW = Fn(_set)
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: K32, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 5, raising=False)
+    assert portable.hide(folder) is True and attrs[str(folder)] == 0x10 | 0x2 | 0x4
+    assert portable.hide(folder) is True and len(calls) == 1          # déjà caché : rien à refaire
+    attrs.clear()
+    assert portable.hide(folder) is False                             # attributs illisibles : signalé, sans planter

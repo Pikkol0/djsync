@@ -16,10 +16,13 @@ au premier lancement. L'utilisateur ne voit que DJSync.exe.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 DB_RELATIVE = Path("PIONEER") / "rekordbox" / "exportLibrary.db"
 TOOL_DIRS = ("tools", "ffmpeg", "bin")
@@ -67,22 +70,39 @@ def tool_dirs(start: Optional[Path] = None) -> list:
     return [base / d for base in (here / CONTENTS, here) for d in TOOL_DIRS if (base / d).is_dir()]
 
 
+FILE_ATTRIBUTE_HIDDEN = 0x2
+FILE_ATTRIBUTE_SYSTEM = 0x4
+_INVALID = 0xFFFFFFFF
+
+
 def hide(path: Path) -> bool:
-    """Attribut Windows « caché » (le point en tête de nom suffit ailleurs). Sans effet si absent."""
+    """Attributs Windows « caché » + « système » (comme desktop.ini) : l'Explorateur ne montre pas le
+    dossier, même avec « Éléments masqués » coché (seul « Masquer les fichiers protégés du système »,
+    activé par défaut, le révèlerait). Le point en tête de nom suffit ailleurs. Sans effet si absent."""
     if sys.platform != "win32" or not path.exists():
         return False
     try:
         import ctypes
+        from ctypes import wintypes
 
-        FILE_ATTRIBUTE_HIDDEN = 0x2
-        get = ctypes.windll.kernel32.GetFileAttributesW
-        attrs = get(str(path))
-        if attrs == -1 or attrs == 0xFFFFFFFF:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
+        k32.GetFileAttributesW.restype = wintypes.DWORD
+        k32.SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+        k32.SetFileAttributesW.restype = wintypes.BOOL
+        wanted = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
+        attrs = k32.GetFileAttributesW(str(path))
+        if attrs == _INVALID:
+            log.warning("Cannot read the attributes of %s (error %s)", path, ctypes.get_last_error())
             return False
-        if attrs & FILE_ATTRIBUTE_HIDDEN:
+        if attrs & wanted == wanted:
             return True
-        return bool(ctypes.windll.kernel32.SetFileAttributesW(str(path), attrs | FILE_ATTRIBUTE_HIDDEN))
-    except Exception:  # noqa: BLE001 - lecteur en lecture seule, etc. : purement cosmétique
+        if not k32.SetFileAttributesW(str(path), attrs | wanted):
+            log.warning("Cannot hide %s (error %s)", path, ctypes.get_last_error())
+            return False
+        return True
+    except Exception as exc:  # noqa: BLE001 - lecteur en lecture seule, etc. : purement cosmétique
+        log.warning("Cannot hide %s: %s", path, exc)
         return False
 
 
