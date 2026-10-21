@@ -6,6 +6,8 @@
 #   git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1   -> PRE-release (to test on real hardware)
 #   git tag v1.0.0      && git push origin v1.0.0        -> release (marked "latest")
 # The release gets the zip, its SHA-256 and notes built from the README (packaging/release_notes.py).
+# A draft release prepared on GitHub does NOT create its tag (only publishing does): push the tag, the
+# workflow then fills the draft (zip, notes) and publishes it.
 # A manual run (Actions > Windows build > Run workflow) only builds the zip as a run artifact.
 #
 # Code signing (optional): add the repository secrets
@@ -139,6 +141,10 @@ jobs:
           case "$TAG" in *-*) flags="--prerelease";; *) flags="--latest";; esac
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" out/* --clobber
+            # brouillon préparé sur GitHub : on le complète (notes, titre) et on le publie
+            if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
+              gh release edit "$TAG" --title "DJSync ${TAG#v}" --notes-file notes.md --draft=false $flags
+            fi
           else
             gh release create "$TAG" out/* --title "DJSync ${TAG#v}" --notes-file notes.md $flags --verify-tag
           fi
