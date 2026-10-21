@@ -1,4 +1,4 @@
-"""Lecteur : décodage m4a via FFmpeg, états, seek, fin de morceau (pilote audio « dummy »)."""
+"""Lecteur : décodage m4a via FFmpeg, états, seek, fin de morceau (sortie audio « null »)."""
 import os
 import queue
 import shutil
@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-pygame = pytest.importorskip("pygame")
+os.environ.setdefault("DJSYNC_AUDIO_NULL", "1")             # sortie audio « null » (miniaudio)
+pytest.importorskip("miniaudio")
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg requis")
 
 from djsync.audio.player import LOADING, PAUSED, PLAYING, STOPPED, AudioPlayer, NowPlaying  # noqa: E402

@@ -50,6 +50,39 @@ class MetadataMixin:
         return out
 
     # ------------------------------------------------------------------ métadonnées
+    def complete_metadata(self, content_id: int, meta: Dict[str, Any], album: Optional[str] = None) -> bool:
+        """V0.5.0 : complète les champs VIDES (album, année, date, genre, label, n° de piste, ISRC) ;
+        rien de ce qui est déjà renseigné n'est remplacé. True si quelque chose a changé."""
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        with self._write() as conn:
+            row = conn.execute(
+                "SELECT releaseYear, releaseDate, trackNo, isrc, genre_id, label_id, album_id, artist_id_artist, "
+                "COALESCE(informationUpdateCount,0) FROM content WHERE content_id = ?", (content_id,)).fetchone()
+            if row is None:
+                raise TrackNotFoundError(f"Track not found (id {content_id}).")
+            year, date, track_no, isrc, genre_id, label_id, album_id, artist_id, count = row
+            wanted = {k: v for k, v in meta.items() if v}
+            for key, current in (("year", year), ("release_date", date), ("track_no", track_no), ("isrc", isrc),
+                                 ("genre", genre_id), ("label", label_id)):
+                if current:
+                    wanted.pop(key, None)
+            cols = self._meta_columns(conn, wanted)
+            album = (album or "").strip()
+            if album and not album_id:
+                cols["album_id"] = self._get_or_create(
+                    conn, "album", "album_id", album,
+                    extra_match="AND (artist_id IS ? OR artist_id IS NULL)", extra_params=(artist_id,),
+                    insert_sql="INSERT INTO album (name, artist_id, image_id, isComplation, nameForSearch) "
+                               "VALUES (?, ?, NULL, 0, ?)",
+                    insert_params=(album, artist_id, album))
+            if not cols:
+                return False
+            cols["informationUpdateCount"] = int(count) + 1
+            conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
+                         (*cols.values(), content_id))
+        return True
+
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
         """Change le titre et/ou l'artiste d'un son (base + export.pdb). Le fichier n'est pas renommé."""

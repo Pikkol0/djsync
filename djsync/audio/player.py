@@ -1,30 +1,36 @@
-"""Lecteur audio minimal : Lecture / Pause / Stop / Seek / Volume, via pygame.mixer.music.
+"""Lecteur audio minimal : Lecture / Pause / Stop / Seek / Volume, via miniaudio (~1 Mo, sans SDL).
 
-pygame lit MP3 et WAV mais PAS le m4a/AAC (ni FLAC/AIFF de façon fiable). Ces formats sont donc
-décodés en WAV temporaire par FFmpeg DANS UN THREAD (l'interface ne se fige jamais), puis lus.
-Les WAV décodés sont conservés dans un cache temporaire (4 derniers), supprimé à la fermeture.
+Principe : UN périphérique de sortie miniaudio, ouvert au premier son, qui réclame des trames à un
+générateur Python (thread audio de miniaudio). Ces trames sortent d'un tampon rempli d'avance
+(≈ 2 s) par un thread « lecteur de flux » :
+  * MP3 / WAV / FLAC / OGG : décodés par miniaudio lui-même (stream_file, seek natif) ;
+  * m4a/AAC, AIFF… : FFmpeg décode en PCM vers un tube (`-ss` pour le seek), sans fichier temporaire.
 
-Toutes les opérations `pygame.mixer` se font dans le thread de l'interface : `post` est la
-fonction qui y renvoie un appel (UiDispatcher.post).
+Rien n'est jamais décodé en entier en mémoire (un mix d'1 h ne coûte que le tampon) et le thread
+audio ne bloque jamais : si le tampon est vide (disque USB lent), il joue du silence sans avancer.
+`post` renvoie un appel dans le thread de l'interface (UiDispatcher.post) ; tous les événements
+(`on_event`) y sont émis.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import shutil
 import subprocess
-import tempfile
+import sys
 import threading
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
-# lus directement par pygame ; tout le reste passe par FFmpeg
-_DIRECT = {".mp3", ".wav", ".ogg"}
-_CACHE_KEEP = 4
+RATE = 44100
+CHANNELS = 2
+FRAME_BYTES = 2 * CHANNELS                 # s16 stéréo
+_AHEAD = RATE * 2                          # trames décodées d'avance
+_NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 
 STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
 
@@ -36,6 +42,112 @@ class NowPlaying:
     path: str                              # fichier audio
     cover_url: Optional[str] = None        # vignette distante (préécoute)
     cover_path: Optional[str] = None       # image locale (pochette Rekordbox de la clé)
+
+
+def _no_window() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+
+
+class _Stream:
+    """Flux décodé d'un fichier à partir de `start` secondes, lu par un thread vers un tampon."""
+
+    def __init__(self, path: Path, start: float, ffmpeg: Optional[str]) -> None:
+        self.path, self.start, self.ffmpeg = path, start, ffmpeg
+        self.buf: deque = deque()
+        self.buffered = 0                  # octets dans buf
+        self.done = False                  # plus rien à lire
+        self.error: Optional[str] = None
+        self.started = threading.Event()   # première donnée (ou erreur) disponible
+        self._cv = threading.Condition()
+        self._closed = False
+        self._proc: Optional[subprocess.Popen] = None
+        threading.Thread(target=self._run, daemon=True, name="djsync-audio-reader").start()
+
+    # ---------------------------------------------------------------- thread lecteur
+    def _push(self, data: bytes) -> bool:
+        with self._cv:
+            while self.buffered >= _AHEAD * FRAME_BYTES and not self._closed:
+                self._cv.wait(0.2)
+            if self._closed:
+                return False
+            if data:
+                self.buf.append(data)
+                self.buffered += len(data)
+        self.started.set()
+        return True
+
+    def _run(self) -> None:
+        try:
+            if self.path.suffix.lower() in _NATIVE:
+                self._run_native()
+            else:
+                self._run_ffmpeg()
+        except Exception as exc:  # noqa: BLE001 - signalé à l'interface
+            self.error = str(exc) or exc.__class__.__name__
+        finally:
+            self.done = True
+            self.started.set()
+
+    def _run_native(self) -> None:
+        import miniaudio
+
+        gen = miniaudio.stream_file(str(self.path), miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
+                                    frames_to_read=4096, seek_frame=int(self.start * RATE))
+        for chunk in gen:
+            if not self._push(chunk.tobytes()):
+                return
+
+    def _run_ffmpeg(self) -> None:
+        if not self.ffmpeg:
+            raise RuntimeError("FFmpeg is required to play this format (set its folder in Settings).")
+        cmd = [self.ffmpeg, "-v", "error", "-nostdin"]
+        if self.start > 0:
+            cmd += ["-ss", f"{self.start:.3f}"]
+        cmd += ["-i", str(self.path), "-map", "0:a:0", "-vn", "-f", "s16le", "-acodec", "pcm_s16le",
+                "-ar", str(RATE), "-ac", str(CHANNELS), "-"]
+        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      stdin=subprocess.DEVNULL, creationflags=_no_window())
+        got = 0
+        while True:
+            data = self._proc.stdout.read(16384)
+            if not data:
+                break
+            got += len(data)
+            if not self._push(data):
+                return
+        err = self._proc.stderr.read().decode("utf-8", "replace").strip()
+        if self._proc.wait() != 0 and not got:
+            raise RuntimeError(f"Cannot decode: {err[-200:] or 'FFmpeg error'}")
+
+    # ------------------------------------------------------------- thread audio
+    def read(self, nbytes: int) -> bytes:
+        out = bytearray()
+        with self._cv:
+            while self.buf and len(out) < nbytes:
+                chunk = self.buf.popleft()
+                take = nbytes - len(out)
+                if len(chunk) > take:
+                    self.buf.appendleft(chunk[take:])
+                    chunk = chunk[:take]
+                out += chunk
+                self.buffered -= len(chunk)
+            self._cv.notify_all()
+        return bytes(out)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.done and not self.buf
+
+    def close(self) -> None:
+        with self._cv:
+            self._closed = True
+            self.buf.clear()
+            self._cv.notify_all()
+        if self._proc is not None:
+            try:
+                self._proc.kill()
+            except OSError:
+                pass
 
 
 class AudioPlayer:
@@ -54,11 +166,14 @@ class AudioPlayer:
         self.state = STOPPED
         self.meta: Optional[NowPlaying] = None
         self.duration = 0.0
-        self._offset = 0.0
         self._volume = 0.8
-        self._gen = 0                      # annule les décodages devenus obsolètes
-        self._mixer_ready = False
-        self._tmp: Optional[Path] = None
+        self._gen = 0                      # annule les chargements devenus obsolètes
+        self._device = None
+        self._lock = threading.Lock()
+        self._stream: Optional[_Stream] = None
+        self._path: Optional[Path] = None
+        self._frames = 0                   # trames jouées depuis le début du morceau
+        self._paused = False
 
     # ------------------------------------------------------------------ utilitaires
     def _emit(self, kind: str, payload: object = None) -> None:
@@ -79,70 +194,88 @@ class AudioPlayer:
                     return str(cand)
         return shutil.which("ffmpeg")
 
-    def _cache_dir(self) -> Path:
-        if self._tmp is None:
-            self._tmp = Path(tempfile.mkdtemp(prefix="djsync_play_"))
-        return self._tmp
-
-    def _init_mixer(self) -> bool:
-        if self._mixer_ready:
-            return True
-        os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
-        try:
-            import pygame
-
-            pygame.mixer.init(frequency=44100)
-        except Exception as exc:  # noqa: BLE001 - pas de carte son, pilote absent...
-            self._emit("error", f"Sortie audio indisponible : {exc}")
-            return False
-        self._mixer_ready = True
-        return True
-
     @staticmethod
     def probe_duration(path: str) -> float:
         try:
             import mutagen
 
             audio = mutagen.File(path)
-            return float(audio.info.length) if audio and audio.info else 0.0
+            if audio and audio.info and audio.info.length:
+                return float(audio.info.length)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            import miniaudio
+
+            return float(miniaudio.get_file_info(path).duration)
         except Exception:  # noqa: BLE001
             return 0.0
 
-    # --------------------------------------------------------------------- décodage
-    def _decode(self, src: Path) -> Path:
-        """WAV décodé (en cache). Appelé dans un thread d'arrière-plan."""
-        key = hashlib.sha1(f"{src}|{src.stat().st_mtime_ns}".encode()).hexdigest()[:16]
-        out = self._cache_dir() / f"{key}.wav"
-        if out.exists():
-            return out
-        ffmpeg = self._ffmpeg()
-        if not ffmpeg:
-            raise RuntimeError("FFmpeg is required to play this format (set its folder in Settings).")
-        cmd = [ffmpeg, "-v", "error", "-y", "-i", str(src), "-vn",
-               "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", str(out)]
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=180,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # pas de fenêtre noire sous Windows
-        )
-        if proc.returncode != 0 or not out.exists():
-            out.unlink(missing_ok=True)
-            raise RuntimeError(f"Cannot decode: {proc.stderr.strip()[-200:] or 'FFmpeg error'}")
-        old = sorted(self._cache_dir().glob("*.wav"), key=lambda p: p.stat().st_mtime)[:-_CACHE_KEEP]
-        for f in old:
-            if f != out:
-                f.unlink(missing_ok=True)
-        return out
+    # -------------------------------------------------------------- sortie audio
+    def _pump(self):
+        """Générateur appelé par le thread audio de miniaudio : renvoie `n` trames à chaque fois."""
+        n = yield b""
+        while True:
+            n = yield self._fill(n)
 
-    def _prepare(self, gen: int, path: Path, meta: NowPlaying) -> None:
-        """Thread : décode si besoin, mesure la durée, puis renvoie vers le thread UI."""
+    def _fill(self, n: int) -> bytes:
+        silence = b"\0" * (n * FRAME_BYTES)
+        with self._lock:
+            stream = self._stream
+            if stream is None or self._paused:
+                return silence
+            data = stream.read(n * FRAME_BYTES)
+            data = data[: len(data) - len(data) % FRAME_BYTES]
+            self._frames += len(data) // FRAME_BYTES
+        if not data:
+            return silence
+        if self._volume < 0.999:
+            import numpy as np
+
+            pcm = np.frombuffer(data, dtype="<i2").astype(np.float32) * (self._volume ** 2)
+            data = pcm.astype("<i2").tobytes()
+        return data + silence[len(data):]
+
+    def _ensure_device(self) -> bool:
+        if self._device is not None:
+            return True
         try:
-            playable = path if path.suffix.lower() in _DIRECT else self._decode(path)
-            duration = self.probe_duration(str(path)) or self.probe_duration(str(playable))
-        except Exception as exc:  # noqa: BLE001
-            message = str(exc) if isinstance(exc, RuntimeError) else f"Cannot play: {exc}"
+            import miniaudio
+
+            backends = [miniaudio.Backend.NULL] if os.environ.get("DJSYNC_AUDIO_NULL") else None
+            device = miniaudio.PlaybackDevice(miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
+                                              buffersize_msec=60, backends=backends, app_name="DJSync")
+            pump = self._pump()
+            next(pump)
+            device.start(pump)
+        except Exception as exc:  # noqa: BLE001 - pas de carte son, pilote absent...
+            self._emit("error", f"Audio output unavailable: {exc}")
+            return False
+        self._device = device
+        return True
+
+    def _open(self, start: float) -> _Stream:
+        assert self._path is not None
+        return _Stream(self._path, start, self._ffmpeg())
+
+    def _swap(self, stream: Optional[_Stream], frames: int = 0) -> None:
+        with self._lock:
+            old, self._stream, self._frames = self._stream, stream, frames
+        if old is not None:
+            old.close()
+
+    # ------------------------------------------------------------------- chargement
+    def _prepare(self, gen: int, path: Path, meta: NowPlaying) -> None:
+        """Thread : ouvre le flux, attend les premières trames et mesure la durée."""
+        stream = _Stream(path, 0.0, self._ffmpeg())
+        stream.started.wait(30)
+        if stream.error and not stream.buf:
+            stream.close()
+            message = stream.error if stream.error.startswith(("FFmpeg", "Cannot")) else f"Cannot play: {stream.error}"
             self._post(lambda: self._failed(gen, message))
             return
-        self._post(lambda: self._start(gen, playable, meta, duration))
+        duration = self.probe_duration(str(path))
+        self._post(lambda: self._start(gen, stream, meta, duration))
 
     def _failed(self, gen: int, message: str) -> None:
         if gen != self._gen:
@@ -153,7 +286,7 @@ class AudioPlayer:
 
     # ---------------------------------------------------------------- commandes (UI)
     def play(self, path: str | Path, meta: NowPlaying) -> None:
-        """Charge puis lit. Le décodage éventuel se fait en arrière-plan (état LOADING)."""
+        """Charge puis lit. L'ouverture se fait en arrière-plan (état LOADING)."""
         path = Path(path)
         if not path.is_file():
             self._emit("error", f"File not found: {path.name} (drive unplugged?)")
@@ -161,114 +294,74 @@ class AudioPlayer:
         self.stop(keep_meta=False)
         self._gen += 1
         self.meta = meta
-        self._offset = 0.0
+        self._path = path
         self._set_state(LOADING)
         threading.Thread(target=self._prepare, args=(self._gen, path, meta), daemon=True).start()
 
-    def _start(self, gen: int, playable: Path, meta: NowPlaying, duration: float) -> None:
-        if gen != self._gen or not self._init_mixer():
+    def _start(self, gen: int, stream: _Stream, meta: NowPlaying, duration: float) -> None:
+        if gen != self._gen or not self._ensure_device():
+            stream.close()
             if gen == self._gen:
                 self._set_state(STOPPED)
             return
-        import pygame
-
-        try:
-            pygame.mixer.music.load(str(playable))
-            pygame.mixer.music.set_volume(self._volume)
-            pygame.mixer.music.play()
-        except Exception as exc:  # noqa: BLE001
-            self.state = STOPPED
-            self._emit("error", f"Cannot play: {exc}")
-            self._emit("state", STOPPED)
-            return
+        self._paused = False
+        self._swap(stream)
         self.duration = duration
-        self._offset = 0.0
         self._emit("loaded", (meta, duration))
         self._set_state(PLAYING)
 
     def toggle_pause(self) -> None:
-        if not self._mixer_ready:
-            return
-        import pygame
-
         if self.state == PLAYING:
-            pygame.mixer.music.pause()
+            self._paused = True
             self._set_state(PAUSED)
         elif self.state == PAUSED:
-            pygame.mixer.music.unpause()
+            self._paused = False
             self._set_state(PLAYING)
 
     def stop(self, keep_meta: bool = True) -> None:
         self._gen += 1
-        if self._mixer_ready:
-            import pygame
-
-            pygame.mixer.music.stop()
-            try:
-                pygame.mixer.music.unload()
-            except Exception:  # noqa: BLE001 - ancienne version de pygame
-                pass
-        self._offset = 0.0
+        self._swap(None)
         if not keep_meta:
             return
         if self.state != STOPPED:
             self._set_state(STOPPED)
 
     def seek(self, seconds: float) -> None:
-        if not self._mixer_ready or self.state not in (PLAYING, PAUSED) or self.duration <= 0:
+        if self.state not in (PLAYING, PAUSED) or self.duration <= 0 or self._path is None:
             return
-        import pygame
-
         seconds = max(0.0, min(seconds, max(0.0, self.duration - 0.5)))
-        was_paused = self.state == PAUSED
-        try:
-            pygame.mixer.music.play(start=seconds)  # get_pos() repart de 0 : on garde le décalage
-            self._offset = seconds
-            if was_paused:
-                pygame.mixer.music.pause()
-        except Exception as exc:  # noqa: BLE001 - format non « seekable »
-            log.warning("Seek failed: %s", exc)
+        self._swap(self._open(seconds), int(seconds * RATE))
 
     def set_volume(self, volume: float) -> None:
         self._volume = max(0.0, min(1.0, volume))
-        if self._mixer_ready:
-            import pygame
-
-            pygame.mixer.music.set_volume(self._volume)
 
     @property
     def volume(self) -> float:
         return self._volume
 
     def position(self) -> float:
-        if not self._mixer_ready or self.state not in (PLAYING, PAUSED):
+        if self.state not in (PLAYING, PAUSED):
             return 0.0
-        import pygame
-
-        return self._offset + max(0, pygame.mixer.music.get_pos()) / 1000.0
+        return self._frames / RATE
 
     def poll(self) -> None:
-        """À appeler régulièrement (timer UI) : détecte la fin du morceau."""
-        if self.state == PLAYING and self._mixer_ready:
-            import pygame
-
-            if not pygame.mixer.music.get_busy():
-                self.state = STOPPED
-                self._offset = 0.0
-                self._emit("ended", None)
-                self._emit("state", STOPPED)
+        """À appeler régulièrement (timer UI) : détecte la fin du morceau (ou une erreur de flux)."""
+        stream = self._stream
+        if self.state == PLAYING and stream is not None and stream.exhausted:
+            played = self._frames
+            self._swap(None)
+            self.state = STOPPED
+            if stream.error and played == 0:
+                self._emit("error", stream.error)
+            self._emit("ended", None)
+            self._emit("state", STOPPED)
 
     def close(self) -> None:
         self._gen += 1
-        if self._mixer_ready:
-            import pygame
-
+        self._swap(None)
+        if self._device is not None:
             try:
-                pygame.mixer.music.stop()
-                pygame.mixer.quit()
+                self._device.close()
             except Exception:  # noqa: BLE001
                 pass
-            self._mixer_ready = False
-        if self._tmp is not None:
-            shutil.rmtree(self._tmp, ignore_errors=True)
-            self._tmp = None
+            self._device = None

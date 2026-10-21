@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.5.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -34,7 +34,10 @@ exported by Rekordbox:
 - **Update the Rekordbox collection of this computer** too (Rekordbox 6/7, `master.db`): same features as
   for a USB drive — download into the collection, playlists and folders, analysis, beat grid, title/artist,
   duplicates. DJSync only writes while Rekordbox is closed.
+- **Copy playlists between libraries** (USB drive ↔ this computer, drive ↔ drive) with their analysis,
+  **complete missing metadata** of existing tracks, add a **memory cue on the first downbeat**.
 - **Back up before every change**: a copy of the database goes to `DJSync_Backups/` on the drive.
+- **Eject** the drive safely from DJSync.
 
 English interface (French available in Settings; other languages can be added — see below), 20 colour
 themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
@@ -52,9 +55,10 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 
 ### Requirements
 - **Python 3.10+** (developed and tested with 3.12)
-- **FFmpeg** (`ffmpeg` + `ffprobe`): download, m4a playback, analysis. In the `PATH`, or the folder set in
+- **FFmpeg** (`ffmpeg`): download, m4a playback, analysis. In the `PATH`, or the folder set in
   *Settings ▸ FFmpeg*.
-- **Deno** (or Node): needed by yt-dlp for some YouTube downloads — <https://deno.com>
+- A **JavaScript runtime** for YouTube downloads (yt-dlp): Deno, Node.js or
+  [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (`qjs`, 2.5 MB — the one shipped with the Windows build).
 
 ### Run from source
 ```bash
@@ -65,16 +69,26 @@ python -m venv .venv
 pip install -r requirements.txt
 python app.py
 ```
-On Linux, Tkinter comes from the system (`sudo apt install python3-tk`).
-
 ### Portable Windows executable
+The **Windows build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or
+by pushing a `v*` tag) produces `DJSync-windows.zip`: unzip it at the root of the USB drive. The user only
+sees **`DJSync.exe`**; everything else (Python, Qt, an audio-only FFmpeg of ~6 MB, QuickJS for yt-dlp,
+settings) lives in the `.djsync` folder next to it, hidden by DJSync at first launch. Folder build rather
+than a one-file exe: instant start from a USB stick, nothing unpacked on the computer. Optional code
+signing with the `SIGN_CERT_PFX` / `SIGN_CERT_PASSWORD` secrets. By hand:
 ```bash
 pip install pyinstaller
-pyinstaller packaging/DJSync.spec
+pyinstaller packaging/DJSync.spec              # -> dist/DJSync/DJSync.exe + dist/DJSync/.djsync/
+packaging/build_ffmpeg.sh out/                  # (Linux, mingw-w64) -> ffmpeg.exe, ffprobe.exe
 ```
-Builds `dist/DJSync.exe` (with a splash screen shown while it starts). Copy it to the drive with `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` next to it:
-DJSync then recognises the drive it runs from and connects to it automatically.
+Put `ffmpeg.exe`, `ffprobe.exe` and `qjs.exe` in `.djsync/tools/` and an empty `.djsync/portable.flag`.
 *(Build not yet validated on a Windows machine.)*
+
+### Download engine updates
+yt-dlp is **never updated on its own**. When a download or a link import fails in a way that looks like
+"YouTube changed", DJSync offers once to install the new version (official wheel from PyPI, SHA-256
+checked, installed in the settings folder — the exe is not modified, no restart needed, failed downloads
+are retried). *Settings ▸ Download engine* checks / installs by hand and goes back to the previous version.
 
 ## Quick use
 
@@ -139,7 +153,8 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **0.4.0** | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |
+| **0.5.0** | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
+| 0.4.0 | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |
 | 0.3.1 | Polished interface: icons on buttons, menus, tables and the sidebar, rounded cards, key pills, larger search fields, messages as small pop-ups; explanations moved to tooltips (ⓘ) and needless texts removed. New "Downloads & analysis" page: downloads table + analysis table (every unanalysed track, search in the whole library to re-analyse, beat grid editor icon on each analysed track). |
 | 0.3.0 | New Qt interface (PySide6) replacing customtkinter: native widgets, much smoother scrolling, resizing and table updates. Zoom and theme colour apply instantly without rebuilding the window; the zoom no longer follows the window size. Plainer look: flat dark theme, square corners, no shadows or animations, no per-row artwork or placeholder rows. Beat grid editor: drag the listening cursor on the waveform, "Bar starts here" (a downbeat exactly on the cursor), shift by ±1/±10/±100 ms, BPM ×2 / ÷2. Rekordbox 3-band waveforms (`.2EX`): track previews now look like Rekordbox's own instead of blue (re-analyse older tracks). Downloads complete album, year, genre, label, track number and ISRC (Deezer, can be turned off). Same features as 0.2.4 otherwise; UI tests run without a display. |
 | 0.2.4 | Background analysis: Library ▸ *Not analysed* section with "Analyse all" / "Stop", progress card in the sidebar, the rest of the app stays usable. Player: beat grid button and track options (title/artist, analyse again, compatible keys, show in library). export.pdb: track updates no longer eat the free space (in-place rewrite, deleted rows reclaimed), clearer "export.pdb is full" message. Beat grid editor is now a page of the main window (the separate window vanished or froze the app on Windows). Fixes: dialogs sized for the zoom and kept on screen, key pill now shown right after analysis. |

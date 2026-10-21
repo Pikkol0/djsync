@@ -106,7 +106,7 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="djsync_shots_"))
     os.environ["DJSYNC_HOME"] = str(tmp / "home")
-    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+    os.environ.setdefault("DJSYNC_AUDIO_NULL", "1")
     usb = make_demo_usb(tmp, analysed_song=args.dialogs)
 
     import djsync.ui.controller as controller

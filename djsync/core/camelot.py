@@ -57,6 +57,19 @@ def to_camelot(key: Optional[str]) -> Optional[str]:
     return None
 
 
+_NAMES = ("C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
+
+
+def to_musical(key: Optional[str]) -> Optional[str]:
+    """Toute notation -> nom musical de Rekordbox ('8A' -> 'Am', '2B' -> 'F#'). None si non reconnu."""
+    code = to_camelot(key)
+    if code is None:
+        return None
+    table = _MINOR if code.endswith("A") else _MAJOR
+    pitch = next(p for p, c in table.items() if c == code)
+    return _NAMES[pitch] + ("m" if code.endswith("A") else "")
+
+
 def neighbors(camelot: Optional[str]) -> List[str]:
     """Clés qui s'enchaînent harmoniquement : identique, ±1 sur la roue, relative majeure/mineure."""
     code = to_camelot(camelot)

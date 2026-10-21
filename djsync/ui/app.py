@@ -108,6 +108,9 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("zoom", self.restyle)
         self.ctrl.on("analysis", self._analysis_changed)
         self.ctrl.on("open_grid", self.open_grid_editor)
+        self.ctrl.on("engine_offer", self._engine_offer)
+        self.ctrl.on("local_offer", self._local_offer)
+        self.ctrl.on("eject_own", self._eject_own)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()
@@ -245,6 +248,9 @@ class DJSyncApp(QMainWindow):
         uh.addWidget(self.usb_icon)
         self.usb_title = label(t("nav.active_drive").upper(), "section")
         uh.addWidget(self.usb_title, 1)
+        self.eject_btn = icon_button("eject", self.ctrl.eject, t("eject.hint"), size=12)
+        self.eject_btn.hide()
+        uh.addWidget(self.eject_btn)
         ul.addLayout(uh)
         self.usb_label = label("", wrap=True)
         self.usb_bar = QProgressBar()
@@ -398,6 +404,7 @@ class DJSyncApp(QMainWindow):
             self.usb_label.setText(t("nav.no_drive"))
             self.usb_label.setProperty("role", "dim")
         restyle(self.usb_label)
+        self.eject_btn.setVisible(bool(drive) and not local and not self._compact)
         self.usb_bar.setVisible(show_bar)
         self.usb_free.setVisible(show_bar and not self._compact)
         self.usb_box.setToolTip(str(drive) if drive else self.usb_label.text())
@@ -474,6 +481,26 @@ class DJSyncApp(QMainWindow):
         if ed is not None:
             self.stack.removeWidget(ed)
         self.show_view(self._grid_return or "library")
+
+    # ------------------------------------------------------------ questions (V0.5.0)
+    def _engine_offer(self, release: Any, current: str) -> None:
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("engine.offer_title"), t("engine.offer_msg", version=release.version),
+                      lambda: self.ctrl.engine_install(release), confirm_text=t("engine.offer_ok"),
+                      detail=t("engine.offer_detail", current=current or "?"))
+
+    def _local_offer(self, local: Any, host: str) -> None:
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("local.offer_title"), t("local.offer_msg", host=host), self.ctrl.connect_local,
+                      confirm_text=t("local.offer_ok"), detail=t("local.offer_detail"))
+
+    def _eject_own(self, drive: Any) -> None:
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("eject.own_title"), t("eject.own_msg", drive=drive.label or str(drive.root)),
+                      self.close, confirm_text=t("eject.own_ok"))
 
     def open_help(self) -> None:
         from .help_dialog import HelpDialog

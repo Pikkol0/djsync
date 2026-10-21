@@ -81,6 +81,7 @@ class DownloadsMixin:
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Download %s failed: %s", job.track.video_id, exc)
             job.status, job.message = "error", str(exc).replace("ERROR: ", "")[:300]
+            self.dispatcher.post(self.engine_failure, job.message)
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":
             self.dispatcher.post(self._emit, "library")

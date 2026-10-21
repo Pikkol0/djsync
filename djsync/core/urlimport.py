@@ -146,7 +146,9 @@ def resolve_direct(
         else:
             import yt_dlp
 
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            from .engine import ydl_options
+
+            with yt_dlp.YoutubeDL(ydl_options(**opts)) as ydl:
                 info = ydl.extract_info(url, download=False)
     except Exception as exc:  # noqa: BLE001 - yt-dlp lève des erreurs variées (réseau, privé, supprimé…)
         text = re.sub(r"\x1b\[[0-9;]*m", "", str(exc)).replace("ERROR: ", "").strip()

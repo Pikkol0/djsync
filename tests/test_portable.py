@@ -57,3 +57,18 @@ def test_djsync_home_override_wins(tmp_path):
         assert settings_dir() == tmp_path / "h"
     finally:
         del os.environ["DJSYNC_HOME"]
+
+
+def test_single_visible_file_layout(tmp_path):
+    """Exe construit en mode dossier : tout vit dans `.djsync` (caché), réglages compris."""
+    app = tmp_path / "anywhere"
+    contents = app / portable.CONTENTS
+    (contents / "tools").mkdir(parents=True)
+    assert not portable.is_portable(app)
+    (contents / "portable.flag").write_text("")
+    assert portable.is_portable(app)
+    assert portable.portable_data_dir(app) == contents / "data"
+    assert portable.tool_dirs(app) == [contents / "tools"]
+    (app / "DJSync_Data").mkdir()                          # ancienne version : ses réglages sont gardés
+    assert portable.portable_data_dir(app) == app / "DJSync_Data"
+    assert portable.hide(app / "nothing") is False         # sans effet hors Windows / fichier absent

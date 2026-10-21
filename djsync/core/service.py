@@ -44,7 +44,15 @@ class MusicService:
         self._duplicates.set_library(library, exact_lookup=getattr(library, "find_by_source_url", None))
 
     def set_ffmpeg_location(self, ffmpeg_location: Optional[str]) -> None:
-        self._downloader = Downloader(ffmpeg_location=ffmpeg_location)
+        old = self._downloader
+        self._downloader = Downloader(ffmpeg_location=ffmpeg_location,
+                                      audio_format=getattr(old, "audio_format", "m4a"),
+                                      normalize=getattr(old, "normalize", False))
+
+    def set_output(self, audio_format: str, normalize: bool) -> None:
+        """Format des téléchargements (m4a natif | mp3 320) et normalisation du volume."""
+        self._downloader.audio_format = audio_format
+        self._downloader.normalize = normalize
 
     # ---- recherche
     def search(

@@ -39,6 +39,8 @@ from ..models import (
 )
 from ..settings import Settings
 from .ctrl.downloads import DownloadsMixin
+from .ctrl.engine import EngineMixin
+from .ctrl.tools import ToolsMixin
 from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
 from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
 from .runner import UiDispatcher
@@ -47,6 +49,43 @@ log = logging.getLogger(__name__)
 
 Callback = Callable[[Any], None]
 POLL_MS = 4000
+
+
+def _same_path(a: Any, b: Any) -> bool:
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return str(a) == str(b)
+
+
+def _flush() -> None:
+    import os
+
+    if hasattr(os, "sync"):
+        os.sync()
+
+
+def eject_volume(root: Any) -> bool:
+    """Éjection système (Windows : comme « Éjecter » dans l'Explorateur). True si réussie."""
+    import subprocess
+    import sys
+
+    root = str(root)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        if sys.platform == "win32":
+            letter = root.rstrip("\\/")[:2]
+            script = (f"$d=(New-Object -ComObject Shell.Application).Namespace(17).ParseName('{letter}');"
+                      "if($d){$d.InvokeVerb('Eject')}; Start-Sleep -Milliseconds 1500;"
+                      f"if(Test-Path '{letter}\\'){{exit 1}}")
+            proc = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                                  capture_output=True, timeout=30, creationflags=flags)
+            return proc.returncode == 0
+        if sys.platform == "darwin":
+            return subprocess.run(["diskutil", "eject", root], capture_output=True, timeout=30).returncode == 0
+        return subprocess.run(["gio", "mount", "-e", root], capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 class MatchHandle:
@@ -61,7 +100,7 @@ class MatchHandle:
         self.cancelled = True
 
 
-class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
+class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin, ToolsMixin):
     def __init__(
         self,
         settings: Settings,
@@ -77,6 +116,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             ffmpeg_location=settings.ffmpeg_location or None,
         )
         self.player.set_volume(settings.volume)
+        self._apply_output()
 
         self.drive: Optional[UsbDrive] = None
         self.library: Optional[RekordboxUsbLibrary] = None
@@ -95,6 +135,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         self._preview_files: Dict[str, str] = {}
         self._polling = False
         self._views_inflight: Set[str] = set()
+        self._local_offered = False
         self._init_playback()
 
     # ------------------------------------------------------------------ évènements
@@ -187,9 +228,42 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         """La bibliothèque active est-elle celle de l'ordinateur ?"""
         return isinstance(self.drive, LocalRekordbox)
 
+    @staticmethod
+    def host_name() -> str:
+        import socket
+
+        try:
+            return socket.gethostname() or "?"
+        except OSError:
+            return "?"
+
+    def local_allowed(self) -> bool:
+        """Version portable (sur une clé, de PC en PC) : la bibliothèque Rekordbox du PC hôte n'est
+        ouverte d'office que si l'utilisateur l'a acceptée une fois sur CE PC."""
+        return not portable.is_portable() or self.host_name() in self.settings.local_hosts
+
+    def allow_local(self) -> None:
+        host = self.host_name()
+        if host not in self.settings.local_hosts:
+            self.settings.local_hosts.append(host)
+            self.settings.save()
+
     def connect_local(self) -> None:
+        """Choix explicite de l'utilisateur : vaut accord pour ce PC."""
         if self.local is not None:
+            self.allow_local()
             self.connect(self.local)
+
+    def _offer_local(self) -> bool:
+        """Ouvre la bibliothèque de l'ordinateur, ou la propose (version portable sur un PC inconnu)."""
+        if self.local is None or str(self.local.root) in self._connect_failed:
+            return False
+        if self.local_allowed():
+            self.connect(self.local)
+        elif not self._local_offered:
+            self._local_offered = True
+            self._emit("local_offer", self.local, self.host_name())
+        return True
 
     def _auto_connect(self) -> None:
         if self.library or self._connecting or self._user_disconnected:
@@ -203,8 +277,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             self.connect(str(own), remember=False)
             return
         if self.settings.active_drive == "local" and self.local is not None:
-            self.connect(self.local)
-            return
+            if self._offer_local():
+                return
         candidates = [d for d in self.drives if str(d.root) not in self._connect_failed]
         preferred = self.settings.active_drive.strip().rstrip(":\\/").upper()
         pick = next((d for d in candidates if preferred and (d.letter == preferred or str(d.root) == self.settings.active_drive)), None)
@@ -212,8 +286,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             pick = candidates[0]
         if pick is not None:
             self.connect(pick)
-        elif not candidates and self.local is not None and str(self.local.root) not in self._connect_failed:
-            self.connect(self.local)                # aucune clé : la bibliothèque de l'ordinateur
+        elif not candidates and self.local is not None:
+            self._offer_local()                     # aucune clé : la bibliothèque de l'ordinateur
         elif len(candidates) > 1:
             self.message("warn", t("msg.several_drives", n=len(candidates)))
             self._emit("navigate", "home")
@@ -234,6 +308,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
                     drive, backup_keep=self.settings.backup_keep, analyze=self.settings.analyze_on_add, artwork=True,
                     ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
                 ).connect()
+                lib.auto_cue = self.settings.auto_cue
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -245,6 +320,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
                 analyze=self.settings.analyze_on_add, artwork=True,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
+            lib.auto_cue = self.settings.auto_cue
             self.service.set_library(lib)
             if old is not None:
                 old.close()
@@ -279,6 +355,43 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         if lib is not None:
             self.dispatcher.submit(lib.close, pool="db")
         self._emit("drive")
+
+    # ---------------------------------------------------------------- éjection (V0.5.0)
+    def eject(self) -> None:
+        """Ferme proprement la clé (base fermée, journal WAL vidé, lecture arrêtée) puis l'éjecte.
+        Si DJSync tourne depuis cette clé, Windows ne peut pas l'éjecter : on propose de quitter."""
+        drive = self.drive
+        if drive is None or self.is_local:
+            return
+        own = portable.own_drive_root()
+        same = own is not None and _same_path(own, drive.root)
+        lib = self.library
+        if self.analysis.running:
+            self.analysis.cancel()
+        self.player.stop()
+        self.library, self.drive = None, None
+        self._user_disconnected = True
+        self.playlists = []
+        self.service.set_library(None)
+        self._emit("drive")
+        self.message("info", t("eject.working"))
+
+        def work() -> bool:
+            if lib is not None:
+                lib.close()
+            _flush()
+            return True if same else eject_volume(drive.root)
+
+        def ok(ejected: bool) -> None:
+            if same:
+                self._emit("eject_own", drive)
+            elif ejected:
+                self.message("ok", t("eject.done", drive=drive.label or str(drive.root)))
+            else:
+                self.message("warn", t("eject.closed_only", drive=drive.label or str(drive.root)))
+            self.refresh_drives()
+
+        self.dispatcher.submit(work, ok, self._on_error, pool="db")
 
     def _poll(self) -> None:
         """Surveille le branchement/débranchement des clés (toutes les 4 s, hors thread UI)."""
@@ -358,7 +471,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         else:
             (err or self._on_error)(UrlImportError(t("error.url_unknown")))
             return
-        self.dispatcher.submit(work, lambda r: ok(*r), err or self._on_error, pool="net")
+        def failed(exc: BaseException) -> None:
+            (err or self._on_error)(exc)
+            self.engine_failure(str(exc))
+
+        self.dispatcher.submit(work, lambda r: ok(*r), failed, pool="net")
 
     def is_url(self, text: str) -> bool:
         """Omnibar : lien à importer (Spotify, YouTube, SoundCloud) ou texte à chercher ?"""
@@ -401,6 +518,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         """Applique les réglages modifiés (FFmpeg, dossier de destination, sauvegardes) et les enregistre."""
         s = self.settings
         self.service.set_ffmpeg_location(s.ffmpeg_location or None)
+        self._apply_output()
         self.player.ffmpeg_location = s.ffmpeg_location or None
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
@@ -411,7 +529,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             self.library.artwork = True
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation
+            self.library.auto_cue = s.auto_cue
         s.save()
+
+    def _apply_output(self) -> None:
+        if hasattr(self.service, "set_output"):
+            self.service.set_output(self.settings.audio_format, self.settings.normalize_volume)
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:

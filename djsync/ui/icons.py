@@ -287,6 +287,27 @@ def _computer(p: _Pen) -> None:
     p.line(7.5, 20.5, 16.5, 20.5)
 
 
+def _eject(p: _Pen) -> None:
+    p.poly(12, 4, 20, 13, 4, 13)
+    p.rect(4, 16.5, 20, 19.5, 1, fill=True)
+
+
+def _copy(p: _Pen) -> None:
+    p.rect(8, 8, 20, 20, 2)
+    p.line(4, 15, 4, 6)
+    p.line(4, 4.5, 4.5, 4)
+    p.line(6, 4, 15, 4)
+
+
+def _tag(p: _Pen) -> None:
+    p.line(4, 4, 12, 4)
+    p.line(4, 4, 4, 12)
+    p.line(4, 12, 13, 21)
+    p.line(12, 4, 21, 13)
+    p.line(13, 21, 21, 13)
+    p.circle(8.5, 8.5, 1.4, fill=True)
+
+
 DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
@@ -295,7 +316,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
-    "computer": _computer,
+    "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
 }
 
 
