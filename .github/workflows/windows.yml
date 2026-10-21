@@ -1,6 +1,12 @@
-# Portable Windows build of DJSync (V0.5.0).
-# Result: DJSync-windows.zip = DJSync.exe + hidden ".djsync" folder (Python, Qt, audio-only FFmpeg,
-# QuickJS for yt-dlp). Unzip it at the root of the USB stick: the user only sees DJSync.exe.
+# Portable Windows build of DJSync, and GitHub releases.
+# Result: DJSync-<version>-windows.zip = DJSync.exe + hidden ".djsync" folder (Python, Qt, audio-only
+# FFmpeg, QuickJS for yt-dlp). Unzip it at the root of the USB stick: the user only sees DJSync.exe.
+#
+# Releasing: push a tag matching djsync/__init__.py's version.
+#   git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1   -> PRE-release (to test on real hardware)
+#   git tag v1.0.0      && git push origin v1.0.0        -> release (marked "latest")
+# The release gets the zip, its SHA-256 and notes built from the README (packaging/release_notes.py).
+# A manual run (Actions > Windows build > Run workflow) only builds the zip as a run artifact.
 #
 # Code signing (optional): add the repository secrets
 #   SIGN_CERT_PFX       the .pfx certificate, base64-encoded   (certutil -encode cert.pfx cert.b64)
@@ -37,6 +43,8 @@ jobs:
   build:
     needs: ffmpeg
     runs-on: windows-latest
+    outputs:
+      zip: ${{ steps.name.outputs.zip }}
     env:
       SIGN_CERT_PFX: ${{ secrets.SIGN_CERT_PFX }}
       SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
@@ -45,6 +53,18 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Version
+        id: name
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            python packaging/release_notes.py "${{ github.ref_name }}" > $null
+            if ($LASTEXITCODE -ne 0) { exit 1 }          # tag and djsync.__version__ disagree
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $v = (python -c "import djsync; print(djsync.__version__)") + "-dev"
+          }
+          "zip=DJSync-$v-windows.zip" >> $env:GITHUB_OUTPUT
       - name: Clean environment
         run: |
           python -m pip install --upgrade pip
@@ -86,8 +106,39 @@ jobs:
           Remove-Item cert.pfx
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path dist/DJSync/* -DestinationPath DJSync-windows.zip
+        run: |
+          Compress-Archive -Path dist/DJSync/* -DestinationPath ${{ steps.name.outputs.zip }}
+          $h = (Get-FileHash ${{ steps.name.outputs.zip }} -Algorithm SHA256).Hash.ToLower()
+          "$h  ${{ steps.name.outputs.zip }}" | Out-File -Encoding ascii "${{ steps.name.outputs.zip }}.sha256"
       - uses: actions/upload-artifact@v7
         with:
           name: DJSync-windows
-          path: DJSync-windows.zip
+          path: |
+            ${{ steps.name.outputs.zip }}
+            ${{ steps.name.outputs.zip }}.sha256
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: DJSync-windows
+          path: out
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 packaging/release_notes.py "$TAG" > notes.md
+          flags=""
+          case "$TAG" in *-*) flags="--prerelease";; *) flags="--latest";; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "DJSync ${TAG#v}" --notes-file notes.md $flags --verify-tag
+          fi

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.5.1-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -51,7 +51,13 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 |---|---|
 | ![Library](docs/captures/library.png) | ![Grid](docs/captures/grid.png) |
 
-## Installation
+## Download (Windows)
+
+Get **`DJSync-<version>-windows.zip`** from the [latest release](https://github.com/Pikkol0/djsync/releases/latest),
+unzip it at the root of your USB drive and double-click `DJSync.exe` — nothing to install, FFmpeg and the
+JavaScript runtime needed for YouTube are included. Its companion folder `.djsync` is hidden at first launch.
+
+## Run from source
 
 ### Requirements
 - **Python 3.10+** (developed and tested with 3.12)
@@ -60,7 +66,7 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 - A **JavaScript runtime** for YouTube downloads (yt-dlp): Deno, Node.js or
   [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (`qjs`, 2.5 MB — the one shipped with the Windows build).
 
-### Run from source
+### Steps
 ```bash
 git clone https://github.com/Pikkol0/djsync.git
 cd djsync
@@ -69,7 +75,7 @@ python -m venv .venv
 pip install -r requirements.txt
 python app.py
 ```
-### Portable Windows executable
+### Building the Windows executable
 The **Windows build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or
 by pushing a `v*` tag) produces `DJSync-windows.zip`: unzip it at the root of the USB drive. The user only
 sees **`DJSync.exe`**; everything else (Python, Qt, an audio-only FFmpeg of ~6 MB, QuickJS for yt-dlp,
@@ -153,7 +159,8 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **0.5.1** | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
+| **1.0.0** | First release: portable Windows build published as a GitHub release (zip + SHA-256, notes built from this table). Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
+| 0.5.1 | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
 | 0.5.0 | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
 | 0.4.0 | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |
 | 0.3.1 | Polished interface: icons on buttons, menus, tables and the sidebar, rounded cards, key pills, larger search fields, messages as small pop-ups; explanations moved to tooltips (ⓘ) and needless texts removed. New "Downloads & analysis" page: downloads table + analysis table (every unanalysed track, search in the whole library to re-analyse, beat grid editor icon on each analysed track). |
@@ -165,6 +172,12 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 | 0.2.0 | New interface: Home + omnibar, search as you type, "All tracks", Camelot pills, drag and drop onto playlists, harmonic filter, player previous/next + waveform, zoom and small windows, English by default, logo per colour. On-demand analysis, beat grid editor, duplicates tool, help and shortcuts. Code split (library, controller). |
 | 0.1.6 | Local BPM / key / ANLZ waveform analysis, date added and artwork in both databases, calibration on a real drive (MP3 encoder delay). |
 | 0.1.x | YouTube Music search and download, Spotify/YouTube/SoundCloud import, writing to exportLibrary.db then export.pdb, library and playlists, player, portable mode. |
+
+## Releasing
+`djsync/__init__.py` holds the version. Add its row to the table above, then push a tag:
+`git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1` publishes a **pre-release** to test on real hardware;
+`git tag v1.0.0 && git push origin v1.0.0` publishes the release. The *Windows build* workflow refuses a tag
+that does not match the version, runs the tests on Windows, builds the zip and attaches it to the release.
 
 ## Roadmap
 - [ ] Measure and fix the beat grid offset of m4a (AAC) files
