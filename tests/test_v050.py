@@ -115,7 +115,7 @@ def test_copy_playlist_usb_to_computer_reuses_analysis(usb_lib, local):
     copied = local.get_playlist_tracks(res.playlist_id)
     assert [t.title for t in copied] == ["One", "Two"] and all(t.is_analysed for t in copied)
     one = copied[0]
-    assert Path(one.path).is_file() and str(local.drive.music_dir) in one.path
+    assert Path(one.path).is_file() and local.drive.music_dir.resolve().as_posix() in one.path
     dat = local.absolute_path(one.analysis_path)
     assert read_path(dat.read_bytes()) == "?/One.wav"                      # chemin réécrit à la façon du PC
     assert local.beat_grid(one.content_id).beats[0][2] == grid.beats[0][2] + 7   # correction conservée
