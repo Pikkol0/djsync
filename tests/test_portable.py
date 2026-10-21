@@ -72,3 +72,22 @@ def test_single_visible_file_layout(tmp_path):
     (app / "DJSync_Data").mkdir()                          # ancienne version : ses réglages sont gardés
     assert portable.portable_data_dir(app) == app / "DJSync_Data"
     assert portable.hide(app / "nothing") is False         # sans effet hors Windows / fichier absent
+
+
+def test_release_notes_match_version_and_history(capsys):
+    """Le tag publié doit correspondre à djsync.__version__ ; les notes viennent du README."""
+    import importlib.util
+    from pathlib import Path
+
+    import djsync
+
+    spec = importlib.util.spec_from_file_location(
+        "release_notes", Path(__file__).resolve().parent.parent / "packaging" / "release_notes.py")
+    notes = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(notes)
+    v = djsync.__version__
+    assert notes.main(f"v{v}") == 0
+    out = capsys.readouterr().out
+    assert f"**Release {v}**" in out and f"DJSync-{v}-windows.zip" in out and notes.history_row(v)
+    assert notes.main(f"v{v}-rc.1") == 0 and "Pre-release" in capsys.readouterr().out
+    assert notes.main("v0.0.1") == 1                          # tag ≠ version : publication refusée
