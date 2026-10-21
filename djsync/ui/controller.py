@@ -32,6 +32,7 @@ from ..db.errors import (
     DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
     UnsupportedFormatError,
 )
+from ..db import local_library as _local
 from ..db.local_library import LocalRekordbox, LocalRekordboxLibrary, find_local_rekordbox
 from ..i18n import get_language, t
 from ..models import (
@@ -136,6 +137,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._polling = False
         self._views_inflight: Set[str] = set()
         self._local_offered = False
+        self._rekordbox_warned = False
         self._init_playback()
 
     # ------------------------------------------------------------------ évènements
@@ -335,6 +337,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 self.settings.save()
             self.message("ok", t("msg.drive_connected", drive=self.drive.label or str(self.drive.root)))
             self._emit("drive")
+            self._rekordbox_warned = False
+            self._repair_pdb(self.library)
 
         def err(exc: BaseException) -> None:
             self._connecting = False
@@ -355,6 +359,35 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         if lib is not None:
             self.dispatcher.submit(lib.close, pool="db")
         self._emit("drive")
+
+    # ------------------------------------------- clé USB : export.pdb et Rekordbox (V1.0.0)
+    def _repair_pdb(self, lib: Any) -> None:
+        """À l'ouverture d'une clé : si export.pdb (Device Library, anciennes platines) a perdu des
+        sons ou des playlists de exportLibrary.db — typiquement réécrit par Rekordbox ouvert en même
+        temps —, rattrapage ADDITIF automatique (rien n'est supprimé ni réordonné)."""
+        if lib is None or not getattr(lib, "supports_pdb", True) or getattr(lib, "read_only", False):
+            return
+
+        def work() -> Any:
+            if lib.pdb_status().state != "stale":
+                return None
+            return lib.pdb_catch_up()
+
+        def done(summary: Any) -> None:
+            if summary is not None and (summary.tracks_added or summary.playlists_added or summary.entries_added):
+                self.message("info", t("msg.pdb_repaired", tracks=summary.tracks_added,
+                                       playlists=summary.playlists_added))
+
+        self.dispatcher.submit(work, done, lambda exc: log.warning("export.pdb check: %s", exc), pool="db")
+
+    def _warn_rekordbox(self, running: bool) -> None:
+        """Rekordbox ouvert pendant que DJSync modifie la clé : il garde en mémoire une Device Library
+        périmée et peut réécrire export.pdb par-dessus (sons ajoutés par DJSync perdus)."""
+        if not running:
+            self._rekordbox_warned = False
+        elif self.library is not None and not self.is_local and not self._rekordbox_warned:
+            self._rekordbox_warned = True
+            self.message("warn", t("msg.rekordbox_open_usb"))
 
     # ---------------------------------------------------------------- éjection (V0.5.0)
     def eject(self) -> None:
@@ -402,11 +435,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         active = self.drive
 
         def probe() -> Any:
-            return find_usb_drives(), (active is None or active.db_path.is_file())
+            return find_usb_drives(), (active is None or active.db_path.is_file()), _local.rekordbox_running()
 
         def ok(result: Any) -> None:
             self._polling = False
-            drives, still_there = result
+            drives, still_there, rb_open = result
+            self._warn_rekordbox(rb_open)
             changed = [str(d.root) for d in drives] != [str(d.root) for d in self.drives]
             if changed:
                 self.drives = drives

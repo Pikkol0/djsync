@@ -597,4 +597,7 @@ STRINGS = {
     "settings.format_mp3": "MP3 320 kbps (older players)",
     "settings.normalize": "Same volume for every download",
     "settings.normalize_hint": "Measures the loudness and applies a fixed gain (no compression, peaks kept under -1 dBTP). The file is re-encoded.",
+    # ---- V1.0.0
+    "msg.pdb_repaired": "export.pdb (Device Library, older players) was missing {tracks} track(s) and {playlists} playlist(s): repaired.",
+    "msg.rekordbox_open_usb": "Rekordbox is open: it keeps its own copy of the drive's Device Library and may overwrite DJSync's changes. Close Rekordbox (or eject the drive in it) while DJSync adds tracks.",
 }

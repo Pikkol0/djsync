@@ -99,3 +99,46 @@ def test_settings_engine_offer_and_copy_menu(env, tmp_path):
         assert not app.errors
     finally:
         close_window(app)
+
+
+def test_usb_export_pdb_repaired_on_open_and_rekordbox_warning(tmp_path, monkeypatch):
+    """V1.0.0 : Rekordbox ouvert avait réécrit export.pdb sans un son ajouté par DJSync. À l'ouverture
+    de la clé, le rattrapage est automatique ; Rekordbox ouvert déclenche un avertissement (une fois)."""
+    import djsync.db.local_library as L
+    import djsync.ui.controller as controller
+    from djsync.db import drive_from_letter
+
+    from .test_pdb_sync import build_pdb, make_usb, open_lib, pdb_of, sample_track
+    from .test_usb_library import make_wav
+
+    usb = make_usb(tmp_path / "usb")
+    with open_lib(usb) as lib:
+        added = lib.add_track(make_wav(lib, "A", "a"), "a", "A", None, None, [1])
+    (usb / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(      # « réécrit par Rekordbox »
+        build_pdb([sample_track(1)], {("Rap",): [], ("House",): [], ("Dossier",): []}))
+    assert not pdb_of(usb).has_track(added.path)
+
+    monkeypatch.setenv("DJSYNC_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(controller, "find_usb_drives", lambda: [drive_from_letter(str(usb))])
+    monkeypatch.setattr(controller, "MusicService", FakeService)
+    running = {"on": False}
+    monkeypatch.setattr(L, "rekordbox_running", lambda: running["on"])
+    monkeypatch.setattr(controller, "POLL_MS", 50)
+    s = Settings()
+    s.local_db_dir = str(tmp_path / "none")
+    app = make_window(s, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        seen = []
+        ctrl.on("message", lambda kind, text: seen.append((kind, text)))
+        assert pump(app, 6, lambda: ctrl.has_library)
+        assert pump(app, 6, lambda: pdb_of(usb).has_track(added.path))          # réparé tout seul
+        assert pump(app, 2, lambda: any("export.pdb" in text for _k, text in seen))
+        running["on"] = True
+        assert pump(app, 3, lambda: any(k == "warn" and "Rekordbox" in text for k, text in seen))
+        n = len([1 for k, text in seen if "Rekordbox is open" in text])
+        pump(app, 0.5)
+        assert len([1 for k, text in seen if "Rekordbox is open" in text]) == n == 1     # une seule fois
+        assert not app.errors
+    finally:
+        close_window(app)
