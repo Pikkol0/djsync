@@ -36,8 +36,10 @@ class BaseDialog(QDialog):
             self.body.addWidget(label(sub, "dim", wrap=True))
 
     def footer(self, ok_text: str, on_ok: Callable[[], None], danger: bool = False, cancel_text: str = "",
-               show_cancel: bool = True) -> Any:
-        self.body.addStretch(1)
+               show_cancel: bool = True, stretch: bool = True) -> Any:
+        """`stretch=False` : le contenu (déjà extensible) prend toute la hauteur libre."""
+        if stretch:
+            self.body.addStretch(1)
         row = hbox(spacing=theme.px(6))
         row.addStretch(1)
         if show_cancel:
