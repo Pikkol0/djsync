@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -31,6 +31,9 @@ exported by Rekordbox:
 - **Manage the library** like a mini Rekordbox: playlists and folders, drag and drop, track order,
   harmonic filter, built-in player with waveform.
 - **Fix** a shifted beat grid (also straight from the player), **find and merge duplicates**, edit title / artist.
+- **Update the Rekordbox collection of this computer** too (Rekordbox 6/7, `master.db`): same features as
+  for a USB drive — download into the collection, playlists and folders, analysis, beat grid, title/artist,
+  duplicates. DJSync only writes while Rekordbox is closed.
 - **Back up before every change**: a copy of the database goes to `DJSync_Backups/` on the drive.
 
 English interface (French available in Settings; other languages can be added — see below), 20 colour
@@ -136,7 +139,8 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **0.3.1** | Polished interface: icons on buttons, menus, tables and the sidebar, rounded cards, key pills, larger search fields, messages as small pop-ups; explanations moved to tooltips (ⓘ) and needless texts removed. New "Downloads & analysis" page: downloads table + analysis table (every unanalysed track, search in the whole library to re-analyse, beat grid editor icon on each analysed track). |
+| **0.4.0** | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |
+| 0.3.1 | Polished interface: icons on buttons, menus, tables and the sidebar, rounded cards, key pills, larger search fields, messages as small pop-ups; explanations moved to tooltips (ⓘ) and needless texts removed. New "Downloads & analysis" page: downloads table + analysis table (every unanalysed track, search in the whole library to re-analyse, beat grid editor icon on each analysed track). |
 | 0.3.0 | New Qt interface (PySide6) replacing customtkinter: native widgets, much smoother scrolling, resizing and table updates. Zoom and theme colour apply instantly without rebuilding the window; the zoom no longer follows the window size. Plainer look: flat dark theme, square corners, no shadows or animations, no per-row artwork or placeholder rows. Beat grid editor: drag the listening cursor on the waveform, "Bar starts here" (a downbeat exactly on the cursor), shift by ±1/±10/±100 ms, BPM ×2 / ÷2. Rekordbox 3-band waveforms (`.2EX`): track previews now look like Rekordbox's own instead of blue (re-analyse older tracks). Downloads complete album, year, genre, label, track number and ISRC (Deezer, can be turned off). Same features as 0.2.4 otherwise; UI tests run without a display. |
 | 0.2.4 | Background analysis: Library ▸ *Not analysed* section with "Analyse all" / "Stop", progress card in the sidebar, the rest of the app stays usable. Player: beat grid button and track options (title/artist, analyse again, compatible keys, show in library). export.pdb: track updates no longer eat the free space (in-place rewrite, deleted rows reclaimed), clearer "export.pdb is full" message. Beat grid editor is now a page of the main window (the separate window vanished or froze the app on Windows). Fixes: dialogs sized for the zoom and kept on screen, key pill now shown right after analysis. |
 | 0.2.3 | Windows start-up fix: the main window stayed invisible after the splash screen, and the splash shrank to a corner (DPI awareness set too late). |

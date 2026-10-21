@@ -32,6 +32,7 @@ from ..db.errors import (
     DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
     UnsupportedFormatError,
 )
+from ..db.local_library import LocalRekordbox, LocalRekordboxLibrary, find_local_rekordbox
 from ..i18n import get_language, t
 from ..models import (
     Candidate, DownloadJob, PlaylistInfo, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind,
@@ -80,6 +81,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         self.drive: Optional[UsbDrive] = None
         self.library: Optional[RekordboxUsbLibrary] = None
         self.drives: List[UsbDrive] = []
+        self.local: Optional[LocalRekordbox] = None    # V0.4.0 : Rekordbox installé sur cet ordinateur
         self.playlists: List[PlaylistInfo] = []
         self.jobs: List[DownloadJob] = []
         self.last_playlist_ids: List[int] = []   # pré-cochés dans le popup de téléchargement
@@ -160,16 +162,34 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         self.refresh_drives(then=self._auto_connect)
         self.dispatcher.call_later(POLL_MS, self._poll)
 
+    def find_local(self) -> Optional[LocalRekordbox]:
+        """Rekordbox de cet ordinateur (dossier imposé dans les Paramètres, sinon emplacement standard)."""
+        s = self.settings
+        try:
+            return find_local_rekordbox(s.local_db_dir, s.local_music_dir, t("local.name"))
+        except OSError:
+            return None
+
     def refresh_drives(self, then: Optional[Callable[[], None]] = None) -> None:
-        def ok(drives: List[UsbDrive]) -> None:
+        def ok(result: Any) -> None:
+            drives, local = result
             if [str(d.root) for d in drives] != [str(d.root) for d in self.drives]:
                 self._connect_failed.clear()
-            self.drives = drives
+            self.drives, self.local = drives, local
             self._emit("drives")
             if then:
                 then()
 
-        self.dispatcher.submit(find_usb_drives, ok, self._on_error, pool="net")
+        self.dispatcher.submit(lambda: (find_usb_drives(), self.find_local()), ok, self._on_error, pool="net")
+
+    @property
+    def is_local(self) -> bool:
+        """La bibliothèque active est-elle celle de l'ordinateur ?"""
+        return isinstance(self.drive, LocalRekordbox)
+
+    def connect_local(self) -> None:
+        if self.local is not None:
+            self.connect(self.local)
 
     def _auto_connect(self) -> None:
         if self.library or self._connecting or self._user_disconnected:
@@ -182,6 +202,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
         if own is not None:
             self.connect(str(own), remember=False)
             return
+        if self.settings.active_drive == "local" and self.local is not None:
+            self.connect(self.local)
+            return
         candidates = [d for d in self.drives if str(d.root) not in self._connect_failed]
         preferred = self.settings.active_drive.strip().rstrip(":\\/").upper()
         pick = next((d for d in candidates if preferred and (d.letter == preferred or str(d.root) == self.settings.active_drive)), None)
@@ -189,11 +212,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             pick = candidates[0]
         if pick is not None:
             self.connect(pick)
+        elif not candidates and self.local is not None and str(self.local.root) not in self._connect_failed:
+            self.connect(self.local)                # aucune clé : la bibliothèque de l'ordinateur
         elif len(candidates) > 1:
             self.message("warn", t("msg.several_drives", n=len(candidates)))
             self._emit("navigate", "home")
 
-    def connect(self, drive: Union[UsbDrive, str], remember: bool = True) -> None:
+    def connect(self, drive: Union[UsbDrive, LocalRekordbox, str], remember: bool = True) -> None:
         """Ouvre la bibliothèque d'une clé (lettre forcée « E », chemin, ou UsbDrive détecté)."""
         if self._connecting:
             return
@@ -204,6 +229,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             self.analysis.cancel()
 
         def work() -> Any:
+            if isinstance(drive, LocalRekordbox):
+                lib: Any = LocalRekordboxLibrary(
+                    drive, backup_keep=self.settings.backup_keep, analyze=self.settings.analyze_on_add, artwork=True,
+                    ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
+                ).connect()
+                self.service.set_library(lib)
+                if old is not None:
+                    old.close()
+                return drive, lib
             target = drive if isinstance(drive, UsbDrive) else drive_from_letter(str(drive))
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
@@ -220,14 +254,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin):
             self._connecting = False
             self.drive, self.library = result
             if remember:
-                self.settings.active_drive = self.drive.letter or str(self.drive.root)
+                self.settings.active_drive = ("local" if isinstance(self.drive, LocalRekordbox)
+                                              else self.drive.letter or str(self.drive.root))
                 self.settings.save()
             self.message("ok", t("msg.drive_connected", drive=self.drive.label or str(self.drive.root)))
             self._emit("drive")
 
         def err(exc: BaseException) -> None:
             self._connecting = False
-            failed = str(drive.root if isinstance(drive, UsbDrive) else drive)
+            failed = str(drive.root if isinstance(drive, (UsbDrive, LocalRekordbox)) else drive)
             self._connect_failed.add(failed)
             self._on_error(exc)
 

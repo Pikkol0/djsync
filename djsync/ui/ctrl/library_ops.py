@@ -32,6 +32,16 @@ def pdb_warning(lib: Any, title: str = "") -> str:
     return t("msg.pdb_not_updated", detail=lib.pdb_problem)
 
 
+def existing_parent(path: Any) -> Any:
+    """Le dossier lui-même s'il existe, sinon son plus proche parent existant (espace libre)."""
+    from pathlib import Path
+
+    p = Path(path)
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    return p
+
+
 @dataclass
 class DriveSummary:
     """Carte d'une clé sur l'Accueil."""
@@ -44,6 +54,8 @@ class DriveSummary:
     playlists: int = -1
     unanalysed: int = -1
     has_pdb: bool = False
+    is_local: bool = False      # V0.4.0 : bibliothèque Rekordbox de cet ordinateur
+    busy: bool = False          # Rekordbox ouvert : lecture seule tant qu'il tourne
 
 
 class TaskHandle:
@@ -152,18 +164,24 @@ class LibraryOpsMixin:
 
     def drive_summaries(self, ok: Callable[[List[DriveSummary]], None]) -> None:
         """Clés détectées pour l'Accueil : espace libre, contenu (si connectée), export.pdb."""
-        drives = list(self.drives)
-        if self.drive is not None and all(str(d.root) != str(self.drive.root) for d in drives):
+        drives: List[Any] = list(self.drives)
+        if self.local is not None:
+            drives.append(self.local)
+        if self.drive is not None and all(str(d.db_path) != str(self.drive.db_path) for d in drives):
             drives.insert(0, self.drive)
         lib, active = self.library, self.drive
 
         def work() -> List[DriveSummary]:
+            from ...db.local_library import rekordbox_running
+
             out = []
             for d in drives:
-                connected = active is not None and str(d.root) == str(active.root) and lib is not None
-                s = DriveSummary(d, connected, has_pdb=(d.db_path.parent / "export.pdb").is_file())
+                local = bool(getattr(d, "is_local", False))
+                connected = active is not None and str(d.db_path) == str(active.db_path) and lib is not None
+                s = DriveSummary(d, connected, has_pdb=not local and (d.db_path.parent / "export.pdb").is_file(),
+                                 is_local=local, busy=local and rekordbox_running())
                 try:
-                    usage = shutil.disk_usage(d.root)
+                    usage = shutil.disk_usage(existing_parent(d.root))
                     s.total, s.free = usage.total, usage.free
                 except OSError:
                     pass

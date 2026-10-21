@@ -5,7 +5,7 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hidden = [], [], []
-for pkg in ("yt_dlp", "ytmusicapi", "sqlcipher3", "pygame", "mutagen"):   # numpy : hook PyInstaller natif
+for pkg in ("yt_dlp", "ytmusicapi", "sqlcipher3", "pygame", "mutagen", "pyrekordbox"):   # numpy : hook PyInstaller natif
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
 

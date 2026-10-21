@@ -281,6 +281,12 @@ def _move(p: _Pen) -> None:
     p.line(16.5, 13.5, 20.5, 17.5, 16.5, 21.5)
 
 
+def _computer(p: _Pen) -> None:
+    p.rect(3, 4, 21, 16, 2)
+    p.line(12, 16, 12, 20)
+    p.line(7.5, 20.5, 16.5, 20.5)
+
+
 DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
@@ -289,6 +295,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
+    "computer": _computer,
 }
 
 

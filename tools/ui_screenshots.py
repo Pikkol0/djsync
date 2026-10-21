@@ -101,6 +101,7 @@ def main() -> int:
     ap.add_argument("--theme", default=None)
     ap.add_argument("--zoom", type=int, default=100)
     ap.add_argument("--dialogs", action="store_true", help="also capture Help, Analysis, Duplicates, Grid editor, player")
+    ap.add_argument("--local", action="store_true", help="no USB drive: Rekordbox library of this computer (demo)")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="djsync_shots_"))
@@ -113,11 +114,23 @@ def main() -> int:
     from djsync.settings import Settings
     from tests.test_ui_smoke import FakeService
 
-    controller.find_usb_drives = lambda: [UsbDrive(root=usb, label="DEMO")]
+    controller.find_usb_drives = lambda: [] if args.local else [UsbDrive(root=usb, label="DEMO")]
     controller.MusicService = FakeService
     from djsync.ui.app import DJSyncApp
 
     settings = Settings()
+    if args.local:                          # base de démonstration de pyrekordbox (tests/data/rekordbox6)
+        import shutil
+
+        import djsync.db.local_library as local_library
+
+        db_dir = tmp / "Pioneer" / "rekordbox"
+        db_dir.mkdir(parents=True)
+        for f in (ROOT / "tests" / "data" / "rekordbox6").glob("*"):
+            if f.suffix != ".md":
+                shutil.copy(f, db_dir / f.name)
+        local_library.rekordbox_running = lambda: False
+        settings.local_db_dir, settings.local_music_dir = str(db_dir), str(tmp / "Music")
     settings.language = args.lang
     settings.zoom = args.zoom
     if args.theme:
