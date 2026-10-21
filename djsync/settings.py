@@ -75,6 +75,9 @@ class Settings:
     harmonic_filter: bool = False      # dernier état du filtre « compatibles harmoniquement »
     # ---- V0.2.2
     maximized: bool = False            # fenêtre rouverte agrandie si elle l'était à la fermeture
+    # ---- V0.4.0 : bibliothèque Rekordbox de cet ordinateur
+    local_db_dir: str = ""             # dossier de master.db ; vide = emplacement standard de Rekordbox
+    local_music_dir: str = ""          # dossier des sons téléchargés ; vide = Musique/DJSync
 
     @classmethod
     def path(cls) -> Path:

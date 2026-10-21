@@ -375,18 +375,23 @@ class DJSyncApp(QMainWindow):
     def _drive_changed(self) -> None:
         drive = self.ctrl.drive
         show_bar = False
+        local = bool(getattr(drive, "is_local", False))
+        self.usb_icon.setPixmap(qicon("computer" if local else "usb", 14, theme.FAINT)
+                                .pixmap(QSize(theme.px(14), theme.px(14))))
         if drive:
             self.usb_label.setText(drive.label or str(drive.root))
             self.usb_label.setProperty("role", "accent")
             try:
-                usage = shutil.disk_usage(drive.root)
+                from .ctrl.library_ops import existing_parent
+
+                usage = shutil.disk_usage(existing_parent(drive.root))
                 used = 1 - usage.free / max(usage.total, 1)
                 self.usb_bar.setValue(int(used * 1000))
                 self.usb_free.setText(t("nav.free_space", free=human_size(usage.free), total=human_size(usage.total)))
                 show_bar = True
             except OSError:
                 self.usb_free.setText("")
-        elif self.ctrl.drives:
+        elif self.ctrl.drives or self.ctrl.local is not None:
             self.usb_label.setText(t("nav.drive_not_connected"))
             self.usb_label.setProperty("role", "warn")
         else:

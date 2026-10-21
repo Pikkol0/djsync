@@ -143,6 +143,31 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+        # ---- Rekordbox de cet ordinateur (V0.4.0)
+        from ...db.local_library import default_music_dir
+
+        card = self._card(t("settings.local"), "computer", t("settings.local_hint"))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.local_db"))))
+        self.local_db = QLineEdit(s.local_db_dir)
+        self.local_db.setPlaceholderText(t("settings.local_auto"))
+        row.addWidget(self.local_db, 1)
+        row.addWidget(button(t("action.browse"), lambda: self._browse_into(self.local_db), icon="folder"))
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.local_music"))))
+        self.local_music = QLineEdit(s.local_music_dir)
+        self.local_music.setPlaceholderText(str(default_music_dir()))
+        row.addWidget(self.local_music, 1)
+        row.addWidget(button(t("action.browse"), lambda: self._browse_into(self.local_music), icon="folder"))
+        card.addLayout(row)
+        row = hbox()
+        self.local_state = label("", "dim", wrap=True)
+        row.addWidget(self.local_state, 1)
+        self.local_btn = button(t("action.connect"), self.ctrl.connect_local, kind="primary", icon="computer")
+        row.addWidget(self.local_btn)
+        card.addLayout(row)
+
         # ---- FFmpeg
         card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"))
         row = hbox()
@@ -282,6 +307,10 @@ class SettingsView(View):
         if not self.winfo_exists():
             return
         self._drives = {str(d): d for d in self.ctrl.drives}
+        local = self.ctrl.local
+        self.local_state.setText(t("settings.local_found", path=str(local.db_path)) if local
+                                 else t("settings.local_none"))
+        self.local_btn.setEnabled(local is not None and not self.ctrl.is_local)
         values = list(self._drives) or [t("nav.no_drive")]
         self.drive_menu.blockSignals(True)
         self.drive_menu.clear()
@@ -323,6 +352,11 @@ class SettingsView(View):
         self.pdb_state.setText(text)
         self.pdb_sync_btn.setEnabled(st.state == "stale")
 
+    def _browse_into(self, entry: QLineEdit) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "", entry.text() or "")
+        if folder:
+            entry.setText(folder)
+
     def _browse_ffmpeg(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, t("settings.ffmpeg_browse_title"))
         if folder:
@@ -351,7 +385,13 @@ class SettingsView(View):
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
         s.analyze_on_add = self.analyze_var.isChecked()
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
+        local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
+                                                                                            s.local_music_dir)
+        s.local_db_dir, s.local_music_dir = self.local_db.text().strip(), self.local_music.text().strip()
         self.ctrl.apply_settings()
+        if local_changed:                    # nouveau dossier : la bibliothèque de l'ordinateur est rouverte
+            was_local = self.ctrl.is_local
+            self.ctrl.refresh_drives(then=lambda: self.ctrl.connect_local() if was_local else None)
         if forced and changed_forced:
             self.ctrl.connect(forced, remember=False)
         self.saved.setText("✓ " + t("settings.saved"))

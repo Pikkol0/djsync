@@ -115,13 +115,18 @@ class HomeView(View):
     def _card(self, s: DriveSummary) -> QWidget:
         box = panel()
         lay = hbox(box, margins=theme.px(14), spacing=theme.px(14))
-        lay.addWidget(icon_label("usb", 28, theme.ACCENT if s.connected else theme.FAINT), 0, Qt.AlignTop)
+        icon = "computer" if s.is_local else "usb"
+        lay.addWidget(icon_label(icon, 28, theme.ACCENT if s.connected else theme.FAINT), 0, Qt.AlignTop)
 
         mid = vbox(spacing=theme.px(6))
         top = hbox(spacing=theme.px(8))
         top.addWidget(label(s.drive.label or str(s.drive.root), "h2"))
         top.addWidget(chip(t("home.connected") if s.connected else t("home.detected"),
                            "chip_ok" if s.connected else "chip"))
+        if s.busy:
+            busy = chip(t("local.rekordbox_open"), "chip_warn")
+            busy.setToolTip(t("local.rekordbox_open_tip"))
+            top.addWidget(busy)
         top.addStretch(1)
         mid.addLayout(top)
         chips = hbox(spacing=theme.px(6))
@@ -130,9 +135,12 @@ class HomeView(View):
             chips.addWidget(chip(plural("home.playlists_one", "home.playlists_many", s.playlists)))
         if s.unanalysed > 0:
             chips.addWidget(chip(plural("home.unanalysed_one", "home.unanalysed_many", s.unanalysed), "chip_warn"))
-        pdb = chip(t("home.pdb_short_yes") if s.has_pdb else t("home.pdb_short_no"))
-        pdb.setToolTip(t("home.pdb_yes") if s.has_pdb else t("home.pdb_no"))
-        chips.addWidget(pdb)
+        if s.is_local:
+            chips.addWidget(chip(t("local.collection")))
+        else:
+            pdb = chip(t("home.pdb_short_yes") if s.has_pdb else t("home.pdb_short_no"))
+            pdb.setToolTip(t("home.pdb_yes") if s.has_pdb else t("home.pdb_no"))
+            chips.addWidget(pdb)
         chips.addStretch(1)
         mid.addLayout(chips)
         actions = hbox()
@@ -143,7 +151,7 @@ class HomeView(View):
                 actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
-                                     icon="usb"))
+                                     icon=icon))
         actions.addStretch(1)
         mid.addLayout(actions)
         lay.addLayout(mid, 1)
@@ -160,7 +168,7 @@ class HomeView(View):
             side.addWidget(bar)
             side.addStretch(1)
             lay.addLayout(side)
-        box.setToolTip(str(s.drive.root))
+        box.setToolTip(str(s.drive.db_dir) if s.is_local else str(s.drive.root))
         return box
 
     # ------------------------------------------------------------------- outils
