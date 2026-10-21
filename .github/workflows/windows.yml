@@ -1,14 +1,17 @@
 # Portable Windows build of DJSync, and GitHub releases.
-# Result: DJSync-<version>-windows.zip = DJSync.exe + hidden ".djsync" folder (Python, Qt, audio-only
-# FFmpeg, QuickJS for yt-dlp). Unzip it at the root of the USB stick: the user only sees DJSync.exe.
+#
+# Result: ONE file, DJSync.exe (launcher + application). Users download it, put it anywhere (USB
+# stick root), double-click. On first launch it extracts the application into the hidden folder
+# .djsync next to itself (once, or after an update; settings in .djsync/data are kept), then starts.
+# Stable download link of the latest release: https://github.com/<owner>/<repo>/releases/latest/download/DJSync.exe
 #
 # Releasing: push a tag matching djsync/__init__.py's version.
 #   git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1   -> PRE-release (to test on real hardware)
 #   git tag v1.0.0      && git push origin v1.0.0        -> release (marked "latest")
-# The release gets the zip, its SHA-256 and notes built from the README (packaging/release_notes.py).
+# The release gets DJSync.exe, its SHA-256 and notes built from the README (packaging/release_notes.py).
 # A draft release prepared on GitHub does NOT create its tag (only publishing does): push the tag, the
-# workflow then fills the draft (zip, notes) and publishes it.
-# A manual run (Actions > Windows build > Run workflow) only builds the zip as a run artifact.
+# workflow then fills the draft and publishes it.
+# A manual run (Actions > Windows build > Run workflow) only builds DJSync.exe as a run artifact.
 #
 # Code signing (optional): add the repository secrets
 #   SIGN_CERT_PFX       the .pfx certificate, base64-encoded   (certutil -encode cert.pfx cert.b64)
@@ -22,10 +25,14 @@ on:
     tags: ["v*"]
 
 jobs:
-  ffmpeg:
+  tools:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: mingw-w64
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-mingw-w64-x86-64 nasm make
       - uses: actions/cache@v6
         id: cache
         with:
@@ -33,20 +40,21 @@ jobs:
           key: ffmpeg-audio-${{ hashFiles('packaging/build_ffmpeg.sh') }}
       - name: Cross-compile audio-only FFmpeg
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q gcc-mingw-w64-x86-64 nasm make
-          packaging/build_ffmpeg.sh ffmpeg-out
+        run: packaging/build_ffmpeg.sh ffmpeg-out
+      - name: Single-file launcher
+        run: packaging/build_launcher.sh launcher-out
       - uses: actions/upload-artifact@v7
         with:
           name: ffmpeg
           path: ffmpeg-out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launcher
+          path: launcher-out
 
   build:
-    needs: ffmpeg
+    needs: tools
     runs-on: windows-latest
-    outputs:
-      zip: ${{ steps.name.outputs.zip }}
     env:
       SIGN_CERT_PFX: ${{ secrets.SIGN_CERT_PFX }}
       SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
@@ -67,15 +75,15 @@ jobs:
             $base = python -c "import djsync; print(djsync.__version__)"
             python packaging/release_notes.py "v$base" > $null   # same check as a release, without publishing
             if ($LASTEXITCODE -ne 0) { exit 1 }
-            $v = "$base-dev"
+            $v = "$base-dev." + "${{ github.sha }}".Substring(0, 7)  # each build re-extracts on first launch
           }
-          "zip=DJSync-$v-windows.zip" >> $env:GITHUB_OUTPUT
+          "version=$v" >> $env:GITHUB_OUTPUT
       - name: Clean environment
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pytest
       - name: Tests
-        continue-on-error: true          # first Windows runs: report failures without blocking the build
+        continue-on-error: true          # reported as annotations, do not block the build
         env:
           QT_QPA_PLATFORM: offscreen
           DJSYNC_AUDIO_NULL: "1"
@@ -85,63 +93,76 @@ jobs:
           $code = $LASTEXITCODE
           python packaging/ci_annotate.py pytest.xml
           exit $code
-      - name: Build
+      - name: Build the application folder
         run: pyinstaller --noconfirm packaging/DJSync.spec
       - uses: actions/download-artifact@v8
         with:
           name: ffmpeg
-          path: dist/DJSync/.djsync/tools
+          path: dist/DJSync/tools
+      - uses: actions/download-artifact@v8
+        with:
+          name: launcher
+          path: launcher
       - name: QuickJS-NG (JavaScript runtime for yt-dlp)
         shell: pwsh
-        run: |
-          Invoke-WebRequest https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -OutFile dist/DJSync/.djsync/tools/qjs.exe
-          New-Item dist/DJSync/.djsync/portable.flag -ItemType File | Out-Null
-      - name: Smoke test (the built exe tests itself)
-        shell: pwsh
-        run: |
-          dist/DJSync/.djsync/tools/ffmpeg.exe -hide_banner -version | Select-Object -First 1
-          dist/DJSync/.djsync/tools/qjs.exe -e "print(1+1)"
-          $report = "$env:RUNNER_TEMP\selftest.json"
-          $env:DJSYNC_SELFTEST = $report
-          $p = Start-Process dist/DJSync/DJSync.exe -Wait -PassThru
-          Remove-Item Env:DJSYNC_SELFTEST
-          Get-Content $report
-          $r = Get-Content $report | ConvertFrom-Json
-          $bad = @($r.checks.PSObject.Properties | Where-Object { -not $_.Value.ok } | ForEach-Object { "$($_.Name): $($_.Value.error)" })
-          if (-not $r.checks.yt_dlp.value.ejs) { $bad += "yt_dlp: yt-dlp-ejs (YouTube JavaScript solver) missing" }
-          if (-not $r.checks.tools.value.js.quickjs) { $bad += "tools: bundled QuickJS not found" }
-          attrib -h -s dist\DJSync\.djsync          # never ship it hidden: Compress-Archive would skip it
-          $files = (Get-ChildItem dist/DJSync -Recurse -File -Force).Count
-          "::notice title=exe::$files files, self-test exit code $($p.ExitCode)"
-          if ($bad.Count -gt 0 -or $p.ExitCode -ne 0) {
-            foreach ($b in $bad) { "::error title=self-test::$b" }
-            exit 1
-          }
-          Remove-Item -Recurse -Force dist/DJSync/.djsync/data -ErrorAction SilentlyContinue
-      - name: Sign
+        run: Invoke-WebRequest https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -OutFile dist/DJSync/tools/qjs.exe
+      - name: Sign the application
         if: ${{ env.SIGN_CERT_PFX != '' }}
         shell: pwsh
         run: |
           [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:SIGN_CERT_PFX))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
-          & $signtool.FullName sign /f cert.pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist/DJSync/DJSync.exe
-          Remove-Item cert.pfx
-      - name: Package
+          & $signtool.FullName sign /f cert.pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist/DJSync/DJSync.exe launcher/launcher.exe
+      - name: Pack into ONE file
+        run: python packaging/pack_single_exe.py launcher/launcher.exe dist/DJSync "${{ steps.name.outputs.version }}" out/DJSync.exe
+      - name: Sign DJSync.exe
+        if: ${{ env.SIGN_CERT_PFX != '' }}
         shell: pwsh
         run: |
-          attrib -h -s dist\DJSync\.djsync
-          $n = (Get-ChildItem dist/DJSync -Recurse -File -Force).Count
-          if ($n -lt 50) { "::error title=package::only $n files in dist/DJSync"; exit 1 }   # .djsync missing
-          Compress-Archive -Path dist/DJSync/* -DestinationPath ${{ steps.name.outputs.zip }}
-          if ((Get-Item ${{ steps.name.outputs.zip }}).Length -lt 40MB) { "::error title=package::zip too small"; exit 1 }
-          $h = (Get-FileHash ${{ steps.name.outputs.zip }} -Algorithm SHA256).Hash.ToLower()
-          "$h  ${{ steps.name.outputs.zip }}" | Out-File -Encoding ascii "${{ steps.name.outputs.zip }}.sha256"
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          & $signtool.FullName sign /f cert.pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 out/DJSync.exe
+          Remove-Item cert.pfx
+      - name: Smoke test (DJSync.exe alone in an empty folder, as a user would run it)
+        shell: pwsh
+        run: |
+          $usb = "$env:RUNNER_TEMP\usb"
+          New-Item -ItemType Directory $usb | Out-Null
+          Copy-Item out/DJSync.exe $usb
+          $report = "$env:RUNNER_TEMP\selftest.json"
+          $env:DJSYNC_SELFTEST = $report               # the launcher waits for the app and returns its code
+          $p = Start-Process "$usb\DJSync.exe" -Wait -PassThru
+          Remove-Item Env:DJSYNC_SELFTEST
+          $bad = @()
+          if (-not (Test-Path $report)) { $bad += "no self-test report (extraction or start failed, exit $($p.ExitCode))" }
+          else {
+            Get-Content $report
+            $r = Get-Content $report | ConvertFrom-Json
+            $bad += @($r.checks.PSObject.Properties | Where-Object { -not $_.Value.ok } | ForEach-Object { "$($_.Name): $($_.Value.error)" })
+            if (-not $r.checks.yt_dlp.value.ejs) { $bad += "yt_dlp: yt-dlp-ejs (YouTube JavaScript solver) missing" }
+            if (-not $r.checks.tools.value.js.quickjs) { $bad += "tools: bundled QuickJS not found" }
+          }
+          if (-not (Test-Path "$usb\.djsync\app\DJSync.exe")) { $bad += "launcher: .djsync\app not extracted" }
+          $attr = (Get-Item "$usb\.djsync" -Force).Attributes
+          if (-not ($attr -band [IO.FileAttributes]::Hidden)) { $bad += "launcher: .djsync not hidden ($attr)" }
+          $visible = @(Get-ChildItem $usb).Name
+          $files = (Get-ChildItem "$usb\.djsync" -Recurse -File -Force).Count
+          $mb = [math]::Round((Get-Item out/DJSync.exe).Length / 1MB, 1)
+          "::notice title=DJSync.exe::$mb MB, $files files extracted, visible: $($visible -join ', '), self-test exit $($p.ExitCode)"
+          if ($bad.Count -gt 0 -or $p.ExitCode -ne 0) {
+            foreach ($b in $bad) { "::error title=self-test::$b" }
+            exit 1
+          }
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash out/DJSync.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  DJSync.exe" | Out-File -Encoding ascii out/DJSync.exe.sha256
       - uses: actions/upload-artifact@v7
         with:
           name: DJSync-windows
           path: |
-            ${{ steps.name.outputs.zip }}
-            ${{ steps.name.outputs.zip }}.sha256
+            out/DJSync.exe
+            out/DJSync.exe.sha256
 
   release:
     if: github.ref_type == 'tag'

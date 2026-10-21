@@ -3,7 +3,7 @@
     python packaging/release_notes.py v1.0.0 > notes.md      # also checks the tag against djsync.__version__
 
 Takes the version's row of the README "Version history" table, adds the installation steps for the
-Windows zip. Exit code 1 if the tag does not match the version written in djsync/__init__.py
+Windows exe. Exit code 1 if the tag does not match the version written in djsync/__init__.py
 (a "-rc.1" / "-beta" suffix is allowed: it marks a pre-release of that version).
 """
 from __future__ import annotations
@@ -15,16 +15,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 INSTALL = """## Installation (Windows)
-1. Download **{zip}** below.
-2. Unzip it **at the root of your USB drive** (or anywhere on the computer). You get `DJSync.exe`; its
-   companion folder `.djsync` is hidden automatically at first launch.
-3. Double-click `DJSync.exe`. Nothing is installed on the computer: settings stay next to the exe.
-   FFmpeg and the JavaScript runtime needed for YouTube are included.
+1. Download **DJSync.exe** below.
+2. Put it on your USB drive (or anywhere on the computer) and **double-click it**. That's all:
+   nothing to unzip, nothing installed on the computer.
+3. The first launch takes a moment: DJSync prepares its files in a hidden folder next to itself
+   (once, and again after an update). Your settings are kept across updates.
 
-If Windows SmartScreen warns about an unknown publisher (unsigned build): *More info* ▸ *Run anyway*.
+If Windows SmartScreen warns about an unknown publisher (unsigned app): *More info* ▸ *Run anyway*.
+To update: replace DJSync.exe with the new one.
 
 Close Rekordbox while DJSync writes to a library, and keep a copy of your drive.
-SHA-256 of the zip: see `{zip}.sha256`.
+SHA-256: see `DJSync.exe.sha256`.
 
 Quick installation guide: [English](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.md) ·
 [français](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.fr.md)
@@ -52,9 +53,8 @@ def main(tag: str) -> int:
         print(f"Tag {tag} does not match djsync.__version__ = {current}", file=sys.stderr)
         return 1
     changes = history_row(current) or "See the README version history."
-    zip_name = f"DJSync-{wanted}-windows.zip"
     title = "Pre-release" if "-" in wanted else "Release"
-    print(f"**{title} {wanted}**\n\n## What's new\n{changes}\n\n{INSTALL.format(zip=zip_name)}")
+    print(f"**{title} {wanted}**\n\n## What's new\n{changes}\n\n{INSTALL}")
     return 0
 
 

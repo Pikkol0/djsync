@@ -1,13 +1,11 @@
 # PyInstaller: pyinstaller packaging/DJSync.spec   (run on WINDOWS, from the project root)
 #
-# V0.5.0: "folder" build that LOOKS like a single file.
-#   dist/DJSync/DJSync.exe        <- the only thing the user sees
-#   dist/DJSync/.djsync/          <- everything else (Python, Qt, tools, settings), marked hidden
-#                                    by DJSync at first launch (djsync/portable.py)
-# Why not --onefile: a one-file exe unpacks ~250 MB to %TEMP% at EVERY launch (slow from a USB
-# stick, leaves debris if killed). The folder build starts instantly and nothing is written to the PC.
+# V1.0.0: builds the APPLICATION folder (dist/DJSync: DJSync.exe + _internal + tools). Users never see
+# it: the GitHub workflow packs it into ONE file, DJSync.exe = small launcher + this folder zipped
+# (packaging/launcher, packaging/pack_single_exe.py). On first launch, the launcher extracts it next
+# to itself into the hidden folder .djsync/app (once, or after an update), then starts it.
 #
-# Tools (added by the GitHub workflow, .github/workflows/windows.yml), in .djsync/tools/:
+# Tools added by the workflow into dist/DJSync/tools/:
 #   ffmpeg.exe + ffprobe.exe  audio-only build (~6 MB instead of ~150 MB)
 #   qjs.exe                   QuickJS-NG, JavaScript runtime for yt-dlp (~2.5 MB instead of Deno ~100 MB)
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
@@ -40,5 +38,5 @@ pyz = PYZ(a.pure)
 # Native splash screen while Python starts (closed by djsync/ui/splash.close_native).
 splash = Splash("splash.png", binaries=a.binaries, datas=a.datas, text_pos=None)
 exe = EXE(pyz, a.scripts, splash, [], exclude_binaries=True, name="DJSync", console=False, upx=False,
-          icon="djsync.ico", contents_directory=".djsync")
+          icon="djsync.ico")
 coll = COLLECT(exe, splash.binaries, a.binaries, a.datas, name="DJSync", upx=False)

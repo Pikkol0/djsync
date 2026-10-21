@@ -9,10 +9,10 @@ clé qui porte l'exe est connectée d'office (les lettres de lecteur changent d'
 et les outils posés à côté de l'exe (`tools/` : ffmpeg.exe, ffprobe.exe, deno.exe) sont ajoutés au
 PATH — rien à installer sur le PC.
 
-Un seul fichier visible (V0.5.0) : l'exe Windows est construit en mode « dossier » (démarrage
-rapide, rien à décompresser à chaque lancement depuis une clé lente) mais tout ce qui l'accompagne
-— bibliothèques, outils, réglages — vit dans le dossier `.djsync` à côté de lui, marqué « caché »
-au premier lancement. L'utilisateur ne voit que DJSync.exe.
+Un seul fichier (V1.0.0) : DJSync.exe est un petit lanceur (packaging/launcher) qui porte
+l'application zippée. Au premier lancement (ou si le dossier a disparu, ou si la version change) il
+l'extrait dans `.djsync/app` à côté de lui, caché ; les réglages vivent dans `.djsync/data` et sont
+conservés. Il transmet son dossier à l'application dans DJSYNC_APP_DIR.
 """
 from __future__ import annotations
 
@@ -26,14 +26,21 @@ log = logging.getLogger(__name__)
 
 DB_RELATIVE = Path("PIONEER") / "rekordbox" / "exportLibrary.db"
 TOOL_DIRS = ("tools", "ffmpeg", "bin")
-CONTENTS = ".djsync"                      # dossier caché de l'exe (PyInstaller contents_directory)
+CONTENTS = ".djsync"                      # dossier caché à côté de DJSync.exe (app/ + data/)
 LEGACY_DATA = "DJSync_Data"
 
 
 def app_dir() -> Path:
-    """Dossier de l'exécutable (PyInstaller) ou de la racine du projet (développement)."""
+    """Dossier « visible » de DJSync : celui de DJSync.exe (lanceur un-seul-fichier, qui le transmet
+    dans DJSYNC_APP_DIR), sinon de l'exécutable PyInstaller, sinon la racine du projet (développement)."""
+    launcher = os.environ.get("DJSYNC_APP_DIR")
+    if launcher:
+        return Path(launcher)
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
+        if exe_dir.name == "app" and exe_dir.parent.name == CONTENTS:      # .djsync/app lancé directement
+            return exe_dir.parent.parent
+        return exe_dir
     return Path(__file__).resolve().parent.parent
 
 
@@ -51,7 +58,8 @@ def own_drive_root(start: Optional[Path] = None) -> Optional[Path]:
 
 def is_portable(start: Optional[Path] = None) -> bool:
     here = Path(start) if start is not None else app_dir()
-    return (os.environ.get("DJSYNC_PORTABLE") == "1" or (here / "portable.flag").exists()
+    return (os.environ.get("DJSYNC_PORTABLE") == "1" or bool(os.environ.get("DJSYNC_APP_DIR"))
+            or (here / "portable.flag").exists()
             or (here / CONTENTS / "portable.flag").exists() or own_drive_root(here) is not None)
 
 
@@ -67,7 +75,17 @@ def portable_data_dir(start: Optional[Path] = None) -> Optional[Path]:
 
 def tool_dirs(start: Optional[Path] = None) -> list:
     here = Path(start) if start is not None else app_dir()
-    return [base / d for base in (here / CONTENTS, here) for d in TOOL_DIRS if (base / d).is_dir()]
+    bases = [here / CONTENTS / "app", here / CONTENTS, here]
+    if start is None and getattr(sys, "frozen", False):
+        bases.insert(0, Path(sys.executable).resolve().parent)          # outils livrés avec l'application
+    seen, out = set(), []
+    for base in bases:
+        for d in TOOL_DIRS:
+            p = base / d
+            if p.is_dir() and str(p) not in seen:
+                seen.add(str(p))
+                out.append(p)
+    return out
 
 
 FILE_ATTRIBUTE_HIDDEN = 0x2
