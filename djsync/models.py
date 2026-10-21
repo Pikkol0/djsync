@@ -337,6 +337,8 @@ class DownloadJob:
     content_id: Optional[int] = None
     created_at: datetime = field(default_factory=datetime.now)
     library: Any = field(default=None, repr=False, compare=False)  # clé visée (fixée à l'ajout)
+    replace_ids: List[int] = field(default_factory=list)   # V1.1.0 : sons remplacés une fois téléchargé
+    reanalyse: bool = False                                # … et analyser le nouveau (l'ancien l'était)
 
     @property
     def is_finished(self) -> bool:

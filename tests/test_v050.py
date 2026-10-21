@@ -266,3 +266,15 @@ def test_grid_band_wave_is_fine_and_aligned():
         onset = int(np.argmax(w.low[k * GRID_RATE:(k + 1) * GRID_RATE] > 20))
         assert onset * 1000 / GRID_RATE < 6                 # attaque visible à moins de 6 ms près
     assert w.low.max() > 3 * max(1, w.high.max())           # un kick, c'est des basses
+
+
+def test_grid_wave_cache(tmp_path):
+    """V1.1.0 : forme d'onde de la grille mise en cache (rouvrir la grille d'un son est immédiat)."""
+    from djsync.analysis import waveform as W
+
+    path = _wav(tmp_path / "m", "cached", bpm=128, seconds=5)
+    first = W.cached_band_wave(path, None, tmp_path / "cache")
+    assert len(list((tmp_path / "cache").glob("*.npz"))) == 1
+    W._WAVE_MEMORY.clear()
+    again = W.cached_band_wave(path, None, tmp_path / "cache")          # relue sur disque
+    assert again.rate == first.rate and (again.low == first.low).all() and (again.high == first.high).all()

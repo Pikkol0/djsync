@@ -71,7 +71,10 @@ class DownloadsMixin:
                 meta=meta,
             )
             self.service.refresh_library()
-            job.file_path, job.content_id, job.status = result.file_path, added.content_id, "done"
+            job.file_path, job.content_id = result.file_path, added.content_id
+            if job.replace_ids:                       # V1.1.0 : diagnostic, remplacer une mauvaise version
+                self._finish_replace(job, lib)
+            job.status = "done"
             if lib.last_problems:
                 self.dispatcher.post(self.message, "warn", t("msg.added_with_problems", title=track.title,
                                                              detail=" ; ".join(lib.last_problems)[:200]))

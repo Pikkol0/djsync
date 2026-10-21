@@ -25,7 +25,7 @@ SHORTCUTS: List[Tuple[str, str]] = [
     ("F1", "help.sc_help"),
 ]
 TOPICS = ["help.topic_search", "help.topic_library", "help.topic_analysis", "help.topic_grid",
-          "help.topic_duplicates", "help.topic_harmonic", "help.topic_safety"]
+          "help.topic_duplicates", "help.topic_diagnostic", "help.topic_harmonic", "help.topic_safety"]
 
 
 def _scroll(inner: QWidget) -> QScrollArea:

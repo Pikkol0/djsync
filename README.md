@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
 </p>
@@ -157,6 +157,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 ## Technical notes (French)
 - [Audio analysis, artwork, date added](docs/analyse_audio.md) — calibration on a real drive
+- [Comparing DJSync's analysis with Rekordbox's](docs/comparaison_rekordbox.md) — procedure and sample size
 - [export.pdb (older players)](docs/export_pdb.md)
 - [V0.2.0 interface, beat grid, duplicates](docs/interface_v020.md)
 
@@ -164,7 +165,8 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **1.0.0** | First release: ONE file to download, DJSync.exe (prepares itself on first launch, repairs itself if moved or deleted, keeps settings across updates), published as a GitHub release with its SHA-256 and notes built from this table. Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
+| **1.1.0** | **Library diagnostic** (Home ▸ *Diagnostic*, one button per library: USB drive and computer): duplicates, low-quality files (MP3 < 192 kbps, AAC < 112 kbps, < 44.1 kHz) and bad sources (music video, live, lyrics, visualizer, sped up…). For each problem: keep one of the versions, or **download a clean version** (YouTube Music, SoundCloud as a fallback) that replaces the old one(s) in all their playlists, at the same position, and is analysed again; *Ignore* is remembered. Beat grid editor: no more old waveform for 2 s, the Rekordbox-style waveform is cached (instant on reopening). `python -m djsync.analysis --compare` also reads this computer's Rekordbox collection (`--compare local --under E:\Contents`), ignores tracks analysed by DJSync itself and gives 95 % confidence intervals ([procedure](docs/comparaison_rekordbox.md)). Presentation video tool (`tools/demo_video.py`). |
+| 1.0.0 | First release: ONE file to download, DJSync.exe (prepares itself on first launch, repairs itself if moved or deleted, keeps settings across updates), published as a GitHub release with its SHA-256 and notes built from this table. Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
 | 0.5.1 | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
 | 0.5.0 | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
 | 0.4.0 | Rekordbox library of this computer (`master.db`, Rekordbox 6/7): opened automatically when no drive is plugged in, or from Home / Settings. Downloads go to Music/DJSync (configurable) and into the collection with analysis (ANLZ files under `share`, named after the track UUID), artwork (640/240/80 px), album, genre, label, year; playlists and folders (masterPlaylists6.xml kept in sync), beat grid, title/artist, duplicates, delete. Never writes while Rekordbox is open; master.db copied before each change. Built on pyrekordbox. |
