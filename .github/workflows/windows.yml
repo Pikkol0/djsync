@@ -64,7 +64,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit 1 }          # tag and djsync.__version__ disagree
             $v = "${{ github.ref_name }}".TrimStart("v")
           } else {
-            $v = (python -c "import djsync; print(djsync.__version__)") + "-dev"
+            $base = python -c "import djsync; print(djsync.__version__)"
+            python packaging/release_notes.py "v$base" > $null   # same check as a release, without publishing
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $v = "$base-dev"
           }
           "zip=DJSync-$v-windows.zip" >> $env:GITHUB_OUTPUT
       - name: Clean environment

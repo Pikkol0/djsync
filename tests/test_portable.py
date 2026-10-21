@@ -91,3 +91,19 @@ def test_release_notes_match_version_and_history(capsys):
     assert f"**Release {v}**" in out and f"DJSync-{v}-windows.zip" in out and notes.history_row(v)
     assert notes.main(f"v{v}-rc.1") == 0 and "Pre-release" in capsys.readouterr().out
     assert notes.main("v0.0.1") == 1                          # tag ≠ version : publication refusée
+
+
+def test_release_notes_script_works_with_a_windows_console_encoding():
+    """Sous Windows, une sortie redirigée est en cp1252 : le script doit quand même écrire ses notes."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import djsync
+
+    script = Path(__file__).resolve().parent.parent / "packaging" / "release_notes.py"
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    proc = subprocess.run([sys.executable, str(script), f"v{djsync.__version__}-rc.1"], capture_output=True, env=env)
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+    assert "▸" in proc.stdout.decode("utf-8")

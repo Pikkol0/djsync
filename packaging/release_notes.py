@@ -56,4 +56,7 @@ def main(tag: str) -> int:
 
 
 if __name__ == "__main__":
+    # Windows writes redirected output in the ANSI code page (cp1252), which has no "▸" or "·":
+    # always UTF-8, which is also what GitHub expects for the notes file.
+    sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else f"v{package_version()}"))
