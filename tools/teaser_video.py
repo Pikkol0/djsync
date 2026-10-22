@@ -98,7 +98,8 @@ def frame_dialog(s: vk.Studio, dlg: Any, width: float = 720) -> None:
     s.pump(0.05)
     s.frame()
     r = s.rect_of(dlg)
-    s.zoom(r.center().x() - width / 2, r.y() - 80, width)
+    width = max(width, (r.height() + 140) / s.aspect, r.width() + 80)
+    s.zoom(r.center().x() - width / 2, r.center().y() - width * s.aspect / 2, width)
 
 
 def press_enter(widget: Any) -> None:

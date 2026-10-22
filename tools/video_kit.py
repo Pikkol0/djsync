@@ -244,7 +244,8 @@ class Studio:
         self.view = [v + (t - v) * 0.16 for v, t in zip(self.view, self.target)]
         vx, vy, vw = self.view
         dx, dy, dw, dh = self.disp
-        if self.portrait:
+        framed = (dw, dh) != (self.W, self.H)
+        if framed:
             glow = QColor(self.accent)
             glow.setAlpha(7)
             p.setPen(QColor(0, 0, 0, 0))
@@ -252,26 +253,26 @@ class Studio:
             for k in range(10, 0, -1):
                 p.drawRoundedRect(QRectF(dx - k * 6, dy - k * 6, dw + k * 12, dh + k * 12), 40, 40)
             clip = QPainterPath()
-            clip.addRoundedRect(QRectF(dx, dy, dw, dh), 26, 26)
+            clip.addRoundedRect(QRectF(dx, dy, dw, dh), 26 if self.portrait else 18, 26 if self.portrait else 18)
             p.save()
             p.setClipPath(clip)
         p.drawImage(QRectF(dx, dy, dw, dh), app_img, QRectF(vx, vy, vw, vw * self.aspect))
-        if self.portrait:
+        if framed:
             p.restore()
         # rappel de la partie + légende
         if self.chapter_text:
             if self.portrait:
                 self._pill(p, self.chapter_text, 0, 120, 40, center=True)
             else:
-                self._pill(p, self.chapter_text, 36, 30, 26)
+                self._pill(p, self.chapter_text, dx, (dy - 52) / 2, 26)
         if self.caption_text:
             a = _ease((self.t - self.caption_since) / 0.3)
             if self.portrait:
                 self._pill(p, self.caption_text, 0, dy + dh + 50 + (1 - a) * 20, 38, center=True, alpha=a,
                            bold=False)
             else:
-                self._pill(p, self.caption_text, 36, self.H - 120 + (1 - a) * 16, 32, alpha=a, accent_bar=True,
-                           bold=False)
+                self._pill(p, self.caption_text, dx, dy + dh + (self.H - dy - dh - 60) / 2 + (1 - a) * 12, 30,
+                           alpha=a, accent_bar=True, bold=False)
         p.end()
         self._emit(img)
 
