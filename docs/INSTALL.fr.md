@@ -27,14 +27,15 @@ Choisissez le fichier de votre ordinateur sur la **[page de téléchargement](ht
    - Le premier lancement prend un moment : DJSync prépare ses fichiers sur la clé (une seule fois).
 
 ### macOS (bêta)
-1. **[Téléchargez DJSync-macOS.zip](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.zip)**
-   et ouvrez-le : vous obtenez **DJSync.app**.
-2. Copiez DJSync.app **à la racine de votre clé**.
-3. **Une seule fois**, ouvrez le *Terminal*, tapez `xattr -dr com.apple.quarantine ` (avec une espace à
-   la fin), glissez DJSync.app depuis la clé dans la fenêtre du Terminal, appuyez sur Entrée.
-   (L'application n'est pas signée par Apple : sans cela, macOS refuse de l'ouvrir, ou la lance depuis
-   une copie temporaire qui ne voit pas la clé.)
-4. Double-cliquez sur DJSync.app.
+1. **[Téléchargez DJSync-macOS.dmg](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.dmg)**
+   et ouvrez-le.
+2. **Glissez DJSync sur votre clé USB** (dans la barre latérale du Finder, sous *Emplacements*).
+3. Ouvrez la clé et **double-cliquez sur DJSync**.
+   - **La première fois seulement**, macOS dit qu'il ne peut pas vérifier l'app (elle n'est pas signée par
+     Apple) : ouvrez *Réglages Système* ▸ *Confidentialité et sécurité*, descendez, cliquez sur
+     **Ouvrir quand même**, confirmez.
+   - DJSync s'installe alors sur la clé et redémarre une fois tout seul. Les fois suivantes : un simple
+     double-clic.
 
 ### Linux (bêta)
 1. **[Téléchargez DJSync-Linux-x86_64.tar.gz](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz)**
@@ -68,7 +69,7 @@ Ensuite : DJSync reconnaît la clé sur laquelle il se trouve et l'ouvre tout se
 
 ## Mettre à jour DJSync
 DJSync vous prévient quand une nouvelle version sort (désactivable dans *Paramètres* ▸ *Moteur de
-téléchargement*). Remplacez DJSync (`DJSync.exe`, `DJSync.app` ou le dossier `DJSync`) par le nouveau :
+téléchargement*). Remplacez DJSync (`DJSync.exe`, DJSync sur Mac ou le dossier `DJSync`) par le nouveau :
 vos réglages sont conservés.
 
 ## En cas de souci
@@ -77,7 +78,7 @@ vos réglages sont conservés.
 | Les téléchargements YouTube échouent | DJSync propose lui-même la mise à jour du moteur ; sinon *Paramètres* ▸ **Moteur de téléchargement** ▸ *Rechercher une mise à jour*. |
 | « La base est verrouillée : fermez Rekordbox… » | Quittez Rekordbox (et vérifiez qu'il ne tourne plus dans la barre des tâches). |
 | La clé n'est pas détectée | *Paramètres* ▸ *Clé USB Rekordbox* ▸ **Lettre de lecteur** (ex. `E` ; sur macOS/Linux le dossier de la clé, ex. `/Volumes/DJ KEY`) ▸ *Enregistrer*. |
-| macOS : « DJSync est endommagé » / « ne peut pas être ouvert », ou un message de copie temporaire | Étape 3 de l'installation macOS (`xattr -dr com.apple.quarantine …`). |
+| macOS : « ne peut pas être ouvert » à chaque fois, ou un message de copie temporaire | *Réglages Système* ▸ *Confidentialité et sécurité* ▸ **Ouvrir quand même**. Si ça persiste : dans le Terminal, `xattr -dr com.apple.quarantine ` puis glissez DJSync depuis la clé dans la fenêtre, Entrée. |
 | Voir le dossier caché `.djsync` | Tapez `E:\.djsync` dans la barre d'adresse de l'Explorateur (le dossier est protégé comme un fichier système). |
 | L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (son empreinte SHA-256 est publiée avec la release). |
 | Autre problème | Joignez le journal `.djsync/data/djsync.log` à votre message (Windows : tapez `E:\.djsync\data` dans la barre d'adresse de l'Explorateur, avec la lettre de votre clé ; macOS : Cmd+Maj+. affiche les fichiers cachés ; Linux : Ctrl+H). |

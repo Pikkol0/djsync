@@ -60,6 +60,71 @@ def translocated() -> bool:
     return sys.platform == "darwin" and "/AppTranslocation/" in str(Path(sys.executable).resolve())
 
 
+def original_bundle() -> Optional[Path]:
+    """macOS : emplacement réel de DJSync.app quand le système lance une copie « transloquée »
+    (fonction SecTranslocateCreateOriginalPathForURL du framework Security, macOS 10.12+)."""
+    if not translocated():
+        return None
+    bundle = mac_bundle(Path(sys.executable).resolve().parent)
+    if bundle is None:
+        return None
+    try:
+        import ctypes
+        import ctypes.util
+
+        cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreFoundation"))
+        sec = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Security"))
+        cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+        cf.CFURLCreateFromFileSystemRepresentation.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long,
+                                                               ctypes.c_bool]
+        cf.CFURLGetFileSystemRepresentation.restype = ctypes.c_bool
+        cf.CFURLGetFileSystemRepresentation.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_char_p,
+                                                        ctypes.c_long]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        sec.SecTranslocateCreateOriginalPathForURL.restype = ctypes.c_void_p
+        sec.SecTranslocateCreateOriginalPathForURL.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        raw = str(bundle).encode("utf-8")
+        url = cf.CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), True)
+        if not url:
+            return None
+        original = sec.SecTranslocateCreateOriginalPathForURL(url, None)
+        cf.CFRelease(url)
+        if not original:
+            return None
+        buf = ctypes.create_string_buffer(4096)
+        ok = cf.CFURLGetFileSystemRepresentation(original, True, buf, len(buf))
+        cf.CFRelease(original)
+        return Path(buf.value.decode("utf-8")) if ok else None
+    except Exception as exc:  # noqa: BLE001 - au pire : message avec la commande à taper
+        log.warning("Original location of the app not found: %s", exc)
+        return None
+
+
+def leave_translocation() -> bool:
+    """macOS, premier lancement d'un DJSync téléchargé (non signé, accepté par « Ouvrir quand même ») :
+    le système le lance depuis une copie temporaire en lecture seule, qui ne voit pas la clé. On retire
+    la « quarantaine » de l'app d'origine et on la relance depuis la clé. True si relancé (quitter)."""
+    import subprocess
+
+    original = original_bundle()
+    if original is None or not original.is_dir():
+        return False
+    try:
+        subprocess.run(["/usr/bin/xattr", "-dr", "com.apple.quarantine", str(original)],
+                       capture_output=True, timeout=60, check=False)
+        still = subprocess.run(["/usr/bin/xattr", "-p", "com.apple.quarantine", str(original)],
+                               capture_output=True, timeout=30, check=False).returncode == 0
+        if still:                                   # clé en lecture seule… : sinon on tournerait en rond
+            log.warning("Quarantine still set on %s", original)
+            return False
+        subprocess.Popen(["/usr/bin/open", "-n", str(original)])
+        log.info("Left the translocated copy: relaunched %s", original)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("Cannot relaunch %s: %s", original, exc)
+        return False
+
+
 def own_drive_root(start: Optional[Path] = None) -> Optional[Path]:
     """Racine de la clé Rekordbox qui contient DJSync, ou None."""
     here = Path(start) if start is not None else app_dir()

@@ -18,7 +18,7 @@ INSTALL = """## Download
 | Your computer | File |
 |---|---|
 | **Windows** 10 / 11 | **DJSync.exe** |
-| **macOS** 11+ (Apple silicon: M1, M2, M3…) — *beta* | **DJSync-macOS.zip** |
+| **macOS** 11+ (Apple silicon: M1, M2, M3…) — *beta* | **DJSync-macOS.dmg** |
 | **Linux** x86-64 — *beta* | **DJSync-Linux-x86_64.tar.gz** |
 
 Put it on your USB drive (or anywhere on the computer) and open it: nothing is installed on the
@@ -26,8 +26,8 @@ computer, your settings stay next to DJSync and are kept across updates.
 
 - **Windows**: double-click DJSync.exe. SmartScreen warns about an unknown publisher (unsigned app):
   *More info* ▸ *Run anyway*. The first launch takes a moment (DJSync prepares its files once).
-- **macOS**: unzip, copy DJSync.app to the drive, then once in Terminal:
-  `xattr -dr com.apple.quarantine /Volumes/YOUR_DRIVE/DJSync.app` and open DJSync (unsigned app).
+- **macOS**: open the .dmg, drag DJSync onto your USB drive (Finder sidebar), open it from the drive.
+  First time only (app not signed by Apple): *System Settings* ▸ *Privacy & Security* ▸ **Open Anyway**.
 - **Linux**: extract the DJSync folder to the drive and run `DJSync/DJSync`.
 
 To update: replace DJSync with the new one. Close Rekordbox while DJSync writes to a library, and
