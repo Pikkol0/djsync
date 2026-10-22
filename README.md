@@ -71,8 +71,13 @@ Click a picture to play the video. Demo library with made-up artists; regenerate
 | **Linux** x86-64 — *beta* | ⬇ [**DJSync-Linux-x86_64.tar.gz**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz) — DJSync folder |
 
 Put it on your USB drive and open it: nothing to install on the computer, FFmpeg and the JavaScript
-runtime needed for YouTube are included, settings stay on the drive. The whole app takes ~250 MB —
-less than 25 tracks in MP3 320. DJSync tells you when a new version is out.
+runtime needed for YouTube are included, settings stay on the drive. DJSync tells you when a new
+version is out.
+
+> **How light is it?** Rekordbox needs **2 GB** free on your computer to install. DJSync fits **on your
+> USB drive in ~250 MB** (~300 MB with its backups) — less than 25 tracks in MP3 320 — and runs on any
+> computer you plug the drive into.
+
 Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/INSTALL.fr.md)) ·
 pre-releases and older versions: [all releases](https://github.com/Pikkol0/djsync/releases).
 
