@@ -170,6 +170,42 @@ class MusicSearcher:
         found += [parse_item(i, "video") for i in videos]
         return [t for t in found if t]
 
+    def albums(self, query: str, limit: int = 12) -> List[TrackResult]:
+        """1.2.1 (C09) : albums correspondant à la recherche, une ligne chacun (`result_type` "album",
+        `video_id` = identifiant de l'album à ouvrir avec `album_tracks`)."""
+        out: List[TrackResult] = []
+        for item in self._client().search(query, filter="albums", limit=limit) or []:
+            bid = item.get("browseId")
+            if not bid:
+                continue
+            artists = item.get("artists") or []
+            artist = ", ".join(a["name"] for a in artists if a and a.get("name")) or ""
+            extra = " · ".join(str(x) for x in (item.get("type"), item.get("year")) if x)
+            out.append(TrackResult(video_id=bid, title=item.get("title") or "Untitled", artist=artist,
+                                   album=extra or None, thumbnail_url=_thumbnail(item), result_type="album"))
+        return out[:limit]
+
+    def album_tracks(self, browse_id: str) -> List[TrackResult]:
+        """Titres d'un album, dans l'ordre, avec le nom et la pochette de l'album."""
+        info = self._client().get_album(browse_id) or {}
+        name, thumb = info.get("title"), _thumbnail(info)
+        out: List[TrackResult] = []
+        for item in info.get("tracks") or []:
+            track = parse_item(item, "song")
+            if track is None:
+                continue
+            from dataclasses import replace
+
+            changes: Dict[str, Any] = {}
+            if not track.album and name:
+                changes["album"] = name
+            if not track.thumbnail_url and thumb:
+                changes["thumbnail_url"] = thumb
+            if track.artist == "Inconnu" and info.get("artists"):
+                changes["artist"] = ", ".join(a["name"] for a in info["artists"] if a and a.get("name"))
+            out.append(replace(track, **changes) if changes else track)
+        return out
+
     # ---- API publique
     def search(
         self,
@@ -177,13 +213,30 @@ class MusicSearcher:
         limit: int = 20,
         mode: SearchMode = SearchMode.ALL,
         exclude: Union[ExcludeFilter, str, Iterable[str], None] = None,
+        field: str = "all",
+        max_seconds: int = 0,
     ) -> List[TrackResult]:
-        """Cherche et renvoie des TrackResult (Titres d'abord, puis Vidéos en mode Tout)."""
+        """Cherche et renvoie des TrackResult (Titres d'abord, puis Vidéos en mode Tout).
+        1.2.1 (C08) : `field` = all | title (le titre contient tous les mots) | artist (titres de
+        l'artiste, pas ceux qui portent son nom) | album (albums) ; `max_seconds` écarte les mixes."""
         query = query.strip()
         if not query:
             return []
+        if field == "album":
+            return self.albums(query, limit)
+        if field == "artist":
+            mode = SearchMode.ARTISTS
         flt = exclude if isinstance(exclude, ExcludeFilter) else ExcludeFilter(exclude)
-        fetch = min(limit * 2, 50) if flt else limit  # marge : certains résultats seront masqués
+        narrowing = bool(flt) or field == "title" or max_seconds > 0
+        fetch = min(limit * 2, 50) if narrowing else limit  # marge : certains résultats seront masqués
+        words = plain(query).split() if field == "title" else []
+
+        def keep(t: TrackResult) -> bool:
+            if not flt.allows(t):
+                return False
+            if words and not all(w in plain(t.title).split() or w in plain(t.title) for w in words):
+                return False
+            return not (max_seconds > 0 and t.duration_seconds > max_seconds)
 
         if mode == SearchMode.SONGS:
             groups = [self._fetch(query, "songs", fetch)]
@@ -196,7 +249,7 @@ class MusicSearcher:
 
         results: List[TrackResult] = []
         for group in groups:
-            results += [t for t in group if flt.allows(t)][:limit]
+            results += [t for t in group if keep(t)][:limit]
         results = _dedupe(results)
         log.info("Search %r (%s): %d results", query, mode.value, len(results))
         return results

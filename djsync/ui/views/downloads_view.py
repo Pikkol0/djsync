@@ -7,9 +7,9 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QProgressBar, QSplitter, QWidget
 
 from ...i18n import plural, t
@@ -39,6 +39,12 @@ class DownloadsView(View):
         head.addWidget(label(t("dl.section"), "h2"))
         self.summary = label("", "dim")
         head.addWidget(self.summary)
+        self.dl_bar = QProgressBar()                     # 1.2.1 (C21) : avancement de la série en cours
+        self.dl_bar.setRange(0, 1000)
+        self.dl_bar.setTextVisible(False)
+        self.dl_bar.setFixedWidth(theme.px(140))
+        self.dl_bar.hide()
+        head.addWidget(self.dl_bar)
         head.addStretch(1)
         self.play_btn = button(t("action.listen"), lambda: self._play(None), icon="play")
         self.retry_btn = button(t("action.retry"), self._retry, icon="refresh")
@@ -54,6 +60,7 @@ class DownloadsView(View):
             Column("time", t("dl.time"), 60, "center", priority=1),
         ]
         self.table = TrackTable(self, cols)
+        self.remember_layout(self.table, "downloads")
         self.table.set_empty("downloads", t("dl.empty_title"))
         self.table.on_select = lambda _i: self._refresh()
         self.table.on_double = self._play
@@ -98,6 +105,7 @@ class DownloadsView(View):
             Column("grid", "", 40, "center", sortable=False, min_width=34),
         ]
         self.an_table = TrackTable(self, an_cols, click_columns=("grid",))
+        self.remember_layout(self.an_table, "unanalysed")
         self.an_table.set_empty("check", t("lib.empty_todo_title"))
         self.an_table.on_select = lambda _i: self._refresh_analysis()
         self.an_table.on_double = self._play_track
@@ -112,6 +120,14 @@ class DownloadsView(View):
         controller.on("library", lambda: self.reload())
         controller.on("drive", lambda: self.reload())
         controller.on("analysis", self._analysis_changed)
+        # 1.2.1 (C21) : avancement estimé du son en cours d'analyse (durée moyenne des précédents)
+        self._an_cur: Any = None
+        self._an_started = 0.0
+        self._an_t0 = 0.0
+        self._an_done0 = 0
+        self._an_timer = QTimer(self)
+        self._an_timer.setInterval(300)
+        self._an_timer.timeout.connect(self._an_tick)
         self.rebuild()
         self._refresh_analysis()
 
@@ -126,6 +142,7 @@ class DownloadsView(View):
             "title": x.title, "artist": x.artist,
             "dest": ", ".join(job.playlist_names) or t("dl.library_only"),
             "state": job.status_label, "time": job.created_at.strftime("%H:%M"),
+            "_progress": job.progress if not job.is_finished else None,
         }, self._tag(job), job)
 
     def rebuild(self) -> None:
@@ -138,7 +155,7 @@ class DownloadsView(View):
         if row is None:
             return
         row.tags = self._tag(job)
-        self.table.update_values(iid, state=job.status_label)
+        self.table.update_values(iid, state=job.status_label, _progress=None if job.is_finished else job.progress)
         self._refresh()
 
     def _selected_jobs(self) -> List[DownloadJob]:
@@ -155,6 +172,10 @@ class DownloadsView(View):
         if err:
             parts.append(t("dl.error_n", n=err))
         self.summary.setText(" · ".join(parts) if jobs else "")
+        b_done, b_total, frac = self.ctrl.download_progress()
+        self.dl_bar.setVisible(b_total > 0)
+        self.dl_bar.setValue(int(1000 * frac))
+        self.dl_bar.setToolTip(t("dl.batch_progress", done=b_done, n=b_total) if b_total else "")
         sel = self._selected_jobs()
         self.play_btn.setEnabled(any(j.status == "done" for j in sel))
         self.retry_btn.setEnabled(any(j.status == "error" for j in sel))
@@ -262,6 +283,27 @@ class DownloadsView(View):
                     self.an_table.update_values(row.iid, state=text)
         self._refresh_analysis()
 
+    def _an_set_progress(self, cid: Any, value: Optional[float] = None) -> None:
+        for row in self.an_table.all_rows():
+            want = value if (cid is not None and row.iid == str(cid)) else None
+            if row.values.get("_progress") != want:
+                self.an_table.update_values(row.iid, _progress=want)
+
+    def _an_tick(self) -> None:
+        import time
+
+        if not self.winfo_exists():
+            return
+        q = self.ctrl.analysis
+        cid = self.ctrl.analysis_current_id()
+        now = time.monotonic()
+        if cid != self._an_cur:
+            self._an_cur, self._an_started = cid, now
+        done = q.done - self._an_done0
+        avg = (now - self._an_t0) / done if done > 0 else 12.0
+        value = min(0.95, (now - self._an_started) / max(1.0, avg)) if cid is not None else None
+        self._an_set_progress(cid, value)
+
     def _selected_tracks(self) -> List[LibraryTrack]:
         return [r.data for r in self.an_table.selected_rows() if r.data is not None]
 
@@ -277,6 +319,14 @@ class DownloadsView(View):
         self.an_summary.setText("  ·  ".join(parts))
         self.an_bar.setVisible(q.running)
         self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
+        if q.running and not self._an_timer.isActive():
+            import time
+
+            self._an_t0, self._an_done0 = time.monotonic(), q.done
+            self._an_timer.start()
+        elif not q.running and self._an_timer.isActive():
+            self._an_timer.stop()
+            self._an_set_progress(None)
         sel = self._selected_tracks()
         self.analyse_sel_btn.setEnabled(bool(sel) and self.ctrl.has_library)
         self.analyse_sel_btn.setText(t("lib.analyse_selection", n=len(sel)) if sel else t("action.analyse"))

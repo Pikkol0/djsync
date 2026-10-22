@@ -78,7 +78,24 @@ class GridCanvas(QWidget):
         e.accept()                                  # clic droit = défilement, pas de menu
 
     def wheelEvent(self, e: Any) -> None:           # noqa: N802
-        self.ed.pan(-0.15 if e.angleDelta().y() > 0 else 0.15)
+        """Molette : défiler. 1.2.1 (C03) : Ctrl / ⌘ + molette (ou pincement du pavé tactile) : zoomer."""
+        if e.modifiers() & (Qt.ControlModifier | Qt.MetaModifier):
+            self.ed.zoom(-1 if e.angleDelta().y() > 0 else 1)
+            return
+        dy = e.angleDelta().y() or e.angleDelta().x()
+        if dy:
+            self.ed.pan(-0.15 if dy > 0 else 0.15)
+
+    def event(self, e: Any) -> bool:                 # noqa: D401
+        from PySide6.QtCore import QEvent
+
+        if e.type() == QEvent.NativeGesture:         # pincement (Mac, pavés tactiles)
+            from PySide6.QtCore import Qt as _Qt
+
+            if e.gestureType() == _Qt.ZoomNativeGesture and abs(e.value()) > 0.02:
+                self.ed.zoom(-1 if e.value() > 0 else 1)
+                return True
+        return super().event(e)
 
 
 class GridEditor(QWidget):
@@ -117,6 +134,8 @@ class GridEditor(QWidget):
         self.view_menu.setCurrentText(f"{self.view_s} s")
         self.view_menu.currentTextChanged.connect(self._view_changed)
         head.addWidget(self.view_menu)
+        head.addWidget(icon_button("minus", lambda: self.zoom(1), t("grid.zoom_out")))
+        head.addWidget(icon_button("plus", lambda: self.zoom(-1), t("grid.zoom_in")))
         self.body.addLayout(head)
 
         self.canvas = GridCanvas(self)
@@ -428,6 +447,22 @@ class GridEditor(QWidget):
         center = self.start_ms + self.view_s * 500
         self.view_s = int(text.split()[0])
         self.start_ms = center - self.view_s * 500
+        self.draw()
+
+    def zoom(self, step: int) -> None:
+        """Vue plus courte (step < 0, on zoome) ou plus longue, centrée sur le curseur s'il est visible."""
+        i = VIEW_CHOICES.index(self.view_s) if self.view_s in VIEW_CHOICES else 2
+        j = max(0, min(len(VIEW_CHOICES) - 1, i + step))
+        if j == i:
+            return
+        span = self.view_s * 1000.0
+        anchor = self.cursor_ms if self.start_ms <= self.cursor_ms <= self.start_ms + span else self.start_ms + span / 2
+        ratio = (anchor - self.start_ms) / span if span else 0.5
+        self.view_s = VIEW_CHOICES[j]
+        self.start_ms = anchor - ratio * self.view_s * 1000.0
+        self.view_menu.blockSignals(True)
+        self.view_menu.setCurrentText(f"{self.view_s} s")
+        self.view_menu.blockSignals(False)
         self.draw()
 
     def _scrolled(self, value: int) -> None:

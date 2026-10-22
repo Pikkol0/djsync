@@ -30,6 +30,7 @@ from .logo import logo_pixmap
 from .player_bar import PlayerBar
 from .runner import UiDispatcher
 from .views.common import View, human_size
+from .views.feedback_view import FeedbackView
 from .views.downloads_view import DownloadsView
 from .views.home_view import HomeView
 from .views.import_view import ImportView
@@ -52,6 +53,7 @@ TABS = [  # (clé, clé i18n, icône, classe)
     ("downloads", "tab.downloads", "downloads", DownloadsView),
     ("import", "tab.import", "import", ImportView),
     ("settings", "tab.settings", "settings", SettingsView),
+    ("feedback", "tab.feedback", "chat", FeedbackView),         # 1.2.1 (C18)
 ]
 _ROLE = {"info": "dim", "ok": "accent", "warn": "warn", "error": "err"}
 
@@ -102,6 +104,8 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("drives", self._drive_changed)
         self.ctrl.on("downloads", self._badge)
         self.ctrl.on("download_update", lambda _j: self._badge())
+        self.ctrl.on("downloads", self._analysis_changed)
+        self.ctrl.on("download_update", lambda _j: self._analysis_changed())
         self.ctrl.on("library", self._library_changed)
         self.ctrl.on("rebuild_ui", self.rebuild_ui)
         self.ctrl.on("restyle", self.restyle)
@@ -238,6 +242,13 @@ class DJSyncApp(QMainWindow):
         self.an_bar.setRange(0, 1000)
         self.an_bar.setTextVisible(False)
         al.addWidget(self.an_bar)
+        # 1.2.1 (C21) : la même carte montre aussi les téléchargements en cours (« Activité »)
+        self.dl_label = label("", "dim", wrap=True)
+        al.addWidget(self.dl_label)
+        self.dl_bar = QProgressBar()
+        self.dl_bar.setRange(0, 1000)
+        self.dl_bar.setTextVisible(False)
+        al.addWidget(self.dl_bar)
         self.an_open = icon_button("go", lambda: self.ctrl._emit("show_unanalysed"), t("lib.unanalysed"), size=12)
         ah.insertWidget(1, self.an_open)
         an.hide()
@@ -325,19 +336,40 @@ class DJSyncApp(QMainWindow):
             self.show_view(self._current)
 
     def _analysis_changed(self) -> None:
-        """Carte « Analyse » de la barre latérale : visible tant que la file d'analyse tourne."""
+        """Carte « Activité » de la barre latérale : analyse et/ou téléchargements en cours
+        (1.2.1, C21 : une seule carte quand les deux tournent)."""
         q = self.ctrl.analysis
-        if not q.running:
+        b_done, b_total, frac = self.ctrl.download_progress()
+        downloading = b_total > 0
+        if not q.running and not downloading:
             self.an_box.hide()
             return
         self.an_box.show()
-        self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
         compact = bool(self._compact)
-        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
-        self.an_label.setText("" if compact else f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
-        self.an_label.setVisible(not compact)
-        self.an_title.setText("" if compact else (t("analysis.stopping") if q.cancelled else t("nav.analysing")).upper())
-        self.an_stop.setEnabled(not q.cancelled)
+        both = q.running and downloading
+        for w in (self.an_bar, self.an_stop, self.an_open):
+            w.setVisible(q.running)
+        self.an_label.setVisible(q.running and not compact)
+        self.dl_bar.setVisible(downloading)
+        self.dl_label.setVisible(downloading and not compact)
+        if q.running:
+            self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
+            name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
+            prefix = t("nav.analysing") + " " if both else ""
+            self.an_label.setText("" if compact else prefix + f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
+            self.an_stop.setEnabled(not q.cancelled)
+        if downloading:
+            self.dl_bar.setValue(int(1000 * frac))
+            self.dl_label.setText(t("nav.downloading") + f" {b_done} / {b_total}")
+        if compact:
+            title = ""
+        elif both:
+            title = t("nav.activity")
+        elif q.running:
+            title = t("analysis.stopping") if q.cancelled else t("nav.analysing")
+        else:
+            title = t("nav.downloading")
+        self.an_title.setText(title.upper())
 
     # --------------------------------------------------------------- barre repliable
     def _update_compact(self) -> None:
@@ -382,6 +414,8 @@ class DJSyncApp(QMainWindow):
     def show_view(self, key: str) -> None:
         if key not in self.views:
             return
+        if self._current and self._current != key:
+            self._previous = self._current                     # capture d'écran de l'onglet Retours
         self._current = key
         for k, b in self._nav.items():
             active = k == key

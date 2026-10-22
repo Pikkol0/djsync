@@ -126,6 +126,17 @@ class MetadataMixin:
                     self._stage(lambda db, p=path, t=title, a=artist: db.update_track(p, title=t, artist=a))
         return self.get_track(content_id)
 
+    def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
+        """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""
+        ids = [int(i) for i in content_ids]
+        if not ids:
+            return {}
+        q = ",".join("?" * len(ids))
+        out: Dict[int, List[int]] = {i: [] for i in ids}
+        for cid, pid in self._read(f"SELECT DISTINCT content_id, playlist_id FROM playlist_content WHERE content_id IN ({q})", ids):
+            out.setdefault(int(cid), []).append(int(pid))
+        return out
+
     def merge_duplicates(self, keep_id: int, remove_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
         """Garde `keep_id` et supprime `remove_ids` : dans chaque playlist, le son gardé PREND LA
         PLACE du doublon (même position ; s'il y était déjà, le doublon est simplement retiré).

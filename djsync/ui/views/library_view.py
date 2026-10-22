@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from ...core.camelot import neighbors
 from ...i18n import plural, t
-from ...models import LibraryTrack, PlaylistInfo, format_duration
+from ...models import LibraryTrack, PlaylistInfo, format_duration, source_from_url
 from .. import theme
 from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
 from ..table import MIME_IDS, camelot_sort, popup_menu
@@ -124,6 +124,7 @@ class LibraryView(View):
             Column("duration", t("track.duration"), 58, "e", priority=3,
                    sort=lambda r: r.data.duration_seconds if r.data else 0),
             Column("format", t("track.format"), 56, "center", priority=6),
+            Column("source", t("track.source"), 130, priority=5),
             Column("added", t("track.added"), 104, "center", priority=4,
                    sort=lambda r: r.data.date_added if r.data else ""),
         ]
@@ -201,12 +202,13 @@ class LibraryView(View):
         mv.addWidget(self.banner)
 
         self.table = TrackTable(self, self.cols, reorderable=True)
+        self.remember_layout(self.table, "library", default_hidden=("album", "format"))
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: self._refresh_buttons()
         self.table.on_double = self._play
         self.table.on_reordered = self._mark_dirty
-        self.table.on_sort_changed = lambda *_: self._refresh_buttons()
+        self.table.on_sort_changed = self._sort_changed
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
         mv.addWidget(self.table, 1)
@@ -372,7 +374,8 @@ class LibraryView(View):
             str(x.content_id),
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
-             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10]},
+             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
+             "source": source_from_url(x.source_url)},
             (), x,
         )
 
@@ -407,6 +410,9 @@ class LibraryView(View):
         self.table.reorderable = playlist and bool(self.playlist and self.playlist.is_editable)
         self.table.set_display_columns([c.key for c in self.cols if c.key != "pos" or playlist])
         self.table.set_rows([self._track_row(x, pos) for x in tracks], reset_sort=True, keep_selection=False)
+        saved = self.ctrl.settings.playlist_sorts.get(self._sort_slot())
+        if saved and any(c.key == saved[0] for c in self.cols):     # 1.2.1 (C04) : tri retenu
+            self.table.set_sort(saved[0], bool(saved[1]))
         self._dirty = False
         self._apply_harmonic()
         self._mark_playing()
@@ -510,6 +516,25 @@ class LibraryView(View):
         self.table.refilter()
 
     # -------------------------------------------------------------------- boutons
+    def _sort_slot(self) -> str:
+        drive = self.ctrl.drive
+        return f"{getattr(drive, 'label', '') or getattr(drive, 'root', '')}|{self.current}"
+
+    def _sort_changed(self, key: Optional[str], desc: bool) -> None:
+        """1.2.1 (C04) : le tri choisi pour cette playlist est retenu (changement de vue, redémarrage)."""
+        sorts = self.ctrl.settings.playlist_sorts
+        slot = self._sort_slot()
+        if key is None:
+            sorts.pop(slot, None)
+        else:
+            sorts.pop(slot, None)                  # en dernier : les plus anciens partent d'abord (500 max)
+            sorts[slot] = [key, bool(desc)]
+        try:
+            self.ctrl.settings.save()
+        except OSError:
+            pass
+        self._refresh_buttons()
+
     def _refresh_buttons(self) -> None:
         sel = self.table.selected_iids()
         playlist = self.in_playlist

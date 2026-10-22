@@ -13,7 +13,7 @@ class TracksMixin:
         return LibraryTrack(
             content_id=cid, title=title or "", artist=artist, album=album,
             duration_seconds=int(length), path=path or "", bpm=bpmx100 / 100.0, file_type=ftype,
-            source_url=comment if comment and extract_video_id(comment) else None,
+            source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
             date_added=added, is_analysed=bool(analysis), artwork_path=art or None,
             sequence=int(row[13]) if len(row) > 13 and row[13] is not None else 0,
             key=key or None, analysis_path=analysis or None,

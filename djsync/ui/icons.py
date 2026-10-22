@@ -171,6 +171,10 @@ def _plus(p: _Pen) -> None:
     p.line(5, 12, 19, 12)
 
 
+def _minus(p: _Pen) -> None:
+    p.line(5, 12, 19, 12)
+
+
 def _usb(p: _Pen) -> None:
     p.rect(7, 9, 17, 21, 2)
     p.rect(9, 3, 15, 9, 1)
@@ -275,6 +279,14 @@ def _info(p: _Pen) -> None:
     p.circle(12, 7.7, 1.2, fill=True)
 
 
+def _chat(p: _Pen) -> None:
+    """Bulle de dialogue (onglet Retours)."""
+    p.rect(3.5, 4.5, 20.5, 16, 3)
+    p.line(8, 16, 7, 20.5, 12, 16)
+    p.line(8, 9, 16, 9)
+    p.line(8, 12, 13.5, 12)
+
+
 def _move(p: _Pen) -> None:
     p.rect(3, 4, 13, 14, 2)
     p.line(10, 17.5, 20.5, 17.5)
@@ -319,12 +331,12 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
     "pause": _pause, "stop": _stop, "next": _next, "prev": _prev, "volume": _volume, "wave": _wave,
-    "duplicates": _duplicates, "menu": _menu, "close": _close, "plus": _plus, "usb": _usb, "grid": _grid,
+    "duplicates": _duplicates, "menu": _menu, "close": _close, "plus": _plus, "minus": _minus, "usb": _usb, "grid": _grid,
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
     "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
-    "diagnostic": _diagnostic,
+    "diagnostic": _diagnostic, "chat": _chat,
 }
 
 

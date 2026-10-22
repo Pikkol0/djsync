@@ -509,10 +509,31 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         except ValueError:
             mode = SearchMode.ALL
         exclude = self.settings.exclude_words
+        extra: Dict[str, Any] = {}                 # 1.2.1 (C08) : champ et durée maximale
+        if self.settings.search_field != "all":
+            extra["field"] = self.settings.search_field
+        if self.settings.search_max_minutes:
+            extra["max_seconds"] = self.settings.search_max_minutes * 60
         self.dispatcher.submit(
-            lambda: self.service.search(query, limit=20, mode=mode, exclude=exclude),
+            lambda: self.service.search(query, limit=20, mode=mode, exclude=exclude, **extra),
             ok, err or self._on_error, pool="net",
         )
+
+    def feedback_client_id(self) -> str:
+        """1.2.1 (C18) : identifiant aléatoire de cet ordinateur pour les limites d'envoi des retours
+        (pas de nom, pas d'adresse : seulement de quoi compter les envois)."""
+        if not self.settings.feedback_id:
+            import uuid
+
+            self.settings.feedback_id = uuid.uuid4().hex
+            try:
+                self.settings.save()
+            except OSError:
+                pass
+        return self.settings.feedback_id
+
+    def album_tracks(self, browse_id: str, ok: Callback, err: Optional[Callback] = None) -> None:
+        self.dispatcher.submit(lambda: self.service.album_tracks(browse_id), ok, err or self._on_error, pool="net")
 
     def enrich_views(self, tracks: Sequence[TrackResult], on_views: Callable[[str, int], None], max_items: int = 30) -> None:
         """Charge en arrière-plan les vues des Titres (absentes de la recherche)."""

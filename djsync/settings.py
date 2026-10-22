@@ -87,6 +87,13 @@ class Settings:
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
     last_update_check: float = 0.0
     update_channel: str = "auto"       # 1.2.0-rc.4 : auto (version de test -> versions de test) | stable | test
+    # ---- 1.2.1
+    table_layouts: dict = field(default_factory=dict)   # {vue: {"hidden": [...], "widths": {col: px à 100 %}}}
+    playlist_sorts: dict = field(default_factory=dict)  # {playlist: [colonne, décroissant]} (tri retenu)
+    search_field: str = "all"          # recherche : all | title | artist | album
+    search_hide_owned: bool = False    # recherche : masquer ce qui est déjà dans la bibliothèque
+    search_max_minutes: int = 0        # recherche : durée maximale (0 = pas de limite ; exclut les mixes)
+    feedback_id: str = ""              # onglet Retours : identifiant aléatoire (limites d'envoi)
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 
@@ -124,6 +131,12 @@ class Settings:
             self.settings_version = 1
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
+        self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
+        self.playlist_sorts = dict(list(self.playlist_sorts.items())[-500:]) if isinstance(self.playlist_sorts, dict) else {}
+        self.search_field = self.search_field if self.search_field in ("all", "title", "artist", "album") else "all"
+        if self.search_mode == "artists":          # 1.2.1 : « Artistes » passe du popup au champ de recherche
+            self.search_field, self.search_mode = "artist", "all"
+        self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         return self

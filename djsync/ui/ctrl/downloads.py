@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 from ...i18n import plural, t
 from ...models import DownloadJob, TrackResult
@@ -107,6 +107,17 @@ class DownloadsMixin:
     def clear_finished(self) -> None:
         self.jobs = [j for j in self.jobs if not j.is_finished]
         self._emit("downloads")
+
+    def download_progress(self) -> Tuple[int, int, float]:
+        """1.2.1 (C21) : (terminés, total, avancement 0-1) de la série en cours : du plus ancien
+        téléchargement pas fini jusqu'au dernier ajouté. (0, 0, 1.0) si rien ne tourne."""
+        jobs = list(self.jobs)
+        first = next((i for i, j in enumerate(jobs) if not j.is_finished), None)
+        if first is None:
+            return 0, 0, 1.0
+        batch = jobs[first:]
+        done = sum(1 for j in batch if j.is_finished)
+        return done, len(batch), sum(j.progress for j in batch) / len(batch)
 
     @property
     def active_jobs(self) -> int:

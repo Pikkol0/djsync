@@ -13,7 +13,7 @@ from .widgets import label, vbox
 
 SHORTCUTS: List[Tuple[str, str]] = [
     ("Ctrl + K", "help.sc_omnibar"),
-    ("Ctrl + 1 … 6", "help.sc_tabs"),
+    ("Ctrl + 1 … 7", "help.sc_tabs"),
     ("Ctrl + F", "help.sc_filter"),
     ("Space", "help.sc_play"),
     ("Ctrl + →", "help.sc_next"),

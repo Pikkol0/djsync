@@ -444,7 +444,7 @@ class LocalRekordboxLibrary:
         return LibraryTrack(
             content_id=int(cid), title=title or "", artist=artist, album=album or None,
             duration_seconds=int(length or 0), path=path or "", bpm=(bpm or 0) / 100.0, file_type=int(ftype or 0),
-            source_url=comment if comment and extract_video_id(comment) else None,
+            source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
             date_added=str(added or "")[:10], is_analysed=bool(anlz), artwork_path=art or None,
             sequence=sequence, key=key or None, analysis_path=anlz or None,
         )
@@ -1190,6 +1190,22 @@ class LocalRekordboxLibrary:
         except OSError as exc:
             log.warning("File not deleted (%s): %s", target, exc)
             return False
+
+    def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
+        """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""
+        ids = [int(i) for i in content_ids]
+        out: Dict[int, List[int]] = {i: [] for i in ids}
+        if not ids:
+            return out
+        params = {f"c{k}": str(i) for k, i in enumerate(ids)}
+        rows = self._read("SELECT DISTINCT ContentID, PlaylistID FROM djmdSongPlaylist WHERE COALESCE(rb_local_deleted,0) = 0 AND ContentID IN ("
+                          + ",".join(f":c{k}" for k in range(len(ids))) + ")", params)
+        for cid, pid in rows:
+            try:
+                out.setdefault(int(cid), []).append(self._pid(pid))
+            except (TypeError, ValueError):
+                continue
+        return out
 
     def merge_duplicates(self, keep_id: int, remove_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
         remove = [str(c) for c in dict.fromkeys(remove_ids) if int(c) != int(keep_id)]
