@@ -5,21 +5,23 @@
 <h1 align="center">DJSync</h1>
 
 <p align="center">
-  Find music, put it on your Rekordbox USB drive, ready for Pioneer CDJs — without going through Rekordbox.
+  Find music, put it on your Rekordbox USB drive, ready for Pioneer CDJs — without going through Rekordbox.<br>
+  One file on your USB drive, any computer: Windows, macOS, Linux.
 </p>
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555">
+  <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-informational">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555">
 </p>
 
 ---
 
 ## What DJSync does
 
-DJSync is a **portable** desktop app (it can run straight from the USB drive) that works on a drive
-exported by Rekordbox:
+DJSync is a **portable** desktop app — it runs straight from the USB drive, on any Windows, macOS or
+Linux computer, nothing to install — that works on a drive exported by Rekordbox:
 
 - **Search and download** from YouTube Music (results as you type, preview before downloading), or
   **import a link** from Spotify, YouTube or SoundCloud (single track or playlist).
@@ -60,14 +62,32 @@ Click a picture to play the video. Demo library with made-up artists; regenerate
 |---|---|
 | ![Library](docs/captures/library.png) | ![Grid](docs/captures/grid.png) |
 
-## Download (Windows)
+## Download
 
-### ⬇ [Download DJSync.exe](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe)
+| Your computer | Download |
+|---|---|
+| **Windows** 10 / 11 | ⬇ [**DJSync.exe**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe) — one file |
+| **macOS** 11+ (Apple silicon) — *beta* | ⬇ [**DJSync-macOS.zip**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.zip) — DJSync.app |
+| **Linux** x86-64 — *beta* | ⬇ [**DJSync-Linux-x86_64.tar.gz**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz) — DJSync folder |
 
-One file: put it on your USB drive and double-click it. Nothing to unzip or install, FFmpeg and the
-JavaScript runtime needed for YouTube are included. The first launch prepares DJSync's files in a hidden
-folder next to it (once); to update, replace DJSync.exe. Pre-releases: [all releases](https://github.com/Pikkol0/djsync/releases).
-Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/INSTALL.fr.md)).
+Put it on your USB drive and open it: nothing to install on the computer, FFmpeg and the JavaScript
+runtime needed for YouTube are included, settings stay on the drive. DJSync tells you when a new
+version is out.
+
+> **How light is it?** Rekordbox needs **2 GB** free on your computer to install. DJSync fits **on your
+> USB drive in ~250 MB** (~300 MB with its backups) — less than 25 tracks in MP3 320 — and runs on any
+> computer you plug the drive into.
+
+Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/INSTALL.fr.md)) ·
+pre-releases and older versions: [all releases](https://github.com/Pikkol0/djsync/releases).
+
+## Help test DJSync (beta)
+
+Testers wanted — especially **with real players** (CDJ / XDJ, not a controller). Download the latest
+[pre-release](https://github.com/Pikkol0/djsync/releases), follow the **[tester guide](docs/TESTING.md)**
+([français](docs/TESTING.fr.md)) and send a
+[test report](https://github.com/Pikkol0/djsync/issues/new?template=deck_test.yml) or a
+[bug report](https://github.com/Pikkol0/djsync/issues/new?template=bug.yml) with the log file.
 
 ## Run from source
 
@@ -76,7 +96,7 @@ Step by step: **[quick installation guide](docs/INSTALL.md)** ([français](docs/
 - **FFmpeg** (`ffmpeg`): download, m4a playback, analysis. In the `PATH`, or the folder set in
   *Settings ▸ FFmpeg*.
 - A **JavaScript runtime** for YouTube downloads (yt-dlp): Deno, Node.js or
-  [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (`qjs`, 2.5 MB — the one shipped with the Windows build).
+  [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (`qjs`, 2.5 MB — the one shipped with the builds).
 
 ### Steps
 ```bash
@@ -87,9 +107,12 @@ python -m venv .venv
 pip install -r requirements.txt
 python app.py
 ```
-### Building the Windows executable
-The **Windows build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or
-by pushing a `v*` tag) produces a **single `DJSync.exe`**: a 150 KB launcher (`packaging/launcher`, C +
+### Building the executables
+The **Build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or by
+pushing a `v*` tag) builds Windows, macOS and Linux. **macOS**: `DJSync.app` (Apple silicon), ad-hoc
+signed, zipped. **Linux**: the `DJSync` folder (built on Ubuntu 22.04 for an old glibc), tar.gz. Both
+ship an audio-only FFmpeg (`TARGET=native packaging/build_ffmpeg.sh`) and QuickJS, and are self-tested.
+**Windows**: a **single `DJSync.exe`**: a 150 KB launcher (`packaging/launcher`, C +
 miniz) with the application folder zipped behind it. On first launch (or after an update, or if the
 folder was deleted) it extracts the application into the hidden `.djsync/app` next to itself, keeps
 `.djsync/data` (settings), then starts it — later launches are instant. Unlike a PyInstaller one-file
@@ -174,7 +197,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **1.1.0** | **Library diagnostic** (Home ▸ *Diagnostic*, one button per library: USB drive and computer): duplicates, low-quality files (MP3 < 192 kbps, AAC < 112 kbps, < 44.1 kHz) and bad sources (music video, live, lyrics, visualizer, sped up…). For each problem: keep one of the versions, or **download a clean version** (YouTube Music, SoundCloud as a fallback) that replaces the old one(s) in all their playlists, at the same position, and is analysed again; *Ignore* is remembered. Beat grid editor: no more old waveform for 2 s, the Rekordbox-style waveform is cached (instant on reopening). `python -m djsync.analysis --compare` also reads this computer's Rekordbox collection (`--compare local --under E:\Contents`), ignores tracks analysed by DJSync itself and gives 95 % confidence intervals ([procedure](docs/comparaison_rekordbox.md)). Presentation video (`tools/demo_video.py`) and vertical teaser for Reels / TikTok / Shorts (`tools/teaser_video.py`). |
+| **1.1.0** | **Library diagnostic** (Home ▸ *Diagnostic*, one button per library: USB drive and computer): duplicates, low-quality files (MP3 < 192 kbps, AAC < 112 kbps, < 44.1 kHz) and bad sources (music video, live, lyrics, visualizer, sped up…). For each problem: keep one of the versions, or **download a clean version** (YouTube Music, SoundCloud as a fallback) that replaces the old one(s) in all their playlists, at the same position, and is analysed again; *Ignore* is remembered. Beat grid editor: no more old waveform for 2 s, the Rekordbox-style waveform is cached (instant on reopening). `python -m djsync.analysis --compare` also reads this computer's Rekordbox collection (`--compare local --under E:\Contents`), ignores tracks analysed by DJSync itself and gives 95 % confidence intervals ([procedure](docs/comparaison_rekordbox.md)). Presentation videos (`tools/tour_video.py`, `tools/teaser_video.py`). **macOS (Apple silicon) and Linux builds** (beta), built and self-tested by the *Build* workflow next to Windows. DJSync tells you when a new version is out (Settings, once a day; test versions also see pre-releases). Grid backups and the grid waveform cache are capped. GPL-3.0 license, tester guide and issue forms. |
 | 1.0.0 | First release: ONE file to download, DJSync.exe (prepares itself on first launch, repairs itself if moved or deleted, keeps settings across updates), published as a GitHub release with its SHA-256 and notes built from this table. Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
 | 0.5.1 | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
 | 0.5.0 | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
@@ -192,19 +215,26 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 ## Releasing
 `djsync/__init__.py` holds the version. Add its row to the table above, then push a tag:
 `git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1` publishes a **pre-release** to test on real hardware;
-`git tag v1.0.0 && git push origin v1.0.0` publishes the release. The *Windows build* workflow refuses a tag
-that does not match the version, runs the tests on Windows, builds the zip and attaches it to the release.
+`git tag v1.0.0 && git push origin v1.0.0` publishes the release. The *Build* workflow refuses a tag
+that does not match the version, runs the tests on Windows, macOS and Linux, builds the three downloads
+and attaches them to the release.
 
 ## Roadmap
-- [ ] Measure and fix the beat grid offset of m4a (AAC) files
-- [ ] Validate the executable and the display on Windows (125–150 % DPI)
-- [ ] Test on real players (recent CDJ and an older model reading export.pdb), then enable adding
-      export.pdb pages by default
+- [ ] Beta with testers, on real players (recent CDJ/XDJ reading OneLibrary, older ones reading export.pdb)
+- [ ] Compare the analysis with Rekordbox on 300–500 varied tracks ([procedure](docs/comparaison_rekordbox.md))
+- [ ] Signed executables (no Windows SmartScreen / macOS Gatekeeper warning)
+- [ ] macOS on Intel Macs; Linux as a single AppImage file
+- [ ] Public release
 
 ## Credits
 - [pyrekordbox](https://github.com/dylanljones/pyrekordbox) and the community documentation
   [Deep Symmetry / crate-digger](https://djl-analysis.deepsymmetry.org/) for the Rekordbox formats.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp), [ytmusicapi](https://github.com/sigma67/ytmusicapi),
   [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/), [SQLCipher](https://www.zetetic.net/sqlcipher/).
+
+## License
+DJSync is free software under the [GNU General Public License v3.0](LICENSE): you can use, study,
+share and modify it; modified versions you distribute must stay under the GPL, with their source code.
+Bundled components keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Only download content you have the right to use.

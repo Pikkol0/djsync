@@ -40,8 +40,24 @@ def app_dir() -> Path:
         exe_dir = Path(sys.executable).resolve().parent
         if exe_dir.name == "app" and exe_dir.parent.name == CONTENTS:      # .djsync/app lancé directement
             return exe_dir.parent.parent
+        bundle = mac_bundle(exe_dir)
+        if bundle is not None:                    # macOS : le dossier qui contient DJSync.app
+            return bundle.parent
         return exe_dir
     return Path(__file__).resolve().parent.parent
+
+
+def mac_bundle(exe_dir: Path) -> Optional[Path]:
+    """DJSync.app si l'exécutable est dans DJSync.app/Contents/MacOS, sinon None."""
+    if exe_dir.name == "MacOS" and exe_dir.parent.name == "Contents" and exe_dir.parent.parent.suffix == ".app":
+        return exe_dir.parent.parent
+    return None
+
+
+def translocated() -> bool:
+    """macOS a lancé une copie temporaire en lecture seule (application téléchargée, encore en
+    « quarantaine ») : DJSync ne voit plus la clé qui le porte. Cf. docs/INSTALL.md."""
+    return sys.platform == "darwin" and "/AppTranslocation/" in str(Path(sys.executable).resolve())
 
 
 def own_drive_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -68,9 +84,9 @@ def portable_data_dir(start: Optional[Path] = None) -> Optional[Path]:
     here = Path(start) if start is not None else app_dir()
     if not is_portable(here):
         return None
-    if (here / LEGACY_DATA).is_dir() or not (here / CONTENTS).is_dir():
+    if (here / LEGACY_DATA).is_dir() or (sys.platform == "win32" and not (here / CONTENTS).is_dir()):
         return here / LEGACY_DATA
-    return here / CONTENTS / "data"
+    return here / CONTENTS / "data"           # macOS / Linux : dossier caché par son point
 
 
 def tool_dirs(start: Optional[Path] = None) -> list:

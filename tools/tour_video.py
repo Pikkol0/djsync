@@ -59,12 +59,14 @@ def scenario(app: Any, s: vk.Studio) -> None:
     imp, sv = app.views["import"], app.views["settings"]
 
     CHAPTERS.append((0.0, "Intro"))
-    s.card(["DJSync", "Your music, your Rekordbox USB, any PC."], 4.0)
+    s.card(["DJSync", "Your music, your Rekordbox USB, any computer."], 4.0)
 
     # ================================================================ 1. Un seul fichier
-    part(s, "1/8", "One file, on your USB", "No install. Plug it into any Windows PC.")
+    part(s, "1/8", "On your USB, any computer", "Windows, Mac or Linux. Nothing to install.")
     s.cut()
-    s.plug(5.0, "DJ KEY", "DJSync.exe", ("Copy it to your USB, double-click", "Windows 10 / 11"))
+    s.choose_os(4.0, ("Download the version for your computer", "then copy it to your USB drive"), [("Windows", "DJSync.exe"), ("macOS", "DJSync.app"), ("Linux", "DJSync folder")])
+    s.cut()
+    s.plug(5.0, "DJ KEY", "DJSync", ("Plug the drive in, open DJSync", "same drive, any computer"))
     app.show_view("home")
     s.pump(0.6)
     s.zoom(220, 60, 1250, now=True)
@@ -368,7 +370,7 @@ def scenario(app: Any, s: vk.Studio) -> None:
 
     CHAPTERS.append((s.t, "Download"))
     s.cut()
-    s.card(["One file.", "Any PC. Any gig."], 5.0, cta=CTA)
+    s.card(["On your USB.", "Any computer. Any gig."], 5.0, cta=CTA)
 
 
 def main() -> int:

@@ -1,0 +1,54 @@
+name: 🎛️ Test on players (CDJ / XDJ)
+description: Report how a drive prepared with DJSync behaves on real players.
+labels: [players]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow the "On the players" part of the [tester guide](https://github.com/Pikkol0/djsync/blob/main/docs/TESTING.md).
+        One report per player model is perfect.
+  - type: input
+    id: version
+    attributes:
+      label: DJSync version
+      placeholder: 1.1.0-rc.1
+    validations:
+      required: true
+  - type: input
+    id: player
+    attributes:
+      label: Player model and firmware
+      placeholder: CDJ-3000 (firmware 3.20), CDJ-2000NXS2 (1.85), XDJ-RX3…
+    validations:
+      required: true
+  - type: dropdown
+    id: drive
+    attributes:
+      label: Drive file system
+      options: [FAT32, exFAT, I don't know]
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: What works on the player
+      description: Tick what is correct for the tracks added or edited with DJSync.
+      options:
+        - label: The drive is recognised and the library opens
+        - label: Playlists (and folders) are there, in the right order
+        - label: Titles, artists, artwork are correct
+        - label: BPM and key are shown
+        - label: Waveform overview (whole track) is shown
+        - label: Scrolling waveform (detail) is shown, with colours
+        - label: Beat grid is on the beats (sync / quantize work)
+        - label: Memory cue on the first downbeat
+        - label: A grid fixed in DJSync is correct on the player
+        - label: Tracks added by Rekordbox are still fine
+  - type: textarea
+    id: notes
+    attributes:
+      label: What is wrong or different from Rekordbox?
+      description: Photos of the player screen help a lot.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: djsync.log from the drive (.djsync/data).

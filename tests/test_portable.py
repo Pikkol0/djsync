@@ -1,5 +1,6 @@
 """Mode portable : DJSync.exe sur la clé."""
 import os
+import sys
 from pathlib import Path
 
 from djsync import portable
@@ -18,7 +19,20 @@ def test_exe_on_a_key_is_portable_and_finds_its_drive(tmp_path):
     app = make_key(tmp_path)
     assert portable.is_portable(app)
     assert portable.own_drive_root(app) == tmp_path
-    assert portable.portable_data_dir(app) == app / "DJSync_Data"
+    expected = app / "DJSync_Data" if sys.platform == "win32" else app / portable.CONTENTS / "data"
+    assert portable.portable_data_dir(app) == expected
+
+
+def test_mac_app_bundle_lives_next_to_its_folder(tmp_path, monkeypatch):
+    """macOS : DJSync.app/Contents/MacOS/DJSync -> le dossier « visible » est celui qui contient l'app."""
+    exe = tmp_path / "KEY" / "DJSync.app" / "Contents" / "MacOS" / "DJSync"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.delenv("DJSYNC_APP_DIR", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    assert portable.app_dir() == tmp_path / "KEY"
+    assert portable.mac_bundle(exe.parent) == tmp_path / "KEY" / "DJSync.app"
 
 
 def test_exe_elsewhere_is_not_portable_without_flag(tmp_path):

@@ -587,7 +587,7 @@ class Studio:
         self.scene(seconds, draw)
 
     def plug(self, seconds: float, drive: str, file_name: str, title: Tuple[str, str]) -> None:
-        """La clé USB se branche sur un portable Windows, l'écran s'allume, double-clic sur DJSync.exe."""
+        """La clé USB se branche sur un ordinateur portable, l'écran s'allume, double-clic sur DJSync."""
         from PySide6.QtCore import QPointF, QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QPen
 
@@ -665,15 +665,72 @@ class Studio:
                     for j in range(5):
                         p.drawRoundedRect(QRectF(sx + 200 + m, sy + 110 + j * 46 + m, sw - 300, 26), 6, 6)
                 p.setOpacity(1.0)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor("#6C6C7A"))
-            for ddx, ddy in ((0, 0), (26, 0), (0, 26), (26, 26)):
-                p.drawRect(QRectF(sx + sw / 2 - 25 + ddx, sy + sh + 90 + ddy, 22, 22))
             f = QFont()
-            f.setPixelSize(32)
+            f.setPixelSize(34)
             p.setFont(f)
             p.setPen(QColor("#9A9AA8"))
-            p.drawText(QRectF(sx, sy + sh + 150, sw, 50), Qt.AlignCenter, "Windows 10 · 11")
+            p.drawText(QRectF(sx - 100, sy + sh + 100, sw + 200, 50), Qt.AlignCenter, "Windows  ·  macOS  ·  Linux")
+
+        self.scene(seconds, draw)
+
+    def choose_os(self, seconds: float, title: Tuple[str, str], picks: Sequence[Tuple[str, str]],
+                  chosen: int = 0) -> None:
+        """Page de téléchargement : une carte par système, le pointeur choisit la sienne."""
+        from PySide6.QtCore import QPointF, QRectF, Qt
+        from PySide6.QtGui import QColor, QFont, QPen
+
+        n = len(picks)
+        k = seconds / 4.0
+
+        def draw(p: Any, t: float) -> None:
+            t = t / k
+            self.text_block(p, [(title[0], 96 if self.portrait else 80, "#FFFFFF", True),
+                                (title[1], 44 if self.portrait else 38, self.accent, False)], t,
+                            self.H * 0.15, gap=14)
+            if self.portrait:
+                w, h, gap = self.W - 200, 200, 40
+                rects = [QRectF(100, self.H * 0.32 + i * (h + gap), w, h) for i in range(n)]
+            else:
+                w, h, gap = 480, 300, 50
+                x0 = (self.W - n * w - (n - 1) * gap) / 2
+                rects = [QRectF(x0 + i * (w + gap), self.H * 0.40, w, h) for i in range(n)]
+            target = rects[chosen].center()
+            start = QPointF(self.W * 0.8, self.H * 0.9)
+            e = _ease((t - 1.0) / 1.2)
+            cur = QPointF(start.x() + (target.x() - start.x()) * e, start.y() + (target.y() - start.y()) * e)
+            for i, ((name, file), r) in enumerate(zip(picks, rects)):
+                a = _ease((t - 0.4 - 0.2 * i) / 0.35)
+                if a <= 0:
+                    continue
+                on = i == chosen and t > 2.2
+                p.setOpacity(a)
+                p.setPen(QPen(QColor(self.accent), 4) if on else Qt.NoPen)
+                p.setBrush(QColor(255, 255, 255, 34 if on else 16))
+                p.drawRoundedRect(r.translated(0, (1 - a) * 30), 26, 26)
+                f = QFont()
+                f.setPixelSize(54 if self.portrait else 50)
+                f.setBold(True)
+                p.setFont(f)
+                p.setPen(QColor("#FFFFFF"))
+                p.drawText(QRectF(r.x(), r.y() + r.height() * 0.18, r.width(), r.height() * 0.38), Qt.AlignCenter, name)
+                f.setPixelSize(32 if self.portrait else 28)
+                f.setBold(False)
+                p.setFont(f)
+                p.setPen(QColor(self.accent) if on else QColor("#B9B9C6"))
+                p.drawText(QRectF(r.x(), r.y() + r.height() * 0.58, r.width(), r.height() * 0.28), Qt.AlignCenter, file)
+            p.setOpacity(1.0)
+            if t > 0.9:                                       # pointeur qui va cliquer sa version
+                age = t - 2.2
+                if 0 < age < 0.5:
+                    p.setPen(QPen(QColor(self.accent), 4))
+                    p.setBrush(Qt.NoBrush)
+                    p.setOpacity(1 - age / 0.5)
+                    p.drawEllipse(cur, 10 + age * 90, 10 + age * 90)
+                    p.setOpacity(1.0)
+                p.setPen(QPen(QColor("#111111"), 2))
+                p.setBrush(QColor("#FFFFFF"))
+                pts = [(0, 0), (0, 34), (9, 25), (16, 40), (22, 37), (15, 23), (27, 23)]
+                p.drawPolygon([QPointF(cur.x() + x, cur.y() + y) for x, y in pts])
 
         self.scene(seconds, draw)
 

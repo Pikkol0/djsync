@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Audio-only FFmpeg for Windows (ffmpeg.exe + ffprobe.exe, ~6 MB instead of ~150 MB for a full build),
-# cross-compiled on Linux with mingw-w64. Used by .github/workflows/windows.yml.
+# Audio-only FFmpeg (ffmpeg + ffprobe, ~6 MB instead of ~150 MB for a full build). Used by
+# .github/workflows/windows.yml.
 #
-#   sudo apt-get install -y gcc-mingw-w64-x86-64 nasm make
-#   packaging/build_ffmpeg.sh out/            # -> out/ffmpeg.exe, out/ffprobe.exe, out/FFMPEG_LICENSE.txt
+#   Windows, cross-compiled on Linux with mingw-w64 (default):
+#     sudo apt-get install -y gcc-mingw-w64-x86-64 nasm make
+#     packaging/build_ffmpeg.sh out/          # -> out/ffmpeg.exe, out/ffprobe.exe, out/FFMPEG_LICENSE.txt
+#   macOS / Linux, built for the machine running the script:
+#     TARGET=native packaging/build_ffmpeg.sh out/      # -> out/ffmpeg, out/ffprobe
 #
 # Only what DJSync and yt-dlp use: read m4a/mp3/flac/wav/aiff/ogg/opus/webm, write m4a (AAC) and
 # mp3 (LAME, LGPL), raw PCM to a pipe (playback, analysis), loudness measure (ebur128) and gain.
@@ -12,11 +15,29 @@ set -euo pipefail
 
 OUT="$(mkdir -p "${1:-out}" && cd "${1:-out}" && pwd)"
 WORK="${WORK:-$(mktemp -d)}"
+mkdir -p "$WORK"
 FFMPEG_TAG="${FFMPEG_TAG:-n7.1.1}"
 LAME_URL="${LAME_URL:-http://archive.ubuntu.com/ubuntu/pool/main/l/lame/lame_3.100.orig.tar.gz}"
+TARGET="${TARGET:-windows}"
 HOST=x86_64-w64-mingw32
 PREFIX="$WORK/prefix"
-JOBS="$(nproc)"
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+if [ "$TARGET" = windows ]; then
+  LAME_HOST="--host=$HOST"
+  CROSS="--target-os=mingw32 --arch=x86_64 --cross-prefix=$HOST-"
+  STATIC_LD="-static"
+  EXE=.exe
+  STRIP="$HOST-strip"
+else
+  LAME_HOST=""
+  if [ "$(uname -s)" = Darwin ]; then         # LAME's old config.guess does not know Apple silicon
+    LAME_HOST="--build=$(uname -m | sed 's/arm64/aarch64/')-apple-darwin"
+  fi
+  CROSS=""
+  STATIC_LD=""                 # macOS has no static libc: LAME is linked in, system libraries are not
+  EXE=""
+  STRIP="strip"
+fi
 
 cd "$WORK"
 # ---- LAME (MP3 encoder), static
@@ -24,7 +45,7 @@ if [ ! -d lame-3.100 ]; then
   curl -sSfL -o lame.tgz "$LAME_URL"
   tar xzf lame.tgz
 fi
-(cd lame-3.100 && { make distclean >/dev/null 2>&1 || true; } && ./configure --host=$HOST --prefix="$PREFIX" --enable-static --disable-shared \
+(cd lame-3.100 && { make distclean >/dev/null 2>&1 || true; } && ./configure $LAME_HOST --prefix="$PREFIX" --enable-static --disable-shared \
    --disable-frontend --disable-decoder --disable-gtktest --disable-analyzer-hooks >/dev/null \
  && make -j"$JOBS" >/dev/null && make install >/dev/null)
 
@@ -33,8 +54,8 @@ fi
 cd ffmpeg
 make distclean >/dev/null 2>&1 || true
 ./configure \
-  --target-os=mingw32 --arch=x86_64 --cross-prefix=$HOST- --pkg-config=false \
-  --prefix="$PREFIX" --extra-cflags="-I$PREFIX/include -O2" --extra-ldflags="-L$PREFIX/lib -static" \
+  $CROSS --pkg-config=false \
+  --prefix="$PREFIX" --extra-cflags="-I$PREFIX/include -O2" --extra-ldflags="-L$PREFIX/lib $STATIC_LD" \
   --enable-static --disable-shared --disable-debug --disable-doc --disable-ffplay \
   --disable-autodetect --disable-network --disable-everything --enable-small \
   --enable-ffmpeg --enable-ffprobe --enable-swresample --enable-libmp3lame \
@@ -48,7 +69,7 @@ make distclean >/dev/null 2>&1 || true
   --enable-filter=aresample,aformat,anull,volume,ebur128,atrim,pan,null,anullsrc,asetpts,apad \
   >/dev/null
 make -j"$JOBS" >/dev/null
-$HOST-strip ffmpeg.exe ffprobe.exe
-cp ffmpeg.exe ffprobe.exe "$OUT/"
+$STRIP ffmpeg$EXE ffprobe$EXE
+cp ffmpeg$EXE ffprobe$EXE "$OUT/"
 cp COPYING.LGPLv2.1 "$OUT/FFMPEG_LICENSE.txt"
 ls -la "$OUT"

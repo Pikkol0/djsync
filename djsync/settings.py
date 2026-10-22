@@ -83,7 +83,9 @@ class Settings:
     normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
-    diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
+    diag_ignored: list = field(default_factory=list)
+    check_updates: bool = True                        # V1.1.0 : nouvelle version de DJSync ? (une fois par jour)
+    last_update_check: float = 0.0  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 

@@ -1012,6 +1012,9 @@ class LocalRekordboxLibrary:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}"
         backup.mkdir(parents=True, exist_ok=True)
+        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
+
+        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
         originals = {f: f.read_bytes() for f in files}
         for f, data in originals.items():
             (backup / f.name).write_bytes(data)

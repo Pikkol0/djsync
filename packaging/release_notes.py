@@ -2,8 +2,8 @@
 
     python packaging/release_notes.py v1.0.0 > notes.md      # also checks the tag against djsync.__version__
 
-Takes the version's row of the README "Version history" table, adds the installation steps for the
-Windows exe. Exit code 1 if the tag does not match the version written in djsync/__init__.py
+Takes the version's row of the README "Version history" table, adds the download and installation
+steps (Windows, macOS, Linux). Exit code 1 if the tag does not match the version written in djsync/__init__.py
 (a "-rc.1" / "-beta" suffix is allowed: it marks a pre-release of that version).
 """
 from __future__ import annotations
@@ -14,21 +14,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-INSTALL = """## Installation (Windows)
-1. Download **DJSync.exe** below.
-2. Put it on your USB drive (or anywhere on the computer) and **double-click it**. That's all:
-   nothing to unzip, nothing installed on the computer.
-3. The first launch takes a moment: DJSync prepares its files in a hidden folder next to itself
-   (once, and again after an update). Your settings are kept across updates.
+INSTALL = """## Download
+| Your computer | File |
+|---|---|
+| **Windows** 10 / 11 | **DJSync.exe** |
+| **macOS** 11+ (Apple silicon: M1, M2, M3…) — *beta* | **DJSync-macOS.zip** |
+| **Linux** x86-64 — *beta* | **DJSync-Linux-x86_64.tar.gz** |
 
-If Windows SmartScreen warns about an unknown publisher (unsigned app): *More info* ▸ *Run anyway*.
-To update: replace DJSync.exe with the new one.
+Put it on your USB drive (or anywhere on the computer) and open it: nothing is installed on the
+computer, your settings stay next to DJSync and are kept across updates.
 
-Close Rekordbox while DJSync writes to a library, and keep a copy of your drive.
-SHA-256: see `DJSync.exe.sha256`.
+- **Windows**: double-click DJSync.exe. SmartScreen warns about an unknown publisher (unsigned app):
+  *More info* ▸ *Run anyway*. The first launch takes a moment (DJSync prepares its files once).
+- **macOS**: unzip, copy DJSync.app to the drive, then once in Terminal:
+  `xattr -dr com.apple.quarantine /Volumes/YOUR_DRIVE/DJSync.app` and open DJSync (unsigned app).
+- **Linux**: extract the DJSync folder to the drive and run `DJSync/DJSync`.
 
-Quick installation guide: [English](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.md) ·
-[français](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.fr.md)
+To update: replace DJSync with the new one. Close Rekordbox while DJSync writes to a library, and
+keep a copy of your drive. SHA-256 checksums: the `.sha256` files.
+
+Installation guide: [English](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.md) ·
+[français](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.fr.md) · Testing DJSync:
+[tester guide](https://github.com/Pikkol0/djsync/blob/main/docs/TESTING.md)
 """
 
 

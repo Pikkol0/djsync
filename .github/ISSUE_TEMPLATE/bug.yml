@@ -1,0 +1,49 @@
+name: 🐞 Bug report
+description: Something went wrong in DJSync.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing DJSync! Please attach the log file — it is the fastest way to find the problem:
+        - **Windows**: type `E:\.djsync\data` in the File Explorer address bar (your drive letter), file `djsync.log`
+        - **macOS / Linux**: the `.djsync/data` folder next to DJSync (hidden: Cmd+Shift+. on macOS, Ctrl+H on Linux)
+  - type: input
+    id: version
+    attributes:
+      label: DJSync version
+      description: Settings, or the Help window (F1).
+      placeholder: 1.1.0-rc.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer
+      options: [Windows 11, Windows 10, macOS (Apple silicon), Linux, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: library
+    attributes:
+      label: Which library?
+      options: [USB drive, Rekordbox library of this computer, Both]
+    validations:
+      required: true
+  - type: input
+    id: rekordbox
+    attributes:
+      label: Rekordbox version (if used)
+      placeholder: 7.1.3
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, step by step, what you expected, what you got. Screenshots welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Drag and drop djsync.log here.

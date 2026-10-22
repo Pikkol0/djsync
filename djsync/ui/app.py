@@ -109,6 +109,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("analysis", self._analysis_changed)
         self.ctrl.on("open_grid", self.open_grid_editor)
         self.ctrl.on("engine_offer", self._engine_offer)
+        self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
         self._listener_mark = self.ctrl.listener_mark()
@@ -489,6 +490,16 @@ class DJSyncApp(QMainWindow):
         ConfirmDialog(self, t("engine.offer_title"), t("engine.offer_msg", version=release.version),
                       lambda: self.ctrl.engine_install(release), confirm_text=t("engine.offer_ok"),
                       detail=t("engine.offer_detail", current=current or "?"))
+
+    def _app_update(self, update: Any, current: str) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("update.title"), t("update.msg", version=update.version),
+                      lambda: QDesktopServices.openUrl(QUrl(update.url)), confirm_text=t("update.ok"),
+                      detail=t("update.detail_test" if update.prerelease else "update.detail", current=current))
 
     def _local_offer(self, local: Any, host: str) -> None:
         from .dialogs import ConfirmDialog

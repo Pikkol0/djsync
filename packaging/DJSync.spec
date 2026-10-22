@@ -1,4 +1,6 @@
-# PyInstaller: pyinstaller packaging/DJSync.spec   (run on WINDOWS, from the project root)
+# PyInstaller: pyinstaller packaging/DJSync.spec   (from the project root, on the target system)
+#
+# V1.1.0: Windows (folder packed into DJSync.exe, see below), macOS (DJSync.app) and Linux (DJSync folder).
 #
 # V1.0.0: builds the APPLICATION folder (dist/DJSync: DJSync.exe + _internal + tools). Users never see
 # it: the GitHub workflow packs it into ONE file, DJSync.exe = small launcher + this folder zipped
@@ -21,6 +23,7 @@ for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3"): 
     hidden += collect_submodules(pkg)
 hidden += ["_cffi_backend"]               # native part of cffi, used by miniaudio (player): not auto-detected
 datas += copy_metadata("yt-dlp")           # version of the built-in engine (djsync/core/engine.py)
+datas += [("../LICENSE", "."), ("../THIRD_PARTY_NOTICES.md", ".")]     # GPL-3.0 + bundled components
 
 # Big packages that must never end up in the exe (pulled in by optional imports of dependencies).
 EXCLUDES = [
@@ -34,9 +37,21 @@ EXCLUDES = [
 
 a = Analysis(["../app.py"], pathex=[".."], binaries=binaries, datas=datas, hiddenimports=hidden,
              excludes=EXCLUDES)
+import sys
+
 pyz = PYZ(a.pure)
-# Native splash screen while Python starts (closed by djsync/ui/splash.close_native).
-splash = Splash("splash.png", binaries=a.binaries, datas=a.datas, text_pos=None)
-exe = EXE(pyz, a.scripts, splash, [], exclude_binaries=True, name="DJSync", console=False, upx=False,
-          icon="djsync.ico")
-coll = COLLECT(exe, splash.binaries, a.binaries, a.datas, name="DJSync", upx=False)
+if sys.platform == "win32":
+    # Native splash screen while Python starts (closed by djsync/ui/splash.close_native).
+    splash = Splash("splash.png", binaries=a.binaries, datas=a.datas, text_pos=None)
+    exe = EXE(pyz, a.scripts, splash, [], exclude_binaries=True, name="DJSync", console=False, upx=False,
+              icon="djsync.ico")
+    coll = COLLECT(exe, splash.binaries, a.binaries, a.datas, name="DJSync", upx=False)
+else:
+    # macOS / Linux: no native splash (needs Tcl/Tk); the Qt splash shows as soon as Qt starts.
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="DJSync", console=False, upx=False,
+              icon="djsync_icon.png")
+    coll = COLLECT(exe, a.binaries, a.datas, name="DJSync", upx=False)
+    if sys.platform == "darwin":
+        app = BUNDLE(coll, name="DJSync.app", icon="djsync_icon.png", bundle_identifier="io.github.pikkol0.djsync",
+                     info_plist={"CFBundleShortVersionString": __import__("os").environ.get("DJSYNC_VERSION", "1.0").split("-")[0],
+                                 "NSHighResolutionCapable": True, "LSMinimumSystemVersion": "11.0"})
