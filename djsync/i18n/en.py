@@ -650,4 +650,5 @@ STRINGS = {
     "update.auto": "Tell me when a new version of DJSync is out",
     "update.check": "Check now",
     "mac.translocated": "macOS is running a temporary copy of DJSync, so it cannot see the drive it is on. Quit DJSync, then in Terminal run: xattr -dr com.apple.quarantine (and drag DJSync.app into the window), press Enter, and open DJSync again.",
+    "error.local_db_unreadable": "DJSync cannot read Rekordbox's database right now (Rekordbox is probably writing to it). Quit Rekordbox completely, then connect again. Your library is not damaged.",
 }

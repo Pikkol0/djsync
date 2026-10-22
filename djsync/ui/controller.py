@@ -199,6 +199,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         les autres langues, les autres restent en anglais."""
         if is_offline_error(exc):
             return t("error.offline")
+        low = str(exc).lower()
+        if self.is_local and ("malformed" in low or "file is not a database" in low):
+            return t("error.local_db_unreadable")        # V1.2.0 : retour testeur macOS
         if get_language() != "en":
             for cls, key in self._ERROR_KEYS:
                 if isinstance(exc, cls):
@@ -208,6 +211,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         return f"{type(exc).__name__}: {exc}"
 
     def _on_error(self, exc: BaseException) -> None:
+        log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         self.message("error", self.error_text(exc))
 
     @property

@@ -301,6 +301,20 @@ class LocalRekordboxLibrary:
             self._open_db()
             log.info("Computer library reopened: %s", self.db_path)
 
+    def _log_integrity(self, sql: str) -> None:
+        """Diagnostic dans djsync.log (retour testeur) : requête en échec, état du fichier, quick_check."""
+        try:
+            files = {n: (self.drive.db_dir / n).stat().st_size for n in (MASTER_DB, MASTER_DB + "-wal", MASTER_DB + "-shm")
+                     if (self.drive.db_dir / n).exists()}
+            from sqlalchemy import text
+
+            check = [r[0] for r in self._db.session.execute(text("PRAGMA quick_check(20)")).fetchall()]
+            self._db.session.rollback()
+            log.warning("Unreadable Rekordbox database. Query: %s | files: %s | Rekordbox running: %s | "
+                        "quick_check: %s", " ".join(sql.split())[:300], files, rekordbox_running(), check)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Integrity check failed too: %s", exc)
+
     def _ensure_fresh(self) -> None:
         if self._db is not None and self._writing == 0 and self._identity() != self._file_id:
             self.refresh()
@@ -341,6 +355,8 @@ class LocalRekordboxLibrary:
                         log.warning("Rekordbox database changed under DJSync (%s): reopening", exc)
                         self.refresh()
                         continue
+                    if _stale_file_error(exc):
+                        self._log_integrity(sql)
                     raise
                 finally:
                     if self._writing == 0 and self._db is not None:
