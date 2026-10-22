@@ -34,6 +34,7 @@ class DuplicatesDialog(BaseDialog):
         self._busy = False
         self._keep = QButtonGroup(self)
         self.title_entry: Optional[QLineEdit] = None
+        self._pl_labels: dict = {}
         self.artist_entry: Optional[QLineEdit] = None
 
         head = hbox()
@@ -96,6 +97,7 @@ class DuplicatesDialog(BaseDialog):
             elif item.layout() is not None:
                 _drop_layout(item.layout())
         self.title_entry = self.artist_entry = None
+        self._pl_labels = {}
 
     def _select(self, i: int) -> None:
         self.index = i
@@ -115,6 +117,16 @@ class DuplicatesDialog(BaseDialog):
         self.detail_lay.addWidget(label(t("dup.choose"), "dim"))
         for k, x in enumerate(group):
             self.detail_lay.addWidget(self._version_row(k, x, x is keeper))
+        token = self.index
+
+        def show_playlists(found: dict) -> None:           # 1.2.1 (C11)
+            if not self.winfo_exists() or self.index != token:
+                return
+            for cid, lbl in self._pl_labels.items():
+                names = found.get(cid) or []
+                lbl.setText(t("dup.in_playlists", names=", ".join(names)) if names else t("dup.in_no_playlist"))
+
+        self.ctrl.track_playlists([x.content_id for x in group], show_playlists)
         self.detail_lay.addSpacing(theme.px(8))
         self.detail_lay.addWidget(label(t("dup.fix_metadata"), "h2"))
         title, artist = split_display(keeper.title, keeper.artist)
@@ -143,11 +155,37 @@ class DuplicatesDialog(BaseDialog):
         info = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds), _FORMATS.get(x.file_type, ""),
                 f"{x.bpm:.0f} BPM" if x.bpm else t("dup.not_analysed"), (x.date_added or "")[:10]]
         text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
+        pl = label("", "faint", wrap=True)
+        self._pl_labels[x.content_id] = pl
+        text.addWidget(pl)
         lay.addLayout(text, 1)
         if x.camelot:
             lay.addWidget(CamelotPill(x.camelot))
-        lay.addWidget(icon_button("play", lambda: self.ctrl.play_queue(self.groups[self.index], k), t("action.listen")))
+        # 1.2.1 (C12) : écouter le début (intro) ou le milieu de chaque version pour comparer
+        lay.addWidget(button(t("dup.listen_start"), lambda: self._listen(k, 0.0), icon="play",
+                             tooltip=t("dup.listen_start_tip")))
+        lay.addWidget(button(t("dup.listen_middle"), lambda: self._listen(k, 0.45), kind="flat",
+                             tooltip=t("dup.listen_middle_tip")))
         return row
+
+    def _listen(self, k: int, at: float) -> None:
+        from PySide6.QtCore import QTimer
+
+        from ..audio.player import PLAYING
+
+        group = self.groups[self.index]
+        self.ctrl.play_queue(group, k)
+        if at <= 0:
+            return
+        player = self.ctrl.player
+
+        def seek_when_ready(tries: int = 0) -> None:
+            if player.state == PLAYING and player.duration > 0:
+                player.seek(player.duration * at)
+            elif tries < 50 and self.winfo_exists():
+                QTimer.singleShot(100, lambda: seek_when_ready(tries + 1))
+
+        QTimer.singleShot(100, seek_when_ready)
 
     def keep_index(self) -> int:
         return max(0, self._keep.checkedId())

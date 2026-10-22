@@ -84,6 +84,7 @@ class AnalysisQueue(TaskHandle):
         self.finished = True
         self._lock = threading.Lock()
         self.pending: List[int] = []
+        self.batch: List[int] = []
         self.forced: set = set()
         self.ids: set = set()            # sons en file ou en cours (pour l'affichage)
         self.current = ""
@@ -111,12 +112,15 @@ class AnalysisQueue(TaskHandle):
             if self.cancelled:
                 self.pending.clear()
             batch, self.pending = self.pending[: self.BATCH], self.pending[self.BATCH:]
+            # 1.2.1 (C21) : ordre de traitement du lot en cours (forcés après les autres, comme `work`)
+            self.batch = [i for i in batch if i not in self.forced] + [i for i in batch if i in self.forced]
             return batch
 
     def reset(self) -> None:
         with self._lock:
             self.total = self.done = self.ok = self.skipped = self.failed = 0
             self.pending, self.ids, self.forced, self.problems = [], set(), set(), []
+            self.batch = []
             self.cancelled, self.current = False, ""
             self.on_done, self.on_progress = [], []
 
@@ -490,6 +494,27 @@ class LibraryOpsMixin:
             return find_duplicate_groups(lib.list_tracks())
 
         self.dispatcher.submit(work, ok, self._on_error, pool="db")
+
+    def analysis_current_id(self) -> Optional[int]:
+        """1.2.1 (C21) : son en cours d'analyse (le premier du lot pas encore traité), ou None."""
+        q = self.analysis
+        if not q.running:
+            return None
+        return next((i for i in list(q.batch) if i not in self.analysis_results), None)
+
+    def track_playlists(self, content_ids: Sequence[int], ok: Callable[[Dict[int, List[str]]], None]) -> None:
+        """1.2.1 (C11) : {son: [noms des playlists qui le contiennent]} (outil Doublons)."""
+        lib = self.library
+        if lib is None or not hasattr(lib, "playlists_of"):
+            ok({})
+            return
+        names = {p.playlist_id: p.name for p in self.playlists}
+
+        def work() -> Dict[int, List[str]]:
+            found = lib.playlists_of(content_ids)
+            return {cid: sorted({names.get(pid, "?") for pid in pids}, key=str.lower) for cid, pids in found.items()}
+
+        self.dispatcher.submit(work, ok, lambda exc: log.info("Playlists of tracks: %s", exc), pool="db")
 
     def update_metadata(self, content_id: int, title: Optional[str], artist: Optional[str],
                         ok: Optional[Callback] = None) -> None:

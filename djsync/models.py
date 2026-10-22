@@ -40,6 +40,21 @@ SEARCH_MODE_LABELS = LazyLabels(lambda: {
 SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud"}
 
 
+def source_from_url(url: Optional[str]) -> str:
+    """1.2.1 (C06) : source d'un son d'après son lien d'origine (« YouTube Music », « SoundCloud »…),
+    "" si inconnue (son ajouté par Rekordbox ou fichier local). Nouvelles sources : une ligne ici."""
+    u = (url or "").lower()
+    if not u:
+        return ""
+    for needle, name in (("music.youtube.", "YouTube Music"), ("soundcloud.", "SoundCloud"), ("youtu", "YouTube"),
+                         ("spotify.", "Spotify"), ("bandcamp.", "Bandcamp"), ("deezer.", "Deezer")):
+        if needle in u:
+            return name
+    if len(u) == 11 and all(c.isalnum() or c in "-_" for c in u):       # identifiant de vidéo YouTube seul
+        return "YouTube"
+    return ""
+
+
 def format_duration(seconds: int) -> str:
     """m:ss (ou h:mm:ss)."""
     m, s = divmod(max(0, int(seconds or 0)), 60)
@@ -102,7 +117,14 @@ class TrackResult:
         return self.result_type == "song"
 
     @property
+    def is_album(self) -> bool:
+        """1.2.1 (C09) : ligne « album » de la recherche (video_id = identifiant de l'album)."""
+        return self.result_type == "album"
+
+    @property
     def kind_label(self) -> str:
+        if self.is_album:
+            return t("track.album_kind")
         return t("track.song") if self.is_song else t("track.video")
 
     @property
@@ -347,6 +369,12 @@ class DownloadJob:
     @property
     def is_active(self) -> bool:
         return self.status in ("downloading", "converting", "tagging", "adding")
+
+    @property
+    def progress(self) -> float:
+        """1.2.1 (C21) : avancement de 0 à 1 (téléchargement = 80 %, puis conversion, tags, ajout)."""
+        return {"queued": 0.0, "downloading": 0.8 * max(0.0, min(100.0, self.percent)) / 100.0, "converting": 0.85,
+                "tagging": 0.92, "adding": 0.96}.get(self.status, 1.0)
 
     @property
     def status_label(self) -> str:

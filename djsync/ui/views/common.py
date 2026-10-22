@@ -63,6 +63,16 @@ class View(QWidget):
         for w in self.findChildren(TrackTable):
             w.apply_metrics()
 
+    def remember_layout(self, table: TrackTable, key: str, default_hidden: Sequence[str] = ()) -> None:
+        """1.2.1 (C05) : colonnes affichées et largeurs de ce tableau retenues dans les réglages."""
+        def save() -> None:
+            try:
+                self.ctrl.settings.save()
+            except OSError:
+                pass
+
+        table.enable_layout(key, lambda: self.ctrl.settings.table_layouts, save, default_hidden)
+
     def focus_filter(self) -> None:
         entry = getattr(self, "filter", None) or getattr(self, "entry", None) or getattr(self, "url", None)
         if entry is not None:
@@ -95,6 +105,7 @@ def result_columns(with_check: bool = False, with_download: bool = True) -> List
         Column("duration", t("track.duration"), 64, "e", priority=2,
                sort=lambda r: r.data.duration_seconds if r.data else 0),
         Column("lib", t("track.in_library"), 80, "center", priority=5),
+        Column("source", t("track.source"), 130, priority=4),
     ]
     if with_download:
         cols.append(Column("dl", "", 36, "center", sortable=False, min_width=30))
@@ -106,7 +117,11 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         "title": track.title, "artist": track.artist, "type": track.kind_label,
         "views": track.views_str, "duration": track.duration_str,
         "lib": t("track.already") if track.is_duplicate else "", "dl": DOWNLOAD_GLYPH,
+        "source": track.source_label,
     }
+    if track.is_album:                         # 1.2.1 (C09) : une ligne par album, s'ouvre au double-clic
+        values.update(artist=" · ".join(x for x in (track.artist, track.album or "") if x), views="", duration="",
+                      lib="", dl="›")
     if checked is not None:
         values["chk"] = CHECKED if checked else UNCHECKED
     return Row(track.video_id, values, ("dup",) if track.is_duplicate else (), track)

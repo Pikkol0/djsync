@@ -157,6 +157,41 @@ class _CoverDelegate(QStyledItemDelegate):
         option.decorationSize = QSize(size, size)
 
 
+class _ProgressDelegate(QStyledItemDelegate):
+    """1.2.1 (C21) : colonne « state » avec une barre d'avancement sous le texte quand la ligne a une
+    valeur `_progress` (0 à 1) ; texte seul sinon."""
+
+    def __init__(self, table: "TrackTable") -> None:
+        super().__init__(table)
+        self.table = table
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        row = self.table._rows.get(self.table._shown[index.row()]) if 0 <= index.row() < len(self.table._shown) else None
+        value = row.values.get("_progress") if row is not None else None
+        if value is None:
+            super().paint(painter, option, index)
+            return
+        opt = option
+        self.initStyleOption(opt, index)
+        text, opt.text = opt.text, ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        r = opt.rect.adjusted(theme.px(4), 0, -theme.px(6), 0)
+        h = max(3, theme.px(4))
+        track = QRectF(r.x(), r.bottom() - h - theme.px(5), r.width(), h)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.DIM, 0.35)))
+        painter.drawRoundedRect(track, h / 2, h / 2)
+        fill = QRectF(track.x(), track.y(), max(h, track.width() * max(0.0, min(1.0, float(value)))), h)
+        painter.setBrush(QColor(theme.ACCENT))
+        painter.drawRoundedRect(fill, h / 2, h / 2)
+        painter.setPen(QColor(theme.TEXT))
+        painter.drawText(QRectF(r.x(), r.y(), r.width(), track.y() - r.y()), int(Qt.AlignLeft | Qt.AlignVCenter), text)
+        painter.restore()
+
+
 class _KeyDelegate(QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
@@ -221,6 +256,15 @@ class TrackTable(QTableView):
         self._wanted: List[str] = [c.key for c in self.columns]
         self._auto_hidden: set = set()
         self._press: Optional[QPoint] = None
+        # 1.2.1 (C05) : colonnes choisies et largeurs retenues, par vue (`enable_layout`)
+        self._layout_key: Optional[str] = None
+        self._layout_store: Optional[Callable[[], Dict[str, Any]]] = None
+        self._layout_save: Optional[Callable[[], None]] = None
+        self.default_hidden: set = set()
+        self._user_hidden: set = set()
+        self._user_widths: Dict[str, int] = {}
+        self._fitting = False
+        self._save_pending = False
         self._empty_title = ""
         self._empty_sub = ""
 
@@ -247,6 +291,9 @@ class TrackTable(QTableView):
         head.setHighlightSections(False)
         head.setStretchLastSection(False)
         head.sectionClicked.connect(self._heading_clicked)
+        head.setContextMenuPolicy(Qt.CustomContextMenu)
+        head.customContextMenuRequested.connect(self._header_menu)
+        head.sectionResized.connect(self._section_resized)
         self.doubleClicked.connect(self._double)
         self.selectionModel().selectionChanged.connect(lambda *_: self._selected())
         self._empty = QWidget(self.viewport())
@@ -268,6 +315,8 @@ class TrackTable(QTableView):
         for i, col in enumerate(self.columns):
             if col.key == "key":
                 self.setItemDelegateForColumn(i, _KeyDelegate(self))
+            if col.key == "state":
+                self.setItemDelegateForColumn(i, _ProgressDelegate(self))
             if col.key == "title" and self.show_covers:
                 self.setItemDelegateForColumn(i, _CoverDelegate(self))
         self.setMouseTracking(True)
@@ -298,15 +347,22 @@ class TrackTable(QTableView):
         self._place_empty()
 
     def _width(self, col: Column) -> int:
-        """Largeur d'une colonne fixe : celle demandée au zoom courant, au moins son titre en entier."""
+        """Largeur d'une colonne fixe : celle choisie par l'utilisateur, sinon celle demandée au zoom
+        courant, au moins son titre en entier (et, pour « # », le plus grand numéro)."""
         fm = self.horizontalHeader().fontMetrics()
         title = fm.horizontalAdvance(col.title) + theme.px(18)
-        return max(theme.px(col.min_width if col.stretch else col.width), title)
+        if col.key in self._user_widths:
+            return max(theme.px(self._user_widths[col.key]), theme.px(24))
+        base = max(theme.px(col.min_width if col.stretch else col.width), title)
+        if col.key == "pos":                  # 1.2.1 : « 735 » entier dans la colonne #
+            digits = len(str(max(1, len(self._rows))))
+            base = max(base, self.fontMetrics().horizontalAdvance("8" * digits) + theme.px(22))
+        return base
 
     def _fit_columns(self) -> None:
         avail = self.viewport().width()
         cols = {c.key: c for c in self.columns}
-        shown = [k for k in self._wanted if k in cols]
+        shown = [k for k in self._wanted if k in cols and k not in self._user_hidden]
         need = sum(self._width(cols[k]) for k in shown)
         hidden: set = set()
         for col in sorted((cols[k] for k in shown if cols[k].priority > 0), key=lambda c: -c.priority):
@@ -317,16 +373,90 @@ class TrackTable(QTableView):
         self._auto_hidden = hidden
         visible = [k for k in shown if k not in hidden]
         head = self.horizontalHeader()
-        for i, col in enumerate(self.columns):
-            hide = col.key not in visible
-            self.setColumnHidden(i, hide)
-            if hide:
-                continue
-            if col.stretch:
-                head.setSectionResizeMode(i, QHeaderView.Stretch)
-            else:
-                head.setSectionResizeMode(i, QHeaderView.Interactive)
-                self.setColumnWidth(i, self._width(col))
+        self._fitting = True
+        try:
+            for i, col in enumerate(self.columns):
+                hide = col.key not in visible
+                self.setColumnHidden(i, hide)
+                if hide:
+                    continue
+                if col.stretch:
+                    head.setSectionResizeMode(i, QHeaderView.Stretch)
+                else:
+                    head.setSectionResizeMode(i, QHeaderView.Interactive)
+                    self.setColumnWidth(i, self._width(col))
+        finally:
+            self._fitting = False
+
+    # ----------------------------------------------- colonnes choisies (1.2.1, C05)
+    def enable_layout(self, key: str, store: Callable[[], Dict[str, Any]], save: Callable[[], None],
+                      default_hidden: Sequence[str] = ()) -> None:
+        """Retient, pour la vue `key`, les colonnes affichées (clic droit sur l'en-tête) et leurs
+        largeurs (bord de l'en-tête glissé). `store()` renvoie le dictionnaire des réglages."""
+        self._layout_key, self._layout_store, self._layout_save = key, store, save
+        self.default_hidden = set(default_hidden)
+        state = store().get(key) or {}
+        self._user_hidden = set(state.get("hidden", self.default_hidden))
+        self._user_widths = {k: int(v) for k, v in (state.get("widths") or {}).items() if isinstance(v, (int, float))}
+        self._fit_columns()
+
+    def optional_columns(self) -> List[Column]:
+        """Colonnes que l'utilisateur peut afficher ou masquer (pas le titre ni les icônes)."""
+        return [c for c in self.columns if c.title and not c.stretch and c.key in self._wanted
+                and c.key not in ICON_COLUMNS and c.key not in ("chk",)]
+
+    def set_column_visible(self, key: str, visible: bool) -> None:
+        if visible:
+            self._user_hidden.discard(key)
+        else:
+            self._user_hidden.add(key)
+        self._fit_columns()
+        self._store_layout()
+
+    def reset_layout(self) -> None:
+        self._user_hidden = set(self.default_hidden)
+        self._user_widths = {}
+        self._fit_columns()
+        self._store_layout()
+
+    def _header_menu(self, pos: QPoint) -> None:
+        if self._layout_key is None:
+            return
+        menu = QMenu(self)
+        menu.addSection(t("table.columns"))
+        for col in self.optional_columns():
+            act = menu.addAction(col.title)
+            act.setCheckable(True)
+            act.setChecked(col.key not in self._user_hidden)
+            act.toggled.connect(lambda on, k=col.key: self.set_column_visible(k, on))
+        menu.addSeparator()
+        menu.addAction(t("table.reset_columns"), self.reset_layout)
+        menu.popup(self.horizontalHeader().mapToGlobal(pos))
+
+    def _section_resized(self, index: int, _old: int, new: int) -> None:
+        if self._fitting or self._layout_key is None or not 0 <= index < len(self.columns):
+            return
+        col = self.columns[index]
+        if col.stretch or new <= 0:
+            return
+        self._user_widths[col.key] = int(round(new * 100 / max(1, theme.px(100))))
+        self._store_layout()
+
+    def _store_layout(self) -> None:
+        if self._layout_key is None or self._layout_store is None:
+            return
+        self._layout_store()[self._layout_key] = {"hidden": sorted(self._user_hidden), "widths": dict(self._user_widths)}
+        if not self._save_pending and self._layout_save is not None:      # une écriture pour tout un glissé
+            from PySide6.QtCore import QTimer
+
+            self._save_pending = True
+
+            def flush() -> None:
+                self._save_pending = False
+                if self._layout_save is not None:
+                    self._layout_save()
+
+            QTimer.singleShot(600, flush)
 
     @property
     def hidden_columns(self) -> set:
@@ -336,8 +466,11 @@ class TrackTable(QTableView):
     def set_rows(self, rows: Sequence[Row], reset_sort: bool = False, keep_selection: bool = True) -> None:
         selected = set(self.selected_iids()) if keep_selection else set()
         top = self.verticalScrollBar().value() if keep_selection else 0
+        grew = len(str(len(rows))) != len(str(len(self._rows)))
         self._rows = {r.iid: r for r in rows}
         self._order = [r.iid for r in rows]
+        if grew:                              # nombre de chiffres de « # » changé
+            self._fit_columns()
         if reset_sort:
             self._sort_key, self._sort_desc = None, False
         self._rebuild(selected, top)

@@ -61,10 +61,17 @@ class MusicService:
         limit: int = 20,
         mode: SearchMode = SearchMode.ALL,
         exclude: Union[ExcludeFilter, str, Iterable[str], None] = None,
+        field: str = "all",
+        max_seconds: int = 0,
     ) -> List[TrackResult]:
-        """Recherche (Titres/Vidéos, filtre de mots) + marquage des doublons."""
-        results = self.searcher.search(query, limit=limit, mode=mode, exclude=exclude)
-        return self._duplicates.annotate(results)
+        """Recherche (Titres/Vidéos, filtre de mots, champ, durée) + marquage des doublons."""
+        results = self.searcher.search(query, limit=limit, mode=mode, exclude=exclude, field=field,
+                                       max_seconds=max_seconds)
+        return self._duplicates.annotate([r for r in results if not r.is_album]) + [r for r in results if r.is_album]
+
+    def album_tracks(self, browse_id: str) -> List[TrackResult]:
+        """1.2.1 (C09) : titres d'un album + marquage des doublons. Réseau : hors thread UI."""
+        return self._duplicates.annotate(self.searcher.album_tracks(browse_id))
 
     def fetch_views(self, video_id: str) -> Optional[int]:
         """Vues d'un morceau (mises en cache). Appel réseau : à lancer hors thread UI."""

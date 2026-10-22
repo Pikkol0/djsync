@@ -34,7 +34,7 @@ def demo(tmp_path, monkeypatch):
 
 
 def test_tabs_home_and_english_default(demo):
-    assert list(demo.views) == ["home", "search", "library", "downloads", "import", "settings"]
+    assert list(demo.views) == ["home", "search", "library", "downloads", "import", "settings", "feedback"]
     assert demo._nav["home"].text() == "Home" and demo.current == "home"
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].tracks == 10)
