@@ -16,7 +16,7 @@ from ..dialogs import FiltersPopup
 from .. import theme
 from ..icons import qicon
 from ..widgets import TrackTable, button, hbox, label, line_edit, restyle
-from .common import View, ask_and_download, result_columns, result_row
+from .common import focus_list, View, ask_and_download, result_columns, result_row
 
 DEBOUNCE_MS = 450      # pause de frappe avant de lancer la recherche
 MIN_CHARS = 2
@@ -171,6 +171,7 @@ class SearchView(View):
         target = self._tracks.get(iid)
         if target is not None:
             self.ctrl.play_queue(shown, shown.index(target))
+            focus_list(self.table)
 
     def _preview(self) -> None:
         sel = self.table.selected_iids()

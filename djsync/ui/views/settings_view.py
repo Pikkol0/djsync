@@ -11,7 +11,8 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QScrollArea, QSlider, QToolButton, QWidget,
+    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QToolButton,
+    QWidget,
 )
 
 from ...db import UsbDrive
@@ -260,14 +261,6 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         self._engine_release = None
-        row = hbox()                                       # V1.2.0 : nouvelle version de DJSync
-        self.update_var = QCheckBox(t("update.auto"))
-        self.update_var.setChecked(s.check_updates)
-        row.addWidget(self.update_var)
-        row.addWidget(button(t("update.check"), lambda: self.ctrl.app_update_check(manual=True), kind="flat",
-                             icon="search"))
-        row.addStretch(1)
-        card.addLayout(row)
 
         # ---- sauvegardes
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
@@ -290,6 +283,7 @@ class SettingsView(View):
         card.addLayout(row)
         self.points_hint = label("", "faint", wrap=True)
         card.addWidget(self.points_hint)
+        self._build_about(s)
         self.page.addStretch(1)
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
@@ -300,6 +294,111 @@ class SettingsView(View):
         self._ffmpeg_status()
         self._engine_show()
         self._backups_state()
+
+    # ------------------------------------------------ DJSync : version, mises à jour, à propos
+    def _build_about(self, s: Any) -> None:
+        """1.2.0-rc.4 : mise à jour en un clic (C20) et « À propos » (C19)."""
+        from ... import full_version
+
+        card = self._card(t("about.title"), "refresh", t("about.hint"))
+        row = hbox()
+        self.version_lbl = label(t("about.version", version=full_version()), "accent")
+        row.addWidget(self.version_lbl)
+        self.update_state = label("", "dim", wrap=True)
+        row.addWidget(self.update_state, 1)
+        card.addLayout(row)
+        self.update_bar = QProgressBar()
+        self.update_bar.setRange(0, 1000)
+        self.update_bar.setTextVisible(False)
+        self.update_bar.hide()
+        card.addWidget(self.update_bar)
+        row = hbox()
+        self.update_check_btn = button(t("update.check"), lambda: self.ctrl.app_update_check(manual=True),
+                                       icon="search")
+        row.addWidget(self.update_check_btn)
+        self.update_install_btn = button("", self._install_update, kind="primary", icon="download")
+        self.update_install_btn.hide()
+        row.addWidget(self.update_install_btn)
+        self.update_cancel_btn = button(t("action.cancel"), self.ctrl.app_update_cancel, kind="flat")
+        self.update_cancel_btn.hide()
+        row.addWidget(self.update_cancel_btn)
+        self.update_restart_btn = button(t("update.restart"), self.ctrl.app_update_restart, kind="primary",
+                                         icon="refresh")
+        self.update_restart_btn.hide()
+        row.addWidget(self.update_restart_btn)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()
+        self.update_var = QCheckBox(t("update.auto"))
+        self.update_var.setChecked(s.check_updates)
+        row.addWidget(self.update_var)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("update.channel"))))
+        self._channel_labels = {"auto": t("update.channel_auto"), "stable": t("update.channel_stable"),
+                                "test": t("update.channel_test")}
+        self.channel_menu = QComboBox()
+        self.channel_menu.addItems(list(self._channel_labels.values()))
+        self.channel_menu.setCurrentText(self._channel_labels.get(s.update_channel, self._channel_labels["auto"]))
+        row.addWidget(self.channel_menu)
+        row.addStretch(1)
+        card.addLayout(row)
+        card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        row = hbox()
+        row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
+                             kind="flat", icon="go"))
+        row.addWidget(button(t("about.license"), lambda: self._show_text("LICENSE", t("about.license")), kind="flat",
+                             icon="info"))
+        row.addWidget(button(t("about.third_party"),
+                             lambda: self._show_text("THIRD_PARTY_NOTICES.md", t("about.third_party")), kind="flat",
+                             icon="info"))
+        row.addStretch(1)
+        card.addLayout(row)
+        self.ctrl.on("app_update_state", self._update_state)
+        self._update_state()
+
+    def _install_update(self) -> None:
+        if self.ctrl.available_update is not None:
+            self.ctrl.app_update_install(self.ctrl.available_update)
+
+    def _update_state(self) -> None:
+        from .common import alive
+
+        if not alive(self.update_state):
+            return
+        upd, prog, ready = self.ctrl.available_update, self.ctrl.update_progress, self.ctrl.update_ready
+        self.update_bar.setVisible(prog is not None)
+        self.update_cancel_btn.setVisible(prog is not None)
+        self.update_restart_btn.setVisible(ready is not None and prog is None)
+        self.update_install_btn.setVisible(upd is not None and prog is None and ready is None)
+        self.update_check_btn.setEnabled(prog is None)
+        if upd is not None:
+            self.update_install_btn.setText(t("update.install_to", version=upd.version) if self.ctrl.can_self_update()
+                                            else t("update.ok"))
+        if prog is not None:
+            done, total = prog
+            self.update_bar.setValue(int(1000 * done / total) if total else 0)
+            self.update_state.setText(t("update.downloading", mb=f"{done / 1e6:.0f}",
+                                        total=f"{total / 1e6:.0f}" if total else "?"))
+        elif ready is not None:
+            self.update_state.setText(t("update.ready_msg", version=ready[2]))
+        elif upd is not None:
+            self.update_state.setText(t("update.msg", version=upd.version))
+        else:
+            self.update_state.setText("")
+
+    def _show_text(self, name: str, title: str) -> None:
+        """Licence ou composants tiers : fichiers livrés avec DJSync (ou à la racine du dépôt)."""
+        import sys
+        from pathlib import Path
+
+        from ..help_dialog import TextDialog
+
+        roots = [Path(getattr(sys, "_MEIPASS", "")), Path(__file__).resolve().parents[3]]
+        path = next((r / name for r in roots if str(r) and (r / name).is_file()), None)
+        text = path.read_text(encoding="utf-8", errors="replace") if path else t("about.missing", name=name)
+        TextDialog(self, title, text)
 
     def _card(self, title: str, icon: str = "", hint: str = "") -> Any:
         """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ)."""
@@ -527,6 +626,8 @@ class SettingsView(View):
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
         s.check_updates = self.update_var.isChecked()
+        s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
+                                "auto")
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
                                                                                             s.local_music_dir)

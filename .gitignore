@@ -239,3 +239,6 @@ Thumbs.db
 .venv-mac/
 .ffmpeg-mac/
 .ffmpeg-work/
+
+# DJSync: version stamped by the build workflow
+djsync/_build_version.py

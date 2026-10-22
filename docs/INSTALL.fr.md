@@ -72,9 +72,12 @@ Ensuite : DJSync reconnaît la clé sur laquelle il se trouve et l'ouvre tout se
   entre bibliothèques. Seuls la recherche, les téléchargements et les pochettes en ligne en ont besoin.
 
 ## Mettre à jour DJSync
-DJSync vous prévient quand une nouvelle version sort (désactivable dans *Paramètres* ▸ *Moteur de
-téléchargement*). Remplacez DJSync (`DJSync.exe`, DJSync sur Mac ou le dossier `DJSync`) par le nouveau :
-vos réglages sont conservés.
+Depuis la 1.2.0-rc.4 : *Paramètres* ▸ **DJSync** ▸ *Mettre à jour vers …*. DJSync télécharge la nouvelle
+version, vérifie son empreinte, puis redémarre dessus ; vos réglages et bibliothèques sont conservés.
+DJSync vous prévient aussi quand une version sort (une fois par jour, désactivable au même endroit, où se
+choisit aussi le canal : versions stables seulement, ou aussi les versions de test). Avant la rc.4, ou si
+la mise à jour échoue : remplacez DJSync (`DJSync.exe`, DJSync sur Mac ou le dossier `DJSync`) par le
+nouveau, vos réglages sont conservés.
 
 ## Désinstaller DJSync
 - **Depuis la clé** : *Paramètres* ▸ *Sauvegardes de la clé* ▸ **Retirer DJSync de cette clé**. DJSync

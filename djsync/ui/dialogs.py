@@ -3,6 +3,7 @@ de recherche, titre / artiste. Toutes s'ouvrent sans bloquer la boucle (`open()`
 fenêtre principale ; Qt les garde dans l'écran et les dimensionne d'après leur contenu."""
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt
@@ -21,6 +22,11 @@ class BaseDialog(QDialog):
 
     def __init__(self, parent: Any, title: str, width: int = 440, height: int = 0) -> None:
         super().__init__(parent.window() if parent is not None else None)
+        if sys.platform == "darwin":
+            # 1.2.0-rc.4 (B05) : sur macOS, une fenêtre ordinaire s'ouvrait derrière DJSync, ou dans un
+            # autre espace quand DJSync est en plein écran. Une fenêtre « outil » reste au-dessus de
+            # la fenêtre principale, dans le même espace, et se déplace et se redimensionne librement.
+            self.setWindowFlag(Qt.Tool, True)
         self.setWindowTitle(title)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setModal(self.modal)
@@ -129,6 +135,12 @@ class PlaylistPicker(BaseDialog):
         self._checked: set = set(preselect)
         self._vars: Dict[int, QCheckBox] = {}
         self.heading(title, subtitle)
+        # 1.2.0-rc.4 (B10) : champ de recherche, et la liste prend toute la hauteur de la fenêtre
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText(t("picker.search"))
+        self._filter.setClearButtonEnabled(True)
+        self._filter.textChanged.connect(self._apply_filter)
+        self.body.addWidget(self._filter)
         area = QScrollArea()
         area.setWidgetResizable(True)
         self._list = QWidget()
@@ -142,9 +154,15 @@ class PlaylistPicker(BaseDialog):
         row.addWidget(self._new, 1)
         row.addWidget(button(t("action.create"), self._create, icon="plus"))
         self.body.addLayout(row)
-        self._ok_btn = self.footer(confirm_text, self._confirm)
+        self._ok_btn = self.footer(confirm_text, self._confirm, stretch=False)
         self.show_dialog()
         self._reload()
+
+    def _apply_filter(self, text: str = "") -> None:
+        words = (text or self._filter.text()).lower().split()
+        for cb in self._vars.values():
+            label_text = cb.text().lower()
+            cb.setVisible(cb.isChecked() or all(w in label_text for w in words))
 
     @staticmethod
     def _paths(playlists: List[PlaylistInfo], exclude: set) -> List[tuple]:
@@ -182,6 +200,7 @@ class PlaylistPicker(BaseDialog):
                 self._vars[p.playlist_id] = cb
                 self._list_lay.addWidget(cb)
             self._list_lay.addStretch(1)
+            self._apply_filter()
             self._refresh_ok()
 
         self.ctrl.fetch_playlists(show)

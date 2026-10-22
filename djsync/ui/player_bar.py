@@ -80,6 +80,25 @@ class WaveformBar(QWidget):
             self._seek(e)
 
 
+class JumpSlider(QSlider):
+    """1.2.0-rc.4 (B08) : un clic n'importe où sur la barre va à ce point (un QSlider standard avance
+    seulement d'un cran) ; on peut ensuite glisser sans relâcher."""
+
+    def mousePressEvent(self, e: Any) -> None:      # noqa: N802
+        if e.button() == Qt.LeftButton and self.maximum() > self.minimum():
+            from PySide6.QtWidgets import QStyle, QStyleOptionSlider
+
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            handle = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+            if not handle.contains(e.position().toPoint()):
+                groove = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+                span = max(1, groove.width() - handle.width())
+                x = int(e.position().x()) - groove.x() - handle.width() // 2
+                self.setValue(QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), x, span))
+        super().mousePressEvent(e)
+
+
 class PlayerBar(QWidget):
     def __init__(self, parent: Any, controller: Any, loader: CoverLoader) -> None:
         super().__init__(parent)
@@ -138,7 +157,7 @@ class PlayerBar(QWidget):
         for lbl in (self.elapsed, self.total):
             lbl.setMinimumWidth(theme.px(34))
             lbl.setAlignment(Qt.AlignCenter)
-        self.seek = QSlider(Qt.Horizontal)
+        self.seek = JumpSlider(Qt.Horizontal)
         self.seek.setRange(0, 1000)
         self.seek.sliderPressed.connect(lambda: setattr(self, "_dragging", True))
         self.seek.sliderReleased.connect(self._seek_release)
@@ -280,9 +299,48 @@ class PlayerBar(QWidget):
         self.wave.set_ratio(0)
         self.elapsed.setText("0:00")
 
+    def _spinner_icon(self) -> Any:
+        """Cercle qui tourne dans le bouton lecture pendant le chargement (1.2.0-rc.4, C01)."""
+        from PySide6.QtGui import QIcon, QPen, QPixmap
+
+        size = theme.px(18)
+        ratio = 2
+        pix = QPixmap(size * ratio, size * ratio)
+        pix.setDevicePixelRatio(ratio)
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor(theme.ON_ACCENT))
+        pen.setWidthF(max(1.5, size / 9))
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        m = size / 6
+        p.drawArc(int(m), int(m), int(size - 2 * m), int(size - 2 * m), int(-self._spin * 16), 270 * 16)
+        p.end()
+        return QIcon(pix)
+
+    def _spin_tick(self) -> None:
+        if self.player.state != LOADING:
+            self._spin_timer.stop()
+            self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
+            return
+        self._spin = (self._spin + 30) % 360
+        self.play_btn.setIcon(self._spinner_icon())
+
     def _refresh_state(self, state: str) -> None:
         playing = state == PLAYING
         self.play_btn.setIcon(qicon("pause" if playing else "play", 18, theme.ON_ACCENT))
+        if not hasattr(self, "_spin_timer"):
+            self._spin = 0
+            self._spin_timer = QTimer(self)
+            self._spin_timer.timeout.connect(self._spin_tick)
+        if state == LOADING:
+            self._spin_timer.start(70)
+            self.play_btn.setIcon(self._spinner_icon())
+            self.play_btn.setToolTip(t("player.loading"))
+        else:
+            self._spin_timer.stop()
+            self.play_btn.setToolTip(t("player.play_pause"))
         if state == LOADING and self.player.meta:
             self._show_meta(self.player.meta, 0.0)
             self.artist.setText(f"{self.player.meta.artist}  ·  {t('player.loading')}")

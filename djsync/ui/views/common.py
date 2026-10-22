@@ -25,6 +25,16 @@ def alive(widget: Any) -> bool:
         return widget is not None
 
 
+def focus_list(table: Any) -> None:
+    """1.2.0-rc.4 (B07) : après « Écouter », le curseur reste souvent dans le champ de recherche (sur
+    Mac, un clic sur un bouton ne lui prend pas le focus) et Espace y tape un espace au lieu de mettre
+    en pause. On rend le focus à la liste, sauf si l'utilisateur n'était pas en train d'écrire."""
+    from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit
+
+    if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit)) and alive(table):
+        table.setFocus()
+
+
 def human_size(n: float) -> str:
     """Taille lisible : « 12.4 GB » (EN) / « 12,4 Go » (FR)."""
     fr = get_language() == "fr"

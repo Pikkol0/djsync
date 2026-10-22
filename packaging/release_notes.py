@@ -30,7 +30,7 @@ computer, your settings stay next to DJSync and are kept across updates.
   First time only (app not signed by Apple): *System Settings* ▸ *Privacy & Security* ▸ **Open Anyway**.
 - **Linux**: extract the DJSync folder to the drive and run `DJSync/DJSync`.
 
-To update: replace DJSync with the new one. Close Rekordbox while DJSync writes to a library, and
+To update: from 1.2.0-rc.4, *Settings ▸ DJSync ▸ Update* does it in the app; otherwise replace DJSync with the new one. Close Rekordbox while DJSync writes to a library, and
 keep a copy of your drive. SHA-256 checksums: the `.sha256` files.
 
 Installation guide: [English](https://github.com/Pikkol0/djsync/blob/main/docs/INSTALL.md) ·

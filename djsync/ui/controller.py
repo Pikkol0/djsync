@@ -234,6 +234,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.refresh_drives(then=self._auto_connect)
         self.dispatcher.call_later(POLL_MS, self._poll)
         self.dispatcher.call_later(UPDATE_DELAY_MS, self.app_update_check)
+        from ..core import selfupdate                 # 1.2.0-rc.4 : restes d'une mise à jour précédente
+
+        self.dispatcher.submit(selfupdate.cleanup, None, lambda exc: log.info("Update cleanup: %s", exc), pool="db")
         if portable.translocated():               # macOS : app encore en « quarantaine », copie temporaire
             self.message("warn", t("mac.translocated"))
 

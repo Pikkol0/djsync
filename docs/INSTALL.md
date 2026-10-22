@@ -65,8 +65,11 @@ Then: DJSync recognises the drive it runs from and opens it automatically.
   between libraries. Only search, downloads and online artwork need it.
 
 ## Updating DJSync
-DJSync tells you when a new version is out (*Settings* ▸ *Download engine* to turn it off). Replace
-DJSync (`DJSync.exe`, `DJSync.app` or the `DJSync` folder) with the new one: your settings are kept.
+From 1.2.0-rc.4: *Settings* ▸ **DJSync** ▸ *Update to …*. DJSync downloads the new version, checks its
+checksum, then restarts into it; your settings and libraries are kept. DJSync also tells you when a
+version is out (once a day, can be turned off there, where you also pick the channel: stable versions
+only, or test versions too). Before rc.4, or if the update fails: replace DJSync (`DJSync.exe`, DJSync on
+a Mac or the `DJSync` folder) with the new one, your settings are kept.
 
 ## Uninstalling DJSync
 - **From the drive**: *Settings* ▸ *Drive backups* ▸ **Remove DJSync from this drive**. DJSync closes and

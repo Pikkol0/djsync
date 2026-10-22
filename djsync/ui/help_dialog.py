@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QTabWidget, QWidget
 
-from .. import __version__
+from .. import full_version
 from ..i18n import t
 from . import theme
 from .dialogs import BaseDialog
@@ -40,7 +40,7 @@ class HelpDialog(BaseDialog):
 
     def __init__(self, parent: Any) -> None:
         super().__init__(parent, t("help.title"), 720, 680)
-        self.heading(t("help.title"), f"DJSync {__version__}")
+        self.heading(t("help.title"), f"DJSync {full_version()}")
         tabs = QTabWidget()
 
         sc = QWidget()
@@ -67,5 +67,22 @@ class HelpDialog(BaseDialog):
         tabs.addTab(_scroll(guide), t("help.guide"))
 
         self.body.addWidget(tabs, 1)
+        self.footer(t("action.close"), self.close, show_cancel=False, stretch=False)
+        self.show_dialog()
+
+
+class TextDialog(BaseDialog):
+    """Texte long en lecture seule (licence, composants tiers) : 1.2.0-rc.4, C19."""
+    modal = False
+
+    def __init__(self, parent: Any, title: str, text: str) -> None:
+        from PySide6.QtWidgets import QPlainTextEdit
+
+        super().__init__(parent, title, 720, 620)
+        self.heading(title)
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setPlainText(text)
+        self.body.addWidget(view, 1)
         self.footer(t("action.close"), self.close, show_cancel=False, stretch=False)
         self.show_dialog()

@@ -3,7 +3,8 @@
 Au démarrage (au plus une fois par jour, désactivable dans les Réglages), DJSync lit la liste des
 releases publiées et propose la plus récente si elle est plus récente que la sienne. Une version de
 test (« 1.1.0-rc.1 ») se voit aussi proposer les pré-versions ; une version stable, seulement les
-versions stables. Rien n'est téléchargé tout seul : le bouton ouvre la page de la release.
+versions stables. Rien n'est téléchargé tout seul. 1.2.0-rc.4 : la mise à jour s'installe depuis
+l'application (core/selfupdate.py) ; `include_prerelease` permet aussi de choisir le canal.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ class Update:
     url: str                      # page de la release (notes + fichiers)
     prerelease: bool
     asset: str = ""               # lien direct du fichier pour ce système ("" si absent)
+    checksum: str = ""            # lien du fichier .sha256 correspondant ("" si absent)
 
 
 def parse_version(text: str) -> Optional[Tuple[int, int, int, int, int]]:
@@ -79,5 +81,6 @@ def check(current: str, fetch: Optional[Fetcher] = None,
         return None
     rel = best[1]
     wanted = asset_name()
-    asset = next((a.get("browser_download_url", "") for a in rel.get("assets") or [] if a.get("name") == wanted), "")
-    return Update(str(rel["tag_name"]).lstrip("v"), str(rel.get("html_url") or PAGE), bool(rel.get("prerelease")), asset)
+    assets = {a.get("name"): a.get("browser_download_url", "") for a in rel.get("assets") or []}
+    return Update(str(rel["tag_name"]).lstrip("v"), str(rel.get("html_url") or PAGE), bool(rel.get("prerelease")),
+                  assets.get(wanted, ""), assets.get(wanted + ".sha256", ""))
