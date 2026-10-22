@@ -20,6 +20,39 @@ class EngineMixin:
     _engine_checked = False            # vérification « sur échec » déjà faite cette session
     _engine_busy = False
 
+    # ------------------------------------------------- nouvelle version de DJSync (V1.1.0)
+    def app_update_check(self, manual: bool = False) -> None:
+        """Au démarrage (au plus une fois par jour, si activé) ou à la demande : évènement
+        « app_update » (Update) si une version plus récente de DJSync est publiée."""
+        import time
+
+        from ... import __version__
+        from ...core import updates
+
+        s = self.settings
+        if not manual and (not s.check_updates or time.time() - (s.last_update_check or 0) < 20 * 3600):
+            return
+
+        def done(update: Optional[updates.Update]) -> None:
+            s.last_update_check = time.time()
+            try:
+                s.save()
+            except OSError:
+                pass
+            if update is not None:
+                self._emit("app_update", update, __version__)
+            elif manual:
+                self.message("ok", t("update.none", version=__version__))
+
+        def failed(exc: BaseException) -> None:
+            log.info("DJSync update check failed: %s", exc)
+            if manual:
+                from ..controller import is_offline_error
+
+                self.message("error", t("error.offline") if is_offline_error(exc) else t("update.failed"))
+
+        self.dispatcher.submit(lambda: updates.check(__version__), done, failed, pool="net")
+
     def engine_failure(self, message: str) -> None:
         """Appelé (thread UI) quand une fonction essentielle échoue."""
         if self._engine_checked or self._engine_busy or not engine.looks_outdated(message):

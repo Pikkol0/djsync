@@ -198,3 +198,63 @@ def test_compare_tool_only_rekordbox_analyses(tmp_path, capsys):
     lo, hi = wilson(45, 50)
     assert 78 < lo < 80 and 95 < hi < 97
     assert wilson(360, 400)[1] - wilson(360, 400)[0] < 6.5
+
+
+# ---------------------------------------------------------------------- nouvelle version de DJSync
+def _releases(*items):
+    import json
+
+    return lambda url: json.dumps([{"tag_name": tag, "prerelease": pre, "draft": draft,
+                                    "html_url": f"https://github.com/Pikkol0/djsync/releases/tag/{tag}",
+                                    "assets": [{"name": "DJSync.exe", "browser_download_url": "x/DJSync.exe"}]}
+                                   for tag, pre, draft in items]).encode()
+
+
+def test_update_versions_and_channels():
+    from djsync.core.updates import check, parse_version
+
+    assert parse_version("1.1.0") > parse_version("1.1.0-rc.2") > parse_version("1.1.0-rc.1") > parse_version("1.0.9")
+    assert parse_version("v1.2.0") == parse_version("1.2.0") and parse_version("garbage") is None
+    feed = _releases(("v1.2.0-rc.1", True, False), ("v1.1.1", False, False), ("v1.3.0", False, True),
+                     ("v1.1.0", False, False))
+    stable = check("1.1.0", feed)                       # stable : pas de pré-version, pas de brouillon
+    assert stable.version == "1.1.1" and not stable.prerelease
+    test = check("1.1.0-rc.1", feed)                    # version de test : les pré-versions aussi
+    assert test.version == "1.2.0-rc.1" and test.prerelease
+    assert check("1.1.1", feed) is None
+    assert check("1.1.0-dev.abc1234", feed).version == "1.1.1"      # build de développement
+
+
+def test_update_offer_in_the_app(demo, monkeypatch):
+    import djsync.core.updates as updates
+    from djsync.ui.dialogs import ConfirmDialog
+
+    ctrl = demo.ctrl
+    monkeypatch.setattr(updates, "_http_get", _releases(("v9.0.0", False, False)))
+    ctrl.settings.last_update_check = 0
+    ctrl.app_update_check()
+    assert pump(demo, 4, lambda: find(demo, ConfirmDialog) is not None)
+    dlg = find(demo, ConfirmDialog)
+    assert dlg.windowTitle() == "New version of DJSync"
+    dlg.close()
+    assert ctrl.settings.last_update_check > 0
+    ctrl.app_update_check()                              # déjà vérifié aujourd'hui : rien
+    pump(demo, 0.5)
+    assert find(demo, ConfirmDialog) is None
+    ctrl.settings.check_updates = False
+    ctrl.settings.last_update_check = 0
+    ctrl.app_update_check()                              # désactivé
+    pump(demo, 0.5)
+    assert find(demo, ConfirmDialog) is None
+    assert not demo.errors
+
+
+def test_grid_backups_are_pruned(tmp_path):
+    from djsync.db.library.metadata import prune_folders
+
+    for i in range(35):
+        (tmp_path / f"20261022-1200{i:02d}-7").mkdir()
+    (tmp_path / "note.txt").write_text("kept")
+    prune_folders(tmp_path, 30)
+    kept = sorted(p.name for p in tmp_path.iterdir() if p.is_dir())
+    assert len(kept) == 30 and kept[0] == "20261022-120005-7" and (tmp_path / "note.txt").exists()

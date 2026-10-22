@@ -221,7 +221,7 @@ def band_wave(x: np.ndarray, sr: int, rate: int = GRID_RATE) -> BandWave:
 
 
 _WAVE_MEMORY: dict = {}
-CACHE_FILES = 300                    # ≈ 300 Ko par son de 4 min : ~100 Mo au plus
+CACHE_FILES = 100          # formes d'onde de l'éditeur de grille gardées sur disque (~100-300 Ko chacune)
 
 
 def cached_band_wave(path, ffmpeg_location=None, cache_dir=None) -> BandWave:

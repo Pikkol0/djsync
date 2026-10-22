@@ -50,6 +50,7 @@ from .runner import UiDispatcher
 log = logging.getLogger(__name__)
 
 Callback = Callable[[Any], None]
+UPDATE_DELAY_MS = 6000       # nouvelle version de DJSync : vérifiée après le démarrage
 POLL_MS = 4000
 
 
@@ -227,6 +228,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
     def startup(self) -> None:
         self.refresh_drives(then=self._auto_connect)
         self.dispatcher.call_later(POLL_MS, self._poll)
+        self.dispatcher.call_later(UPDATE_DELAY_MS, self.app_update_check)
+        if portable.translocated():               # macOS : app encore en « quarantaine », copie temporaire
+            self.message("warn", t("mac.translocated"))
 
     def find_local(self) -> Optional[LocalRekordbox]:
         """Rekordbox de cet ordinateur (dossier imposé dans les Paramètres, sinon emplacement standard)."""

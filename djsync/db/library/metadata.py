@@ -8,6 +8,18 @@ from __future__ import annotations
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 
 
+ANLZ_BACKUPS_KEEP = 30           # grilles d'origine conservées (les plus récentes)
+
+
+def prune_folders(folder: Path, keep: int) -> None:
+    """Ne garde que les `keep` sous-dossiers les plus récents (noms horodatés)."""
+    import shutil
+
+    olds = sorted(p for p in folder.iterdir() if p.is_dir())[:-keep or None]
+    for old in olds:
+        shutil.rmtree(old, ignore_errors=True)
+
+
 @dataclass(frozen=True)
 class PlaylistStats:
     """Nombre de sons, durée totale et date du dernier ajout (« modifiée le ») d'une playlist."""
@@ -189,6 +201,7 @@ class MetadataMixin:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}"
         backup.mkdir(parents=True, exist_ok=True)
+        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
         originals = {f: f.read_bytes() for f in files}
         for f, data in originals.items():
             (backup / f.name).write_bytes(data)

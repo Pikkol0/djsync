@@ -260,6 +260,14 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         self._engine_release = None
+        row = hbox()                                       # V1.1.0 : nouvelle version de DJSync
+        self.update_var = QCheckBox(t("update.auto"))
+        self.update_var.setChecked(s.check_updates)
+        row.addWidget(self.update_var)
+        row.addWidget(button(t("update.check"), lambda: self.ctrl.app_update_check(manual=True), kind="flat",
+                             icon="search"))
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- sauvegardes
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
@@ -480,6 +488,7 @@ class SettingsView(View):
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
+        s.check_updates = self.update_var.isChecked()
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
                                                                                             s.local_music_dir)
