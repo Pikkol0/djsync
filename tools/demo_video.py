@@ -545,7 +545,7 @@ def scenario(app: Any, rec: Recorder, text: dict, usb: Path) -> None:
     rec.card(*text["outro"], seconds=3.4)
 
 
-def build_app(lang: str, size: Tuple[int, int] = (0, 0)) -> Tuple[Any, Path, Path, str]:
+def build_app(lang: str, size: Tuple[int, int] = (0, 0), zoom: int = 100) -> Tuple[Any, Path, Path, str]:
     """Fausse clé (artistes fictifs) + bibliothèque du PC de démonstration + DJSyncApp hors écran, sans réseau.
     Renvoie (fenêtre, clé, dossier des images, couleur d'accent)."""
     tmp = Path(tempfile.mkdtemp(prefix="djsync_video_"))
@@ -582,6 +582,7 @@ def build_app(lang: str, size: Tuple[int, int] = (0, 0)) -> Tuple[Any, Path, Pat
 
     settings = Settings()
     settings.language = lang
+    settings.zoom = zoom
     settings.local_db_dir, settings.local_music_dir = str(db_dir), str(tmp / "Music")
     settings.active_drive = str(usb)
     app = DJSyncApp(settings)
