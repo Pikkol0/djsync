@@ -55,8 +55,11 @@ Then: DJSync recognises the drive it runs from and opens it automatically.
 
 ## Good to know
 - **Close Rekordbox** while DJSync changes a library (drive or computer).
-- DJSync **backs up the database before every change** (`DJSync_Backups` folder on the drive). Still keep
-  a copy of your drive.
+- DJSync **backs up the drive's library** (`DJSync_Backups` folder): the original state (before DJSync)
+  is kept forever, plus your manual backups, those from the start of the year, month and week, and the
+  last 5. *Settings* ▸ *Drive backups* ▸ **Backups and restore**: go back to one in one click, or create
+  one ("Before the gig"). Still keep a copy of your drive.
+- **Quit DJSync before unplugging the drive** it runs from.
 - Running from a drive, DJSync **asks first** before opening a computer's Rekordbox library.
 - **Without internet**, DJSync still works: playlists, player, analysis, beat grid, duplicates, copying
   between libraries. Only search, downloads and online artwork need it.
@@ -64,6 +67,16 @@ Then: DJSync recognises the drive it runs from and opens it automatically.
 ## Updating DJSync
 DJSync tells you when a new version is out (*Settings* ▸ *Download engine* to turn it off). Replace
 DJSync (`DJSync.exe`, `DJSync.app` or the `DJSync` folder) with the new one: your settings are kept.
+
+## Uninstalling DJSync
+- **From the drive**: *Settings* ▸ *Drive backups* ▸ **Remove DJSync from this drive**. DJSync closes and
+  deletes its program, settings and log. Your music and Rekordbox library stay. Options: put back the
+  original library (before DJSync), delete the backups.
+- **By hand**: delete `DJSync.exe` (or `DJSync.app`, or the `DJSync` folder on Linux), the hidden
+  `.djsync` folder next to it and, if you no longer want them, `DJSync_Backups`. Run from the computer,
+  settings are in `%APPDATA%\DJSync` (Windows) or `~/.config/djsync` (macOS, Linux).
+- **Back to the drive as it was before DJSync, without uninstalling**: *Backups and restore* ▸
+  "Original (before DJSync)" ▸ **Restore**.
 
 ## Troubleshooting
 | Problem | Fix |
@@ -74,4 +87,5 @@ DJSync (`DJSync.exe`, `DJSync.app` or the `DJSync` folder) with the new one: you
 | macOS: "cannot be opened" every time, or a message about a temporary copy | *System Settings* ▸ *Privacy & Security* ▸ **Open Anyway**. If it persists: in Terminal, `xattr -dr com.apple.quarantine ` then drag DJSync from the drive into the window, Enter. |
 | See the hidden `.djsync` folder | Type `E:\.djsync` in File Explorer's address bar (the folder is protected like a system file). |
 | The antivirus blocks `DJSync.exe` | Allow it: unsigned app (its SHA-256 is published with the release). |
-| Anything else | Attach the log `.djsync/data/djsync.log` to your report (Windows: type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter; macOS: Cmd+Shift+. shows hidden files; Linux: Ctrl+H). |
+| The players no longer read the drive, or a playlist is missing | *Backups and restore* ▸ restore the **Original** (or a backup from before the problem), then report it with the log. |
+| Anything else | Attach the log `djsync.log` to your report: *Settings* ▸ *Drive backups* ▸ **Open the log folder**. |

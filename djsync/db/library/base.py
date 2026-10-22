@@ -183,16 +183,44 @@ class LibraryBase:
                     self._batch_backed_up = False
                     self._pdb_flush()          # UNE seule réécriture d'export.pdb pour tout le lot
 
+    def session_point(self) -> None:
+        """V1.2.0 : point de restauration complet (exportLibrary.db + export.pdb) avant la première
+        modification de la session ; la toute première fois sur cette clé, c'est l'« origine »."""
+        from .. import backups
+
+        folder = self.db_path.parent
+        try:
+            fresh_origin = backups.ensure_origin(folder, self.backup_dir, conn=self._db(), key=self._key)
+            if not fresh_origin:
+                backups.snapshot(folder, self.backup_dir, "auto", conn=self._db(), key=self._key)
+        except backups.BackupError as exc:
+            raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
+        self._session_backed_up = True
+
+    def create_backup(self, label: str = "") -> Any:
+        """Sauvegarde manuelle (Réglages ▸ Sauvegardes de la clé)."""
+        from .. import backups
+
+        with self._lock:
+            self._checkpoint()
+            try:
+                return backups.snapshot(self.db_path.parent, self.backup_dir, "manual", label=label.strip(),
+                                        conn=self._db(), key=self._key)
+            except backups.BackupError as exc:
+                raise LibraryError(str(exc)) from exc
+
     def _backup_before_write(self) -> None:
         """Copie chiffrée de la base AVANT chaque modification.
 
-        Deux séries, à rotation séparée : « session » (1re modification de la session : l'état
-        dans lequel vous avez trouvé la clé, jamais écrasé par les suivantes) et « auto »
-        (état juste avant chaque modification, dernières `backup_keep` conservées).
+        V1.2.0 : la 1re modification de la session crée d'abord un point de restauration complet
+        (DJSync_Backups/Points, voir db/backups.py) ; puis chaque modification laisse une copie
+        « auto » (état juste avant, dernières `backup_keep` conservées).
         Si la sauvegarde échoue (clé pleine…), l'écriture est annulée par prudence.
         """
         if self._batch_depth > 0 and self._batch_backed_up:
             return
+        if not self._session_backed_up:
+            self.session_point()
         tag = "auto" if self._session_backed_up else "session"
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
         target = self.backup_dir / f"exportLibrary-{stamp}-{tag}.db"

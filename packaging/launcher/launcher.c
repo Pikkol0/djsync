@@ -12,7 +12,8 @@
  *      progression, extraction dans .djsync\app.new, remplacement de .djsync\app, puis lancement.
  *      Tout ce qui est dans .djsync est remplacé SAUF .djsync\data (réglages, journal, moteur yt-dlp).
  * .djsync reçoit les attributs « caché » + « système » : l'utilisateur ne voit que DJSync.exe.
- * L'application reçoit DJSYNC_APP_DIR = dossier de ce lanceur (où vivent ses données).
+ * L'application reçoit DJSYNC_APP_DIR = dossier de ce lanceur (où vivent ses données) et
+ * DJSYNC_LAUNCHER = chemin de ce lanceur (pour pouvoir se désinstaller).
  *
  * Compilation (Linux, mingw-w64) : packaging/build_launcher.sh
  */
@@ -272,6 +273,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
     SetFileAttributesW(base, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY);
 
     SetEnvironmentVariableW(L"DJSYNC_APP_DIR", dir);
+    SetEnvironmentVariableW(L"DJSYNC_LAUNCHER", self);           /* V1.2.0 : « Retirer DJSync de cette clé » */
     wchar_t cmd[32768];
     swprintf(cmd, 32768, L"\"%ls\" %ls", exe, args ? args : L"");
     STARTUPINFOW si = {sizeof(si)};

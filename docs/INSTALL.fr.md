@@ -61,8 +61,12 @@ Ensuite : DJSync reconnaît la clé sur laquelle il se trouve et l'ouvre tout se
 
 ## Bon à savoir
 - **Fermez Rekordbox** pendant que DJSync modifie une bibliothèque (clé ou ordinateur).
-- DJSync **sauvegarde la base avant chaque modification** (dossier `DJSync_Backups` sur la clé). Gardez
-  quand même une copie de votre clé.
+- DJSync **sauvegarde la bibliothèque de la clé** (dossier `DJSync_Backups`) : l'état d'origine
+  (avant DJSync) est gardé pour toujours, plus vos sauvegardes manuelles, celles du début de l'année, du
+  mois et de la semaine, et les 5 dernières. *Paramètres* ▸ *Sauvegardes de la clé* ▸ **Sauvegardes et
+  restauration** : revenir à l'une d'elles en un clic, ou en créer une (« Avant la soirée »). Gardez quand
+  même une copie de votre clé.
+- **Quittez DJSync avant de débrancher la clé** sur laquelle il tourne.
 - Lancé depuis une clé, DJSync **demande avant** d'ouvrir la bibliothèque Rekordbox d'un ordinateur.
 - **Sans Internet**, DJSync fonctionne quand même : playlists, lecture, analyse, grille, doublons, copie
   entre bibliothèques. Seuls la recherche, les téléchargements et les pochettes en ligne en ont besoin.
@@ -71,6 +75,16 @@ Ensuite : DJSync reconnaît la clé sur laquelle il se trouve et l'ouvre tout se
 DJSync vous prévient quand une nouvelle version sort (désactivable dans *Paramètres* ▸ *Moteur de
 téléchargement*). Remplacez DJSync (`DJSync.exe`, DJSync sur Mac ou le dossier `DJSync`) par le nouveau :
 vos réglages sont conservés.
+
+## Désinstaller DJSync
+- **Depuis la clé** : *Paramètres* ▸ *Sauvegardes de la clé* ▸ **Retirer DJSync de cette clé**. DJSync
+  se ferme et supprime son programme, ses réglages et son journal. Votre musique et votre bibliothèque
+  Rekordbox restent. Options : remettre la bibliothèque d'origine (avant DJSync), supprimer les sauvegardes.
+- **À la main** : supprimez `DJSync.exe` (ou DJSync sur Mac, ou le dossier `DJSync` sous Linux), le
+  dossier caché `.djsync` à côté et, si vous n'en voulez plus, `DJSync_Backups`. Lancé depuis
+  l'ordinateur, les réglages sont dans `%APPDATA%\DJSync` (Windows) ou `~/.config/djsync` (macOS, Linux).
+- **Revenir à la clé d'avant DJSync sans le désinstaller** : *Sauvegardes et restauration* ▸
+  « Origine (avant DJSync) » ▸ **Restaurer**.
 
 ## En cas de souci
 | Problème | Solution |
@@ -81,4 +95,5 @@ vos réglages sont conservés.
 | macOS : « ne peut pas être ouvert » à chaque fois, ou un message de copie temporaire | *Réglages Système* ▸ *Confidentialité et sécurité* ▸ **Ouvrir quand même**. Si ça persiste : dans le Terminal, `xattr -dr com.apple.quarantine ` puis glissez DJSync depuis la clé dans la fenêtre, Entrée. |
 | Voir le dossier caché `.djsync` | Tapez `E:\.djsync` dans la barre d'adresse de l'Explorateur (le dossier est protégé comme un fichier système). |
 | L'antivirus bloque `DJSync.exe` | Autorisez-le : application non signée (son empreinte SHA-256 est publiée avec la release). |
-| Autre problème | Joignez le journal `.djsync/data/djsync.log` à votre message (Windows : tapez `E:\.djsync\data` dans la barre d'adresse de l'Explorateur, avec la lettre de votre clé ; macOS : Cmd+Maj+. affiche les fichiers cachés ; Linux : Ctrl+H). |
+| Les platines ne lisent plus la clé, ou une playlist manque | *Sauvegardes et restauration* ▸ restaurez l'**Origine** (ou une sauvegarde d'avant le souci), puis signalez-le avec le journal. |
+| Autre problème | Joignez le journal `djsync.log` à votre message : *Paramètres* ▸ *Sauvegardes de la clé* ▸ **Ouvrir le dossier du journal**. |

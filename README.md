@@ -38,7 +38,9 @@ Linux computer, nothing to install — that works on a drive exported by Rekordb
   duplicates. DJSync only writes while Rekordbox is closed.
 - **Copy playlists between libraries** (USB drive ↔ this computer, drive ↔ drive) with their analysis,
   **complete missing metadata** of existing tracks, add a **memory cue on the first downbeat**.
-- **Back up before every change**: a copy of the database goes to `DJSync_Backups/` on the drive.
+- **Backups and one-click restore**: the drive's original library (before DJSync) is kept forever, plus
+  manual backups and yearly / monthly / weekly / recent ones (`DJSync_Backups/` on the drive). DJSync can
+  also **remove itself from the drive** (Settings ▸ Drive backups).
 - **Eject** the drive safely from DJSync.
 
 English interface (French available in Settings; other languages can be added — see below), 20 colour
