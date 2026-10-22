@@ -45,6 +45,15 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 > ⚠️ Personal project, not affiliated with Pioneer DJ / AlphaTheta. The drive formats are reverse-engineered:
 > **keep a copy of your drive** and close Rekordbox while DJSync writes to it.
 
+## Videos
+
+| Full tour — every menu (3 min, 1080p) | Short — the main workflow (1 min 30, vertical) |
+|---|---|
+| [![DJSync video tour](docs/videos/djsync-tour.jpg)](docs/videos/djsync-tour.mp4) | [![DJSync short video](docs/videos/djsync-short.jpg)](docs/videos/djsync-short.mp4) |
+
+Click a picture to play the video. Demo library with made-up artists; regenerate them with
+`python tools/tour_video.py tour.mp4` and `python tools/teaser_video.py short.mp4`.
+
 ## Screenshots
 
 | Library | Beat grid editor |
