@@ -173,3 +173,36 @@ def test_unanalysed_then_analyse(local):
     assert local.analyze_tracks([t.content_id], on_progress=lambda *a: seen.append(a[2])) == (1, 0, 0)
     assert local.get_track(t.content_id).is_analysed and seen[0].is_analysed
     assert local.analyze_tracks([t.content_id], force=True)[0] == 1          # son DJSync : réanalyse permise
+
+
+def test_sees_rekordbox_changes_and_survives_a_replaced_master_db(local, tmp_path):
+    """V1.2.0 (testeur Mac) : playlists créées dans Rekordbox invisibles, puis « database disk image is
+    malformed ». DJSync ne doit pas rester sur une image figée de master.db, et doit rouvrir le fichier
+    quand Rekordbox le remplace (nouvelle copie enregistrée à la place de l'ancienne)."""
+    import os
+
+    before = {p.name for p in local.list_playlists()}
+    other = L.LocalRekordboxLibrary(local.drive, backup_root=tmp_path / "b2", owned_path=tmp_path / "o2.json").connect()
+    other.create_playlist("Made in Rekordbox")                     # « Rekordbox » écrit pendant que DJSync est ouvert
+    other.close()
+    assert "Made in Rekordbox" in {p.name for p in local.list_playlists()} - before
+
+    # Rekordbox enregistre une nouvelle copie du fichier et la met à la place de l'ancienne
+    db = local.drive.db_dir
+    copy_dir = tmp_path / "copy"
+    copy_dir.mkdir()
+    for f in db.iterdir():
+        if f.is_file():
+            shutil.copy(f, copy_dir / f.name)
+    other = L.LocalRekordboxLibrary(L.LocalRekordbox(copy_dir, tmp_path / "m2"), backup_root=tmp_path / "b3",
+                                    owned_path=tmp_path / "o3.json").connect()
+    other.create_playlist("Saved by Rekordbox")
+    other.close()
+    for name in ("master.db-wal", "master.db-shm"):
+        (db / name).unlink(missing_ok=True)
+        if (copy_dir / name).exists():
+            os.replace(copy_dir / name, db / name)
+    os.replace(copy_dir / "master.db", db / "master.db")
+    names = {p.name for p in local.list_playlists()}
+    assert {"Made in Rekordbox", "Saved by Rekordbox"} <= names
+    assert local.list_tracks()                                     # toujours lisible, sans erreur

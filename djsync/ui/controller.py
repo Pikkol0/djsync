@@ -409,7 +409,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     def _warn_rekordbox(self, running: bool) -> None:
         """Rekordbox ouvert pendant que DJSync modifie la clé : il garde en mémoire une Device Library
-        périmée et peut réécrire export.pdb par-dessus (sons ajoutés par DJSync perdus)."""
+        périmée et peut réécrire export.pdb par-dessus (sons ajoutés par DJSync perdus).
+        V1.2.0 : quand Rekordbox se ferme, la bibliothèque de l'ordinateur est relue (playlists créées
+        dans Rekordbox entre-temps, fichier master.db éventuellement remplacé)."""
+        was = getattr(self, "_rekordbox_was_running", False)
+        self._rekordbox_was_running = running
+        if was and not running and self.is_local and self.library is not None:
+            lib = self.library
+            self.dispatcher.submit(lib.refresh, lambda _r: self._emit("library"),
+                                   lambda exc: log.warning("Reopening the computer library: %s", exc), pool="db")
         if not running:
             self._rekordbox_warned = False
         elif self.library is not None and not self.is_local and not self._rekordbox_warned:

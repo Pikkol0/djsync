@@ -94,6 +94,12 @@ def default_music_dir() -> Path:
     return music / "DJSync"
 
 
+def _stale_file_error(exc: BaseException) -> bool:
+    """Erreur typique d'une connexion restée sur un master.db que Rekordbox a modifié ou remplacé."""
+    text = str(exc).lower()
+    return any(k in text for k in ("malformed", "file is not a database", "disk i/o error", "no such table"))
+
+
 def rekordbox_running() -> bool:
     """Rekordbox est-il ouvert ? (rekordboxAgent, le service de synchronisation, ne compte pas)."""
     try:
@@ -221,6 +227,8 @@ class LocalRekordboxLibrary:
         self.owned = OwnedRegistry(owned_path or settings_dir() / "local_library.json", str(target.db_path))
         self._db: Any = None
         self._lock = threading.RLock()
+        self._writing = 0                         # écritures en cours (les lectures n'y referment rien)
+        self._file_id: Tuple[int, int] = (0, 0)   # fichier master.db ouvert (Rekordbox peut le remplacer)
         self._batch_depth = 0
         self._batch_backed_up = False
         self._share: Optional[Path] = None
@@ -247,17 +255,7 @@ class LocalRekordboxLibrary:
                 return self
             if not self.db_path.is_file():
                 raise DatabaseOpenError(f"Database not found: {self.db_path}")
-            logging.getLogger("pyrekordbox").setLevel(logging.ERROR)    # « OS non pris en charge »…
-            try:
-                from pyrekordbox.masterdb import MasterDatabase
-            except ImportError as exc:  # pragma: no cover
-                raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
-            try:
-                self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
-                self._read("SELECT COUNT(*) FROM djmdContent")
-            except Exception as exc:  # noqa: BLE001
-                self._db = None
-                raise DatabaseOpenError(f"Cannot open the Rekordbox database: {exc}") from exc
+            self._open_db()
             try:
                 row = self._read("SELECT str_1 FROM agentRegistry WHERE registry_id = 'SyncAnalysisDataRootPath'")
                 if row and row[0][0] and Path(row[0][0]).is_dir():
@@ -266,6 +264,46 @@ class LocalRekordboxLibrary:
                 pass
             log.info("Computer library opened: %s", self.db_path)
         return self
+
+    def _open_db(self) -> None:
+        logging.getLogger("pyrekordbox").setLevel(logging.ERROR)    # « OS non pris en charge »…
+        try:
+            from pyrekordbox.masterdb import MasterDatabase
+        except ImportError as exc:  # pragma: no cover
+            raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
+        try:
+            self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
+            self._file_id = self._identity()
+            self._db.session.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM djmdContent")).fetchall()
+            self._db.session.rollback()
+        except Exception as exc:  # noqa: BLE001
+            self._db = None
+            raise DatabaseOpenError(f"Cannot open the Rekordbox database: {exc}") from exc
+
+    def _identity(self) -> Tuple[int, int]:
+        try:
+            st = self.db_path.stat()
+            return st.st_dev, st.st_ino
+        except OSError:
+            return 0, 0
+
+    def refresh(self) -> None:
+        """Rouvre master.db : Rekordbox l'a modifiée, voire remplacée par un nouveau fichier (il le fait
+        en enregistrant) ; une connexion restée sur l'ancien fichier lirait un mélange des deux
+        (« database disk image is malformed ») et ne verrait pas les playlists créées entre-temps."""
+        with self._lock:
+            if self._db is not None:
+                try:
+                    self._db.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._db = None
+            self._open_db()
+            log.info("Computer library reopened: %s", self.db_path)
+
+    def _ensure_fresh(self) -> None:
+        if self._db is not None and self._writing == 0 and self._identity() != self._file_id:
+            self.refresh()
 
     def close(self) -> None:
         with self._lock:
@@ -288,10 +326,29 @@ class LocalRekordboxLibrary:
         return self._db
 
     def _read(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:
+        """Lecture courte : la transaction est refermée aussitôt (sinon DJSync resterait sur une image
+        figée de la base, sans les changements faits ensuite dans Rekordbox)."""
         from sqlalchemy import text
 
         with self._lock:
-            return [tuple(r) for r in self._session_db().session.execute(text(sql), params or {}).fetchall()]
+            self._ensure_fresh()
+            for attempt in (0, 1):
+                db = self._session_db()
+                try:
+                    return [tuple(r) for r in db.session.execute(text(sql), params or {}).fetchall()]
+                except Exception as exc:  # noqa: BLE001
+                    if attempt == 0 and self._writing == 0 and _stale_file_error(exc):
+                        log.warning("Rekordbox database changed under DJSync (%s): reopening", exc)
+                        self.refresh()
+                        continue
+                    raise
+                finally:
+                    if self._writing == 0 and self._db is not None:
+                        try:
+                            self._db.session.rollback()
+                        except Exception:  # noqa: BLE001
+                            pass
+            return []
 
     # ------------------------------------------------------------- écritures sûres
     @property
@@ -338,9 +395,11 @@ class LocalRekordboxLibrary:
     @contextmanager
     def _write(self) -> Iterator[Any]:
         with self._lock:
+            self._ensure_fresh()
             db = self._session_db()
             self.ensure_writable()
             self._backup()
+            self._writing += 1
             try:
                 yield db
                 db.commit()
@@ -350,6 +409,9 @@ class LocalRekordboxLibrary:
                 except Exception:  # noqa: BLE001
                     pass
                 raise
+            finally:
+                self._writing -= 1
+            self._file_id = self._identity()
 
     # ---------------------------------------------------------------------- sons
     @staticmethod
