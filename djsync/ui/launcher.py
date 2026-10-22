@@ -39,6 +39,8 @@ def main() -> int:
         return run(os.environ["DJSYNC_SELFTEST"])
     from .. import portable
 
+    if portable.translocated() and portable.leave_translocation():
+        return 0                                    # macOS : relancé depuis la clé, sans quarantaine
     _setup_logging()
     portable.prepare_environment()
     from PySide6.QtWidgets import QApplication

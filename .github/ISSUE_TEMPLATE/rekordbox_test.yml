@@ -1,0 +1,72 @@
+name: 🖥️ Test in Rekordbox
+description: Changes made in DJSync, checked in Rekordbox (tester guide, part 2).
+labels: [rekordbox-test]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow part 2 of the [tester guide](https://github.com/Pikkol0/djsync/blob/main/docs/TESTING.md#2-in-rekordbox--checking-djsyncs-changes).
+        Fill the table below: **OK**, **KO** (with what you see) or **—** (not tested).
+        Name your screenshots with the test ID (`R3-track-B.png`) and drop them in the last field.
+  - type: input
+    id: version
+    attributes:
+      label: DJSync version
+      placeholder: 1.1.0-rc.1
+    validations:
+      required: true
+  - type: input
+    id: rekordbox
+    attributes:
+      label: Rekordbox version and computer
+      placeholder: Rekordbox 7.1.3 on Windows 11
+    validations:
+      required: true
+  - type: dropdown
+    id: drive
+    attributes:
+      label: Drive file system
+      options: [FAT32, exFAT, I don't know]
+  - type: textarea
+    id: prepared
+    attributes:
+      label: 2a — What you changed in DJSync (values written down)
+      value: |
+        | ID | Track | Value in DJSync (before → after) |
+        |---|---|---|
+        | P1 | | BPM / key: |
+        | P2 | | first beat: → |
+        | P3 | | first beat of the bar: → |
+        | P4 | | BPM: → |
+        | P5 | | title: → |
+        | P6 | | final order: |
+        | P7 | | replaced in playlist … at position … |
+        | P8 | | deleted: |
+        | P9 | | |
+  - type: textarea
+    id: results
+    attributes:
+      label: 2b — Results in Rekordbox
+      description: One column per library of the drive. KO = say what you see (or the screenshot name).
+      value: |
+        | ID | Check | Recent library | Device Library | Note |
+        |---|---|---|---|---|
+        | R1 | Same tracks and playlists in both libraries | | | |
+        | R2 | BPM as in DJSync | | | |
+        | R3 | Beat grid and bar "1" as in DJSync | | | |
+        | R4 | Detailed waveform | | | |
+        | R5 | Waveform overview, up to date | | | |
+        | R6 | Key | | | |
+        | R7 | Title, artist, artwork | | | |
+        | R8 | Playlists (order, added, removed, replaced, deleted) | | | |
+        | R9 | Memory cue | | | |
+        | R10 | Rekordbox's own tracks unchanged | | | |
+        | R11 | Round trip Rekordbox → DJSync | | | |
+        | R12 | Computer collection (optional) | | | |
+    validations:
+      required: true
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots and log
+      description: Drop the screenshots (named with the test ID) and djsync.log (.djsync/data next to DJSync).

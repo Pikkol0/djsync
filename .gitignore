@@ -234,3 +234,8 @@ DJSync_Backups/
 .DS_Store
 Thumbs.db
 !packaging/launcher/launcher.manifest
+
+# macOS build (packaging/build_macos.sh)
+.venv-mac/
+.ffmpeg-mac/
+.ffmpeg-work/

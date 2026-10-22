@@ -67,7 +67,7 @@ Click a picture to play the video. Demo library with made-up artists; regenerate
 | Your computer | Download |
 |---|---|
 | **Windows** 10 / 11 | ⬇ [**DJSync.exe**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe) — one file |
-| **macOS** 11+ (Apple silicon) — *beta* | ⬇ [**DJSync-macOS.zip**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.zip) — DJSync.app |
+| **macOS** 11+ (Apple silicon) — *beta* | ⬇ [**DJSync-macOS.dmg**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.dmg) — drag DJSync onto your drive |
 | **Linux** x86-64 — *beta* | ⬇ [**DJSync-Linux-x86_64.tar.gz**](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz) — DJSync folder |
 
 Put it on your USB drive and open it: nothing to install on the computer, FFmpeg and the JavaScript
@@ -110,7 +110,9 @@ python app.py
 ### Building the executables
 The **Build** GitHub workflow (`.github/workflows/windows.yml`, run it from the *Actions* tab or by
 pushing a `v*` tag) builds Windows, macOS and Linux. **macOS**: `DJSync.app` (Apple silicon), ad-hoc
-signed, zipped. **Linux**: the `DJSync` folder (built on Ubuntu 22.04 for an old glibc), tar.gz. Both
+signed, in a `.dmg` (dmgbuild: background telling to drag it onto the USB drive). Not signed by Apple: the
+first launch needs *Open Anyway* once; DJSync then lifts the quarantine of its copy on the drive and
+relaunches from it (`portable.leave_translocation`). **Linux**: the `DJSync` folder (built on Ubuntu 22.04 for an old glibc), tar.gz. Both
 ship an audio-only FFmpeg (`TARGET=native packaging/build_ffmpeg.sh`) and QuickJS, and are self-tested.
 **Windows**: a **single `DJSync.exe`**: a 150 KB launcher (`packaging/launcher`, C +
 miniz) with the application folder zipped behind it. On first launch (or after an update, or if the

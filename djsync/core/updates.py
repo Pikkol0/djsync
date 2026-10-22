@@ -44,7 +44,7 @@ def asset_name() -> str:
     if sys.platform == "win32":
         return "DJSync.exe"
     if sys.platform == "darwin":
-        return "DJSync-macOS.zip"
+        return "DJSync-macOS.dmg"
     return "DJSync-Linux-x86_64.tar.gz"
 
 

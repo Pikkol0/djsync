@@ -26,13 +26,13 @@ Pick the file for your computer on the **[download page](https://github.com/Pikk
    - The first launch takes a moment: DJSync prepares its files on the drive (once).
 
 ### macOS (beta)
-1. **[Download DJSync-macOS.zip](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.zip)**
-   and open it: you get **DJSync.app**.
-2. Copy DJSync.app **to the root of your USB drive**.
-3. **Once**, open *Terminal* and type `xattr -dr com.apple.quarantine ` (with a space at the end), drag
-   DJSync.app from the drive into the Terminal window, press Enter. (The app is not signed by Apple:
-   without this, macOS refuses to open it, or runs it from a temporary copy that cannot see the drive.)
-4. Double-click DJSync.app.
+1. **[Download DJSync-macOS.dmg](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.dmg)**
+   and open it.
+2. **Drag DJSync onto your USB drive** (in the Finder sidebar, under *Locations*).
+3. Open your drive and **double-click DJSync**.
+   - **First time only**, macOS says it cannot check the app (it is not signed by Apple): open
+     *System Settings* ▸ *Privacy & Security*, scroll down, click **Open Anyway**, confirm.
+   - DJSync then sets itself up on the drive and restarts once by itself. Next times: just double-click.
 
 ### Linux (beta)
 1. **[Download DJSync-Linux-x86_64.tar.gz](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz)**
@@ -71,7 +71,7 @@ DJSync (`DJSync.exe`, `DJSync.app` or the `DJSync` folder) with the new one: you
 | YouTube downloads fail | DJSync offers the engine update itself; otherwise *Settings* ▸ **Download engine** ▸ *Check for an update*. |
 | "The database is locked: close Rekordbox…" | Quit Rekordbox (check it is not still running in the taskbar). |
 | The drive is not detected | *Settings* ▸ *Rekordbox USB drive* ▸ **Drive letter** (e.g. `E`; on macOS/Linux the drive's folder, e.g. `/Volumes/DJ KEY`) ▸ *Save*. |
-| macOS: "DJSync is damaged" / "cannot be opened", or a message about a temporary copy | Step 3 of the macOS installation (`xattr -dr com.apple.quarantine …`). |
+| macOS: "cannot be opened" every time, or a message about a temporary copy | *System Settings* ▸ *Privacy & Security* ▸ **Open Anyway**. If it persists: in Terminal, `xattr -dr com.apple.quarantine ` then drag DJSync from the drive into the window, Enter. |
 | See the hidden `.djsync` folder | Type `E:\.djsync` in File Explorer's address bar (the folder is protected like a system file). |
 | The antivirus blocks `DJSync.exe` | Allow it: unsigned app (its SHA-256 is published with the release). |
 | Anything else | Attach the log `.djsync/data/djsync.log` to your report (Windows: type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter; macOS: Cmd+Shift+. shows hidden files; Linux: Ctrl+H). |

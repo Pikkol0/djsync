@@ -64,6 +64,17 @@ def run(target: str) -> int:
         return {"ffmpeg": ffmpeg, "js": js_runtimes()}
 
     check("tools", tools)
+    if sys.platform == "darwin":                  # sortie de la « translocation » (premier lancement)
+        def mac_translocation() -> str:
+            import ctypes
+            import ctypes.util
+
+            sec = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Security"))
+            getattr(sec, "SecTranslocateCreateOriginalPathForURL")
+            getattr(sec, "SecTranslocateIsTranslocatedURL")
+            return "available"
+
+        check("mac_translocation", mac_translocation)
     report["ok"] = ok
     Path(target).write_text(json.dumps(report, indent=2), encoding="utf-8")
     return 0 if ok else 1
