@@ -51,7 +51,7 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 
 | Full tour — every menu (3 min, 1080p) | Short — the main workflow (1 min 30, vertical) |
 |---|---|
-| [![DJSync video tour](docs/videos/djsync-tour.jpg)](https://github.com/user-attachments/assets/fd7a71a0-d55f-4cb9-b847-1272093ddbf8) | [![DJSync short video](docs/videos/djsync-short.jpg)](https://github.com/user-attachments/assets/fb77b299-0ff0-4758-a618-7f1ed2fcc882) |
+| [![DJSync video tour](docs/videos/djsync-tour.jpg)](https://github.com/user-attachments/assets/202ed7d1-8311-40cf-93b4-9a8f64c88e1d) | [![DJSync short video](docs/videos/djsync-short.jpg)](https://github.com/user-attachments/assets/7ceb08e1-6a5e-4979-b6a6-39328b6b4e94) |
 
 Click a picture to play the video. Demo library with made-up artists; regenerate them with
 `python tools/tour_video.py tour.mp4` and `python tools/teaser_video.py short.mp4`.
