@@ -279,14 +279,27 @@ class SettingsView(View):
         row.addWidget(self.keep)
         row.addStretch(1)
         card.addLayout(row)
+        row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
+        self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
+        row.addWidget(self.points_btn)
+        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
+        row.addStretch(1)
+        self.uninstall_btn = button(t("uninstall.open"), self._open_uninstall, kind="flat", icon="trash")
+        self.uninstall_btn.setVisible(self.ctrl.can_uninstall())
+        row.addWidget(self.uninstall_btn)
+        card.addLayout(row)
+        self.points_hint = label("", "faint", wrap=True)
+        card.addWidget(self.points_hint)
         self.page.addStretch(1)
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
+        controller.on("drive", self._backups_state)
         controller.on("drives", self._refresh_drives)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
         self._ffmpeg_status()
         self._engine_show()
+        self._backups_state()
 
     def _card(self, title: str, icon: str = "", hint: str = "") -> Any:
         """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ)."""
@@ -472,6 +485,31 @@ class SettingsView(View):
         self._engine_show()
 
     # --------------------------------------------------------------- enregistrer
+    # ------------------------------------------------- sauvegardes de la clé (V1.2.0)
+    def _backups_state(self) -> None:
+        ok = self.ctrl.backups_available
+        self.points_btn.setEnabled(ok)
+        self.points_hint.setText("" if ok else t("backups.need_drive"))
+        self.points_hint.setVisible(not ok)
+
+    def _open_backups(self) -> None:
+        from ..backups_dialog import BackupsDialog
+
+        BackupsDialog(self, self.ctrl)
+
+    def _open_uninstall(self) -> None:
+        from ..backups_dialog import UninstallDialog
+
+        UninstallDialog(self, self.ctrl)
+
+    def _open_log(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        folder = self.ctrl.log_folder()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
     def _save(self) -> None:
         s = self.ctrl.settings
         forced = self.forced.text().strip()

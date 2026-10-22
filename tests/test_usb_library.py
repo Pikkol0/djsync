@@ -156,6 +156,9 @@ def test_rollback_on_error(lib):
 
 
 # ------------------------------------------------ backups avant chaque modification
+from djsync.db.backups import list_points  # noqa: E402
+
+
 def _backups(usb, kind):
     return sorted((usb / "DJSync_Backups").glob(f"exportLibrary-*-{kind}.db"))
 
@@ -164,10 +167,11 @@ def test_backup_before_every_write_with_session_backup_kept(usb):
     with RekordboxUsbLibrary(drive_from_letter(str(usb)), backup_keep=3) as lib:
         for i in range(6):
             lib.create_playlist(f"p{i}")
-        assert len(_backups(usb, "session")) == 1      # état d'origine, jamais écrasé
+        points = list_points(usb / "DJSync_Backups")
+        assert [p.kind for p in points] == ["origin"]  # V1.2.0 : état d'origine, jamais supprimé
         assert len(_backups(usb, "auto")) == 3          # rotation des « avant modification »
-        # la sauvegarde « session » contient l'état AVANT la 1re écriture (3 playlists d'origine)
-        c = sqlcipher.connect(str(_backups(usb, "session")[0]))
+        # l'origine contient l'état AVANT la 1re écriture (3 playlists d'origine)
+        c = sqlcipher.connect(str(points[0].path / "exportLibrary.db"))
         c.execute("PRAGMA key = '%s'" % get_default_key())
         assert c.execute("SELECT COUNT(*) FROM playlist").fetchone()[0] == 3
         c.close()
@@ -179,7 +183,7 @@ def test_backup_before_every_write_with_session_backup_kept(usb):
 
 
 def test_batch_makes_a_single_backup(lib, usb):
-    lib.create_playlist("seed")                         # -> 1 sauvegarde « session »
+    lib.create_playlist("seed")                         # -> point d'origine + 1 sauvegarde
     before = len(list((usb / "DJSync_Backups").glob("*.db")))
     ids = [lib.add_track(make_wav(lib, "B", n), n, "B").content_id for n in "abcd"]
     mid = len(list((usb / "DJSync_Backups").glob("*.db")))

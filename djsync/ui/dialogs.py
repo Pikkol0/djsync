@@ -96,9 +96,9 @@ class ConfirmDialog(BaseDialog):
 
 class TextInputDialog(BaseDialog):
     def __init__(self, parent: Any, title: str, prompt: str, on_ok: Callable[[str], None], initial: str = "",
-                 confirm_text: str = "") -> None:
+                 confirm_text: str = "", allow_empty: bool = False) -> None:
         super().__init__(parent, title, 400)
-        self._on_ok = on_ok
+        self._on_ok, self._allow_empty = on_ok, allow_empty
         self.body.addWidget(label(prompt, "dim"))
         self._entry = QLineEdit(initial)
         self._entry.selectAll()
@@ -110,7 +110,7 @@ class TextInputDialog(BaseDialog):
 
     def _ok(self) -> None:
         text = self._entry.text().strip()
-        if text:
+        if text or self._allow_empty:
             self.close()
             self._on_ok(text)
 

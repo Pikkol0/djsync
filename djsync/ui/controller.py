@@ -42,6 +42,7 @@ from ..settings import Settings
 from .ctrl.downloads import DownloadsMixin
 from .ctrl.engine import EngineMixin
 from .ctrl.tools import ToolsMixin
+from .ctrl.backups import BackupsMixin
 from .ctrl.diagnostic import DiagnosticMixin
 from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
 from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
@@ -123,7 +124,7 @@ class MatchHandle:
 
 
 class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin, ToolsMixin,
-                    DiagnosticMixin):
+                    DiagnosticMixin, BackupsMixin):
     def __init__(
         self,
         settings: Settings,

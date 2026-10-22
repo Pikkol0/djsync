@@ -112,6 +112,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
+        self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         self._bind_shortcuts()

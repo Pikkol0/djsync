@@ -145,6 +145,8 @@ class PdbMirrorMixin:
             if not is_folder and tracks:
                 ops.append(lambda db, p=path, t=tracks: db.playlist_add(p, t))
         with self._lock:
+            if not self._session_backed_up:
+                self.session_point()               # export.pdb modifié avant toute écriture de la base
             try:
                 summary = store.apply(ops)
             except PdbError as exc:
