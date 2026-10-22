@@ -1,0 +1,11 @@
+name: 💡 Idea
+description: Something DJSync should do, or do better.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would you like, and why (how you work as a DJ).
+    validations:
+      required: true

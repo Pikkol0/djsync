@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Tester guide (what to check, how to send the log)
+    url: https://github.com/Pikkol0/djsync/blob/main/docs/TESTING.md
+    about: Read this first if you are testing DJSync.

@@ -26,7 +26,7 @@ import video_kit as vk  # noqa: E402
 CANVAS = (1080, 1920)
 APP = (1240, 1440)                      # fenêtre de l'appli (interface à 120 %, la fenêtre Diagnostic y tient)
 DISPLAY = (40, 250, 1000, 1000 * APP[1] / APP[0])
-CTA = "DJSync.exe — github.com/Pikkol0/djsync"
+CTA = "Windows · macOS · Linux — github.com/Pikkol0/djsync"
 
 
 def prepare() -> None:
@@ -122,9 +122,11 @@ def scenario(app: Any, s: vk.Studio) -> None:
 
     # ================================================================ 1. Nomade
     s.cut()
-    s.panel("1/5", "Nomad", "Plug your USB into any Windows PC. Nothing to install.")
+    s.panel("1/5", "Nomad", "Any computer: Windows, Mac or Linux. Nothing to install.")
     s.cut()
-    s.plug(3.8, "DJ KEY", "DJSync.exe", ("Plug. Launch. Mix.", "any Windows PC · Windows 10 / 11"))
+    s.choose_os(3.2, ("Pick your version", "one download, on your USB"), [("Windows", "DJSync.exe"), ("macOS", "DJSync.app"), ("Linux", "DJSync folder")])
+    s.cut()
+    s.plug(3.8, "DJ KEY", "DJSync", ("Plug. Launch. Mix.", "on any computer"))
     app.show_view("home")
     s.pump(0.6)
     s.chapter("1/5 · Nomad")
@@ -287,7 +289,7 @@ def scenario(app: Any, s: vk.Studio) -> None:
         ("Analysis files", "beat grids, waveforms, cues (ANLZ)"),
         ("Your computer", "Rekordbox collection (master.db)")], 4.5)
     s.cut()
-    s.card(["One file.", "Any PC. Any gig."], 4.0, cta=CTA)
+    s.card(["On your USB.", "Any computer. Any gig."], 4.0, cta=CTA)
 
 
 def main() -> int:

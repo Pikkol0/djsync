@@ -1,4 +1,4 @@
-# DJSync — quick installation guide (Windows)
+# DJSync — quick installation guide (Windows, macOS, Linux)
 
 *Version française : [INSTALL.fr.md](INSTALL.fr.md)*
 
@@ -6,13 +6,17 @@ Nothing to install on the computer: DJSync runs straight from the USB drive and 
 needs (FFmpeg and the JavaScript runtime for YouTube are included).
 
 ## What you need
-- **Windows 10 or 11** (64-bit) and an internet connection (search, downloads).
+- A computer: **Windows 10 or 11** (64-bit), **macOS 11 or later** on Apple silicon (M1, M2, M3…) or
+  **Linux** (x86-64) — macOS and Linux are in *beta* — and an internet connection (search, downloads).
 - **A USB drive exported by Rekordbox**: it must contain `PIONEER\rekordbox\exportLibrary.db`.
   If it doesn't, export one playlist to the drive from Rekordbox once.
   *Or* Rekordbox installed on the computer, to update its collection.
-- About **250 MB** free on the drive for DJSync (plus room for your tracks).
+- About **300 MB** free on the drive for DJSync and its backups (plus room for your tracks).
 
 ## Install (1 minute)
+Pick the file for your computer on the **[download page](https://github.com/Pikkol0/djsync/releases/latest)**.
+
+### Windows
 1. **[Download DJSync.exe](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync.exe)**: one
    file, nothing to unzip.
 2. Copy it **to the root of your USB drive** (for example `E:\`).
@@ -20,9 +24,25 @@ needs (FFmpeg and the JavaScript runtime for YouTube are included).
    - Windows says "Windows protected your PC"? Click **More info** ▸ **Run anyway** (unsigned app, once
      per computer).
    - The first launch takes a moment: DJSync prepares its files on the drive (once).
-4. Done: DJSync recognises the drive it runs from and opens it automatically.
 
-> DJSync keeps its files and your settings in a hidden folder next to itself. If you copy it elsewhere or
+### macOS (beta)
+1. **[Download DJSync-macOS.zip](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-macOS.zip)**
+   and open it: you get **DJSync.app**.
+2. Copy DJSync.app **to the root of your USB drive**.
+3. **Once**, open *Terminal* and type `xattr -dr com.apple.quarantine ` (with a space at the end), drag
+   DJSync.app from the drive into the Terminal window, press Enter. (The app is not signed by Apple:
+   without this, macOS refuses to open it, or runs it from a temporary copy that cannot see the drive.)
+4. Double-click DJSync.app.
+
+### Linux (beta)
+1. **[Download DJSync-Linux-x86_64.tar.gz](https://github.com/Pikkol0/djsync/releases/latest/download/DJSync-Linux-x86_64.tar.gz)**
+   and extract the **DJSync** folder **to your USB drive**.
+2. Run `DJSync/DJSync` (double-click in most file managers, or from a terminal). If Qt complains about
+   `xcb`, install `libxcb-cursor0` (Debian/Ubuntu) or `xcb-util-cursor` (Fedora, Arch).
+
+Then: DJSync recognises the drive it runs from and opens it automatically.
+
+> DJSync keeps its files and your settings in a hidden folder next to itself (`.djsync`). If you copy it elsewhere or
 > delete that folder, it rebuilds it at the next launch (settings then start from scratch).
 
 ## First steps
@@ -42,14 +62,16 @@ needs (FFmpeg and the JavaScript runtime for YouTube are included).
   between libraries. Only search, downloads and online artwork need it.
 
 ## Updating DJSync
-Replace `DJSync.exe` with the new one: at the next launch it updates itself and keeps your settings.
+DJSync tells you when a new version is out (*Settings* ▸ *Download engine* to turn it off). Replace
+DJSync (`DJSync.exe`, `DJSync.app` or the `DJSync` folder) with the new one: your settings are kept.
 
 ## Troubleshooting
 | Problem | Fix |
 |---|---|
 | YouTube downloads fail | DJSync offers the engine update itself; otherwise *Settings* ▸ **Download engine** ▸ *Check for an update*. |
 | "The database is locked: close Rekordbox…" | Quit Rekordbox (check it is not still running in the taskbar). |
-| The drive is not detected | *Settings* ▸ *Rekordbox USB drive* ▸ **Drive letter** (e.g. `E`) ▸ *Save*. |
+| The drive is not detected | *Settings* ▸ *Rekordbox USB drive* ▸ **Drive letter** (e.g. `E`; on macOS/Linux the drive's folder, e.g. `/Volumes/DJ KEY`) ▸ *Save*. |
+| macOS: "DJSync is damaged" / "cannot be opened", or a message about a temporary copy | Step 3 of the macOS installation (`xattr -dr com.apple.quarantine …`). |
 | See the hidden `.djsync` folder | Type `E:\.djsync` in File Explorer's address bar (the folder is protected like a system file). |
 | The antivirus blocks `DJSync.exe` | Allow it: unsigned app (its SHA-256 is published with the release). |
-| Anything else | Attach the log `.djsync\data\djsync.log` to your report (type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter). |
+| Anything else | Attach the log `.djsync/data/djsync.log` to your report (Windows: type `E:\.djsync\data` in File Explorer's address bar, with your drive's letter; macOS: Cmd+Shift+. shows hidden files; Linux: Ctrl+H). |
