@@ -6,6 +6,7 @@ décodent aussi sans FFmpeg (module `wave` standard), ce qui sert aux tests et a
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,91 @@ def mp3_priming_samples(path: Union[str, Path]) -> int:
     d = data[y + 21:y + 24]
     delay = (d[0] << 4) | (d[1] >> 4)
     return delay + MP3_DECODER_DELAY if 0 < delay < 4096 else 0
+
+
+# m4a / AAC (1.2.0-rc.4) : mesuré sur 52 m4a téléchargés par DJSync et analysés par Rekordbox 7
+# (22-23/10/2026), la grille DJSync arrivait 32,5 ms trop tôt (écart-type 3,9 ms) : Rekordbox compte
+# un début de flux que FFmpeg retire. Corrigée de cette valeur, 32/32 grilles tombent à ±15 ms.
+# Voir docs/analyse_audio.md. Valeur empirique : `mp4_timing` relève la liste d'édition et
+# l'iTunSMPB de chaque fichier (colonnes du CSV de --compare) pour l'affiner.
+M4A_TIMELINE_OFFSET_MS = 32.5
+MP4_SUFFIXES = (".m4a", ".mp4", ".m4b")
+
+
+def mp4_timing(path: Union[str, Path]) -> dict:
+    """Informations de calage d'un m4a, pour le diagnostic : décalage de la liste d'édition
+    (`edit_media_time`, en unités `timescale` de la piste audio) et délai d'encodeur iTunSMPB
+    (`itunsmpb_delay`, en échantillons). Champs absents = None. Ne lève jamais d'exception."""
+    out: dict = {"edit_media_time": None, "timescale": None, "itunsmpb_delay": None}
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return out
+
+    def boxes(start: int, end: int):
+        pos = start
+        while pos + 8 <= end:
+            size = int.from_bytes(data[pos:pos + 4], "big")
+            kind = data[pos + 4:pos + 8]
+            head = 8
+            if size == 1 and pos + 16 <= end:
+                size, head = int.from_bytes(data[pos + 8:pos + 16], "big"), 16
+            elif size == 0:
+                size = end - pos
+            if size < head or pos + size > end:
+                return
+            yield kind, pos + head, pos + size
+            pos += size
+
+    def child(start: int, end: int, kind: bytes):
+        return next(((s, e) for k, s, e in boxes(start, end) if k == kind), None)
+
+    try:
+        moov = child(0, len(data), b"moov")
+        for kind, s, e in boxes(*moov) if moov else ():
+            if kind != b"trak":
+                continue
+            mdia = child(s, e, b"mdia")
+            hdlr = child(*mdia, b"hdlr") if mdia else None
+            if not hdlr or data[hdlr[0] + 8:hdlr[0] + 12] != b"soun":
+                continue
+            mdhd = child(*mdia, b"mdhd")
+            if mdhd:
+                v = data[mdhd[0]]
+                at = mdhd[0] + (20 if v == 1 else 12)
+                out["timescale"] = int.from_bytes(data[at:at + 4], "big")
+            edts = child(s, e, b"edts")
+            elst = child(*edts, b"elst") if edts else None
+            if elst:
+                v, n = data[elst[0]], int.from_bytes(data[elst[0] + 4:elst[0] + 8], "big")
+                if n:
+                    at = elst[0] + 8 + (8 if v == 1 else 4)
+                    width = 8 if v == 1 else 4
+                    t = int.from_bytes(data[at:at + width], "big", signed=True)
+                    out["edit_media_time"] = t
+            break
+        smpb = data.find(b"iTunSMPB")
+        if smpb >= 0:
+            m = re.search(rb"\s([0-9A-Fa-f]{8})\s([0-9A-Fa-f]{8})\s([0-9A-Fa-f]{8})", data[smpb:smpb + 200])
+            if m:
+                out["itunsmpb_delay"] = int(m.group(2), 16)
+    except Exception:  # noqa: BLE001 - diagnostic seulement
+        pass
+    return out
+
+
+def timeline_lead_seconds(path: Union[str, Path]) -> float:
+    """Avance de la base de temps Rekordbox / platines sur celle de FFmpeg pour ce fichier (s) : le
+    silence que DJSync rajoute avant l'analyse. MP3 : amorçage LAME ; m4a : valeur mesurée ; 0 sinon.
+    Sert aussi au lecteur de l'éditeur de grille, qui joue le fichier sans ce silence."""
+    suffix = Path(path).suffix.lower()
+    if suffix == ".mp3":
+        priming = mp3_priming_samples(path)
+        return priming / float(_native_rate(Path(path))) if priming else 0.0
+    if suffix in MP4_SUFFIXES:
+        return M4A_TIMELINE_OFFSET_MS / 1000.0
+    return 0.0
 
 
 def peak_level(x: np.ndarray) -> float:
@@ -220,9 +306,9 @@ def decode(path: Union[str, Path], ffmpeg_location: Optional[str] = None, sr: in
     samples = samples.astype(np.float32, copy=False)
     np.nan_to_num(samples, copy=False)
     np.clip(samples, -1.0, 1.0, out=samples)
-    if ffmpeg and path.suffix.lower() == ".mp3":
-        priming = mp3_priming_samples(path)
-        if priming:
-            pad = int(round(priming * sr / _native_rate(path)))
+    if ffmpeg:
+        lead = timeline_lead_seconds(path)
+        if lead > 0:
+            pad = int(round(lead * sr))
             samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples])
     return Decoded(samples, sr, samples.size / float(sr))

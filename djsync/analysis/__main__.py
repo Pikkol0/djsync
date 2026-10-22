@@ -100,7 +100,7 @@ def _grid_gap(mine, theirs) -> tuple:
 
 def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None = None,
              under: str | None = None) -> int:
-    from .decode import ANALYSIS_SR, decode
+    from .decode import ANALYSIS_SR, MP4_SUFFIXES, decode, mp4_timing, timeline_lead_seconds
     from .key import analyze_key
     from .tempo import analyze_tempo
 
@@ -113,7 +113,7 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
         skipped = sum(1 for t in lib.list_tracks() if t.is_analysed and t.content_id not in native)
         print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
               f"{f' ({skipped} analysed by DJSync ignored)' if skipped else ''}.\n", flush=True)
-        bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = 0
+        bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = half_n = 0
         by_format: dict = {}
         for i, t in enumerate(tracks, start=1):
             dbg: dict = {}
@@ -133,13 +133,18 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
             key_ok += bool(mine and mine == theirs)
             key_rel += bool(mine and theirs and mine != theirs and mine[:-1] == theirs[:-1])
             grid_txt = ""
+            half = False
             if gap is not None and (same_bpm or is_oct):
                 grid_n += 1
                 grid_ok += gap <= 20
                 down_ok += bool(same_down)
+                # 1.2.0-rc.4 (B11) : grille posée sur le contretemps = décalage d'un demi-temps à ±25 ms.
+                half = signed is not None and abs(abs(signed) - 30000.0 / grid.bpm) <= 25
+                half_n += half
                 if gap < 0.25 * 60000 / grid.bpm:
                     by_format.setdefault(t.path.rsplit(".", 1)[-1].lower(), []).append(signed)
-                grid_txt = f"  grid {gap:5.1f} ms{'' if same_down else ' (downbeat shifted)'}"
+                grid_txt = (f"  grid {gap:5.1f} ms{' (half beat)' if half else ''}"
+                            f"{'' if same_down else ' (downbeat shifted)'}")
             flag = "" if (same_bpm and mine == theirs) else "   <--"
             print(f"{i:4} {t.title[:40]:40}  Rekordbox {t.bpm:7.2f} {theirs or '?':>4}   DJSync {grid.bpm:7.2f} "
                   f"{mine or '?':>4}{' (octave)' if is_oct else ''}{' [variable]' if grid.variable else ''}"
@@ -149,8 +154,10 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
                          "dj_first_beat": round(grid.first_beat, 4), "dj_variable": grid.variable,
                          "grid_gap_ms": gap if gap is not None else "", "grid_signed_ms": signed if signed is not None else "",
                          "same_downbeat": same_down
-                         if same_down is not None else "", **dbg})
-        _summary(len(rows), bpm_ok, octave, key_ok, key_rel, grid_n, grid_ok, down_ok)
+                         if same_down is not None else "", "half_beat": half,
+                         **(mp4_timing(lib.absolute_path(t)) if t.path.lower().endswith(MP4_SUFFIXES) else {}),
+                         "lead_ms": round(timeline_lead_seconds(lib.absolute_path(t)) * 1000, 1), **dbg})
+        _summary(len(rows), bpm_ok, octave, key_ok, key_rel, grid_n, grid_ok, down_ok, half_n)
         if by_format:
             import statistics
 
@@ -171,7 +178,7 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
 
 
 def _summary(n: int, bpm_ok: int, octave: int, key_ok: int, key_rel: int, grid_n: int, grid_ok: int,
-             down_ok: int) -> None:
+             down_ok: int, half_n: int = 0) -> None:
     """Résumé avec intervalles de confiance à 95 % : au-dessous de ~100 sons, ils sont larges."""
     def line(name: str, k: int, total: int) -> str:
         lo, hi = wilson(k, total)
@@ -186,6 +193,7 @@ def _summary(n: int, bpm_ok: int, octave: int, key_ok: int, key_rel: int, grid_n
     if grid_n:
         print(line("Grid: beats within 20 ms", grid_ok, grid_n))
         print(line("Grid: same downbeat (bar start)", down_ok, grid_n))
+        print(line("Grid: shifted by half a beat", half_n, grid_n))
     if n < 100:
         print(f"\n  Only {n} tracks: margins of error are wide. 300-500 varied tracks give ±3-5 %.")
 

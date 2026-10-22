@@ -110,6 +110,8 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("open_grid", self.open_grid_editor)
         self.ctrl.on("engine_offer", self._engine_offer)
         self.ctrl.on("app_update", self._app_update)
+        self.ctrl.on("app_update_ready", self._app_update_ready)
+        self.ctrl.on("open_url", self._open_url)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
         self.ctrl.on("quit", self.close)
@@ -269,7 +271,22 @@ class DJSyncApp(QMainWindow):
         self.help_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         lay.addSpacing(theme.px(4))
         lay.addWidget(self.help_btn)
+        # 1.2.0-rc.4 (B09) : la barre se replie seule quand la fenêtre est étroite ; ce bouton la
+        # déplie ou la replie à la demande (choix retenu dans les réglages).
+        self.fold_btn = button("", self._toggle_sidebar, kind="nav")
+        self.fold_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
+        lay.addWidget(self.fold_btn)
         return bar
+
+    def _toggle_sidebar(self) -> None:
+        s = self.ctrl.settings
+        s.sidebar_compact = "off" if self._compact else "on"
+        try:
+            s.save()
+        except OSError:
+            pass
+        self._compact = None
+        self._update_compact()
 
     def rebuild_ui(self) -> None:
         """Reconstruit toute l'interface (changement de langue), sans redémarrer.
@@ -340,6 +357,9 @@ class DJSyncApp(QMainWindow):
         self.sidebar.setFixedWidth(width)
         self.logo_text.setVisible(not compact)
         self.help_btn.setText("" if compact else t("help.button").replace("&", "&&"))
+        self.fold_btn.setIcon(qicon("go" if compact else "back", 18, theme.DIM))
+        self.fold_btn.setText("" if compact else t("nav.collapse"))
+        self.fold_btn.setToolTip(t("nav.expand") if compact else "")
         for w in (self.usb_title, self.usb_label, self.usb_free):
             w.setVisible(not compact)
         self._analysis_changed()
@@ -387,7 +407,8 @@ class DJSyncApp(QMainWindow):
         self.usb_icon.setPixmap(qicon("computer" if local else "usb", 14, theme.FAINT)
                                 .pixmap(QSize(theme.px(14), theme.px(14))))
         if drive:
-            self.usb_label.setText(drive.label or str(drive.root))
+            # 1.2.0-rc.4 (B06) : le nom de la bibliothèque du PC suit la langue de l'interface
+            self.usb_label.setText(t("local.name") if local else (drive.label or str(drive.root)))
             self.usb_label.setProperty("role", "accent")
             try:
                 from .ctrl.library_ops import existing_parent
@@ -440,6 +461,12 @@ class DJSyncApp(QMainWindow):
         self._shortcut("Ctrl+Left", self.ctrl.play_previous)
         sc = QShortcut(QKeySequence(Qt.Key_Space), self)
         sc.activated.connect(self._space)
+        # 1.2.0-rc.4 (B07) : touches multimédia du clavier quand DJSync est au premier plan (sur Mac,
+        # F7-F9 sont pris par le système tant qu'une autre app joue du son).
+        for key, fn in ((Qt.Key_MediaTogglePlayPause, self.ctrl.toggle_play), (Qt.Key_MediaPlay, self.ctrl.toggle_play),
+                        (Qt.Key_MediaPause, self.ctrl.toggle_play), (Qt.Key_MediaNext, self.ctrl.play_next),
+                        (Qt.Key_MediaPrevious, self.ctrl.play_previous)):
+            self._shortcut(key, fn)
 
     def _space(self) -> None:
         if not self._typing():
@@ -493,14 +520,31 @@ class DJSyncApp(QMainWindow):
                       detail=t("engine.offer_detail", current=current or "?"))
 
     def _app_update(self, update: Any, current: str) -> None:
+        """Nouvelle version : 1.2.0-rc.4, installée depuis l'application quand c'est possible."""
+        from .dialogs import ConfirmDialog
+
+        if self.ctrl.can_self_update() and update.asset:
+            ConfirmDialog(self, t("update.title"), t("update.msg", version=update.version),
+                          lambda: self.ctrl.app_update_install(update), confirm_text=t("update.install"),
+                          detail=t("update.detail_install_test" if update.prerelease else "update.detail_install",
+                                   current=current))
+            return
+        ConfirmDialog(self, t("update.title"), t("update.msg", version=update.version),
+                      lambda: self._open_url(update.url), confirm_text=t("update.ok"),
+                      detail=t("update.detail_test" if update.prerelease else "update.detail", current=current))
+
+    def _app_update_ready(self, version: str) -> None:
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("update.ready_title"), t("update.ready_msg", version=version),
+                      self.ctrl.app_update_restart, confirm_text=t("update.restart"),
+                      detail=t("update.ready_detail"))
+
+    def _open_url(self, url: str) -> None:
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
 
-        from .dialogs import ConfirmDialog
-
-        ConfirmDialog(self, t("update.title"), t("update.msg", version=update.version),
-                      lambda: QDesktopServices.openUrl(QUrl(update.url)), confirm_text=t("update.ok"),
-                      detail=t("update.detail_test" if update.prerelease else "update.detail", current=current))
+        QDesktopServices.openUrl(QUrl(url))
 
     def _local_offer(self, local: Any, host: str) -> None:
         from .dialogs import ConfirmDialog

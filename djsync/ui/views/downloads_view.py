@@ -18,7 +18,7 @@ from .. import theme
 from ..icons import qicon
 from ..table import camelot_sort
 from ..widgets import Column, Row, TrackTable, button, hbox, icon_label, label, line_edit, restyle, vbox
-from .common import View
+from .common import focus_list, View
 
 
 class DownloadsView(View):
@@ -172,6 +172,7 @@ class DownloadsView(View):
             target = next((j for j in self._selected_jobs() if j.status == "done"), None)
         if target in done:
             self.ctrl.play_queue(done, done.index(target))
+            focus_list(self.table)
 
     def _retry(self) -> None:
         for job in self._selected_jobs():
@@ -325,6 +326,7 @@ class DownloadsView(View):
         x = self._tracks.get(iid)
         if x in shown:
             self.ctrl.play_queue(shown, shown.index(x))
+            focus_list(self.an_table)
 
     def _an_menu(self, iids: List[str]) -> list:
         sel = self._selected_tracks()

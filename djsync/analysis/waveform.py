@@ -230,11 +230,14 @@ def cached_band_wave(path, ffmpeg_location=None, cache_dir=None) -> BandWave:
     import hashlib
     from pathlib import Path
 
-    from .decode import decode
+    from .decode import decode, timeline_lead_seconds
 
     path = Path(path)
     st = path.stat()
-    key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{GRID_RATE}".encode()).hexdigest()[:20]
+    # Le décalage de base de temps fait partie de la clé : une correction (m4a, 1.2.0-rc.4) invalide
+    # les formes d'onde déjà en cache.
+    lead = round(timeline_lead_seconds(path) * 1000, 1)
+    key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{GRID_RATE}|{lead}".encode()).hexdigest()[:20]
     if key in _WAVE_MEMORY:
         return _WAVE_MEMORY[key]
     target = Path(cache_dir) / f"{key}.npz" if cache_dir else None

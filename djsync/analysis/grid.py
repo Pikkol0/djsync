@@ -2,6 +2,7 @@
 
 Une grille = liste de (n° du temps dans la mesure 1-4, tempo x100, position ms), croissante.
   * `shift`      : décale toute la grille (corrige un décalage constant) ;
+  * `shift_half_beat` : décale d'un demi-temps (grille posée sur le contretemps) ;
   * `set_downbeat` : le temps choisi devient le 1er temps de mesure (renumérotation) ;
   * `set_bpm`    : grille constante au BPM donné, ancrée sur un temps (grille fausse d'un BPM) ;
   * `extend`     : complète la grille jusqu'au début et à la fin du morceau.
@@ -49,6 +50,15 @@ def shift(beats: Sequence[Beat], delta_ms: int, duration_ms: int) -> List[Beat]:
     if not inside:
         return list(beats)
     return extend(inside, duration_ms)
+
+
+def shift_half_beat(beats: Sequence[Beat], index: int, duration_ms: int) -> List[Beat]:
+    """Décale toute la grille d'un demi-temps (au tempo du temps `index`) : corrige une grille posée
+    sur le contretemps (charleys ou claps au lieu des kicks). Deux appels = un temps entier."""
+    if not beats:
+        return list(beats)
+    i = min(max(index, 0), len(beats) - 1)
+    return shift(beats, int(round(_interval(beats[i][1]) / 2)), duration_ms)
 
 
 def set_downbeat(beats: Sequence[Beat], index: int) -> List[Beat]:

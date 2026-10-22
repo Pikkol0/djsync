@@ -27,7 +27,7 @@ from ..icons import qicon
 from ..widgets import (
     Column, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
 )
-from .common import View
+from .common import focus_list, View
 
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
@@ -568,6 +568,7 @@ class LibraryView(View):
         row = self.table.row(iid)
         if row is not None and row.data in tracks:
             self.ctrl.play_queue(tracks, tracks.index(row.data))
+            focus_list(self.table)
 
     # --------------------------------------------------------------------- actions
     def _save_order(self) -> None:

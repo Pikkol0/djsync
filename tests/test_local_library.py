@@ -206,3 +206,25 @@ def test_sees_rekordbox_changes_and_survives_a_replaced_master_db(local, tmp_pat
     names = {p.name for p in local.list_playlists()}
     assert {"Made in Rekordbox", "Saved by Rekordbox"} <= names
     assert local.list_tracks()                                     # toujours lisible, sans erreur
+
+
+def test_rekordbox_saving_in_place_is_picked_up_before_the_next_write(local, tmp_path):
+    """1.2.0-rc.4 (B03, testeur Mac) : sons ajoutés après une ouverture / fermeture de Rekordbox
+    invisibles quand Rekordbox est rouvert. Rekordbox peut enregistrer master.db SUR PLACE (même
+    fichier) : DJSync doit le voir et rouvrir la base avant d'écrire, et numéroter ses changements
+    après ceux de Rekordbox."""
+    local.create_playlist("Before Rekordbox")
+    other = L.LocalRekordboxLibrary(local.drive, backup_root=tmp_path / "b2", owned_path=tmp_path / "o2.json").connect()
+    other.create_playlist("Made in Rekordbox")
+    rekordbox_usn = usn(other)
+    other.close()
+    assert local._identity() != local._file_id                   # changement sur place détecté
+    pl = local.create_playlist("After Rekordbox")
+    assert usn(local) > rekordbox_usn
+    names = {p.name for p in local.list_playlists()}
+    assert {"Before Rekordbox", "Made in Rekordbox", "After Rekordbox"} <= names
+    assert pl.playlist_id in xml_ids(local)
+    # relue par une nouvelle connexion (= Rekordbox rouvert) : tout est là
+    again = L.LocalRekordboxLibrary(local.drive, backup_root=tmp_path / "b3", owned_path=tmp_path / "o3.json").connect()
+    assert {"Before Rekordbox", "Made in Rekordbox", "After Rekordbox"} <= {p.name for p in again.list_playlists()}
+    again.close()

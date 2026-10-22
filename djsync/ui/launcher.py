@@ -25,9 +25,9 @@ def _setup_logging() -> None:
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         handlers=handlers or [logging.NullHandler()])
-    from .. import __version__
+    from .. import full_version
 
-    logging.getLogger("djsync").info("DJSync %s starting (%s)", __version__, sys.executable)
+    logging.getLogger("djsync").info("DJSync %s starting (%s)", full_version(), sys.executable)
 
 
 def main() -> int:

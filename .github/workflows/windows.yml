@@ -85,6 +85,7 @@ jobs:
             $v = "$base-dev." + "${{ github.sha }}".Substring(0, 7)  # each build re-extracts on first launch
           }
           "version=$v" >> $env:GITHUB_OUTPUT
+          "VERSION = `"$v`"" | Out-File -Encoding ascii djsync/_build_version.py   # full version shown and used by updates
       - name: Clean environment
         run: |
           python -m pip install --upgrade pip
@@ -195,6 +196,7 @@ jobs:
             v="$base-dev.${GITHUB_SHA::7}"
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "VERSION = \"$v\"" > djsync/_build_version.py      # full version shown and used by updates
       - uses: actions/cache@v6
         id: cache
         with:
@@ -280,6 +282,7 @@ jobs:
             v="$base-dev.${GITHUB_SHA::7}"
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "VERSION = \"$v\"" > djsync/_build_version.py      # full version shown and used by updates
       - name: System packages
         run: |
           sudo apt-get update -q

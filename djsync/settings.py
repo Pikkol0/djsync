@@ -86,6 +86,7 @@ class Settings:
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
     last_update_check: float = 0.0
+    update_channel: str = "auto"       # 1.2.0-rc.4 : auto (version de test -> versions de test) | stable | test
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 
@@ -122,6 +123,7 @@ class Settings:
             self.pdb_allow_growth = True   # (sans lui, une clé exportée par Rekordbox est pleine en ~15 sons)
             self.settings_version = 1
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
+        self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         return self

@@ -139,10 +139,10 @@ def _new_folder(backup_dir: Path, kind: str, now: datetime) -> Path:
 
 def _write_meta(folder: Path, kind: str, now: datetime, label: str, tags: List[str], counts: tuple,
                 approx: bool = False) -> None:
-    from .. import __version__
+    from .. import full_version
 
     meta = {"kind": kind, "created": now.isoformat(timespec="microseconds"), "label": label, "tags": tags,
-            "tracks": counts[0], "playlists": counts[1], "version": __version__, "approx": approx}
+            "tracks": counts[0], "playlists": counts[1], "version": full_version(), "approx": approx}
     (folder / META).write_text(json.dumps(meta, ensure_ascii=False, indent=1), "utf-8")
 
 

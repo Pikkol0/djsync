@@ -101,6 +101,7 @@ class GridEditor(QWidget):
         self.selected = 0
         self._native = False
         self._scrubbing = False
+        self._lead_ms = self._timeline_lead(track)
         self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
         head = hbox()
@@ -140,6 +141,8 @@ class GridEditor(QWidget):
             b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
             b.setMinimumWidth(theme.px(40))
             tools.addWidget(b)
+        tools.addSpacing(theme.px(8))
+        tools.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
         tools.addStretch(1)
         self.body.addLayout(tools)
 
@@ -180,6 +183,19 @@ class GridEditor(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(60)
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
+
+    def _timeline_lead(self, track: LibraryTrack) -> float:
+        """La grille est dans la base de temps de Rekordbox (silence d'amorçage MP3, décalage m4a), le
+        lecteur joue le fichier sans ce silence : on en tient compte pour le curseur et la lecture."""
+        try:
+            from ..analysis.decode import timeline_lead_seconds
+
+            return timeline_lead_seconds(self.ctrl.library.absolute_path(track)) * 1000.0
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    def _player_seek(self, ms: float) -> None:
+        self.ctrl.player.seek(max(0.0, (ms - self._lead_ms) / 1000.0))
 
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid
@@ -352,6 +368,15 @@ class GridEditor(QWidget):
         self._refresh_info()
         self.draw()
 
+    def _shift_half(self) -> None:
+        if not self.beats:
+            return
+        anchor = self.beats[self.selected][2]
+        self.beats = G.shift_half_beat(self.beats, self.selected, self.duration_ms)
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
+
     def _downbeat(self) -> None:
         if self.beats:
             self.beats = G.set_downbeat(self.beats, self.selected)
@@ -435,7 +460,7 @@ class GridEditor(QWidget):
     def release(self) -> None:
         self._scrubbing = False
         if self.ctrl.player.state in (PLAYING, PAUSED) and self._is_playing_this():
-            self.ctrl.player.seek(self.cursor_ms / 1000.0)
+            self._player_seek(self.cursor_ms)
 
     def _show_time(self) -> None:
         s_ = self.cursor_ms / 1000.0
@@ -452,11 +477,11 @@ class GridEditor(QWidget):
             player.toggle_pause()
             return
         self.ctrl.play_queue([self.track], 0)
-        start = self.cursor_ms / 1000.0
+        start = self.cursor_ms
 
         def seek_when_ready(tries: int = 0) -> None:
             if player.state == PLAYING and player.duration > 0:
-                player.seek(start)
+                self._player_seek(start)
             elif tries < 40 and self.winfo_exists():
                 QTimer.singleShot(100, lambda: seek_when_ready(tries + 1))
 
@@ -467,7 +492,7 @@ class GridEditor(QWidget):
         playing = self._is_playing_this() and player.state == PLAYING
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
-            self.cursor_ms = player.position() * 1000.0
+            self.cursor_ms = player.position() * 1000.0 + self._lead_ms
             self._show_time()
             span = self.view_s * 1000.0
             if not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):

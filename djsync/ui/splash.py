@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from .. import __version__
+from .. import full_version
 from .palettes import DEFAULT_THEME, DIM, PALETTES, SURFACE, TEXT
 
 WIDTH, HEIGHT = 320, 190
@@ -73,7 +73,7 @@ class Splash:
         f.setBold(False)
         p.setFont(f)
         p.setPen(QColor(DIM))
-        p.drawText(0, 136, WIDTH, 20, Qt.AlignCenter, f"Loading…   v{__version__}")
+        p.drawText(0, 136, WIDTH, 20, Qt.AlignCenter, f"Loading…   v{full_version()}")
         p.end()
         self.widget: Optional[QSplashScreen] = QSplashScreen(pm, Qt.WindowStaysOnTopHint)
         self.widget.show()

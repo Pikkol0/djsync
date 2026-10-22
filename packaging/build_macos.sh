@@ -22,7 +22,9 @@ if [ ! -x .ffmpeg-mac/ffmpeg ]; then
 fi
 
 echo "== 3/6 DJSync.app"
-export DJSYNC_VERSION="$(python -c 'import djsync; print(djsync.__version__)')"
+# exact release version, e.g. DJSYNC_VERSION=1.2.0-rc.4 packaging/build_macos.sh (default: djsync.__version__)
+export DJSYNC_VERSION="${DJSYNC_VERSION:-$(python -c 'import djsync; print(djsync.__version__)')}"
+echo "VERSION = \"$DJSYNC_VERSION\"" > djsync/_build_version.py
 rm -rf build dist
 pyinstaller --noconfirm packaging/DJSync.spec
 

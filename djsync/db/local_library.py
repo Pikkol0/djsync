@@ -228,7 +228,7 @@ class LocalRekordboxLibrary:
         self._db: Any = None
         self._lock = threading.RLock()
         self._writing = 0                         # écritures en cours (les lectures n'y referment rien)
-        self._file_id: Tuple[int, int] = (0, 0)   # fichier master.db ouvert (Rekordbox peut le remplacer)
+        self._file_id: Tuple[int, ...] = ()   # empreinte de master.db (Rekordbox peut le modifier ou le remplacer)
         self._batch_depth = 0
         self._batch_backed_up = False
         self._share: Optional[Path] = None
@@ -273,19 +273,26 @@ class LocalRekordboxLibrary:
             raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
         try:
             self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
-            self._file_id = self._identity()
             self._db.session.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM djmdContent")).fetchall()
             self._db.session.rollback()
+            self._file_id = self._identity()
         except Exception as exc:  # noqa: BLE001
             self._db = None
             raise DatabaseOpenError(f"Cannot open the Rekordbox database: {exc}") from exc
 
-    def _identity(self) -> Tuple[int, int]:
-        try:
-            st = self.db_path.stat()
-            return st.st_dev, st.st_ino
-        except OSError:
-            return 0, 0
+    def _identity(self) -> Tuple[int, ...]:
+        """Empreinte de master.db (+ -wal) : fichier, taille, date. 1.2.0-rc.4 (B03) : la date et la
+        taille comptent aussi, pas seulement l'identité du fichier : Rekordbox peut enregistrer SUR
+        PLACE ; DJSync rouvre alors la base avant de lire ou d'écrire, au lieu de rester sur ce qu'il
+        en savait (sons ajoutés ensuite invisibles une fois Rekordbox rouvert)."""
+        out: List[int] = []
+        for name in (MASTER_DB, MASTER_DB + "-wal"):
+            try:
+                st = (self.drive.db_dir / name).stat()
+                out += [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns]
+            except OSError:
+                out += [0, 0, 0, 0]
+        return tuple(out)
 
     def refresh(self) -> None:
         """Rouvre master.db : Rekordbox l'a modifiée, voire remplacée par un nouveau fichier (il le fait
@@ -428,6 +435,7 @@ class LocalRekordboxLibrary:
             finally:
                 self._writing -= 1
             self._file_id = self._identity()
+            log.info("Computer library: change saved to master.db (size %s, -wal %s)", self._file_id[2], self._file_id[6])
 
     # ---------------------------------------------------------------------- sons
     @staticmethod

@@ -67,9 +67,17 @@ Grille (V1.1-A4.2), comparée aux 213 grilles ANLZ de Rekordbox :
   si les attaques graves (kick) sont 1,3× plus fortes un demi-temps plus loin, on décale.
 * **1er temps de mesure** : changement harmonique (+ 0,5 × basses) : 6/8 au lieu de 3/8 sur les
   sons testés.
-* **M4A (AAC)** : pas encore mesuré (aucun m4a analysé par Rekordbox sur la clé de référence). Le
-  `--compare` affiche maintenant le décalage par format : analyser quelques m4a DJSync dans
-  Rekordbox, exporter, relancer, pour trancher.
+* **M4A (AAC), 1.2.0-rc.4** : mesuré sur 52 m4a téléchargés par DJSync et analysés par Rekordbox 7
+  (22-23/10/2026) : la grille DJSync arrivait **32,5 ms trop tôt** (écart-type 3,9 ms, 32 sons à BPM
+  juste). DJSync rajoute donc 32,5 ms avant l'analyse des .m4a (grille ET formes d'onde,
+  `decode.M4A_TIMELINE_OFFSET_MS`) ; projeté : 32/32 grilles à ±15 ms. Valeur empirique : le CSV
+  de `--compare` relève la liste d'édition (`edit_media_time`) et l'iTunSMPB de chaque m4a pour
+  l'affiner (un son, « Space Song », n'avait pas ce décalage). L'éditeur de grille décale le
+  curseur de lecture d'autant (MP3 et m4a), le lecteur jouant le fichier sans ce silence.
+* **Contretemps, suite (1.2.0-rc.4)** : sur les mêmes 52 m4a, 10 grilles décalées d'un demi-temps
+  sans que le rapport kick contretemps / temps ne les distingue (0,39 à 2,46 contre jusqu'à 2,07
+  pour des grilles justes). `--compare` compte maintenant « shifted by half a beat » ; l'éditeur de
+  grille a un bouton « ½ temps » en attendant une meilleure détection.
 
 Formes d'onde, comparées aux .EXT de Rekordbox des 10 sons fournis : alignement 0 ms, corrélation
 0,79-0,93. Recalibrées (courbe de hauteur en puissance 3, couleurs, blancheur, aperçus, modèle
