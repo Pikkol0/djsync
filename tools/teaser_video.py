@@ -1,6 +1,6 @@
 """OUTIL DE DÉVELOPPEMENT : teaser vertical (1080 x 1920, ~20 s) pour Reels / TikTok / Shorts.
 
-    python tools/teaser_video.py teaser.mp4 [--lang en|fr] [--fps 30]
+    python tools/teaser_video.py teaser.mp4 [--lang en|fr] [--fps 30] [--speed 0.5]
 
 Même principe que tools/demo_video.py (vraie interface hors écran, artistes fictifs, aucun réseau),
 mais fenêtre en hauteur, plans courts, un mot-clé par plan en très gros.
@@ -471,6 +471,7 @@ def main() -> int:
     ap.add_argument("out", type=Path)
     ap.add_argument("--lang", default="en")
     ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument("--speed", type=float, default=1.0, help="0.5 = half speed")
     args = ap.parse_args()
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -482,8 +483,8 @@ def main() -> int:
     dv.settle(app, rec, usb)
     scenario(app, rec, TEXT[args.lang])
     app.close()
-    dv.encode(ffmpeg, frames, args.fps, args.out)
-    print(f"video: {args.out}  ({rec.n / args.fps:.1f} s, {rec.n} frames)")
+    dv.encode(ffmpeg, frames, args.fps, args.out, args.speed)
+    print(f"video: {args.out}  ({rec.n / args.fps / args.speed:.1f} s, {rec.n} frames)")
     return 0
 
 

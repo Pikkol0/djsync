@@ -603,9 +603,11 @@ def settle(app: Any, rec: "Recorder", usb: Path) -> None:
         rec.pump(3)
 
 
-def encode(ffmpeg: str, frames: Path, fps: int, out: Path) -> None:
+def encode(ffmpeg: str, frames: Path, fps: int, out: Path, speed: float = 1.0) -> None:
+    """speed < 1 ralentit la vidéo (0.5 = deux fois plus lente, même nombre d'images par seconde)."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [ffmpeg, "-y", "-v", "error", "-framerate", str(fps), "-i", str(frames / "f%05d.png"),
+    slow = ["-vf", f"setpts={1 / speed:g}*PTS,fps={fps}"] if speed != 1.0 else []
+    cmd = [ffmpeg, "-y", "-v", "error", "-framerate", str(fps), "-i", str(frames / "f%05d.png"), *slow,
            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
            "-movflags", "+faststart", str(out)]
     subprocess.run(cmd, check=True)
