@@ -260,7 +260,7 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         self._engine_release = None
-        row = hbox()                                       # V1.1.0 : nouvelle version de DJSync
+        row = hbox()                                       # V1.2.0 : nouvelle version de DJSync
         self.update_var = QCheckBox(t("update.auto"))
         self.update_var.setChecked(s.check_updates)
         row.addWidget(self.update_var)

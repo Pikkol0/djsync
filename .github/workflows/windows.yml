@@ -1,6 +1,6 @@
 # Builds of DJSync (Windows, macOS, Linux) and GitHub releases.
 #
-# V1.1.0: macOS (DJSync.app, Apple silicon, in a .dmg disk image) and Linux (DJSync folder, tar.gz) are built too,
+# V1.2.0: macOS (DJSync.app, Apple silicon, in a .dmg disk image) and Linux (DJSync folder, tar.gz) are built too,
 # with their own audio-only FFmpeg and QuickJS, self-tested, and attached to the same release.
 #
 # Result: ONE file, DJSync.exe (launcher + application). Users download it, put it anywhere (USB
