@@ -172,7 +172,12 @@ jobs:
             out/DJSync.exe.sha256
 
   macos:
-    runs-on: macos-15                       # Apple silicon (arm64)
+    # Apple silicon (arm64). GitHub's Mac runners are sometimes unavailable: the job is then cancelled
+    # without blocking the release; "Re-run failed jobs" on the tag's run later builds the .dmg and
+    # attaches it to the existing release.
+    runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -246,6 +251,15 @@ jobs:
         with:
           name: DJSync-macos
           path: out/*
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # the release is created by the "release" job (Windows + Linux); wait for it (up to 1 h)
+          for i in $(seq 1 120); do gh release view "$TAG" >/dev/null 2>&1 && break; sleep 30; done
+          gh release upload "$TAG" out/* --clobber
 
   linux:
     runs-on: ubuntu-22.04                   # oldest supported glibc: runs on most distributions
@@ -319,7 +333,7 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs: [build, macos, linux]
+    needs: [build, linux]          # macOS attaches its file itself (Apple silicon runners are often busy)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -327,9 +341,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          pattern: DJSync-*
+          name: DJSync-windows
           path: out
-          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: DJSync-linux
+          path: out
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
