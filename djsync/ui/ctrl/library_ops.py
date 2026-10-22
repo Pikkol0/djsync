@@ -136,7 +136,12 @@ class LibraryOpsMixin:
             return
 
         def work() -> Dict[str, Any]:
-            return {"playlists": lib.list_playlists(), "tracks": lib.list_tracks(), "stats": lib.playlist_stats()}
+            data = {"playlists": lib.list_playlists(), "tracks": lib.list_tracks(), "stats": {}}
+            try:                                        # statistiques : jamais bloquantes
+                data["stats"] = lib.playlist_stats()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Playlist statistics unavailable: %s", exc, exc_info=exc)
+            return data
 
         def done(data: Dict[str, Any]) -> None:
             if lib is self.library:
