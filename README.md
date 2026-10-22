@@ -45,6 +45,15 @@ themes, zoom from 80 to 200 %. Fast Qt interface (PySide6), no animations.
 > ⚠️ Personal project, not affiliated with Pioneer DJ / AlphaTheta. The drive formats are reverse-engineered:
 > **keep a copy of your drive** and close Rekordbox while DJSync writes to it.
 
+## Videos
+
+| Full tour — every menu (3 min, 1080p) | Short — the main workflow (1 min 30, vertical) |
+|---|---|
+| [![DJSync video tour](docs/videos/djsync-tour.jpg)](docs/videos/djsync-tour.mp4) | [![DJSync short video](docs/videos/djsync-short.jpg)](docs/videos/djsync-short.mp4) |
+
+Click a picture to play the video. Demo library with made-up artists; regenerate them with
+`python tools/tour_video.py tour.mp4` and `python tools/teaser_video.py short.mp4`.
+
 ## Screenshots
 
 | Library | Beat grid editor |
@@ -165,7 +174,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **1.1.0** | **Library diagnostic** (Home ▸ *Diagnostic*, one button per library: USB drive and computer): duplicates, low-quality files (MP3 < 192 kbps, AAC < 112 kbps, < 44.1 kHz) and bad sources (music video, live, lyrics, visualizer, sped up…). For each problem: keep one of the versions, or **download a clean version** (YouTube Music, SoundCloud as a fallback) that replaces the old one(s) in all their playlists, at the same position, and is analysed again; *Ignore* is remembered. Beat grid editor: no more old waveform for 2 s, the Rekordbox-style waveform is cached (instant on reopening). `python -m djsync.analysis --compare` also reads this computer's Rekordbox collection (`--compare local --under E:\Contents`), ignores tracks analysed by DJSync itself and gives 95 % confidence intervals ([procedure](docs/comparaison_rekordbox.md)). Presentation video tool (`tools/demo_video.py`). |
+| **1.1.0** | **Library diagnostic** (Home ▸ *Diagnostic*, one button per library: USB drive and computer): duplicates, low-quality files (MP3 < 192 kbps, AAC < 112 kbps, < 44.1 kHz) and bad sources (music video, live, lyrics, visualizer, sped up…). For each problem: keep one of the versions, or **download a clean version** (YouTube Music, SoundCloud as a fallback) that replaces the old one(s) in all their playlists, at the same position, and is analysed again; *Ignore* is remembered. Beat grid editor: no more old waveform for 2 s, the Rekordbox-style waveform is cached (instant on reopening). `python -m djsync.analysis --compare` also reads this computer's Rekordbox collection (`--compare local --under E:\Contents`), ignores tracks analysed by DJSync itself and gives 95 % confidence intervals ([procedure](docs/comparaison_rekordbox.md)). Presentation video (`tools/demo_video.py`) and vertical teaser for Reels / TikTok / Shorts (`tools/teaser_video.py`). |
 | 1.0.0 | First release: ONE file to download, DJSync.exe (prepares itself on first launch, repairs itself if moved or deleted, keeps settings across updates), published as a GitHub release with its SHA-256 and notes built from this table. Everything from 0.1 to 0.5: search and download from YouTube Music, Spotify/YouTube/SoundCloud import, USB drives (exportLibrary.db + export.pdb) and the Rekordbox library of the computer, BPM/key/grid/waveform analysis, beat grid editor, duplicates, playlist copy between libraries, metadata completion, memory cue, eject, yt-dlp updates on demand. |
 | 0.5.1 | Windows CI: full test suite passes on Windows (280 tests); failing tests are reported as annotations on the run page; GitHub actions moved to Node 24. |
 | 0.5.0 | Portable build that looks like a single file (DJSync.exe + hidden `.djsync` folder), audio-only FFmpeg and QuickJS instead of full FFmpeg + Deno (≈ 250 MB less), GitHub workflow for the Windows build with optional signing. Player on miniaudio instead of pygame (streams, nothing decoded in full). yt-dlp updated only on failure or by hand (Settings ▸ Download engine), with rollback. Eject button; when running from a USB drive, the host computer's Rekordbox library is opened only after asking (remembered per computer). Copy a playlist to another library (USB ↔ computer, drive ↔ drive) with its analysis reused, not recomputed. Complete missing metadata (Deezer) of existing tracks. Memory cue on the first downbeat (ANLZ + database). Download format M4A (original) or MP3 320, optional loudness normalisation. Analysis memory peak reduced (≈ -30 % on a long mix, same results). |
