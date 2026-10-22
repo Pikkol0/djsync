@@ -1,4 +1,4 @@
-"""Nouvelle version de DJSync ? (V1.1.0) — releases GitHub du dépôt.
+"""Nouvelle version de DJSync ? (V1.2.0) — releases GitHub du dépôt.
 
 Au démarrage (au plus une fois par jour, désactivable dans les Réglages), DJSync lit la liste des
 releases publiées et propose la plus récente si elle est plus récente que la sienne. Une version de

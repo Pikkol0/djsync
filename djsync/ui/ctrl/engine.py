@@ -20,7 +20,7 @@ class EngineMixin:
     _engine_checked = False            # vérification « sur échec » déjà faite cette session
     _engine_busy = False
 
-    # ------------------------------------------------- nouvelle version de DJSync (V1.1.0)
+    # ------------------------------------------------- nouvelle version de DJSync (V1.2.0)
     def app_update_check(self, manual: bool = False) -> None:
         """Au démarrage (au plus une fois par jour, si activé) ou à la demande : évènement
         « app_update » (Update) si une version plus récente de DJSync est publiée."""

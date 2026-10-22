@@ -13,7 +13,7 @@ body:
     attributes:
       label: DJSync version
       description: Settings, or the Help window (F1).
-      placeholder: 1.1.0-rc.1
+      placeholder: 1.2.0-rc.1
     validations:
       required: true
   - type: dropdown
