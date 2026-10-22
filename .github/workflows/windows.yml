@@ -30,12 +30,14 @@ on:
 jobs:
   tools:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: mingw-w64
+        timeout-minutes: 10              # apt bloqué sur un miroir : échec rapide au lieu de 6 h
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q gcc-mingw-w64-x86-64 nasm make
+          sudo apt-get update -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          sudo apt-get install -y -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 gcc-mingw-w64-x86-64 nasm make
       - uses: actions/cache@v6
         id: cache
         with:
@@ -62,6 +64,7 @@ jobs:
   build:
     needs: tools
     runs-on: windows-latest
+    timeout-minutes: 60
     env:
       SIGN_CERT_PFX: ${{ secrets.SIGN_CERT_PFX }}
       SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
@@ -177,6 +180,7 @@ jobs:
     # without blocking the release; "Re-run failed jobs" on the tag's run later builds the .dmg and
     # attaches it to the existing release.
     runs-on: macos-15
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
@@ -265,6 +269,7 @@ jobs:
 
   linux:
     runs-on: ubuntu-22.04                   # oldest supported glibc: runs on most distributions
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -284,9 +289,10 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "VERSION = \"$v\"" > djsync/_build_version.py      # full version shown and used by updates
       - name: System packages
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q nasm libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libgl1
+          sudo apt-get update -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          sudo apt-get install -y -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 nasm libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libgl1
       - uses: actions/cache@v6
         id: cache
         with:
@@ -338,6 +344,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [build, linux]          # macOS attaches its file itself (Apple silicon runners are often busy)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
