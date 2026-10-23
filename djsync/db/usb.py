@@ -153,3 +153,82 @@ def resolve_drive(forced: Optional[str] = None, preferred: Optional[str] = None)
     if len(drives) == 1:
         return drives[0]
     raise AmbiguousDriveError(drives)
+
+
+# --------------------------------------------------------------- 1.3.0 (T01) : format de la clé
+# Les platines Pioneer plus anciennes (XDJ-1000 par exemple) ne lisent que FAT16 / FAT32 et HFS+ :
+# une clé en exFAT ou NTFS y affiche « NO USB » / « E-8307 DEVICE NO RESPONSE » avant même de lire
+# un fichier. DJSync ne formate jamais la clé : il le signale.
+_FS_NAMES = {"fat": "FAT", "fat12": "FAT", "fat16": "FAT16", "fat32": "FAT32", "vfat": "FAT32", "msdos": "FAT32",
+             "exfat": "exFAT", "ntfs": "NTFS", "ntfs3": "NTFS", "fuseblk": "NTFS", "hfs": "HFS+", "hfsplus": "HFS+",
+             "apfs": "APFS", "ext4": "ext4", "ext3": "ext3", "ext2": "ext2", "btrfs": "btrfs", "xfs": "xfs"}
+FS_OK = ("FAT", "FAT16", "FAT32", "HFS+")          # lus par toutes les platines rekordbox
+FS_RECENT_ONLY = ("exFAT",)                        # platines récentes seulement
+
+
+def normalize_fs(name: str) -> str:
+    raw = (name or "").strip()
+    return _FS_NAMES.get(raw.lower(), raw)
+
+
+def filesystem_compat(fs: str) -> str:
+    """"ok" | "recent_only" (exFAT) | "unsupported" (NTFS, APFS, ext…) | "" (inconnu)."""
+    if not fs:
+        return ""
+    if fs in FS_OK:
+        return "ok"
+    if fs in FS_RECENT_ONLY:
+        return "recent_only"
+    return "unsupported"
+
+
+def _mount_table() -> List[tuple]:
+    """[(point de montage, type)] : /proc/mounts (Linux) ou `mount` (macOS)."""
+    out: List[tuple] = []
+    try:
+        with open("/proc/mounts", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 3:
+                    out.append((parts[1].replace("\\040", " "), parts[2]))
+        return out
+    except OSError:
+        pass
+    import re
+    import subprocess
+
+    try:
+        text = subprocess.run(["mount"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return out
+    for line in text.splitlines():
+        m = re.match(r"^.+? on (.+) \(([^,)]+)", line)
+        if m:
+            out.append((m.group(1), m.group(2)))
+    return out
+
+
+def drive_filesystem(root: Path) -> str:
+    """Système de fichiers de la clé, normalisé (« FAT32 », « exFAT », « NTFS », « HFS+ »…), "" si inconnu."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            fs = ctypes.create_unicode_buffer(261)
+            previous = kernel32.SetErrorMode(_SEM_FAILCRITICALERRORS)
+            try:
+                ok = kernel32.GetVolumeInformationW(str(root), None, 0, None, None, None, fs, 261)
+            finally:
+                kernel32.SetErrorMode(previous)
+            return normalize_fs(fs.value) if ok else ""
+        target = os.path.realpath(str(root))
+        best = ("", "")
+        for mount, kind in _mount_table():
+            m = os.path.realpath(mount)
+            if (target == m or target.startswith(m.rstrip("/") + "/")) and len(m) > len(best[0]):
+                best = (m, kind)
+        return normalize_fs(best[1])
+    except Exception as exc:  # noqa: BLE001 - information seulement
+        log.debug("File system of %s unknown: %s", root, exc)
+        return ""

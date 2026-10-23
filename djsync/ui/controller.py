@@ -359,6 +359,14 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
+            try:                                      # 1.3.0 (T01) : utile pour les retours « platine »
+                from ..db.usb import drive_filesystem
+
+                pdb = target.db_path.parent / "export.pdb"
+                log.info("Drive %s: file system %s, export.pdb %s", target, drive_filesystem(target.root) or "?",
+                         f"present ({pdb.stat().st_size} bytes)" if pdb.is_file() else "absent")
+            except OSError:
+                pass
             self.service.set_library(lib)
             if old is not None:
                 old.close()

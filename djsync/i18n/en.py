@@ -872,4 +872,11 @@ STRINGS = {
     "uni.leave_one": "{n} validated track is not saved yet.",
     "uni.leave_many": "{n} validated tracks are not saved yet.",
     "uni.leave_detail": "If you leave without saving, they stay validated for next time.",
+    # ---- 1.3.0 : format de la clé, export.pdb (T01)
+    "home.pdb_no_tip": "No export.pdb on this drive: older players (CDJ-2000NXS2, XDJ-1000…) will not show its playlists. In Rekordbox, also export the drive in the “Device Library” format once: DJSync then keeps it up to date.",
+    "home.pdb_stale": "export.pdb not up to date",
+    "home.pdb_stale_tip": "Older players do not see everything added by DJSync. Settings ▸ Older players ▸ Synchronise now. Detail: {detail}",
+    "home.fs_ok": "Drive formatted as {fs}: read by all rekordbox players.",
+    "home.fs_recent_only": "Drive formatted as {fs}: read by recent players, but older ones (XDJ-1000 for example) only read FAT32 or HFS+ and show “NO USB / E-8307 DEVICE NO RESPONSE”. To play on them, copy the drive's contents elsewhere and format it as FAT32.",
+    "home.fs_unsupported": "Drive formatted as {fs}: Pioneer players cannot read it. They need FAT32 (or HFS+ on Mac).",
 }
