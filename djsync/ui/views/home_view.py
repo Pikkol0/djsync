@@ -104,7 +104,8 @@ class HomeView(View):
             item = self.cards_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        if not summaries:
+        unprepared = list(getattr(self.ctrl, "unprepared", []) or [])
+        if not summaries and not unprepared:
             box = panel()
             lay = hbox(box, margins=theme.px(14), spacing=theme.px(12))
             lay.addWidget(icon_label("usb", 28, theme.FAINT))
@@ -116,6 +117,34 @@ class HomeView(View):
             return
         for s in summaries:
             self.cards_lay.addWidget(self._card(s))
+        for u in unprepared:                                   # T02 : après les bibliothèques utilisables
+            self.cards_lay.addWidget(self._unprepared_card(u))
+
+    def _unprepared_card(self, u: Any) -> QWidget:
+        """1.2.4 (T02) : clé branchée sans bibliothèque, avec ce qu'il faut faire."""
+        from ...db.usb import filesystem_compat
+
+        box = panel()
+        lay = hbox(box, margins=theme.px(14), spacing=theme.px(14))
+        lay.addWidget(icon_label("usb", 28, theme.FAINT), 0, Qt.AlignTop)
+        mid = vbox(spacing=theme.px(6))
+        top = hbox(spacing=theme.px(8))
+        top.addWidget(label(u.drive.label or str(u.drive.root), "h2"))
+        top.addWidget(chip(t("home.unprepared_chip"), "chip_warn"))
+        compat = filesystem_compat(u.filesystem)
+        if u.filesystem:
+            fs = chip(u.filesystem if compat == "ok" else f"{u.filesystem} ⚠", "chip" if compat == "ok" else "chip_warn")
+            tips = {"ok": "home.fs_ok", "recent_only": "home.fs_recent_only", "unsupported": "home.fs_unsupported"}
+            fs.setToolTip(t(tips.get(compat, "home.fs_ok"), fs=u.filesystem))
+            top.addWidget(fs)
+        top.addStretch(1)
+        mid.addLayout(top)
+        key = "home.unprepared_legacy" if u.kind == "legacy" else "home.unprepared_blank"
+        mid.addWidget(label(t(key), "dim", wrap=True))
+        if compat == "unsupported":
+            mid.addWidget(label(t("home.unprepared_fs", fs=u.filesystem), "dim", wrap=True))
+        lay.addLayout(mid, 1)
+        return box
 
     def _card(self, s: DriveSummary) -> QWidget:
         box = panel()

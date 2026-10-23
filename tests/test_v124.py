@@ -92,3 +92,36 @@ def test_playlists_differing_only_by_case_stay_separate():
     assert db.find_playlist(("DBS",)) is None                # ambigu : on ne devine pas
     db2 = PdbDatabase(build_pdb([t1], {("House",): []}))
     assert db2.find_playlist(("house",)).name == "House"      # sans ambiguïté : toléré
+
+
+# ============================================================================ T02
+def test_unprepared_drives_blank_and_legacy(monkeypatch, tmp_path):
+    import pytest
+
+    import djsync.db.usb as usb
+
+    if usb.os.name == "nt":
+        pytest.skip("POSIX roots")
+    media, mnt = tmp_path / "media", tmp_path / "mnt"
+    blank, legacy, ready, other = media / "BLANK", media / "OLD", media / "READY", mnt / "disk"
+    for d in (blank, legacy, ready, other):
+        d.mkdir(parents=True)
+    (legacy / "PIONEER" / "rekordbox").mkdir(parents=True)
+    (legacy / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"")
+    (ready / "PIONEER" / "rekordbox").mkdir(parents=True)
+    (ready / "PIONEER" / "rekordbox" / "exportLibrary.db").write_bytes(b"")
+    monkeypatch.setattr(usb, "_posix_roots", lambda: iter([blank, legacy, ready, other]))
+    monkeypatch.setattr(usb, "drive_filesystem", lambda root: "FAT32")
+    monkeypatch.setattr(usb, "_REMOVABLE_BASES", (str(media) + "/",))
+    found = {u.drive.root.name: u.kind for u in usb.find_unprepared_drives()}
+    assert found == {"BLANK": "blank", "OLD": "legacy"}          # /mnt sans PIONEER : ignoré
+    (other / "PIONEER").mkdir()
+    assert "disk" in {u.drive.root.name for u in usb.find_unprepared_drives()}
+
+
+def test_unprepared_texts():
+    from djsync.i18n import t
+
+    for key in ("home.unprepared_chip", "home.unprepared_blank", "home.unprepared_legacy"):
+        assert t(key) and t(key) != key
+    assert "FAT32" in t("home.unprepared_fs", fs="NTFS")
