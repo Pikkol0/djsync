@@ -19,7 +19,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from . import rows as _rows
 from .format import (
-    EMPTY_ENTRY, FILE_TABLES_AT, GROUP, HEADER, MAX_SLOTS, PAGE_SIZE,
+    EMPTY_ENTRY, FILE_TABLES_AT, GROUP, HEADER, MAX_ROWS, MAX_SLOTS, PAGE_SIZE,
     PdbCapacityError, PdbFormatError, T, index_size, u16, u32,
 )
 
@@ -141,7 +141,7 @@ class Page:
             raise PdbFormatError(f"page {self.index}: index page, no data")
         if self.flags not in (0x24, 0x34):
             raise PdbFormatError(f"page {self.index} : drapeaux de page inconnus ({self.flags:#x})")
-        if n > MAX_SLOTS or self.heap_end % 4:
+        if n > MAX_ROWS or self.heap_end % 4:
             raise PdbFormatError(f"page {self.index}: inconsistent counters")
         if self.heap_end + self.free + index_size(n) != PAGE_SIZE:      # vrai sur les 40 pages d'un export réel
             raise PdbFormatError(f"page {self.index}: inconsistent free/used sizes")
@@ -264,7 +264,9 @@ class PdbFile:
         self.next_unused = u32(self.data, 0x0C)
         # Constaté sur un vrai export : next_unused = nombre de pages + 1 (la page « vide candidate » de
         # la dernière table n'existe pas encore physiquement : le fichier s'arrête à la dernière page écrite).
-        if not 2 <= self.next_unused <= self.n_pages + 8:
+        # 1.2.4 : Rekordbox 7 réserve une page « vide candidate » par table AU-DELÀ de la fin du fichier
+        # (export de 41 pages : next_unused = 54). Ces pages virtuelles sont créées à zéro si la table grandit.
+        if not 2 <= self.next_unused <= self.n_pages + 64:
             raise PdbFormatError("next free page outside the file")
         self.seq = u32(self.data, 0x14)
         self.tables: Dict[int, TableRef] = {}

@@ -97,6 +97,7 @@ class Settings:
     # ---- 1.2.2
     genre_playlists: dict = field(default_factory=dict)   # {bibliothèque: config des playlists par genre}
     # ---- 1.2.3
+    scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés

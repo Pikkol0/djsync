@@ -53,12 +53,29 @@ class PlaybackMixin:
     def _init_playback(self) -> None:
         self.queue, self.queue_index = [], -1
         self._started_at = 0.0
+        from ...audio.nowplaying import MediaKeys         # 1.2.3 : touches multimédia sur macOS
+
+        self.now_playing = MediaKeys(self.toggle_play, self.play_next, self.play_previous, self.dispatcher.post,
+                                      on_seek=lambda s: self.player.seek(s))
 
     # ----------------------------------------------------------------- évènements du lecteur
     def _player_event(self, kind: str, payload: Any) -> None:
         self._emit("player", kind, payload)
+        if kind in ("state", "loaded"):
+            self._update_now_playing()
         if kind == "ended":
             self.play_next(auto=True)
+
+    def _update_now_playing(self) -> None:
+        np_ = getattr(self, "now_playing", None)
+        if np_ is None or not np_.enabled:
+            return
+        meta = self.player.meta
+        if meta is None or self.player.state == STOPPED:
+            np_.clear()
+            return
+        np_.update(meta.title, meta.artist, self.player.duration, self.player.position(),
+                   self.player.state == PLAYING)
 
     @property
     def current_item(self) -> Optional[QueueItem]:
@@ -189,6 +206,25 @@ class PlaybackMixin:
             return read_overview(dat.read_bytes() if dat else None, ext.read_bytes() if ext else None)
 
         self.dispatcher.submit(work, ok, lambda _e: ok([]), pool="cover")
+
+    def load_detail(self, track: LibraryTrack, ok: Callable[[Any], None]) -> None:
+        """1.2.3 : forme d'onde détaillée (150 colonnes/s) et grille, pour la forme d'onde défilante."""
+        lib = self.library
+        if lib is None or not track.analysis_path:
+            ok(None)
+            return
+
+        def work() -> Any:
+            from ...analysis.anlz import read_beats, read_detail
+
+            dat, ext = lib.analysis_files(track)
+            if ext is None:
+                return None
+            detail = read_detail(ext.read_bytes())
+            beats = read_beats(dat.read_bytes()) if dat else []
+            return (detail, beats) if detail else None
+
+        self.dispatcher.submit(work, ok, lambda _e: ok(None), pool="cover")
 
     @staticmethod
     def player_busy(state: str) -> bool:

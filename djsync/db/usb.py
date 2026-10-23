@@ -114,6 +114,54 @@ def find_usb_drives() -> List[UsbDrive]:
     return drives
 
 
+@dataclass(frozen=True)
+class UnpreparedDrive:
+    """1.2.4 (T02) : clé branchée mais sans bibliothèque lisible par DJSync.
+    kind : "blank" (pas de dossier PIONEER : jamais ouverte dans Rekordbox) ou "legacy" (dossier
+    PIONEER sans exportLibrary.db : ancienne version de Rekordbox, ou bibliothèque des anciennes
+    platines seule)."""
+    drive: UsbDrive
+    kind: str
+    filesystem: str = ""
+
+
+_REMOVABLE_BASES = ("/Volumes/", "/media/", "/run/media/")      # macOS / Linux : clés montées ici
+
+
+def _system_root() -> str:
+    if os.name == "nt":
+        return (os.environ.get("SystemDrive") or "C:").rstrip("\\/").upper()
+    return "/"
+
+
+def find_unprepared_drives() -> List[UnpreparedDrive]:
+    """Clés amovibles sans exportLibrary.db (et tout lecteur qui a un dossier PIONEER sans elle), pour
+    expliquer quoi faire au lieu de ne rien afficher. Le disque système n'est jamais listé."""
+    out: List[UnpreparedDrive] = []
+    roots = _windows_roots() if os.name == "nt" else _posix_roots()
+    for root in roots:
+        try:
+            if (root / DB_RELATIVE_PATH).is_file():
+                continue
+            pioneer = (root / "PIONEER").is_dir()
+            if os.name == "nt":
+                if root.drive.rstrip("\\/").upper() == _system_root():
+                    continue
+                drive = _make_drive(root)
+                if not (drive.is_removable or pioneer):
+                    continue
+            else:
+                if os.path.realpath(str(root)) == "/":
+                    continue                                    # /Volumes/Macintosh HD
+                if not (pioneer or str(root).startswith(_REMOVABLE_BASES)):
+                    continue                                    # /mnt/… : seulement s'il y a PIONEER
+                drive = _make_drive(root)
+            out.append(UnpreparedDrive(drive, "legacy" if pioneer else "blank", drive_filesystem(root)))
+        except OSError as exc:
+            log.debug("Drive %s skipped: %s", root, exc)
+    return out
+
+
 def drive_from_letter(value: str) -> UsbDrive:
     """Force un lecteur : "E", "e:", "E:\\" (Windows) ou un chemin de dossier (tests/Linux)."""
     value = value.strip().strip('"')

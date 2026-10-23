@@ -153,12 +153,12 @@ def test_log_is_anonymised(tmp_path, monkeypatch):
 
     from djsync.core import feedback as fb
 
-    monkeypatch.setenv("USER", "stefanxyz")
-    monkeypatch.setenv("USERNAME", "stefanxyz")
+    monkeypatch.setenv("USER", "djuserxyz")
+    monkeypatch.setenv("USERNAME", "djuserxyz")
     home = str(Path.home())
-    (tmp_path / "djsync.log").write_text(f"open {home}/Music/a.m4a\nuser StefanXYZ did x\n", encoding="utf-8")
+    (tmp_path / "djsync.log").write_text(f"open {home}/Music/a.m4a\nuser DjUserXYZ did x\n", encoding="utf-8")
     text = fb.log_tail(tmp_path)
-    assert home not in text and "stefanxyz" not in text.lower() and "~/Music/a.m4a" in text
+    assert home not in text and "djuserxyz" not in text.lower() and "~/Music/a.m4a" in text
 
 
 # ============================================================================ C11 : playlists d'un son

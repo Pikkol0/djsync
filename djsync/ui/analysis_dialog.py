@@ -17,6 +17,7 @@ from .widgets import label
 
 
 class AnalysisDialog(BaseDialog):
+    as_page = True                    # 1.2.3 : page de la fenêtre principale
     def __init__(self, parent: Any, controller: Any, tracks: Optional[List[LibraryTrack]]) -> None:
         super().__init__(parent, t("analysis.title"), 460)
         self.ctrl = controller

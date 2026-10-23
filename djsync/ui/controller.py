@@ -26,7 +26,7 @@ from ..core.spotify import SpotifyError, parse_text_list
 from ..core.urlimport import UrlImportError
 from ..db import (
     DatabaseLockedError, DriveNotFoundError, LibraryError, RekordboxUsbLibrary, UsbDrive,
-    drive_from_letter, find_usb_drives,
+    drive_from_letter, find_unprepared_drives, find_usb_drives,
 )
 from ..db.errors import (
     DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
@@ -112,6 +112,15 @@ def eject_volume(root: Any) -> bool:
         return False
 
 
+def _unprepared() -> List[Any]:
+    """Clés sans bibliothèque (T02) ; jamais bloquant."""
+    try:
+        return find_unprepared_drives()
+    except Exception as exc:  # noqa: BLE001 - information seulement
+        log.debug("Unprepared drives: %s", exc)
+        return []
+
+
 class MatchHandle:
     """Permet d'interrompre une série de correspondances Spotify."""
 
@@ -146,6 +155,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.drive: Optional[UsbDrive] = None
         self.library: Optional[RekordboxUsbLibrary] = None
         self.drives: List[UsbDrive] = []
+        self.unprepared: List[Any] = []            # 1.2.4 (T02) : clés sans bibliothèque
         self.local: Optional[LocalRekordbox] = None    # V0.4.0 : Rekordbox installé sur cet ordinateur
         self.playlists: List[PlaylistInfo] = []
         self.jobs: List[DownloadJob] = []
@@ -273,15 +283,16 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     def refresh_drives(self, then: Optional[Callable[[], None]] = None) -> None:
         def ok(result: Any) -> None:
-            drives, local = result
+            drives, local, unprepared = result
             if [str(d.root) for d in drives] != [str(d.root) for d in self.drives]:
                 self._connect_failed.clear()
-            self.drives, self.local = drives, local
+            self.drives, self.local, self.unprepared = drives, local, unprepared
             self._emit("drives")
             if then:
                 then()
 
-        self.dispatcher.submit(lambda: (find_usb_drives(), self.find_local()), ok, self._on_error, pool="net")
+        self.dispatcher.submit(lambda: (find_usb_drives(), self.find_local(), _unprepared()), ok, self._on_error,
+                               pool="net")
 
     @property
     def is_local(self) -> bool:
@@ -509,16 +520,21 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         active = self.drive
 
         def probe() -> Any:
-            return find_usb_drives(), (active is None or active.db_path.is_file()), _local.rekordbox_running()
+            return (find_usb_drives(), (active is None or active.db_path.is_file()), _local.rekordbox_running(),
+                    _unprepared())
 
         def ok(result: Any) -> None:
             self._polling = False
-            drives, still_there, rb_open = result
+            drives, still_there, rb_open, unprepared = result
             self._warn_rekordbox(rb_open)
             changed = [str(d.root) for d in drives] != [str(d.root) for d in self.drives]
+            blank_changed = [(str(u.drive.root), u.kind) for u in unprepared] != \
+                [(str(u.drive.root), u.kind) for u in self.unprepared]
+            self.unprepared = unprepared
             if changed:
                 self.drives = drives
                 self._connect_failed.clear()
+            if changed or blank_changed:
                 self._emit("drives")
             if self.drive is not None and self.drive is active and not still_there:
                 self.message("warn", t("msg.drive_unplugged", drive=active.label or str(active.root)))

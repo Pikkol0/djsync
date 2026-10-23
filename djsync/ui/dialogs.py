@@ -19,9 +19,26 @@ from .widgets import button, hbox, label, vbox
 
 class BaseDialog(QDialog):
     modal = True
+    # 1.2.3 (retour testeur Mac) : affiché comme une page de la fenêtre principale (bouton Retour),
+    # pas comme une fenêtre séparée. Doublons, Diagnostic, Analyse.
+    as_page = False
 
     def __init__(self, parent: Any, title: str, width: int = 440, height: int = 0) -> None:
-        super().__init__(parent.window() if parent is not None else None)
+        win = parent.window() if parent is not None else None
+        self._host = win if (self.as_page and win is not None and hasattr(win, "open_dialog_page")) else None
+        if self._host is not None:
+            super().__init__(self._host.stack)
+            self.setWindowFlags(Qt.Widget)
+            self.setAttribute(Qt.WA_DeleteOnClose)
+            self.setModal(False)
+            self.body = vbox(self, margins=theme.px(16), spacing=theme.px(8))
+            top = hbox(spacing=theme.px(8))
+            top.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
+            top.addStretch(1)
+            self.body.addLayout(top)
+            self._closed = False
+            return
+        super().__init__(win)
         if sys.platform == "darwin":
             # 1.2.0-rc.4 (B05) : sur macOS, une fenêtre ordinaire s'ouvrait derrière DJSync, ou dans un
             # autre espace quand DJSync est en plein écran. Une fenêtre « outil » reste au-dessus de
@@ -57,6 +74,9 @@ class BaseDialog(QDialog):
         return ok
 
     def show_dialog(self) -> "BaseDialog":
+        if self._host is not None:
+            self._host.open_dialog_page(self)
+            return self
         if self.modal:
             self.open()
         else:
@@ -66,8 +86,20 @@ class BaseDialog(QDialog):
         return self
 
     def close(self) -> bool:                      # noqa: D401 - même nom que Tk : compatibilité des vues
+        already = self._closed
         self._closed = True
+        if self._host is not None and not already:
+            host, self._host = self._host, None
+            result = super().close()
+            host.close_dialog_page(self)
+            return result
         return super().close()
+
+    def reject(self) -> None:                     # Échap : sur une page, comme le bouton Retour
+        if self._host is not None:
+            self.close()
+            return
+        super().reject()
 
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid
@@ -176,7 +208,8 @@ class PlaylistPicker(BaseDialog):
         self._tree.setRootIsDecorated(True)
         self._tree.setUniformRowHeights(True)
         self._tree.itemChanged.connect(self._item_changed)
-        self._tree.itemDoubleClicked.connect(self._item_double)
+        self._tree.itemClicked.connect(self._item_clicked)        # 1.2.3 : un clic sur le nom coche / décoche
+        self._box_toggled: Any = None
         self.body.addWidget(self._tree, 1)
         self._empty = label(t("picker.none"), "faint")
         self._empty.hide()
@@ -293,13 +326,18 @@ class PlaylistPicker(BaseDialog):
             return
         kind, pid = item.data(0, Qt.UserRole) or ("", 0)
         if kind == "playlist":
+            self._box_toggled = item                   # clic sur la case : Qt l'a déjà cochée
             self._toggled(pid, item.checkState(0) == Qt.Checked)
 
-    def _item_double(self, item: Any, _col: int) -> None:
+    def _item_clicked(self, item: Any, _col: int) -> None:
+        """Clic n'importe où sur la ligne d'une playlist : cocher / décocher (comme la case)."""
+        toggled, self._box_toggled = self._box_toggled, None
         kind, _pid = item.data(0, Qt.UserRole) or ("", 0)
-        if kind == "playlist":
-            cb = _CheckItem(item)
-            cb.setChecked(not cb.isChecked())
+        if kind != "playlist" or toggled is item:
+            return
+        cb = _CheckItem(item)
+        cb.setChecked(not cb.isChecked())
+        self._box_toggled = None
 
     def _target_folder(self) -> int:
         """Dossier où créer une playlist : le dossier sélectionné, ou celui de la playlist sélectionnée."""

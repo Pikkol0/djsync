@@ -4,6 +4,7 @@
 PySide6-Essentials>=6.6    # Qt interface (QtCore/QtGui/QtWidgets only, no QtWebEngine)
 Pillow>=10.0.0             # artwork, thumbnails, icons
 miniaudio>=1.59            # built-in audio player (~1 MB, no SDL)
+pyobjc-framework-MediaPlayer>=10.0; sys_platform == "darwin"   # macOS media keys / Now Playing (1.2.3)
 
 # --- Search, URL import, download ---
 ytmusicapi>=1.8.0          # YouTube Music search (no authentication)

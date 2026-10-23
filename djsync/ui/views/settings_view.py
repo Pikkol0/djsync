@@ -109,6 +109,10 @@ class SettingsView(View):
         row.addWidget(self.sidebar_menu)
         row.addStretch(1)
         card.addLayout(row)
+        self.scroll_wave_var = QCheckBox(t("settings.scrolling_wave"))       # 1.2.3
+        self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
+        self.scroll_wave_var.setChecked(s.scrolling_wave)
+        card.addWidget(self.scroll_wave_var)
 
         # ---- clé USB
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
@@ -636,6 +640,7 @@ class SettingsView(View):
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
+        s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.check_updates = self.update_var.isChecked()
         s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
                                 "auto")

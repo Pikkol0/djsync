@@ -163,3 +163,68 @@ def test_error_report_dialog(window, monkeypatch):
     dlg = find(window, ErrorReportDialog)
     dlg.close()
     assert pump(window, 1, lambda: answers == [False, True, False])
+
+
+# ============================================================================ retours Mac (1.2.1-rc.1)
+def test_audio_buffer_and_media_keys_off_mac():
+    from djsync.audio import nowplaying, player
+
+    assert player.BUFFER_MS >= 150
+    keys = nowplaying.MediaKeys(lambda: None, lambda: None, lambda: None, lambda f: f())
+    if __import__("sys").platform != "darwin":
+        assert not keys.enabled
+    keys.update("t", "a", 10, 1, True)          # sans effet hors macOS, jamais d'exception
+    keys.clear()
+
+
+def test_picker_single_click_toggles(window):
+    from PySide6.QtCore import Qt
+
+    from djsync.ui.dialogs import PlaylistPicker
+    from tests.qt_util import pump
+
+    got = []
+    picker = PlaylistPicker(window, window.ctrl, "Download to", "OK", got.append)
+    assert pump(window, 4, lambda: bool(picker._vars))
+    pid, cb = next(iter(picker._vars.items()))
+    assert not cb.isChecked()
+    picker._tree.itemClicked.emit(cb.item, 0)             # clic sur le nom
+    assert cb.isChecked() and pid in picker._checked
+    picker._tree.itemClicked.emit(cb.item, 0)
+    assert not cb.isChecked() and pid not in picker._checked
+    cb.item.setCheckState(0, Qt.Checked)                  # clic sur la case : Qt coche…
+    picker._tree.itemClicked.emit(cb.item, 0)             # … puis émet « clicked » : pas de 2e bascule
+    assert cb.isChecked() and pid in picker._checked
+    picker.close()
+
+
+def test_duplicates_and_diagnostic_open_as_pages(window):
+    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+    from tests.qt_util import pump
+
+    window.show_view("library")
+    dup = DuplicatesDialog(window.views["library"], window.ctrl)
+    assert window.stack.currentWidget() is dup and dup.parent() is window.stack and not dup.isWindow()
+    dup.close()
+    assert pump(window, 2, lambda: window.current == "library" and window.stack.currentWidget() is window.views["library"])
+    diag = DiagnosticDialog(window.views["home"], window.ctrl)
+    again = DiagnosticDialog(window.views["home"], window.ctrl)          # une seule page de chaque sorte
+    assert window.stack.indexOf(diag) == -1 and window.stack.currentWidget() is again
+    again.reject()                                                        # Échap = Retour
+    assert pump(window, 2, lambda: window.stack.currentWidget() is window.views["library"]) and not window.errors
+
+
+def test_scrolling_wave_widget(window):
+    from djsync.ui.player_bar import SCROLL_SECONDS, ScrollingWave
+
+    pos = [10.0]
+    w = ScrollingWave(lambda: pos[0])
+    w.resize(600, 46)
+    detail = [(0.5, "#4A9EFF")] * (150 * 30)
+    w.set_data(detail, [(1, 12000, 10000), (2, 12000, 10500)])
+    assert w.has_data
+    w._advance()
+    assert w._pos == 10.0
+    img = w.grab()
+    assert not img.isNull() and SCROLL_SECONDS > 0
