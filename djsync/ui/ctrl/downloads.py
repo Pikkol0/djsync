@@ -74,6 +74,7 @@ class DownloadsMixin:
             job.file_path, job.content_id = result.file_path, added.content_id
             if job.replace_ids:                       # V1.1.0 : diagnostic, remplacer une mauvaise version
                 self._finish_replace(job, lib)
+            self._genre_after_change(lib)             # 1.2.2 : playlists par genre tenues à jour
             job.status = "done"
             if lib.last_problems:
                 self.dispatcher.post(self.message, "warn", t("msg.added_with_problems", title=track.title,

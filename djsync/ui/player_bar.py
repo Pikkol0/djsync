@@ -261,10 +261,9 @@ class PlayerBar(QWidget):
         self._with_track(show)
 
     def _edit_metadata(self, track: Any) -> None:
-        from .dialogs import MetadataDialog
+        from .track_info_dialog import TrackInfoDialog
 
-        MetadataDialog(self, track.title, track.artist,
-                       lambda title, artist: self.ctrl.update_metadata(track.content_id, title, artist))
+        TrackInfoDialog(self, self.ctrl, track)
 
     def _library_view(self) -> Any:
         self.ctrl._emit("navigate", "library")

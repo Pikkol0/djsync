@@ -748,11 +748,40 @@ class LibraryView(View):
         tracks = self._selected_tracks()
         if not tracks:
             return
-        from ..dialogs import MetadataDialog
+        from ..track_info_dialog import TrackInfoDialog
 
-        x = tracks[0]
-        MetadataDialog(self, x.title, x.artist,
-                       lambda title, artist: self.ctrl.update_metadata(x.content_id, title, artist))
+        TrackInfoDialog(self, self.ctrl, tracks[0])
+
+    def _scope_name(self) -> str:
+        if self.in_playlist and self.playlist is not None:
+            return self.playlist.name
+        return t("lib.all_tracks")
+
+    def _uniformize(self) -> None:
+        """1.2.2 (C14) : les sons affichés (playlist ou toute la bibliothèque)."""
+        if not self.ctrl.has_library:
+            return
+        tracks = [r.data for r in self.table.displayed_rows() if r.data is not None]
+        if not tracks:
+            self.ctrl.message("info", t("uni.no_tracks"))
+            return
+        self.ctrl._emit("open_uniformize", tracks, self._scope_name())
+
+    def _uniformize_playlist(self, p: PlaylistInfo) -> None:
+        def ok(tracks: List[LibraryTrack]) -> None:
+            if tracks:
+                self.ctrl._emit("open_uniformize", tracks, p.name)
+            else:
+                self.ctrl.message("info", t("uni.no_tracks"))
+
+        self.ctrl.playlist_tracks(p.playlist_id, ok)
+
+    def _genre_playlists(self) -> None:
+        if not self.ctrl.has_library:
+            return
+        from ..genre_dialog import GenrePlaylistsDialog
+
+        GenrePlaylistsDialog(self, self.ctrl)
 
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:
@@ -771,6 +800,8 @@ class LibraryView(View):
             entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
                         (t("action.edit_metadata"), self._edit_metadata, "edit")]
         entries.append((t("lib.find_duplicates"), self._duplicates, "duplicates"))
+        entries.append((t("uni.menu_scope", scope=self._scope_name()) + "…", self._uniformize, "tag"))
+        entries.append((t("genre.menu") + "…", self._genre_playlists, "playlist"))
         target = sel or None
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
@@ -833,6 +864,9 @@ class LibraryView(View):
                                 lambda pid=p.playlist_id, tg=target, n=name: self._copy_playlist(pid, tg, n), "copy"))
             if entries:
                 entries.append(None)
+        if not p.is_folder:
+            entries.append((t("uni.menu") + "…", lambda pl=p: self._uniformize_playlist(pl), "tag"))
+            entries.append(None)
         if p.is_editable or p.is_folder:
             entries += [(t("action.rename") + "…", self._rename_playlist, "edit"),
                         (t("action.delete") + "…", self._delete_playlist, "trash")]

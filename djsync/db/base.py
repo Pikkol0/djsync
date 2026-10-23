@@ -14,6 +14,16 @@ from typing import ContextManager, Iterable, List, Optional, Sequence, Tuple
 from ..models import LibraryTrack, PlaylistInfo
 
 
+class _Keep:
+    """Valeur « ne pas changer » (pochette) de `edit_track_metadata` (1.2.2)."""
+
+    def __repr__(self) -> str:
+        return "KEEP"
+
+
+KEEP = _Keep()
+
+
 class LibraryBackend(ABC):
     # ---- contrat LibraryProvider (Étape 1)
     @abstractmethod

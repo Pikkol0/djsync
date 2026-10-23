@@ -135,7 +135,7 @@ def test_language_rebuild(demo):
 
 def test_dialogs_open(demo):
     from djsync.ui.analysis_dialog import AnalysisDialog
-    from djsync.ui.dialogs import MetadataDialog
+    from djsync.ui.track_info_dialog import TrackInfoDialog as MetadataDialog
     from djsync.ui.duplicates_dialog import DuplicatesDialog
     from djsync.ui.help_dialog import HelpDialog
 
@@ -162,7 +162,7 @@ def test_dialogs_open(demo):
     lib._edit_metadata()
     assert pump(demo, 2, lambda: find(demo, MetadataDialog) is not None)
     md = find(demo, MetadataDialog)
-    md._title.setText("Nouveau titre")
+    md.title_e.setText("Nouveau titre")
     md._ok()
     assert pump(demo, 4, lambda: any(x.title == "Nouveau titre" for x in lib.all_tracks))
     assert not demo.errors

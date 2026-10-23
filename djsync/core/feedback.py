@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 # Adresse « /exec » du script Apps Script déployé (voir docs/FEEDBACK_SETUP.fr.md). Peut aussi être
 # donnée par la variable d'environnement DJSYNC_FEEDBACK_URL (tests, essais).
-FEEDBACK_URL = ""
+FEEDBACK_URL = "https://script.google.com/macros/s/AKfycbyC2ZqvGbCwQVg9XG4E6x4ZixtAIZ_ugvaxahF9zKYDHxatva8e5H-7_ouBHc_0b99L/exec"
 ISSUE_URL = "https://github.com/Pikkol0/djsync/issues/new"
 
 KINDS = ("bug", "idea", "comment")

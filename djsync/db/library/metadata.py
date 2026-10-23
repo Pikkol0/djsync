@@ -126,6 +126,95 @@ class MetadataMixin:
                     self._stage(lambda db, p=path, t=title, a=artist: db.update_track(p, title=t, artist=a))
         return self.get_track(content_id)
 
+    # ------------------------------------------------------- 1.2.2 : infos complètes
+    def track_details(self, content_id: int) -> Dict[str, Any]:
+        """{album, year, genre, label, artwork_path} d'un son (éditeur d'infos, Uniformiser)."""
+        has_genre = self._has_table("genre")
+        has_label = self._has_table("label")
+        rows = self._read(
+            "SELECT COALESCE(al.name,''), COALESCE(c.releaseYear,0), "
+            + ("COALESCE(g.name,'')" if has_genre else "''") + ", "
+            + ("COALESCE(lb.name,'')" if has_label else "''") + ", COALESCE(im.path,'') FROM content c "
+            "LEFT JOIN album al ON al.album_id = c.album_id LEFT JOIN image im ON im.image_id = c.image_id "
+            + ("LEFT JOIN genre g ON g.genre_id = c.genre_id " if has_genre else "")
+            + ("LEFT JOIN label lb ON lb.label_id = c.label_id " if has_label else "")
+            + "WHERE c.content_id = ?", (content_id,))
+        if not rows:
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
+        album, year, genre, label, art = rows[0]
+        return {"album": album, "year": int(year or 0), "genre": genre, "label": label, "artwork_path": art or None}
+
+    def track_genres(self) -> Dict[int, str]:
+        """{son: genre} des sons qui en ont un (playlists par genre)."""
+        if not self._has_table("genre"):
+            return {}
+        return {int(cid): name for cid, name in self._read(
+            "SELECT c.content_id, g.name FROM content c JOIN genre g ON g.genre_id = c.genre_id "
+            "WHERE g.name IS NOT NULL AND g.name <> ''")}
+
+    def _has_table(self, table: str) -> bool:
+        cols = {r[1] for r in self._read(f'PRAGMA table_info("{table}")')}
+        return {f"{table}_id", "name"} <= cols
+
+    def edit_track_metadata(self, content_id: int, title: Optional[str] = None, artist: Optional[str] = None,
+                            album: Optional[str] = None, year: Optional[int] = None, genre: Optional[str] = None,
+                            artwork: Any = KEEP) -> LibraryTrack:
+        """1.2.2 : modifie les infos d'un son (None = inchangé ; "" ou 0 = effacé). `artwork` : KEEP,
+        None (retirer la pochette) ou les octets d'une image. Titre / artiste vont aussi dans
+        export.pdb ; album, année, genre et pochette dans exportLibrary.db seulement. Le fichier
+        audio n'est ni modifié ni renommé."""
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        with self.batch():
+            if title is not None or artist is not None:
+                self.update_track_metadata(content_id, title, artist)
+            if album is None and year is None and genre is None and artwork is KEEP:
+                return self.get_track(content_id)
+            jpegs = None
+            if artwork is not KEEP and artwork is not None:
+                jpegs = _art.make_jpegs(artwork)
+                if not jpegs:
+                    raise LibraryError("Unreadable image.")
+            written: List[Path] = []
+            try:
+                with self._write() as conn:
+                    row = conn.execute("SELECT artist_id_artist, COALESCE(informationUpdateCount,0) FROM content "
+                                       "WHERE content_id = ?", (content_id,)).fetchone()
+                    if row is None:
+                        raise TrackNotFoundError(f"Track not found (id {content_id}).")
+                    artist_id, count = row
+                    cols: Dict[str, Any] = {}
+                    if album is not None:
+                        name = album.strip()
+                        cols["album_id"] = self._get_or_create(
+                            conn, "album", "album_id", name,
+                            extra_match="AND (artist_id IS ? OR artist_id IS NULL)", extra_params=(artist_id,),
+                            insert_sql="INSERT INTO album (name, artist_id, image_id, isComplation, nameForSearch) "
+                                       "VALUES (?, ?, NULL, 0, ?)",
+                            insert_params=(name, artist_id, name)) if name else None
+                    if year is not None:
+                        cols["releaseYear"] = int(year) if year else None
+                    if genre is not None:
+                        if genre.strip():
+                            cols.update(self._meta_columns(conn, {"genre": genre.strip()}))
+                        elif self._has_table("genre"):
+                            cols["genre_id"] = None
+                    if artwork is None:
+                        cols["image_id"] = None
+                    elif jpegs:
+                        number = _art.next_number(self.drive.root, self._known_artwork_paths(conn))
+                        written = _art.write(self.drive.root, number, jpegs)
+                        cols["image_id"] = conn.execute("INSERT INTO image (path) VALUES (?)",
+                                                        (_art.rel_path(number),)).lastrowid
+                    if cols:
+                        cols["informationUpdateCount"] = int(count) + 1
+                        conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
+                                     (*cols.values(), content_id))
+            except BaseException:
+                self._discard(written)
+                raise
+        return self.get_track(content_id)
+
     def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
         """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""
         ids = [int(i) for i in content_ids]
