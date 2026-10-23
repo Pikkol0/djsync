@@ -61,3 +61,34 @@ def test_page_with_more_than_255_rows_is_accepted():
         page.check_data_page()
     except Exception as exc:  # noqa: BLE001
         assert "inconsistent counters" not in str(exc)
+
+
+def test_same_file_with_several_track_rows_is_not_added_twice():
+    """Export Rekordbox ancien : un même fichier peut avoir plusieurs lignes (ids) dans la table des
+    pistes, et les playlists pointer vers n'importe laquelle. Le rattrapage n'ajoutait alors une 2e fois
+    le son à la playlist (vu sur une clé de 875 sons : 300 entrées en double)."""
+    from dataclasses import replace
+
+    t = sample_track(1)
+    twin = replace(t)                                       # même chemin, 2e ligne
+    data = build_pdb([t, twin, sample_track(2)], {("Rap",): [t.path]})
+    db = PdbDatabase(data)
+    assert db.track_count == 2
+    db.playlist_add(("Rap",), [t.path])
+    assert db.summary.entries_added == 0
+    db.playlist_set(("Rap",), [t.path])
+    assert db.summary.entries_added == 0 and db.summary.entries_removed == 0
+    assert db.delete_track(t.path)
+    out = PdbDatabase(db.to_bytes())
+    assert out.track_count == 1 and not out._alias
+
+
+def test_playlists_differing_only_by_case_stay_separate():
+    t1, t2 = sample_track(1), sample_track(2)
+    db = PdbDatabase(build_pdb([t1, t2], {("dBs",): [t1.path], ("dbs",): [t2.path]}))
+    assert db.find_playlist(("dBs",)).name == "dBs" and db.find_playlist(("dbs",)).name == "dbs"
+    db.playlist_add(("dbs",), [t2.path])
+    assert db.summary.entries_added == 0
+    assert db.find_playlist(("DBS",)) is None                # ambigu : on ne devine pas
+    db2 = PdbDatabase(build_pdb([t1], {("House",): []}))
+    assert db2.find_playlist(("house",)).name == "House"      # sans ambiguïté : toléré

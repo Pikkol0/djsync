@@ -68,6 +68,10 @@ class PdbDatabase:
         self.file = PdbFile(data, allow_growth=allow_growth)
         self.summary = Summary()
         self._tracks: Dict[str, _Ref] = {}
+        # 1.2.4 : un même fichier peut avoir PLUSIEURS lignes (ids) dans un export Rekordbox ancien, et les
+        # playlists pointer vers l'une ou l'autre : id -> id retenu pour ce chemin.
+        self._alias: Dict[int, int] = {}
+        self._alias_rows: Dict[int, List[_Ref]] = {}           # id retenu -> autres lignes du même fichier
         self._artists: Dict[str, int] = {}
         self._albums: Dict[Tuple[str, int], int] = {}
         self._trees: Dict[int, _Tree] = {}
@@ -84,7 +88,12 @@ class PdbDatabase:
         f, d = self.file, self.file.data
         for p, slot, off in f.iter_rows(T.TRACKS):
             r = rows.read_track(d, p * PAGE_SIZE + off)
-            self._tracks[_key(r["path"])] = _Ref(r["id"], p, slot, off)      # type: ignore[arg-type]
+            k = _key(r["path"])                                              # type: ignore[arg-type]
+            if k in self._tracks:
+                self._alias[r["id"]] = self._tracks[k].id                    # type: ignore[index]
+                self._alias_rows.setdefault(self._tracks[k].id, []).append(_Ref(r["id"], p, slot, off))  # type: ignore[arg-type]
+            else:
+                self._tracks[k] = _Ref(r["id"], p, slot, off)                # type: ignore[arg-type]
             self._max["track"] = max(self._max["track"], r["id"])            # type: ignore[type-var]
             if self._template is None:
                 self._template = rows.make_template(r)
@@ -127,6 +136,9 @@ class PdbDatabase:
     def _off(self, ref: _Ref) -> int:
         return self.file.page(ref.page).row_offset(ref.slot)
 
+    def _canon(self, track_id: int) -> int:
+        return self._alias.get(track_id, track_id)
+
     def has_track(self, path: str) -> bool:
         return _key(path) in self._tracks
 
@@ -141,7 +153,13 @@ class PdbDatabase:
         parent = 0
         node: Optional[_Tree] = None
         for name in path:
-            node = next((t for t in self._trees.values() if t.parent == parent and _key(t.name) == _key(name)), None)
+            # 1.2.4 : nom exact d'abord (Rekordbox accepte « dBs » et « dbs » côte à côte), puis sans
+            # tenir compte des majuscules / espaces seulement s'il n'y a aucun nom identique.
+            kids = [t for t in self._trees.values() if t.parent == parent]
+            node = next((t for t in kids if t.name == name), None)
+            if node is None:
+                loose = [t for t in kids if _key(t.name) == _key(name)]
+                node = loose[0] if len(loose) == 1 else None
             if node is None:
                 return None
             parent = node.id
@@ -312,7 +330,7 @@ class PdbDatabase:
         for pl_id, entries in list(self._entries.items()):
             keep = []
             for e in entries:
-                if e.track == ref.id:
+                if self._canon(e.track) == ref.id:
                     self.file.delete_row(e.page, e.slot)
                     self.summary.entries_removed += 1
                 else:
@@ -321,6 +339,9 @@ class PdbDatabase:
                 self._entries[pl_id] = keep
                 self._renumber(pl_id)
         self.file.delete_row(ref.page, ref.slot)
+        for extra in self._alias_rows.pop(ref.id, []):          # 1.2.4 : autres lignes du même fichier
+            self.file.delete_row(extra.page, extra.slot)
+            self._alias.pop(extra.id, None)
         self.summary.tracks_removed += 1
         return True
 
@@ -396,13 +417,14 @@ class PdbDatabase:
         current = self._ordered_entries(pl_id)
         seen, keep = set(), []
         for e in current:
-            if e.track in wanted and e.track not in seen:
-                seen.add(e.track)
+            t = self._canon(e.track)
+            if t in wanted and t not in seen:
+                seen.add(t)
                 keep.append(e)
             else:
                 self.file.delete_row(e.page, e.slot)
                 self.summary.entries_removed += 1
-        have = {e.track: e for e in keep}
+        have = {self._canon(e.track): e for e in keep}
         entries: List[_Entry] = []
         for n, track_id in enumerate(wanted, start=1):
             e = have.get(track_id)
@@ -419,7 +441,7 @@ class PdbDatabase:
     def playlist_add(self, path: PlaylistPath, track_paths: Sequence[str]) -> None:
         """Ajoute en fin de playlist les pistes absentes (l'ordre existant n'est pas modifié)."""
         pl_id = self.ensure_playlist(path)
-        present = {e.track for e in self._entries.get(pl_id, [])}
+        present = {self._canon(e.track) for e in self._entries.get(pl_id, [])}
         n = len(self._entries.get(pl_id, []))
         for track_id in self._track_ids(track_paths):
             if track_id in present:
@@ -438,7 +460,7 @@ class PdbDatabase:
         gone = {self._tracks[_key(p)].id for p in track_paths if _key(p) in self._tracks}
         keep = []
         for e in self._entries.get(node.id, []):
-            if e.track in gone:
+            if self._canon(e.track) in gone:
                 self.file.delete_row(e.page, e.slot)
                 self.summary.entries_removed += 1
             else:
