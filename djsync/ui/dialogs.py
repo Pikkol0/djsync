@@ -433,3 +433,38 @@ class MetadataDialog(BaseDialog):
         if title:
             self.close()
             self._on_ok(title, artist)
+
+
+class ErrorReportDialog(BaseDialog):
+    """1.2.3 : « Une erreur est survenue : envoyer un rapport à l'auteur ? » (non bloquant)."""
+
+    modal = False
+
+    def __init__(self, parent: Any, summary: str, answer: Callable[[bool], None],
+                 on_always: Optional[Callable[[], None]] = None) -> None:
+        from PySide6.QtWidgets import QCheckBox
+
+        super().__init__(parent, t("err_report.title"), 460)
+        self._answer: Optional[Callable[[bool], None]] = answer
+        self._on_always = on_always
+        self.heading(t("err_report.title"), t("err_report.sub"))
+        self.body.addWidget(label(summary, "faint", wrap=True))
+        self.body.addWidget(label(t("err_report.what"), "dim", wrap=True))
+        self.always = QCheckBox(t("err_report.always"))
+        self.body.addWidget(self.always)
+        self.footer(t("err_report.send"), self._send, cancel_text=t("err_report.dont"))
+        self.show_dialog()
+
+    def _send(self) -> None:
+        answer, self._answer = self._answer, None
+        if self.always.isChecked() and self._on_always is not None:
+            self._on_always()
+        self.close()
+        if answer:
+            answer(True)
+
+    def closeEvent(self, e: Any) -> None:         # noqa: N802
+        answer, self._answer = self._answer, None
+        super().closeEvent(e)
+        if answer:
+            answer(False)

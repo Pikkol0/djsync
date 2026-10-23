@@ -33,6 +33,7 @@ FEEDBACK_URL = "https://script.google.com/macros/s/AKfycbyC2ZqvGbCwQVg9XG4E6x4Zi
 ISSUE_URL = "https://github.com/Pikkol0/djsync/issues/new"
 
 KINDS = ("bug", "idea", "comment")
+EXTRA_KINDS = ("logs", "crash")    # 1.2.3 : « Envoyer les logs », rapport d'erreur automatique
 MAX_ITEMS = 10
 MAX_IMAGES = 3                     # par remarque
 MAX_IMAGE_SIDE = 1600              # px : captures réduites (≈ 150-300 Ko en JPEG)
@@ -176,3 +177,98 @@ def issue_url(remarks: List[Remark], info: Dict[str, str]) -> str:
     parts.append("---\n" + "\n".join(f"- **{k}**: {v}" for k, v in info.items() if v))
     body = "\n".join(parts)[:5500]
     return ISSUE_URL + "?" + urllib.parse.urlencode({"title": title[:200], "body": body})
+
+
+# ------------------------------------------------------- 1.2.3 : logs de test et rapports d'erreur
+MAX_LIBRARY_ZIP = 9 * 1024 * 1024       # fichiers de la clé zippés : au-delà, export.pdb seul
+LOGS_TAIL_LINES = 3000
+
+
+def drive_report(drive_root: Optional[Path]) -> List[str]:
+    """Tout ce qui aide à comprendre un problème de clé / de platine, en texte : format de la clé,
+    espace, fichiers de PIONEER/rekordbox (taille, date), contrôle d'export.pdb, diagnostic de la base."""
+    if drive_root is None:
+        return ["No USB drive open."]
+    import shutil
+    import time
+
+    from ..db.usb import drive_filesystem, filesystem_compat
+
+    root = Path(drive_root)
+    fs = drive_filesystem(root)
+    lines = [f"Drive root   : {anonymise(str(root))}", f"File system  : {fs or 'unknown'} ({filesystem_compat(fs) or '?'})"]
+    try:
+        u = shutil.disk_usage(root)
+        lines.append(f"Space        : {u.free / 1e9:.1f} GB free of {u.total / 1e9:.1f} GB")
+    except OSError:
+        pass
+    rb = root / "PIONEER" / "rekordbox"
+    lines.append("PIONEER/rekordbox:")
+    try:
+        for f in sorted(rb.iterdir()):
+            if f.is_file():
+                st = f.stat()
+                lines.append(f"  {f.name:28s} {st.st_size:>12d} B  {time.strftime('%Y-%m-%d %H:%M', time.localtime(st.st_mtime))}")
+    except OSError as exc:
+        lines.append(f"  unreadable: {exc}")
+    for sub in ("PIONEER/USBANLZ", "Contents", "DJSync_Backups"):
+        lines.append(f"{sub:16s}: {'present' if (root / sub).exists() else 'absent'}")
+    pdb = rb / "export.pdb"
+    if pdb.is_file():
+        try:
+            from ..db.pdb.check import report
+
+            lines += ["", "export.pdb check:"] + ["  " + x for x in report(pdb)]
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"export.pdb check failed: {exc}")
+    return lines
+
+
+def library_zip(drive_root: Optional[Path], limit: int = MAX_LIBRARY_ZIP) -> Optional[Attachment]:
+    """PIONEER/rekordbox (exportLibrary.db, export.pdb, exportExt.pdb…) zippé, pour reproduire un
+    problème de platine. Si c'est trop gros : export.pdb seul. None si rien à joindre."""
+    import zipfile
+
+    if drive_root is None:
+        return None
+    rb = Path(drive_root) / "PIONEER" / "rekordbox"
+    try:
+        files = sorted(f for f in rb.iterdir() if f.is_file() and not f.name.endswith(("-wal", "-shm")))
+    except OSError:
+        return None
+    for choice in (files, [f for f in files if f.suffix.lower() == ".pdb"]):
+        if not choice:
+            continue
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in choice:
+                try:
+                    z.write(f, f"PIONEER/rekordbox/{f.name}")
+                except OSError:
+                    pass
+        data = buf.getvalue()
+        if len(data) <= limit:
+            return Attachment("rekordbox-library.zip", data, "application/zip")
+    return None
+
+
+def build_logs_payload(note: str, email: str, info: Dict[str, str], log_text: str, report: List[str],
+                       client_id: str, library: Optional[Attachment] = None, language: str = "en") -> Dict[str, Any]:
+    """« Envoyer les logs » : journal complet (chemins masqués), rapport de la clé, fichiers de la clé."""
+    files = [{"name": "djsync-report.txt", "mime": "text/plain",
+              "data": base64.b64encode("\n".join(report).encode("utf-8")).decode("ascii")}]
+    if library is not None:
+        files.append({"name": library.name, "mime": library.mime, "data": base64.b64encode(library.data).decode("ascii")})
+    item = {"kind": "logs", "title": (note.strip().splitlines() or ["Test logs"])[0][:200],
+            "text": note.strip()[:20000] + ("\n\n" if note.strip() else "") + "\n".join(report[:60]), "images": files}
+    return {"client": client_id[:64], "email": email.strip()[:200], "language": language, "info": info,
+            "log": log_text[-900_000:], "items": [item]}
+
+
+def build_error_payload(title: str, details: str, info: Dict[str, str], log_text: str, report: List[str],
+                        client_id: str) -> Dict[str, Any]:
+    """Rapport d'erreur automatique : trace (chemins masqués), état de la clé, fin du journal."""
+    text = anonymise(details)[:20000] + "\n\n" + "\n".join(report[:40])
+    return {"client": client_id[:64], "email": "", "language": "en", "info": info, "log": log_text[-200_000:],
+            "items": [{"kind": "crash", "title": anonymise(title)[:200], "text": text, "images": []}]}
+

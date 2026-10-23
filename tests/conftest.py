@@ -3,6 +3,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("DJSYNC_AUDIO_NULL", "1")       # sortie audio « null » (miniaudio)
+os.environ.setdefault("DJSYNC_ERROR_REPORTS", "off")  # 1.2.3 : jamais de rapport d'erreur envoyé par les tests
 
 import pytest  # noqa: E402
 

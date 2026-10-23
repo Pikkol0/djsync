@@ -187,6 +187,25 @@ class FeedbackView(View):
         row.addWidget(self.send_btn)
         bl.addLayout(row)
         self.root.addWidget(bottom)
+
+        logs = panel()                                 # 1.2.3 : « Envoyer les logs »
+        ll = vbox(logs, margins=theme.px(12), spacing=theme.px(6))
+        ll.addWidget(label(t("fb.logs_title"), "h2"))
+        ll.addWidget(label(t("fb.logs_hint"), "dim", wrap=True))
+        self.logs_note = QLineEdit()
+        self.logs_note.setPlaceholderText(t("fb.logs_note"))
+        ll.addWidget(self.logs_note)
+        self.logs_files = QCheckBox(t("fb.logs_files"))
+        self.logs_files.setToolTip(t("fb.logs_files_tip"))
+        self.logs_files.setChecked(True)
+        ll.addWidget(self.logs_files)
+        row = hbox(spacing=theme.px(8))
+        self.logs_status = label("", "dim", wrap=True)
+        row.addWidget(self.logs_status, 1)
+        self.logs_btn = button(t("fb.logs_send"), self.send_logs, icon="go")
+        row.addWidget(self.logs_btn)
+        ll.addLayout(row)
+        self.root.addWidget(logs)
         self.add_card()
 
     # ------------------------------------------------------------------- remarques
@@ -289,3 +308,52 @@ class FeedbackView(View):
             ctrl._emit("open_url", fb.issue_url(remarks, info))
 
         ctrl.dispatcher.submit(work, ok, failed, pool="net")
+
+    # ------------------------------------------------------------- 1.2.3 : logs de test
+    def send_logs(self) -> None:
+        """Journal complet (chemins masqués), rapport de la clé (format, fichiers, contrôle d'export.pdb)
+        et, si coché, les fichiers de la bibliothèque de la clé zippés."""
+        if self._sending:
+            return
+        from ... import full_version
+        from ...i18n import get_language
+        from ...settings import settings_dir
+
+        ctrl = self.ctrl
+        lib = t("local.name") if ctrl.is_local else ("USB" if ctrl.has_library else "")
+        info = fb.system_info(full_version(), lib)
+        root = None if (ctrl.drive is None or ctrl.is_local) else getattr(ctrl.drive, "root", None)
+        with_files = self.logs_files.isChecked() and root is not None
+        note, email, client, language = self.logs_note.text(), self.email.text().strip(), ctrl.feedback_client_id(), get_language()
+        self._sending = True
+        self.logs_btn.setEnabled(False)
+        self.logs_status.setText(t("fb.sending"))
+
+        def work() -> bool:
+            report = fb.drive_report(root)
+            if ctrl.is_local and ctrl.library is not None:
+                report.append(f"Computer library: {fb.anonymise(str(getattr(ctrl.library, 'db_path', '')))}")
+            zipped = fb.library_zip(root) if with_files else None
+            log_text = fb.log_tail(settings_dir(), fb.LOGS_TAIL_LINES)
+            fb.send(fb.build_logs_payload(note, email, info, log_text, report, client, zipped, language))
+            return zipped is not None or not with_files
+
+        def ok(files_ok: bool) -> None:
+            self._sending = False
+            if not self.winfo_exists():
+                return
+            self.logs_btn.setEnabled(True)
+            self.logs_note.clear()
+            self.logs_status.setText(t("fb.logs_sent") if files_ok else t("fb.logs_sent_no_files"))
+            ctrl.message("ok", t("fb.thanks"))
+
+        def failed(exc: BaseException) -> None:
+            self._sending = False
+            if not self.winfo_exists():
+                return
+            self.logs_btn.setEnabled(True)
+            reason = str(exc) if isinstance(exc, fb.FeedbackError) else "network"
+            self.logs_status.setText(t(f"fb.err_{reason}") if reason in ("too_big", "limit") else t("fb.logs_failed"))
+
+        ctrl.dispatcher.submit(work, ok, failed, pool="net")
+

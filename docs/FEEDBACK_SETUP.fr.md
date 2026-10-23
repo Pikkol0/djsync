@@ -37,6 +37,13 @@ remarques numérotées, les captures nommées d'après leur remarque (`1-bug-cap
 le système et, si l'utilisateur l'a laissé coché, la fin du journal (`djsync-log.txt`, chemins
 personnels masqués). *Répondre* écrit directement à l'utilisateur s'il a donné son e-mail.
 
+## Mise à jour du script (1.2.3)
+La 1.2.3 ajoute deux sortes d'envois : « Logs » (bouton *Envoyer les logs*, avec un rapport sur la clé et,
+si l'utilisateur le coche, un zip de `PIONEER/rekordbox`) et « Erreur » (rapport d'erreur proposé après
+une erreur inattendue). Ils marchent avec le script d'origine (sujet « Remarque »). Pour avoir les bons
+libellés : recollez `tools/feedback/apps_script.gs`, enregistrez, puis **Déployer** ▸ *Gérer les
+déploiements* ▸ ✏️ ▸ *Version : nouvelle version* ▸ **Déployer** (l'URL ne change pas).
+
 ## Limites et entretien
 - Gmail gratuit : environ **100 e-mails par jour**, largement assez.
 - Le script refuse au-delà de 10 envois par ordinateur et 60 au total par tranche de 6 h, et les envois

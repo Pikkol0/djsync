@@ -113,6 +113,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("analysis", self._analysis_changed)
         self.ctrl.on("open_grid", self.open_grid_editor)
         self.ctrl.on("open_uniformize", self.open_uniformize)
+        self.ctrl.on("error_report_ask", self._ask_error_report)
         self.ctrl.on("engine_offer", self._engine_offer)
         self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("app_update_ready", self._app_update_ready)
@@ -533,6 +534,21 @@ class DJSyncApp(QMainWindow):
         self.grid_editor = GridEditor(self.stack, self.ctrl, track, on_close=self._grid_closed)
         self.stack.addWidget(self.grid_editor)
         self._show_page(self.grid_editor)
+
+    def _ask_error_report(self, summary: str, answer: Any) -> None:
+        """1.2.3 : proposer d'envoyer le rapport d'une erreur inattendue (une fenêtre à la fois)."""
+        from .dialogs import ErrorReportDialog
+
+        current = getattr(self, "_error_report_dialog", None)
+        if current is not None and current.winfo_exists():
+            answer(False)
+            return
+
+        def always() -> None:
+            self.ctrl.settings.error_reports = "always"
+            self.ctrl.save_settings_quiet()
+
+        self._error_report_dialog = ErrorReportDialog(self, summary, answer, on_always=always)
 
     def open_uniformize(self, tracks: Any, scope: str) -> None:
         """1.2.2 (C14) : page « Uniformiser » dans la zone de contenu (comme l'éditeur de grille)."""
