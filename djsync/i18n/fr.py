@@ -879,4 +879,11 @@ STRINGS = {
     "uni.leave_one": "{n} son validé n'est pas encore enregistré.",
     "uni.leave_many": "{n} sons validés ne sont pas encore enregistrés.",
     "uni.leave_detail": "Si vous quittez sans enregistrer, ils restent validés pour la prochaine fois.",
+    # ---- 1.3.0 : format de la clé, export.pdb (T01)
+    "home.pdb_no_tip": "Pas d'export.pdb sur cette clé : les anciennes platines (CDJ-2000NXS2, XDJ-1000…) n'afficheront pas ses playlists. Dans Rekordbox, exportez aussi la clé une fois au format « Device Library » : DJSync le tiendra ensuite à jour.",
+    "home.pdb_stale": "export.pdb pas à jour",
+    "home.pdb_stale_tip": "Les anciennes platines ne voient pas tout ce que DJSync a ajouté. Paramètres ▸ Anciennes platines ▸ Synchroniser maintenant. Détail : {detail}",
+    "home.fs_ok": "Clé formatée en {fs} : lue par toutes les platines rekordbox.",
+    "home.fs_recent_only": "Clé formatée en {fs} : lue par les platines récentes, mais les plus anciennes (XDJ-1000 par exemple) ne lisent que FAT32 ou HFS+ et affichent « NO USB / E-8307 DEVICE NO RESPONSE ». Pour jouer dessus, copiez le contenu de la clé ailleurs et formatez-la en FAT32.",
+    "home.fs_unsupported": "Clé formatée en {fs} : les platines Pioneer ne peuvent pas la lire. Il leur faut du FAT32 (ou HFS+ sur Mac).",
 }

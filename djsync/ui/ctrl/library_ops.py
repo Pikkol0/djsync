@@ -56,6 +56,9 @@ class DriveSummary:
     has_pdb: bool = False
     is_local: bool = False      # V0.4.0 : bibliothèque Rekordbox de cet ordinateur
     busy: bool = False          # Rekordbox ouvert : lecture seule tant qu'il tourne
+    filesystem: str = ""        # 1.3.0 (T01) : FAT32, exFAT, NTFS, HFS+…
+    pdb_state: str = ""         # 1.3.0 (T01) : état d'export.pdb de la clé ouverte (ok, stale…)
+    pdb_problem: str = ""
 
 
 class TaskHandle:
@@ -189,6 +192,10 @@ class LibraryOpsMixin:
                 connected = active is not None and str(d.db_path) == str(active.db_path) and lib is not None
                 s = DriveSummary(d, connected, has_pdb=not local and (d.db_path.parent / "export.pdb").is_file(),
                                  is_local=local, busy=local and rekordbox_running())
+                if not local:
+                    from ...db.usb import drive_filesystem
+
+                    s.filesystem = drive_filesystem(d.root)
                 try:
                     usage = shutil.disk_usage(existing_parent(d.root))
                     s.total, s.free = usage.total, usage.free
@@ -199,6 +206,8 @@ class LibraryOpsMixin:
                         s.tracks = lib.track_count()
                         s.playlists = sum(1 for p in lib.list_playlists() if not p.is_folder)
                         s.unanalysed = len(lib.unanalysed_tracks())
+                        s.pdb_state = str(getattr(lib, "pdb_state", "") or "")
+                        s.pdb_problem = str(getattr(lib, "pdb_problem", "") or "")
                     except LibraryError:
                         pass
                 out.append(s)

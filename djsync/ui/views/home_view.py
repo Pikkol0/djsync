@@ -143,9 +143,24 @@ class HomeView(View):
         if s.is_local:
             chips.addWidget(chip(t("local.collection")))
         else:
-            pdb = chip(t("home.pdb_short_yes") if s.has_pdb else t("home.pdb_short_no"))
-            pdb.setToolTip(t("home.pdb_yes") if s.has_pdb else t("home.pdb_no"))
+            if not s.has_pdb:                       # 1.3.0 (T01) : anciennes platines sans playlists
+                pdb = chip(t("home.pdb_short_no"), "chip_warn")
+                pdb.setToolTip(t("home.pdb_no_tip"))
+            elif s.connected and s.pdb_state == "stale":
+                pdb = chip(t("home.pdb_stale"), "chip_warn")
+                pdb.setToolTip(t("home.pdb_stale_tip", detail=s.pdb_problem or "?"))
+            else:
+                pdb = chip(t("home.pdb_short_yes"))
+                pdb.setToolTip(t("home.pdb_yes"))
             chips.addWidget(pdb)
+            if s.filesystem:
+                from ...db.usb import filesystem_compat
+
+                compat = filesystem_compat(s.filesystem)
+                fs = chip(s.filesystem if compat == "ok" else f"{s.filesystem} ⚠", "chip" if compat == "ok" else "chip_warn")
+                tips = {"ok": "home.fs_ok", "recent_only": "home.fs_recent_only", "unsupported": "home.fs_unsupported"}
+                fs.setToolTip(t(tips.get(compat, "home.fs_ok"), fs=s.filesystem))
+                chips.addWidget(fs)
         chips.addStretch(1)
         mid.addLayout(chips)
         actions = hbox()

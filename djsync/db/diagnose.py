@@ -39,6 +39,7 @@ class DiagnosticReport:
     counter_mismatch: Optional[str] = None
     pdb_state: str = ""
     pdb_detail: str = ""
+    filesystem: str = ""        # 1.3.0 (T01)
 
     @property
     def problems(self) -> List[str]:
@@ -53,6 +54,15 @@ class DiagnosticReport:
                 out.append(
                     f"Legacy format present ({', '.join(self.legacy_files)}): {why}. Players reading it "
                     "do not see what was added to exportLibrary.db." + (f" [{self.pdb_detail}]" if self.pdb_detail else ""))
+        from .usb import filesystem_compat
+
+        compat = filesystem_compat(self.filesystem)
+        if compat == "recent_only":
+            out.append(f"Drive formatted as {self.filesystem}: older players (e.g. XDJ-1000) only read FAT32 or HFS+ "
+                       "and show \"E-8307 DEVICE NO RESPONSE\". Copy the drive's contents elsewhere and format it "
+                       "as FAT32 if you play on such players.")
+        elif compat == "unsupported":
+            out.append(f"Drive formatted as {self.filesystem}: Pioneer players cannot read it (FAT32 or HFS+ needed).")
         if self.integrity and self.integrity.lower() != "ok":
             out.append(f"SQLite integrity: {self.integrity}")
         if self.missing_files:
@@ -68,10 +78,14 @@ class DiagnosticReport:
     def lines(self) -> List[str]:
         rows = [
             f"Drive              : {self.drive}",
+            f"File system        : {self.filesystem or 'unknown'}",
             f"Tracks / playlists : {self.track_count} / {self.playlist_count}",
             f"Journal mode       : {self.journal_mode}",
             f"Legacy format      : {', '.join(self.legacy_files) or 'absent (OneLibrary only)'}",
         ]
+        if not self.legacy_files:
+            rows.append("  -> older players (CDJ-2000NXS2, XDJ-1000…) will not show the playlists. In Rekordbox, "
+                        "also export the drive in the \"Device Library\" format once; DJSync then keeps it up to date.")
         if self.legacy_newer_than_onelibrary is not None:
             rows.append("export.pdb         : " + (
                 "newer than exportLibrary.db" if self.legacy_newer_than_onelibrary
@@ -93,6 +107,9 @@ class DiagnosticReport:
 def diagnose(library: RekordboxUsbLibrary, sample: int = 20) -> DiagnosticReport:
     """Rapport complet. La bibliothèque doit être connectée (lecture seule suffit)."""
     rep = DiagnosticReport(drive=str(library.drive), journal_mode=library.journal_mode)
+    from .usb import drive_filesystem
+
+    rep.filesystem = drive_filesystem(library.drive.root)
     q = library._read
 
     rep.integrity = str(q("PRAGMA quick_check")[0][0])
