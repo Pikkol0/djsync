@@ -116,7 +116,13 @@ jobs:
           path: launcher
       - name: QuickJS-NG (JavaScript runtime for yt-dlp)
         shell: pwsh
-        run: Invoke-WebRequest https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -OutFile dist/DJSync/tools/qjs.exe
+        run: |
+          # runner network is sometimes flaky: 5 attempts before failing
+          $url = "https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe"
+          for ($i = 1; $i -le 5; $i++) {
+            try { Invoke-WebRequest $url -OutFile dist/DJSync/tools/qjs.exe -TimeoutSec 60; break }
+            catch { if ($i -eq 5) { throw }; Write-Host "Download failed ($i/5), retrying"; Start-Sleep 10 }
+          }
       - name: Sign the application
         if: ${{ env.SIGN_CERT_PFX != '' }}
         shell: pwsh
@@ -231,7 +237,7 @@ jobs:
           T=dist/DJSync.app/Contents/MacOS/tools
           mkdir -p "$T"
           cp ffmpeg-out/ffmpeg ffmpeg-out/ffprobe ffmpeg-out/FFMPEG_LICENSE.txt "$T/"
-          curl -sSfL -o "$T/qjs" https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-arm64
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 -o "$T/qjs" https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-darwin-arm64
           chmod +x "$T/ffmpeg" "$T/ffprobe" "$T/qjs"
           codesign --force --deep -s - dist/DJSync.app          # ad-hoc signature (required on Apple silicon)
       - name: Smoke test (DJSync.app alone on a "drive")
@@ -321,7 +327,7 @@ jobs:
           T=dist/DJSync/tools
           mkdir -p "$T"
           cp ffmpeg-out/ffmpeg ffmpeg-out/ffprobe ffmpeg-out/FFMPEG_LICENSE.txt "$T/"
-          curl -sSfL -o "$T/qjs" https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-x86_64
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 -o "$T/qjs" https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-x86_64
           chmod +x "$T/ffmpeg" "$T/ffprobe" "$T/qjs"
       - name: Smoke test (DJSync folder alone on a "drive")
         run: |
