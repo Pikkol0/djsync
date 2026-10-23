@@ -899,4 +899,6 @@ STRINGS = {
     "err_report.mode_ask": "Ask each time",
     "err_report.mode_always": "Always send",
     "err_report.mode_never": "Never send",
+    "settings.scrolling_wave": "Scrolling waveform in the player (playhead in the middle)",
+    "settings.scrolling_wave_tip": "For analysed tracks: the detailed waveform scrolls under a fixed playhead, like in Rekordbox. Applies to the next track played.",
 }

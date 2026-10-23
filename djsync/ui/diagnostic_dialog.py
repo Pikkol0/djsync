@@ -35,6 +35,7 @@ def item_key(kind: str, payload: Any) -> str:
 
 
 class DiagnosticDialog(BaseDialog):
+    as_page = True                    # 1.2.3 : page de la fenêtre principale
     modal = False
 
     def __init__(self, parent: Any, controller: Any) -> None:

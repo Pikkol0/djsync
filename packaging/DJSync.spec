@@ -16,11 +16,15 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 # libraries) are copied next to it. collect_all() would also copy every .py source as a loose file
 # (≈ 1 000 for yt-dlp's site extractors alone): useless, and slow to unzip onto a USB stick.
 # yt-dlp ships its own PyInstaller hook (hidden imports, yt-dlp-ejs JavaScript files).
+import sys
+
 datas, binaries, hidden = [], [], []
 for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3"):    # numpy: native hook
     datas += collect_data_files(pkg)               # .py excluded by default
     binaries += collect_dynamic_libs(pkg)
     hidden += collect_submodules(pkg)
+if sys.platform == "darwin":
+    hidden += ["MediaPlayer"]             # 1.2.3 : touches multimédia / « À l'écoute » (pyobjc)
 hidden += ["_cffi_backend"]               # native part of cffi, used by miniaudio (player): not auto-detected
 datas += copy_metadata("yt-dlp")           # version of the built-in engine (djsync/core/engine.py)
 datas += [("../LICENSE", "."), ("../THIRD_PARTY_NOTICES.md", ".")]     # GPL-3.0 + bundled components

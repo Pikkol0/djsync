@@ -32,6 +32,16 @@ avec ceux de la 1.2.2 (`docs/TESTS-1.2.2.fr.md`) si ce n'est pas déjà fait.
 | E3.3 | Clé dont l'export.pdb n'a pas pu être mis à jour | Pastille orange « export.pdb pas à jour » avec le détail et « Paramètres ▸ Anciennes platines ▸ Synchroniser maintenant ». |
 | E3.4 | `djsync.log` après ouverture d'une clé | Ligne « Drive …: file system FAT32, export.pdb present (… bytes) ». |
 
+### E5. Retours Mac de la 1.2.1-rc.1
+| # | Étapes | Attendu |
+|---|---|---|
+| E5.1 | Télécharger un son ▸ « Télécharger dans… » : **un clic** sur le nom d'une playlist, puis un 2e clic | 1er clic : cochée ; 2e clic : décochée. Cliquer sur la case marche toujours (pas de double bascule). Un clic sur un dossier le sélectionne (création dedans). |
+| E5.2 | Écouter un son de la recherche, puis ouvrir / fermer « Télécharger dans… », Annuler, lancer un téléchargement | Plus de « rollback » (son qui recule ou se répète) à l'ouverture / fermeture des fenêtres. |
+| E5.3 | **Mac** : pendant l'écoute, touches lecture/pause, suivant, précédent du clavier (F7-F9) ou du casque, DJSync au premier plan puis en arrière-plan | Elles agissent sur le lecteur de DJSync ; le widget « À l'écoute » de macOS affiche le titre et l'artiste. |
+| E5.4 | Accueil ▸ *Trouver les doublons*, *Diagnostic* ; Bibliothèque ▸ *Outils* ▸ *Analyser…* | S'ouvrent **dans la fenêtre principale** (comme l'éditeur de grille), bouton *Retour* en haut ou Échap pour revenir là où on était. Plus de fenêtre séparée (plein écran Mac compris). |
+| E5.5 | Lire un son **analysé** de la bibliothèque | Au-dessus du lecteur : forme d'onde détaillée qui **défile** sous une tête de lecture fixe au centre, avec les temps et les débuts de mesure (traits rouges) ; l'aperçu du morceau entier reste en bas pour se déplacer. En pause : elle s'arrête. Son pas analysé ou préécoute : pas de bande. |
+| E5.6 | Paramètres ▸ décocher « Forme d'onde défilante… », lire un autre son | Plus de bande défilante. |
+
 ### E4. Outil développeur
 | # | Étapes | Attendu |
 |---|---|---|
