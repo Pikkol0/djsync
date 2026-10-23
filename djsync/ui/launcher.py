@@ -55,6 +55,9 @@ def main() -> int:
         from .app import DJSyncApp      # import lourd : pendant que l'écran de démarrage est visible
 
         window = DJSyncApp(splash=screen)
+        from ..core import error_reports            # 1.2.3 : exceptions non rattrapées -> rapport proposé
+
+        error_reports.install(window.ctrl.error_reporter)
     except BaseException:
         if screen is not None:
             screen.close()

@@ -288,8 +288,11 @@ def test_diagnose_report(lib, usb):
     assert not any("étrangères" in p for p in rep.problems)   # 0 = « aucun » : pas une erreur
 
 
-def test_diagnose_cli_clean_drive(lib, usb, capsys):
+def test_diagnose_cli_clean_drive(lib, usb, capsys, monkeypatch):
+    import djsync.db.usb as usb_mod
     from djsync.db.diagnose import main
+
+    monkeypatch.setattr(usb_mod, "drive_filesystem", lambda root: "FAT32")     # dossier temporaire = « clé »
 
     lib.add_track(make_wav(lib, "A", "a"), "a", "A", playlist_ids=[1])
     lib.close()

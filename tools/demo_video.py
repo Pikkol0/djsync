@@ -566,6 +566,9 @@ def build_app(lang: str, size: Tuple[int, int] = (0, 0), zoom: int = 100) -> Tup
     from djsync.settings import Settings
 
     controller.find_usb_drives = lambda: [UsbDrive(root=usb, label="DJ KEY")]
+    import djsync.db.usb as usb_mod                         # 1.2.3 : la clé de démo est un dossier temporaire
+
+    usb_mod.drive_filesystem = lambda root: "FAT32"
     controller.MusicService = make_service()
     real_probe = quality.probe
     quality.probe = lambda p: quality.AudioInfo("mp3", 160, 44100) if p.name.startswith("Lia Sun") else real_probe(p)

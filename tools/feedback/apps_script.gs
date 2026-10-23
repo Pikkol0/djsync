@@ -18,7 +18,7 @@ var MAX_BYTES = 15 * 1024 * 1024;                   // taille maximale d'un envo
 var MAX_ITEMS = 10;
 var MAX_IMAGES = 3;
 
-var KIND = {bug: "Bug", idea: "Idée", comment: "Commentaire"};
+var KIND = {bug: "Bug", idea: "Idée", comment: "Commentaire", logs: "Logs", crash: "Erreur"};  // logs, crash : 1.2.3
 
 function doPost(e) {
   try {

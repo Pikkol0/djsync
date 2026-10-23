@@ -163,6 +163,25 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._local_offered = False
         self._rekordbox_warned = False
         self._init_playback()
+        self.error_reporter = self._make_error_reporter()       # 1.2.3
+
+    def _make_error_reporter(self) -> Any:
+        """1.2.3 : rapports d'erreur à l'auteur (demande à l'utilisateur, sauf réglage contraire)."""
+        from .. import full_version
+        from ..core.error_reports import ErrorReporter
+        from ..settings import settings_dir
+
+        def context() -> Dict[str, Any]:
+            lib = t("local.name") if self.is_local else ("USB" if self.has_library else "")
+            root = None if (self.drive is None or self.is_local) else getattr(self.drive, "root", None)
+            return {"version": full_version(), "library": lib, "drive_root": root,
+                    "client": self.feedback_client_id(), "log_dir": settings_dir()}
+
+        def ask(summary: str, answer: Callable[[bool], None]) -> None:
+            self.dispatcher.post(lambda: self._emit("error_report_ask", summary, answer))
+
+        return ErrorReporter(settings_dir() / "error_reports.json", lambda: self.settings.error_reports, context,
+                             ask=ask)
 
     # ------------------------------------------------------------------ évènements
     def on(self, event: str, fn: Callable[..., None]) -> None:
@@ -215,6 +234,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
     def _on_error(self, exc: BaseException) -> None:
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         self.message("error", self.error_text(exc))
+        reporter = getattr(self, "error_reporter", None)
+        if reporter is not None:
+            reporter.report(exc, "shown to the user")
 
     @property
     def has_library(self) -> bool:
