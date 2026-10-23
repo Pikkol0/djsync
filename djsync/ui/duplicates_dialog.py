@@ -24,6 +24,7 @@ _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
 class DuplicatesDialog(BaseDialog):
+    as_page = True                    # 1.2.3 : page de la fenêtre principale
     modal = False
 
     def __init__(self, parent: Any, controller: Any) -> None:

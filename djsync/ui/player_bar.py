@@ -24,6 +24,84 @@ COVER_PX = 52
 WAVE_H = 28
 
 
+SCROLL_H = 46
+SCROLL_SECONDS = 8.0          # largeur de la forme d'onde défilante (± 4 s autour de la tête de lecture)
+
+
+class ScrollingWave(QWidget):
+    """1.2.3 (retour testeur) : forme d'onde détaillée qui défile sous une tête de lecture FIXE au centre,
+    comme dans Rekordbox, avec les temps et les débuts de mesure. Sons analysés seulement."""
+
+    RATE = 150                # colonnes ANLZ par seconde
+
+    def __init__(self, position: Any) -> None:
+        super().__init__()
+        self._detail: List[Tuple[float, str]] = []
+        self._beats: List[Tuple[int, int, int]] = []
+        self._position = position            # () -> secondes (lecteur)
+        self._pos = 0.0
+        self.setFixedHeight(theme.px(SCROLL_H))
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+
+    @property
+    def has_data(self) -> bool:
+        return bool(self._detail)
+
+    def set_data(self, detail: List[Tuple[float, str]], beats: List[Tuple[int, int, int]]) -> None:
+        self._detail, self._beats = detail, beats
+        self.update()
+
+    def set_running(self, running: bool) -> None:
+        if running and self.isVisible() and self._detail:
+            if not self._timer.isActive():
+                self._timer.start(33)                      # ~30 images/s pendant la lecture
+        else:
+            self._timer.stop()
+            self._advance()
+
+    def _advance(self) -> None:
+        try:
+            self._pos = float(self._position())
+        except Exception:  # noqa: BLE001
+            return
+        self.update()
+
+    def paintEvent(self, _e: Any) -> None:          # noqa: N802
+        w, h = self.width(), self.height()
+        if w < 8:
+            return
+        p = QPainter(self)
+        p.fillRect(0, 0, w, h, QColor(theme.mix(theme.SURFACE, "#000000", 0.35)))
+        if self._detail:
+            span = SCROLL_SECONDS * self.RATE                # colonnes visibles
+            start = self._pos * self.RATE - span / 2
+            per_px = span / w
+            mid = h / 2
+            n = len(self._detail)
+            for x in range(w):
+                a = int(start + x * per_px)
+                b = int(start + (x + 1) * per_px)
+                if b <= 0 or a >= n:
+                    continue
+                a, b = max(0, a), min(n, max(a + 1, b))
+                v, color = max(self._detail[a:b], key=lambda d: d[0])
+                half = max(1.0, v * (h / 2 - 2))
+                p.fillRect(x, int(mid - half), 1, max(1, int(2 * half)), QColor(color))
+            t0 = self._pos - SCROLL_SECONDS / 2
+            for n_beat, _tempo, ms in self._beats:
+                tx = (ms / 1000.0 - t0) / SCROLL_SECONDS * w
+                if 0 <= tx < w:
+                    bar = n_beat == 1
+                    p.fillRect(int(tx), 0, 1, theme.px(7 if bar else 4),
+                               QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
+                    p.fillRect(int(tx), h - theme.px(7 if bar else 4), 1, theme.px(7 if bar else 4),
+                               QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
+        cx = w // 2
+        p.fillRect(cx - theme.px(1), 0, max(2, theme.px(2)), h, QColor(theme.ACCENT))
+        p.end()
+
+
 class WaveformBar(QWidget):
     """Mini forme d'onde (aperçu ANLZ) : partie lue en couleur d'accent ; clic/glisser = position."""
 
@@ -111,7 +189,12 @@ class PlayerBar(QWidget):
         outer = hbox(self)
         box = panel(role="bar")
         outer.addWidget(box)
-        row = hbox(box, margins=theme.px(8), spacing=theme.px(10))
+        col = vbox(box, margins=theme.px(8), spacing=theme.px(6))
+        self.scroll_wave = ScrollingWave(lambda: min(self.player.position(), self.player.duration or 1e9))
+        self.scroll_wave.hide()
+        col.addWidget(self.scroll_wave)
+        row = hbox(spacing=theme.px(10))
+        col.addLayout(row)
 
         # ---- gauche : pochette + titre + tonalité/BPM
         self.cover = QLabel()
@@ -328,6 +411,9 @@ class PlayerBar(QWidget):
 
     def _refresh_state(self, state: str) -> None:
         playing = state == PLAYING
+        self.scroll_wave.set_running(playing)
+        if state == STOPPED:
+            self.scroll_wave.hide()
         self.play_btn.setIcon(qicon("pause" if playing else "play", 18, theme.ON_ACCENT))
         if not hasattr(self, "_spin_timer"):
             self._spin = 0
@@ -371,6 +457,7 @@ class PlayerBar(QWidget):
         token = self._wave_token
         if track is None or not track.analysis_path:
             self._use_wave(False)
+            self._use_scroll(None)
             return
 
         def show(data: list) -> None:
@@ -381,9 +468,25 @@ class PlayerBar(QWidget):
 
         self.ctrl.load_overview(track, show)
 
+        def show_detail(data: Any) -> None:
+            if token != self._wave_token or not self.winfo_exists():
+                return
+            self._use_scroll(data)
+
+        if getattr(self.ctrl.settings, "scrolling_wave", True):
+            self.ctrl.load_detail(track, show_detail)
+        else:
+            self._use_scroll(None)
+
     def _use_wave(self, on: bool) -> None:
         self.wave.setVisible(on)
         self.seek.setVisible(not on)
+
+    def _use_scroll(self, data: Any) -> None:
+        detail, beats = data if data else ([], [])
+        self.scroll_wave.set_data(detail, beats)
+        self.scroll_wave.setVisible(bool(detail))
+        self.scroll_wave.set_running(self.player.state == PLAYING)
 
     @staticmethod
     def _cover_ref(meta: NowPlaying) -> Optional[CoverRef]:
@@ -410,6 +513,7 @@ class PlayerBar(QWidget):
     def on_scale(self) -> None:
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
+        self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 
@@ -422,3 +526,5 @@ class PlayerBar(QWidget):
             self.seek.setValue(int(ratio * 1000))
             self.wave.set_ratio(ratio)
             self.elapsed.setText(format_duration(int(pos)))
+            if self.player.state == PAUSED and self.scroll_wave.isVisible():
+                self.scroll_wave._advance()

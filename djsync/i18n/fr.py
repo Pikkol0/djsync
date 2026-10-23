@@ -906,4 +906,6 @@ STRINGS = {
     "err_report.mode_ask": "Demander à chaque fois",
     "err_report.mode_always": "Toujours envoyer",
     "err_report.mode_never": "Ne jamais envoyer",
+    "settings.scrolling_wave": "Forme d'onde défilante dans le lecteur (tête de lecture au centre)",
+    "settings.scrolling_wave_tip": "Pour les sons analysés : la forme d'onde détaillée défile sous une tête de lecture fixe, comme dans Rekordbox. S'applique au prochain son lu.",
 }

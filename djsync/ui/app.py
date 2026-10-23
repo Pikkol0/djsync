@@ -570,6 +570,28 @@ class DJSyncApp(QMainWindow):
             page.deleteLater()
         self.show_view(getattr(self, "_uni_return", None) or "library")
 
+    # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages
+    def open_dialog_page(self, page: QWidget) -> None:
+        returns = self.__dict__.setdefault("_page_returns", {})
+        for i in reversed(range(self.stack.count())):            # une seule page de chaque sorte
+            old = self.stack.widget(i)
+            if old is not page and type(old) is type(page):
+                returns.pop(id(old), None)
+                old._host = None                                  # type: ignore[attr-defined]
+                self.stack.removeWidget(old)
+                old.close()
+        returns[id(page)] = self._current or "home"
+        self.stack.addWidget(page)
+        self._show_page(page)
+
+    def close_dialog_page(self, page: QWidget) -> None:
+        back = self.__dict__.setdefault("_page_returns", {}).pop(id(page), None) or "home"
+        try:
+            self.stack.removeWidget(page)
+        except RuntimeError:
+            pass
+        self.show_view(back)
+
     def _show_page(self, page: QWidget) -> None:
         for b in self._nav.values():
             b.setChecked(False)

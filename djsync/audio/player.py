@@ -30,6 +30,9 @@ RATE = 44100
 CHANNELS = 2
 FRAME_BYTES = 2 * CHANNELS                 # s16 stéréo
 _AHEAD = RATE * 2                          # trames décodées d'avance
+# 1.2.3 : réserve de la carte son. À 60 ms, ouvrir une fenêtre (interface occupée, le fil audio
+# Python attend) la vidait : macOS rejouait alors le dernier bloc (« rollback » entendu en préécoute).
+BUFFER_MS = 200
 _NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 
 STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
@@ -244,7 +247,7 @@ class AudioPlayer:
 
             backends = [miniaudio.Backend.NULL] if os.environ.get("DJSYNC_AUDIO_NULL") else None
             device = miniaudio.PlaybackDevice(miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
-                                              buffersize_msec=60, backends=backends, app_name="DJSync")
+                                              buffersize_msec=BUFFER_MS, backends=backends, app_name="DJSync")
             pump = self._pump()
             next(pump)
             device.start(pump)
