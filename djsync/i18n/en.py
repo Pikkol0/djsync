@@ -726,7 +726,7 @@ STRINGS = {
     "about.title": "DJSync",
     "about.hint": "Version, updates, license and credits.",
     "about.version": "Version {version}",
-    "about.credits": "DJSync is free software (GPL-3.0), made by Stefan (Pikkol0). Thanks to the beta testers for their reports, and to the projects it is built on: FFmpeg, yt-dlp, Qt (PySide6), pyrekordbox, mutagen, NumPy and others listed in the third-party notices.",
+    "about.credits": "DJSync is free software (GPL-3.0), made by Pikkol0. Thanks to the beta testers for their reports, and to the projects it is built on: FFmpeg, yt-dlp, Qt (PySide6), pyrekordbox, mutagen, NumPy and others listed in the third-party notices.",
     "about.github": "DJSync on GitHub",
     "about.license": "License",
     "about.third_party": "Third-party components",

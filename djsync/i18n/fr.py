@@ -733,7 +733,7 @@ STRINGS = {
     "about.title": "DJSync",
     "about.hint": "Version, mises à jour, licence et remerciements.",
     "about.version": "Version {version}",
-    "about.credits": "DJSync est un logiciel libre (GPL-3.0), créé par Stefan (Pikkol0). Merci aux testeurs de la bêta pour leurs retours, et aux projets sur lesquels il repose : FFmpeg, yt-dlp, Qt (PySide6), pyrekordbox, mutagen, NumPy et les autres listés dans les composants tiers.",
+    "about.credits": "DJSync est un logiciel libre (GPL-3.0), créé par Pikkol0. Merci aux testeurs de la bêta pour leurs retours, et aux projets sur lesquels il repose : FFmpeg, yt-dlp, Qt (PySide6), pyrekordbox, mutagen, NumPy et les autres listés dans les composants tiers.",
     "about.github": "DJSync sur GitHub",
     "about.license": "Licence",
     "about.third_party": "Composants tiers",
