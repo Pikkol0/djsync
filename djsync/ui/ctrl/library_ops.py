@@ -514,19 +514,61 @@ class LibraryOpsMixin:
         msg = t("msg.cues_saved") if beats is None else t("msg.grid_saved")
         self._write(work, ok, msg, fail)
 
+    def _carry_cues(self, lib: Any, src_id: int, dst_id: int) -> Any:
+        """1.3.0 (C13) : cues de `src_id` recalés sur `dst_id` (voir core.duplicates.carry_cues)."""
+        from ...core.duplicates import carry_cues
+
+        return carry_cues(lib, src_id, dst_id, lambda x: self._fingerprint(lib, x))
+
     # -------------------------------------------------------------- doublons, métadonnées
-    def find_duplicates(self, ok: Callable[[List[List[LibraryTrack]]], None]) -> None:
+    def find_duplicates(self, ok: Callable[[List[List[LibraryTrack]]], None],
+                        progress: Optional[Callable[[int, int], None]] = None) -> None:
         lib = self.library
         if lib is None:
             ok([])
             return
 
         def work() -> List[List[LibraryTrack]]:
-            from ...core.duplicates import find_duplicate_groups
+            from ...core.duplicates import find_duplicate_groups, refine_by_audio
 
-            return find_duplicate_groups(lib.list_tracks())
+            groups = find_duplicate_groups(lib.list_tracks())
+            if not groups or not getattr(self.settings, "audio_duplicates", True):
+                self.duplicate_matches = {}
+                return groups
+            # 1.3.0 (B02) : le titre propose, le son décide
+            report = (lambda i, n: self.dispatcher.post(progress, i, n)) if progress else None
+            groups, self.duplicate_matches = refine_by_audio(groups, lambda x: self._fingerprint(lib, x), report)
+            return groups
 
-        self.dispatcher.submit(work, ok, self._on_error, pool="db")
+        self.dispatcher.submit(work, ok, self._on_error, pool="match")
+
+    def _fingerprint(self, lib: Any, track: LibraryTrack) -> Any:
+        from ...analysis.fingerprint import file_fingerprint
+        from ...settings import settings_dir
+
+        try:
+            return file_fingerprint(lib.absolute_path(track), self.settings.ffmpeg_location or None,
+                                    settings_dir() / "cache" / "fp")
+        except Exception as exc:  # noqa: BLE001 - illisible : le son reste dans son groupe, sans verdict
+            log.info("No fingerprint for %s: %s", track.title, exc)
+            return None
+
+    def load_group_cues(self, tracks: Sequence[LibraryTrack], ok: Callback) -> None:
+        """1.3.0 (C13) : {content_id: [cues]} des versions d'un groupe de doublons ([] si non analysé)."""
+        lib = self.library
+        if lib is None:
+            return
+
+        def work() -> Dict[int, List[Any]]:
+            out: Dict[int, List[Any]] = {}
+            for x in tracks:
+                try:
+                    out[x.content_id] = list(lib.track_cues(x.content_id))
+                except Exception:  # noqa: BLE001 - pas analysé
+                    out[x.content_id] = []
+            return out
+
+        self.dispatcher.submit(work, ok, lambda exc: ok({}), pool="db")
 
     def analysis_current_id(self) -> Optional[int]:
         """1.2.1 (C21) : son en cours d'analyse (le premier du lot pas encore traité), ou None."""
@@ -555,18 +597,31 @@ class LibraryOpsMixin:
 
     def resolve_duplicates(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
                            artist: Optional[str] = None, ok: Optional[Callback] = None,
-                           err: Optional[Callback] = None) -> None:
+                           err: Optional[Callback] = None, cues_from: Optional[int] = None) -> None:
         """Garde un son (titre/artiste éventuellement corrigés), supprime les autres de la clé."""
+        carried: Dict[str, int] = {}
+
         def run(lib: RekordboxUsbLibrary) -> Any:
+            moved = None
+            if cues_from is not None and int(cues_from) != int(keep_id):
+                moved = self._carry_cues(lib, int(cues_from), int(keep_id))       # avant la suppression
             with lib.batch():
                 if title is not None or artist is not None:
                     lib.update_track_metadata(keep_id, title, artist)
-                return lib.merge_duplicates(keep_id, remove_ids, delete_files=True)
+                result = lib.merge_duplicates(keep_id, remove_ids, delete_files=True)
+            if moved is not None:
+                cues, lost = moved
+                lib.save_track_cues(keep_id, cues)
+                carried.update(n=len(cues), lost=lost)
+            return result
 
         def done(result: Any) -> None:
             removed, failures = result
-            self.message("warn" if failures else "ok", plural("msg.duplicates_merged_one", "msg.duplicates_merged_many",
-                                                              removed))
+            text = plural("msg.duplicates_merged_one", "msg.duplicates_merged_many", removed)
+            if carried:
+                text += " " + (t("msg.cues_carried_lost", n=carried["n"], lost=carried["lost"]) if carried["lost"]
+                               else t("msg.cues_carried", n=carried["n"]))
+            self.message("warn" if failures or carried.get("lost") else "ok", text)
             if ok:
                 ok(result)
 

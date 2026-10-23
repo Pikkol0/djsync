@@ -113,8 +113,28 @@ class DiagnosticMixin:
         job.reanalyse = any(x.is_analysed for x in old)
         return job
 
+    def _carry_to_replacement(self, job: DownloadJob, lib: Any) -> Any:
+        """Hot cues de l'ancienne version (celle qui en a le plus) recalés sur le son téléchargé, qui est
+        d'abord analysé. None si rien à reporter ou impossible (l'utilisateur est prévenu)."""
+        counts = {cid: _hot_cue_count(lib, cid) for cid in job.replace_ids}
+        src = max(counts, key=counts.get) if counts else None
+        if src is None or not counts[src]:
+            return None
+        try:
+            from ...core.duplicates import carry_cues
+
+            if not lib.get_track(job.content_id).analysis_path:
+                lib.analyze_tracks([job.content_id])
+            return carry_cues(lib, src, job.content_id, lambda x: self._fingerprint(lib, x))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Hot cues not carried over to %s: %s", job.content_id, exc)
+            self.dispatcher.post(self.message, "warn", t("diag.cues_not_carried", title=job.track.title,
+                                                         detail=str(exc)[:160]))
+            return None
+
     def _finish_replace(self, job: DownloadJob, lib: Any) -> None:
         """Thread « dl », juste après l'ajout du nouveau son en base."""
+        carried = self._carry_to_replacement(job, lib)          # 1.3.0 (C13) : avant de supprimer l'ancien
         try:
             removed, failures = lib.merge_duplicates(job.content_id, job.replace_ids, delete_files=True)
         except Exception as exc:  # noqa: BLE001 - le nouveau son est bien là : on prévient, sans échec
@@ -123,9 +143,26 @@ class DiagnosticMixin:
                                                          detail=str(exc)[:200]))
             return
         log.info("Replaced %s by %s (%d removed, %d files kept)", job.replace_ids, job.content_id, removed, failures)
-        self.dispatcher.post(self.message, "ok", t("diag.replaced", title=job.track.title))
+        text = t("diag.replaced", title=job.track.title)
+        if carried is not None:
+            try:
+                lib.save_track_cues(job.content_id, carried[0])
+                text += " " + (t("msg.cues_carried_lost", n=len(carried[0]), lost=carried[1]) if carried[1]
+                               else t("msg.cues_carried", n=len(carried[0])))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Hot cues not written on %s: %s", job.content_id, exc)
+        self.dispatcher.post(self.message, "ok", text)
+        if carried is not None:
+            return                                                # déjà analysé pour recevoir les cues
         if job.reanalyse:
             self.dispatcher.post(lambda: self.library is lib and self.analyze([job.content_id]))
+
+
+def _hot_cue_count(lib: Any, cid: int) -> int:
+    try:
+        return sum(1 for c in lib.track_cues(cid) if c.slot)
+    except Exception:  # noqa: BLE001 - pas analysé
+        return 0
 
 
 def soundcloud_search(query: str, limit: int = 3) -> List[TrackResult]:

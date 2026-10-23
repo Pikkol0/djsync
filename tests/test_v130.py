@@ -243,3 +243,105 @@ def test_manual_search_ranks_by_text_and_duration(monkeypatch):
     monkeypatch.setattr(M, "_get", fake_get)
     got = M.search_candidates("mauvais djo charger", 200)
     assert [c["id"] for c in got][:2] == [2, 1] and got[-1]["id"] == 3
+
+
+# ============================================================================ B02 / C13 : par le son
+def _fp_of(y):
+    from djsync.analysis.fingerprint import fingerprint
+    from tests.audio_fixture import SR
+
+    return fingerprint(y.astype("float32"), SR)
+
+
+def test_fingerprint_same_shifted_variant_and_different(tmp_path):
+    import numpy as np
+
+    from djsync.analysis.fingerprint import compare, file_fingerprint, is_usable
+    from tests.audio_fixture import HAS_FFMPEG, SR, song, write_m4a, write_wav
+
+    a = song(124.0, 0.42, 60, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    shifted = np.concatenate([np.zeros(int(1.5 * SR)), a * 0.8])
+    other = song(97.0, 0.1, 60, ("D", "G", "E", "A"), (0, 0, 1, 0))
+    variant = np.concatenate([a[:int(30 * SR)], other[:int(30 * SR)]])
+    fa = _fp_of(a)
+    m = compare(fa, _fp_of(shifted), 60, 61.5)
+    assert m.verdict == "same" and abs(m.shift_ms - 1500) < 60
+    assert compare(fa, _fp_of(other), 60, 60).verdict == "different"
+    assert compare(fa, _fp_of(variant), 60, 60).verdict == "variant"
+    assert not is_usable(_fp_of(np.zeros(SR * 30))) and not is_usable(None)
+    if HAS_FFMPEG:                                   # m4a (AAC) contre wav : même son
+        m4a = write_m4a(tmp_path / "a.m4a", a)
+        wav = write_wav(tmp_path / "b.wav", shifted)
+        cache = tmp_path / "fp"
+        got = compare(file_fingerprint(m4a, cache_dir=cache), file_fingerprint(wav, cache_dir=cache), 60, 61.5)
+        assert got.verdict == "same" and abs(got.shift_ms - 1500) < 120
+        assert len(list(cache.glob("*.npy"))) == 2
+
+
+def test_refine_groups_by_audio_and_shift_cues():
+    from types import SimpleNamespace as N
+
+    import numpy as np
+
+    from djsync.analysis.cues import Cue
+    from djsync.core.duplicates import refine_by_audio, shift_cues
+    from tests.audio_fixture import SR, song
+
+    a = song(124.0, 0.42, 40, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    b = np.concatenate([np.zeros(SR), a])
+    c = song(140.0, 0.2, 40, ("D", "G", "E", "A"), (0, 0, 1, 0))
+    tracks = [N(content_id=1, title="Afro Trap Pt. 3", artist="MHD", duration_seconds=40, is_analysed=True,
+                artwork_path="x"),
+              N(content_id=2, title="Afro Trap Pt. 3 (Clip)", artist="MHD", duration_seconds=41, is_analysed=False,
+                artwork_path=None),
+              N(content_id=3, title="Afro Trap Pt. 7", artist="MHD", duration_seconds=40, is_analysed=False,
+                artwork_path=None),
+              N(content_id=4, title="Afro Trap Pt. 8", artist="MHD", duration_seconds=3, is_analysed=False,
+                artwork_path=None)]
+    audio = {1: _fp_of(a), 2: _fp_of(b), 3: _fp_of(c), 4: None}
+    seen = []
+    groups, matches = refine_by_audio([tracks], lambda x: audio[x.content_id], lambda i, n: seen.append((i, n)))
+    assert [[x.content_id for x in g] for g in groups] == [[1, 2, 4]]          # Pt. 7 sort du groupe
+    assert matches[1] == "reference" and matches[2].verdict == "same" and matches[4] is None
+    assert seen[-1] == (4, 4)
+    cues = [Cue(1, 500), Cue(2, 39_500), Cue(3, 10_000, 12_000, 4)]
+    moved, lost = shift_cues(cues, matches[2].shift_ms, 41_000)
+    assert lost == 0 and abs(moved[0].ms - 1500) < 60 and moved[2].loop_ms - moved[2].ms == 2000
+    moved, lost = shift_cues(cues, -1000, 40_000)
+    assert lost == 1 and [c.slot for c in moved] == [2, 3]
+
+
+def test_merge_carries_hot_cues_to_the_kept_version(tmp_path):
+    from tests.audio_fixture import HAS_FFMPEG
+
+    if not HAS_FFMPEG:
+        pytest.skip("FFmpeg absent")
+    import numpy as np
+
+    from djsync.analysis.cues import Cue
+    from djsync.analysis.fingerprint import file_fingerprint
+    from djsync.core.duplicates import carry_cues
+    from djsync.db import RekordboxUsbLibrary, drive_from_letter
+    from tests.audio_fixture import SR, song, write_wav
+    from tests.test_usb_library import usb as make_usb
+    from tests.test_v050 import _add_cue_table
+
+    root = make_usb.__wrapped__(tmp_path) if hasattr(make_usb, "__wrapped__") else None
+    if root is None:
+        pytest.skip("fixture not callable")
+    _add_cue_table(root)
+    a = song(124.0, 0.42, 45, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    with RekordboxUsbLibrary(drive_from_letter(str(root)), analyze=True) as lib:
+        d = lib.default_download_dir("DJ")
+        d.mkdir(parents=True, exist_ok=True)
+        src = lib.add_track(write_wav(d / "a.wav", a), "Song (Clip)", "DJ")
+        dst = lib.add_track(write_wav(d / "b.wav", np.concatenate([np.zeros(int(2 * SR)), a])), "Song", "DJ")
+        lib.save_track_cues(src.content_id, [Cue(1, 4000, name="Drop"), Cue(2, 20000, 24000, 8), Cue(0, 4000)])
+        cues, lost = carry_cues(lib, src.content_id, dst.content_id,
+                                lambda x: file_fingerprint(lib.absolute_path(x), cache_dir=tmp_path / "fp"))
+        assert lost == 0 and abs(cues[0].ms - 6000) < 60 and cues[0].name == "Drop"
+        assert cues[1].loop_ms - cues[1].ms == 4000
+        lib.merge_duplicates(dst.content_id, [src.content_id])
+        lib.save_track_cues(dst.content_id, cues)
+        back = lib.track_cues(dst.content_id)
+        assert [c.slot for c in back] == [1, 2, 0] and abs(back[0].ms - 6000) < 60
