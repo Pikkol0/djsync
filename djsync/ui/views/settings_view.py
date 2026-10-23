@@ -344,6 +344,17 @@ class SettingsView(View):
         row.addWidget(self.channel_menu)
         row.addStretch(1)
         card.addLayout(row)
+        row = hbox()                                   # 1.2.3 : rapports d'erreur
+        row.addWidget(self._fixed(label(t("err_report.setting"))))
+        self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
+                               "never": t("err_report.mode_never")}
+        self.report_menu = QComboBox()
+        self.report_menu.addItems(list(self._report_labels.values()))
+        self.report_menu.setCurrentText(self._report_labels.get(s.error_reports, self._report_labels["ask"]))
+        self.report_menu.setToolTip(t("err_report.what"))
+        row.addWidget(self.report_menu)
+        row.addStretch(1)
+        card.addLayout(row)
         card.addWidget(label(t("about.credits"), "dim", wrap=True))
         row = hbox()
         row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
@@ -628,6 +639,7 @@ class SettingsView(View):
         s.check_updates = self.update_var.isChecked()
         s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
                                 "auto")
+        s.error_reports = next((k for k, v in self._report_labels.items() if v == self.report_menu.currentText()), "ask")
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
                                                                                             s.local_music_dir)

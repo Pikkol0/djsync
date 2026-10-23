@@ -96,6 +96,8 @@ class Settings:
     feedback_id: str = ""              # onglet Retours : identifiant aléatoire (limites d'envoi)
     # ---- 1.2.2
     genre_playlists: dict = field(default_factory=dict)   # {bibliothèque: config des playlists par genre}
+    # ---- 1.2.3
+    error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 
@@ -133,6 +135,7 @@ class Settings:
             self.settings_version = 1
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
+        self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"
         self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
         self.playlist_sorts = dict(list(self.playlist_sorts.items())[-500:]) if isinstance(self.playlist_sorts, dict) else {}
         self.search_field = self.search_field if self.search_field in ("all", "title", "artist", "album") else "all"
