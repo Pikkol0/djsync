@@ -456,7 +456,12 @@ class LibraryOpsMixin:
                 detail = read_detail(ext.read_bytes()) if ext.is_file() else []
             except (OSError, ValueError):
                 detail = []
-            return {"grid": grid, "detail": detail}
+            try:                                       # 1.3.0 (C22) : hot cues, boucles et mémoires
+                cues = list(lib.track_cues(content_id))
+            except Exception as exc:  # noqa: BLE001 - la grille reste éditable sans les cues
+                log.info("Cues not read for %s: %s", content_id, exc)
+                cues = []
+            return {"grid": grid, "detail": detail, "cues": cues}
 
         self.dispatcher.submit(work, ok, err or self._on_error, pool="db")
 
@@ -489,6 +494,25 @@ class LibraryOpsMixin:
                 err(exc)
 
         self._write(lambda lib: lib.save_beat_grid(content_id, beats), ok, t("msg.grid_saved"), fail)
+
+    def save_grid_and_cues(self, content_id: int, beats: Optional[Sequence[Any]], cues: Optional[Sequence[Any]],
+                           ok: Optional[Callback] = None, err: Optional[Callback] = None) -> None:
+        """1.3.0 (C22) : enregistre la grille et / ou les cues de la page « Grille et cues » (None = inchangé)."""
+        def fail(exc: BaseException) -> None:
+            self._on_error(exc)
+            if err:
+                err(exc)
+
+        def work(lib: Any) -> Any:
+            out = None
+            if beats is not None:
+                out = lib.save_beat_grid(content_id, beats)
+            if cues is not None:
+                out = lib.save_track_cues(content_id, cues)
+            return out
+
+        msg = t("msg.cues_saved") if beats is None else t("msg.grid_saved")
+        self._write(work, ok, msg, fail)
 
     # -------------------------------------------------------------- doublons, métadonnées
     def find_duplicates(self, ok: Callable[[List[List[LibraryTrack]]], None]) -> None:

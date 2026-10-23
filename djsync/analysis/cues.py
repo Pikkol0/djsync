@@ -245,7 +245,56 @@ def loop_beats_for(start_ms: int, end_ms: int, bpm: float) -> int:
     return max(1, int(round((end_ms - start_ms) / 60000.0 * bpm)))
 
 
-__all__ = ["Cue", "SLOTS", "PALETTE", "read_cues", "write_cues", "pcob", "pco2", "loop_beats_for"]
+# ------------------------------------------------------------- master.db (ordinateur)
+# djmdCue.Kind : 0 = mémoire, A-C = 1-3, D-H = 5-9 (4 n'est pas utilisé par Rekordbox).
+KIND_FOR_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9}
+SLOT_FOR_KIND = {v: k for k, v in KIND_FOR_SLOT.items()}
+
+
+# --------------------------------------------------------- édition (page Grille et cues)
+def nearest_beat_ms(beats: Sequence[Tuple[int, int, int]], ms: float) -> int:
+    """Position du temps de la grille le plus proche (calage des cues)."""
+    if not beats:
+        return int(round(ms))
+    return int(min(beats, key=lambda b: abs(b[2] - ms))[2])
+
+
+def loop_end_ms(beats: Sequence[Tuple[int, int, int]], start_ms: int, n_beats: int) -> int:
+    """Fin d'une boucle de `n_beats` temps qui commence à `start_ms`, calée sur la grille ; au-delà du
+    dernier temps, on prolonge au tempo du dernier temps."""
+    n_beats = max(1, int(n_beats))
+    if not beats:
+        return start_ms + n_beats * 500
+    i = min(range(len(beats)), key=lambda k: abs(beats[k][2] - start_ms))
+    j = i + n_beats
+    if j < len(beats):
+        return int(beats[j][2] - beats[i][2] + start_ms)
+    tempo = beats[-1][1] / 100.0 or 120.0
+    return int(round(start_ms + n_beats * 60000.0 / tempo))
+
+
+def suggest_cues(beats: Sequence[Tuple[int, int, int]], existing: Sequence[Cue], every_bars: int = 32,
+                 limit: int = 8) -> List[Cue]:
+    """« Proposer des cues » : A au premier temps fort, puis un pad toutes les `every_bars` mesures, sur
+    les pads encore libres seulement (les cues existants ne sont jamais déplacés)."""
+    bars = [b[2] for b in beats if b[0] == 1]
+    if not bars:
+        return []
+    taken = {c.slot for c in existing if c.slot}
+    used_ms = {c.ms for c in existing if c.slot}
+    free = [s for s in range(1, limit + 1) if s not in taken]
+    out: List[Cue] = []
+    for ms in bars[::max(1, every_bars)]:
+        if not free:
+            break
+        if ms in used_ms:
+            continue
+        out.append(Cue(free.pop(0), int(ms)))
+    return out
+
+
+__all__ = ["Cue", "SLOTS", "PALETTE", "read_cues", "write_cues", "pcob", "pco2", "loop_beats_for",
+           "nearest_beat_ms", "loop_end_ms", "suggest_cues", "KIND_FOR_SLOT", "SLOT_FOR_KIND"]
 
 
 def save_to_files(dat_path, cues: Sequence[Cue], backup_dir) -> None:

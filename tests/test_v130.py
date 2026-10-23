@@ -120,3 +120,59 @@ def test_write_and_read_cues_roundtrip(tmp_path):
     anlz.write_files(tmp_path, "/Contents/a.m4a", [(1, 12000, 500), (2, 12000, 1000)], wf, rel_dir=rel[:-14],
                      memory_cues=[500])
     assert len(read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())) == 5
+
+
+def test_cue_editing_helpers():
+    from djsync.analysis.cues import Cue, loop_end_ms, nearest_beat_ms, suggest_cues
+
+    beats = [((i % 4) + 1, 12000, 1000 + i * 500) for i in range(400)]        # 120 BPM, mesure tous les 2 s
+    assert nearest_beat_ms(beats, 1240) == 1000 and nearest_beat_ms(beats, 1260) == 1500
+    assert loop_end_ms(beats, 1000, 4) == 3000
+    assert loop_end_ms(beats, beats[-1][2], 2) == beats[-1][2] + 1000          # au-delà : au tempo du dernier temps
+    got = suggest_cues(beats, [Cue(1, 5000), Cue(0, 1000)])
+    assert [c.slot for c in got] == [2, 3, 4, 5] and got[0].ms == 1000            # A déjà pris : pads libres seulement
+    assert [c.ms for c in got] == [1000 + k * 32 * 2000 for k in range(4)]
+    full = [Cue(s, s * 100) for s in range(1, 9)]
+    assert suggest_cues(beats, full) == []
+
+
+def test_master_db_kind_mapping():
+    from djsync.analysis.cues import KIND_FOR_SLOT, SLOT_FOR_KIND
+
+    assert [KIND_FOR_SLOT[s] for s in range(9)] == [0, 1, 2, 3, 5, 6, 7, 8, 9]
+    assert SLOT_FOR_KIND[5] == 4 and 4 not in SLOT_FOR_KIND
+
+
+def test_local_library_cues_roundtrip(tmp_path, monkeypatch):
+    pytest.importorskip("pyrekordbox")
+    import shutil
+
+    from djsync.analysis.cues import Cue
+    from djsync.db import local_library as L
+
+    db_dir = tmp_path / "Pioneer" / "rekordbox"
+    db_dir.mkdir(parents=True)
+    data = Path(__file__).parent / "data" / "rekordbox6"
+    for f in data.glob("*"):
+        if f.suffix != ".md":
+            shutil.copy(f, db_dir / f.name)
+    monkeypatch.setattr(L, "rekordbox_running", lambda: False)
+    lib = L.LocalRekordboxLibrary(L.LocalRekordbox(db_dir, tmp_path / "Music"), backup_root=tmp_path / "bk",
+                                  owned_path=tmp_path / "owned.json").connect()
+    try:
+        cid = lib.list_tracks()[0].content_id
+        assert lib.track_cues(cid) == []
+        cues = [Cue(1, 500, name="Intro"), Cue(5, 9000, 11000, 4, color_code=56, rgb=(0xB3, 0, 0xFF)), Cue(0, 500)]
+        lib.save_track_cues(cid, cues)
+        back = lib.track_cues(cid)
+        assert [(c.slot, c.ms, c.loop_ms, c.loop_beats, c.name, c.color_code) for c in back] == \
+            [(1, 500, None, 0, "Intro", 0), (5, 9000, 11000, 4, "", 56), (0, 500, None, 0, "", 0)]
+        kinds = sorted(int(k) for (k,) in lib._read("SELECT Kind FROM djmdCue WHERE ContentID = :i", {"i": str(cid)}))
+        assert kinds == [0, 1, 6]                                          # E = Kind 6 dans master.db
+        assert lib._read("SELECT rb_cue_count FROM contentCue WHERE ContentID = :i", {"i": str(cid)})[0][0] == 3
+        lib.save_track_cues(cid, [])                                       # tout effacer
+        assert lib.track_cues(cid) == []
+        with pytest.raises(Exception):
+            lib.save_track_cues(cid, [Cue(1, 0), Cue(1, 500)])            # deux cues sur un même pad
+    finally:
+        lib.close()
