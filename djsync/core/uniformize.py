@@ -67,9 +67,27 @@ def looks_like_channel(name: str) -> bool:
     return bool(_AGGREGATOR.search(name or ""))
 
 
+# 1.3.0 (C25) : identifiant de vidéo YouTube resté dans le titre (« Charger [Om_gqUBQzll] »)
+_YT_ID = re.compile(r"\s*[\[\(]([A-Za-z0-9_-]{11})[\]\)]")
+
+
+def _is_video_id(text: str) -> bool:
+    """11 caractères de l'alphabet des identifiants YouTube, avec un chiffre, « _ », « - » ou une majuscule
+    au milieu : « Om_gqUBQzll » oui, « Instrumentl » ou « Remastered1 »… non s'il s'agit d'un mot."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", text):
+        return False
+    if re.search(r"[0-9_-]", text):
+        return not re.fullmatch(r"[A-Za-z]+[0-9]{1,4}", text)          # « Remastered1 » : un mot
+    return bool(re.search(r"[A-Z]", text[1:])) and bool(re.search(r"[a-z]", text))
+
+
+def strip_video_id(title: str) -> str:
+    return _YT_ID.sub(lambda m: "" if _is_video_id(m.group(1)) else m.group(0), title or "").strip()
+
+
 def clean_title(title: str, artist: str = "") -> Tuple[str, List[str], str]:
     """(titre propre, invités trouvés, artiste lu en tête du titre ou "")."""
-    text = (title or "").strip()
+    text = strip_video_id((title or "").strip())
     feats: List[str] = []
 
     def take_feat(m: "re.Match[str]") -> str:
@@ -245,3 +263,17 @@ class ReviewStore:
             tmp.replace(self.path)
         except OSError:
             pass
+
+
+def needs_review(track: Any) -> bool:
+    """1.3.0 (C25) : son « à problèmes » (portée de l'outil depuis l'Accueil) : artiste vide ou nom de
+    chaîne, titre avec du bruit (identifiant YouTube, « Official Video », « Artiste - Titre », feat.),
+    ou pas de pochette."""
+    title = track.title or ""
+    artist = track.artist or ""
+    if not artist.strip() or looks_like_channel(artist) or clean_artist(artist) != artist:
+        return True
+    cleaned, feats, head = clean_title(title, artist)
+    if cleaned != title.strip() or feats or head:
+        return True
+    return not getattr(track, "artwork_path", None)

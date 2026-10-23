@@ -176,3 +176,70 @@ def test_local_library_cues_roundtrip(tmp_path, monkeypatch):
             lib.save_track_cues(cid, [Cue(1, 0), Cue(1, 500)])            # deux cues sur un même pad
     finally:
         lib.close()
+
+
+# ============================================================================ C25 : Uniformiser v2
+def test_video_id_removed_from_titles():
+    from djsync.core.uniformize import clean_title, needs_review, strip_video_id
+
+    assert clean_title("Charger (feat. MC YOSHI, Mauvais djo & Kokosvoice) [Om_gqUBQzll]")[:2] == \
+        ("Charger", ["MC YOSHI", "Mauvais djo", "Kokosvoice"])
+    assert strip_video_id("X (dQw4w9WgXcQ)") == "X"
+    for keep in ("Y [Instrumental]", "Song [Remastered1]", "Z (Extended Mix)"):
+        assert strip_video_id(keep) == keep
+    from types import SimpleNamespace as N
+    assert needs_review(N(title="Charger [Om_gqUBQzll]", artist="", artwork_path="a.jpg"))
+    assert needs_review(N(title="Slow", artist="DANNTZ!", artwork_path=None))              # pas de pochette
+    assert not needs_review(N(title="Slow", artist="DANNTZ!", artwork_path="a.jpg"))
+
+
+def test_deezer_cascade_uses_guests_and_duration(monkeypatch):
+    from djsync.core import metadata as M
+
+    calls = []
+
+    def hit(i, title, artist, dur):
+        return {"id": i, "title": title, "artist": {"name": artist}, "duration": dur, "album": {"title": "A", "id": 0}}
+
+    def fake_get(path, params=None):
+        if path == "/search":
+            q = params["q"]
+            calls.append(q)
+            if q == 'artist:"Mauvais djo" track:"Charger"':
+                return {"data": [hit(7, "Charger", "Mauvais djo", 200)]}
+            return {"data": []}
+        if path.startswith("/track/"):
+            return {"title": "Charger", "artist": {"name": "Mauvais djo"},
+                    "contributors": [{"name": "Mauvais djo"}, {"name": "MC YOSHI"}], "album": {}}
+        return {}
+
+    monkeypatch.setattr(M, "_get", fake_get)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    out = M.match("Charger", "MC YOSHI, Mauvais djo, Kokosvoice", 201, cleaned=True)
+    assert out["sure"] and out["artists"] == ["Mauvais djo", "MC YOSHI"] and out["candidates"][0]["id"] == 7
+    assert calls.index('artist:"Mauvais djo" track:"Charger"') == 2                # 3e essai, puis arrêt
+    assert len(calls) == 3
+
+    # titre seul : jamais « sûr », et la durée doit coller à ± 3 s
+    def title_only(path, params=None):
+        if path == "/search":
+            return {"data": [hit(1, "Namba Namba", "Zola", 180), hit(2, "Namba Namba", "Other", 260)]}
+        return {"title": "Namba Namba", "artist": {"name": "Zola"}, "album": {}}
+
+    monkeypatch.setattr(M, "_get", title_only)
+    got = M.match("Namba Namba (2015 Revisit)", "", 181, cleaned=True)
+    assert got["id"] == 1 and not got["sure"] and got["score"] < M.SURE
+    assert M.match("Namba Namba", "", 220, cleaned=True) == {}
+
+
+def test_manual_search_ranks_by_text_and_duration(monkeypatch):
+    from djsync.core import metadata as M
+
+    def fake_get(path, params=None):
+        return {"data": [{"id": 1, "title": "Charger", "artist": {"name": "Mauvais djo"}, "duration": 300},
+                         {"id": 2, "title": "Charger", "artist": {"name": "Mauvais djo"}, "duration": 201},
+                         {"id": 3, "title": "Other", "artist": {"name": "X"}, "duration": 201}]}
+
+    monkeypatch.setattr(M, "_get", fake_get)
+    got = M.search_candidates("mauvais djo charger", 200)
+    assert [c["id"] for c in got][:2] == [2, 1] and got[-1]["id"] == 3
