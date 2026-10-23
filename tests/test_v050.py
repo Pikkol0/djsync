@@ -81,13 +81,17 @@ def test_usb_memory_cue_on_first_downbeat(usb_lib):
     t = usb_lib.add_track(path, "Cue me", "Art")
     dat = usb_lib.drive.root / t.analysis_path.lstrip("/")
     cues = read_memory_cues(dat.read_bytes())
-    assert len(cues) == 1 and cues == read_memory_cues(dat.with_suffix(".EXT").read_bytes())
-    rows = usb_lib._read("SELECT kind, inUsec, in150FramePerSec, outUsec FROM cue WHERE content_id = ?", (t.content_id,))
-    assert rows == [(0, cues[0] * 1000, cues[0] * 150 // 1000, -1)]
+    assert len(cues) == 1
+    from djsync.analysis.cues import read_cues
+
+    ext_cues = read_cues(None, dat.with_suffix(".EXT").read_bytes())          # 1.3.0 : liste étendue du .EXT
+    assert [c.ms for c in ext_cues] == cues and not ext_cues[0].slot
+    # 1.3.0 : comme Rekordbox, rien dans la table `cue` de exportLibrary.db
+    assert usb_lib._read("SELECT 1 FROM cue WHERE content_id = ?", (t.content_id,)) == []
     beats = __import__("djsync.analysis.anlz", fromlist=["read_beats"]).read_beats(dat.read_bytes())
     assert cues[0] == next(ms for n, _t, ms in beats if n == 1)        # premier temps fort de la grille
-    usb_lib.analyze_track(t.content_id, force=True)                      # réanalyse : pas de 2e cue en base
-    assert len(usb_lib._read("SELECT 1 FROM cue WHERE content_id = ?", (t.content_id,))) == 1
+    usb_lib.analyze_track(t.content_id, force=True)                      # réanalyse : la mémoire est gardée
+    assert read_memory_cues(dat.read_bytes()) == cues
 
 
 def test_local_memory_cue_rows(local):

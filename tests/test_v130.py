@@ -77,3 +77,46 @@ def test_pdb_compare_finds_dangling_entries(tmp_path):
     struct.pack_into("<I", f.data, f.page(p).base + off + 4, 999)          # son inexistant
     bad = compare.anomalies(f)
     assert any("missing tracks" in b for b in bad)
+
+
+# ============================================================================ C22 : cues dans les ANLZ
+def test_cue_lists_written_like_rekordbox():
+    import struct
+
+    from djsync.analysis.cues import Cue, pcob, pco2, read_cues
+
+    mem = [Cue(0, 410), Cue(0, 43733, name="train"), Cue(0, 107749, 118095, 16)]
+    raw = pcob(0, mem)
+    kind, _u, n, last = struct.unpack(">IHHi", raw[12:24])
+    assert (kind, n, last) == (0, 3, 2)
+    first = raw[24:24 + 56]
+    assert first[:4] == b"PCPT" and struct.unpack(">HH", first[24:28]) == (0xFFFF, 1)     # liste chaînée
+    assert struct.unpack(">I", first[16:20])[0] == 0                                         # status 0
+    hot = pcob(1, [Cue(1, 410), Cue(3, 43733)])
+    assert struct.unpack(">i", hot[20:24])[0] == -1
+    ext2 = pco2(1, [Cue(2, 34034, name="drop", color_code=60, rgb=(77, 0, 255))])
+    assert len(ext2) == 20 + 98                                                              # 88 + nom UTF-16
+    assert read_cues(None, b"PMAI" + struct.pack(">IIIIII", 0x1C, 0x1C + len(ext2), 1, 0x10000, 0x10000, 0) + ext2) \
+        [0].name == "drop"
+
+
+def test_write_and_read_cues_roundtrip(tmp_path):
+    from djsync.analysis import anlz
+    from djsync.analysis.cues import Cue, read_cues, save_to_files
+    from djsync.analysis.waveform import Waveforms
+
+    wf = Waveforms(detail=b"\x00" * 150, color_detail=b"\x00" * 300, preview=b"\x00" * 400,
+                   tiny_preview=b"\x00" * 100, color_preview=b"\x00" * 6 * 1200)
+    rel = anlz.write_files(tmp_path, "/Contents/a.m4a", [(1, 12000, 500), (2, 12000, 1000)], wf, memory_cues=[500])
+    dat = tmp_path / rel.lstrip("/")
+    assert [c.ms for c in read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())] == [500]
+    cues = [Cue(1, 500), Cue(4, 2000, name="Drop"), Cue(5, 3000, 5000, 4), Cue(0, 500), Cue(0, 7000, 8000, 2)]
+    save_to_files(dat, cues, tmp_path / "bk")
+    back = read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())
+    assert [(c.slot, c.ms, c.loop_ms, c.name) for c in back] == [
+        (1, 500, None, ""), (4, 2000, None, "Drop"), (5, 3000, 5000, ""), (0, 500, None, ""), (0, 7000, 8000, "")]
+    assert (tmp_path / "bk" / "ANLZ0000.DAT").is_file()
+    # réanalyse : les cues posées sont gardées
+    anlz.write_files(tmp_path, "/Contents/a.m4a", [(1, 12000, 500), (2, 12000, 1000)], wf, rel_dir=rel[:-14],
+                     memory_cues=[500])
+    assert len(read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())) == 5
