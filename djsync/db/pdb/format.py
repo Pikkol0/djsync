@@ -17,7 +17,9 @@ from typing import Tuple
 PAGE_SIZE = 4096          # seule taille de page connue des exports Rekordbox
 HEADER = 0x28             # début du tas de lignes dans une page
 GROUP = 0x24              # un groupe d'index = 16 offsets (u2) + masque présence (u2) + masque (u2)
-MAX_SLOTS = 255           # num_rows_small est un octet
+MAX_SLOTS = 255           # lignes qu'on AJOUTE dans une page (num_rows_small est un octet)
+MAX_ROWS = 0x1FFF         # 1.2.4 : lignes qu'une page peut contenir (13 bits) ; plus de 255 dans les
+                          # pages d'entrées de playlist (12 octets par ligne) d'anciens exports Rekordbox 5
 EMPTY_ENTRY = 0x1FFFFFF8  # entrée libre d'une page d'index
 FILE_TABLES_AT = 0x1C     # début du tableau des tables dans la page 0
 
