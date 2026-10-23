@@ -41,7 +41,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequ
 from sqlcipher3 import dbapi2 as sqlcipher
 
 from .._key import get_default_key
-from ..base import LibraryBackend
+from ..base import KEEP, LibraryBackend
 from ..errors import (
     DatabaseLockedError,
     DatabaseOpenError,

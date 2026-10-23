@@ -112,6 +112,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("zoom", self.restyle)
         self.ctrl.on("analysis", self._analysis_changed)
         self.ctrl.on("open_grid", self.open_grid_editor)
+        self.ctrl.on("open_uniformize", self.open_uniformize)
         self.ctrl.on("engine_offer", self._engine_offer)
         self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("app_update_ready", self._app_update_ready)
@@ -532,6 +533,26 @@ class DJSyncApp(QMainWindow):
         self.grid_editor = GridEditor(self.stack, self.ctrl, track, on_close=self._grid_closed)
         self.stack.addWidget(self.grid_editor)
         self._show_page(self.grid_editor)
+
+    def open_uniformize(self, tracks: Any, scope: str) -> None:
+        """1.2.2 (C14) : page « Uniformiser » dans la zone de contenu (comme l'éditeur de grille)."""
+        from .uniformize_page import UniformizePage
+
+        page = getattr(self, "uniformize_page", None)
+        if page is not None and page.winfo_exists():
+            page._leaving = True
+            page.close()
+        self._uni_return = self._current or "library"
+        self.uniformize_page = UniformizePage(self.stack, self.ctrl, list(tracks), scope, on_close=self._uni_closed)
+        self.stack.addWidget(self.uniformize_page)
+        self._show_page(self.uniformize_page)
+
+    def _uni_closed(self) -> None:
+        page, self.uniformize_page = getattr(self, "uniformize_page", None), None
+        if page is not None:
+            self.stack.removeWidget(page)
+            page.deleteLater()
+        self.show_view(getattr(self, "_uni_return", None) or "library")
 
     def _show_page(self, page: QWidget) -> None:
         for b in self._nav.values():

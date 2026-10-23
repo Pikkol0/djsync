@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import subprocess
 import time
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 ACTIVE: Optional["Studio"] = None          # studio en cours (menus contextuels non bloquants)
 
@@ -58,7 +58,8 @@ def install_menu_patch() -> None:
 class Studio:
     def __init__(self, app: Any, out: str, fps: int, accent: str, canvas: Tuple[int, int],
                  display: Tuple[float, float, float, float], app_size: Tuple[int, int], portrait: bool,
-                 dry: bool = False) -> None:
+                 dry: bool = False, texts: Optional[Dict[str, str]] = None, lang: str = "en",
+                 voice_len: Optional[Callable[[str, str], float]] = None) -> None:
         global ACTIVE
         import shutil
 
@@ -85,6 +86,12 @@ class Studio:
         self._current: Any = None
         self.fade_left = self.fade_total = 0
         self.dry = dry
+        self.out = out
+        self.texts = dict(texts or {})                        # textes à l'écran traduits (vidéo FR)
+        self.lang = lang
+        self.events: List[Dict[str, Any]] = []                # ce qui est dit, et quand (voix off, sous-titres)
+        self.voice_len = voice_len                            # durée parlée d'une réplique : les plans s'allongent
+        self._voice_until = 0.0
         self.ffmpeg = None if dry else subprocess.Popen(
             [shutil.which("ffmpeg"), "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "bgra",
              "-s", f"{self.W}x{self.H}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p",
@@ -314,13 +321,52 @@ class Studio:
         self.fade_total = self.fade_left = max(1, int(fade * self.fps)) if fade else 0
 
     # ================================================================ textes
+    def tr(self, text: str) -> str:
+        """Texte affiché, dans la langue de la vidéo (table `texts`, sinon tel quel)."""
+        return self.texts.get(text, text)
+
+    def ui(self, text: str) -> str:
+        """Libellé d'un bouton / d'une entrée de menu de l'appli (écrit en anglais dans les scénarios)
+        dans la langue de l'interface filmée : clé retrouvée dans les textes anglais."""
+        if self.lang == "en" or not text:
+            return text
+        from djsync.i18n import en, t
+
+        hits = [(len(v), k) for k, v in en.STRINGS.items() if "{" not in v and (v == text or v.startswith(text))]
+        if hits:
+            return t(min(hits)[1])
+        # libellé avec paramètre (« Copy to {target} ») : début fixe du texte traduit
+        stems = [(len(v), k) for k, v in en.STRINGS.items()
+                 if "{" in v and v.split("{")[0].strip() and text.startswith(v.split("{")[0].strip())]
+        if stems:
+            from djsync.i18n import fr
+
+            return fr.STRINGS[max(stems)[1]].split("{")[0].strip() if self.lang == "fr" else text
+        return text
+
+    def pace(self) -> None:
+        """Vidéo avec voix off : avant un nouveau texte, laisse finir la réplique précédente."""
+        if self.voice_len is not None and self.t < self._voice_until:
+            self.hold(self._voice_until - self.t)
+
+    def say(self, text: str, kind: str = "say", key: str = "") -> None:
+        """Note une réplique de la voix off à l'instant courant (sans rien afficher)."""
+        if text:
+            self.events.append({"t": round(self.t, 3), "kind": kind, "text": text, "key": key or text})
+            if self.voice_len is not None:
+                self._voice_until = self.t + 0.3 + self.voice_len(key or text, text)
+
     def chapter(self, text: str) -> None:
-        self.chapter_text = text
+        self.chapter_text = self.tr(text)
 
     def caption(self, text: str) -> None:
-        if text != self.caption_text:
-            self.caption_text = text
+        shown = self.tr(text)
+        if shown != self.caption_text:
+            if shown:
+                self.pace()
+            self.caption_text = shown
             self.caption_since = self.t
+            self.say(shown, "caption", text)
 
     # ================================================================ caméra
     def zoom(self, x: float = 0, y: float = 0, w: Optional[float] = None, now: bool = False) -> None:
@@ -413,6 +459,15 @@ class Studio:
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QCheckBox, QRadioButton
 
+        item = getattr(widget, "item", None)              # case d'une ligne d'arbre (choix de playlist, 1.2.1)
+        if item is not None and not hasattr(widget, "rect"):
+            tree = item.treeWidget()
+            tree.scrollToItem(item)
+            r = tree.visualItemRect(item)
+            box = QRect(r.x(), r.y(), r.height(), r.height())
+            self.click(tree.viewport(), box, after=after,
+                       action=action or (lambda: widget.setChecked(not widget.isChecked())))
+            return
         if local is None and isinstance(widget, (QCheckBox, QRadioButton)):
             h = widget.height()                          # la case elle-même (le reste de la ligne ne coche pas)
             local = QRect(0, 0, h, h)
@@ -445,6 +500,7 @@ class Studio:
         from PySide6.QtCore import QRectF
 
         menu = self.menu
+        text = self.ui(text)
         act = next(a for a in menu.actions() if a.text().startswith(text))
         g = menu.actionGeometry(act)
         mx, my = self._menu_pos()
@@ -465,6 +521,7 @@ class Studio:
         """Bouton visible de `root` dont le texte commence par `text`."""
         from PySide6.QtWidgets import QAbstractButton
 
+        text = self.ui(text)
         return next(b for b in root.findChildren(QAbstractButton) if b.isVisible() and b.text().startswith(text))
 
     # ================================================================ plans dessinés
@@ -516,6 +573,10 @@ class Studio:
     def panel(self, num: str, title: str, sub: str, seconds: float = 2.8) -> None:
         """Panneau plein écran, uniquement du texte, avant chaque partie."""
         print(f"  [studio] {self.t:5.1f} s  panel {num} {title}", flush=True)
+        self.pace()
+        key = f"{title}. {sub}"
+        title, sub = self.tr(title), self.tr(sub)
+        self.say(f"{title}. {sub}", "panel", key)
         big = 112 if self.portrait else 104
         lines = [(num, 40 if self.portrait else 34, self.accent, True), (title, big, "#FFFFFF", True),
                  (sub, 50 if self.portrait else 44, "#C9C9D2", False)]
@@ -524,6 +585,14 @@ class Studio:
     def card(self, lines: Sequence[str], seconds: float, cta: str = "") -> None:
         """Carton logo (accroche, fin)."""
         from djsync.ui.logo import logo_pixmap
+
+        self.pace()
+        key = " ".join(lines)
+        lines = [self.tr(x) for x in lines]
+        cta = self.tr(cta) if cta else cta
+        self.say(" ".join(lines), "card", key)
+        if self.voice_len is not None:                        # le dernier carton tient jusqu'au bout de la phrase
+            seconds = max(seconds, self._voice_until - self.t + 0.6)
 
         def draw(p: Any, t: float) -> None:
             size = int((260 if self.portrait else 200) * (1 + 0.05 * math.sin(t * 4 * math.pi)))
@@ -543,6 +612,11 @@ class Studio:
         from PySide6.QtGui import QColor, QFont, QPen
 
         portrait = self.portrait
+        self.pace()
+        key = f"{title}. {sub}. " + ". ".join(a for a, _b in items)
+        title, sub = self.tr(title), self.tr(sub)
+        items = [(self.tr(a), self.tr(b)) for a, b in items]
+        self.say(f"{title}. {sub}. " + ". ".join(a for a, _b in items), "checklist", key)
 
         def draw(p: Any, t: float) -> None:
             self.text_block(p, [(title, 100 if portrait else 84, "#FFFFFF", True),
@@ -590,6 +664,11 @@ class Studio:
         """La clé USB se branche sur un ordinateur portable, l'écran s'allume, double-clic sur DJSync."""
         from PySide6.QtCore import QPointF, QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QPen
+
+        self.pace()
+        key = f"{title[0]}, {title[1]}"
+        title = (self.tr(title[0]), self.tr(title[1]))
+        self.say(f"{title[0]}, {title[1]}", "plug", key)
 
         from djsync.ui.logo import logo_pixmap
 
@@ -679,6 +758,12 @@ class Studio:
         from PySide6.QtCore import QPointF, QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QPen
 
+        self.pace()
+        key = f"{title[0]}, {title[1]}"
+        title = (self.tr(title[0]), self.tr(title[1]))
+        picks = [(a, self.tr(b)) for a, b in picks]
+        self.say(f"{title[0]}, {title[1]}", "os", key)
+
         n = len(picks)
         k = seconds / 4.0
 
@@ -738,6 +823,17 @@ class Studio:
         if self.ffmpeg is not None:
             self.ffmpeg.stdin.close()
             self.ffmpeg.wait()
+        self.save_events()
+
+    def save_events(self) -> None:
+        """<vidéo>.voice.json : répliques horodatées, pour tools/narrate.py (voix off, sous-titres)."""
+        import json
+
+        if not self.out:
+            return
+        data = {"lang": self.lang, "fps": self.fps, "duration": round(self.n / self.fps, 3), "events": self.events}
+        with open(self.out + ".voice.json", "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=1)
 
     def expect(self, cond: Callable[[], bool], what: str, timeout: float = 4.0) -> None:
         """Vérifie qu'une action a eu l'effet attendu (sinon le tournage s'arrête avec un message clair)."""

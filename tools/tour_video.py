@@ -1,12 +1,16 @@
 """OUTIL DE DÉVELOPPEMENT : visite détaillée en paysage (1920 x 1080, ~2 min 30) de chaque menu de DJSync,
 pour YouTube.
 
-    python tools/tour_video.py tour.mp4 [--fps 30] [--dry]
+    python tools/tour_video.py tour.mp4 [--lang en|fr] [--fps 30] [--dry]
+    python tools/tour_video.py tour.mp4 --lang fr --voice          # plans allongés pour la voix off
+    python tools/narrate.py tour.mp4 --voice edge                    # 1.2.2 : voix off (voir tools/narrate.py)
 
 Même studio que la vidéo portrait (tools/video_kit.py) : vraie interface hors écran, artistes fictifs,
 aucun réseau ; le pointeur clique les vrais boutons et ouvre les vrais menus. Huit parties, chacune
 annoncée par un panneau de texte ; les horodatages des chapitres sont affichés à la fin (description
 YouTube).
+--lang fr : interface en français et textes traduits (tools/tour_texts.py). Chaque texte affiché est
+noté avec son horodatage dans tour.mp4.voice.json, pour la voix off et les sous-titres.
 """
 from __future__ import annotations
 
@@ -41,7 +45,7 @@ def iid_rect(table: Any, iid: str, key: str = "") -> Any:
 
 
 def part(s: vk.Studio, num: str, title: str, sub: str) -> None:
-    CHAPTERS.append((s.t, title))
+    CHAPTERS.append((s.t, s.tr(title)))
     s.cut()
     s.panel(num, title, sub, 3.0)
     s.chapter(f"{num} · {title}")
@@ -50,7 +54,8 @@ def part(s: vk.Studio, num: str, title: str, sub: str) -> None:
 
 def scenario(app: Any, s: vk.Studio) -> None:
     from djsync.ui.diagnostic_dialog import ALT, DiagnosticDialog
-    from djsync.ui.dialogs import ConfirmDialog, FiltersPopup, MetadataDialog, PlaylistPicker
+    from djsync.ui.dialogs import ConfirmDialog, FiltersPopup, PlaylistPicker
+    from djsync.ui.track_info_dialog import TrackInfoDialog as MetadataDialog
     from djsync.ui.views.library_view import ALL, TODO
 
     ctrl = app.ctrl
@@ -280,16 +285,16 @@ def scenario(app: Any, s: vk.Studio) -> None:
     s.click(lib.up_btn, after=0.5)
     s.click(lib.up_btn, after=0.5)
     s.click(lib.save_btn, after=1.0)
-    s.caption("Right-click ▸ Edit title / artist")
+    s.caption("Right-click ▸ Edit info: title, artists, album, genre, artwork")
     rr = row_rect(lib.table, "Midnight Drive (Clip Officiel)")
     s.click(lib.table.viewport(), rr, after=0.2)
     s.click(lib.table.viewport(), rr, action=lambda: lib.table._context(rr.center()), after=0.3)
-    s.choose("Edit title / artist", after=0.4)
+    s.choose("Edit info", after=0.4)
     md = s.dialog(MetadataDialog)
     if md is not None:
         frame_dialog(s, md, 1000)
-        md._title.selectAll()
-        s.type(md._title, "Midnight Drive (Video Edit)", cps=16)
+        md.title_e.selectAll()
+        s.type(md.title_e, "Midnight Drive (Video Edit)", cps=16)
         s.click(s.button(md, "Save"), after=1.0)
     s.zoom(0, 0, 1370)
     s.caption("Right-click a playlist ▸ Copy to this computer's Rekordbox")
@@ -368,7 +373,7 @@ def scenario(app: Any, s: vk.Studio) -> None:
     s.focus(app.eject_btn, 800, dy=0.75)
     s.click(app.eject_btn, after=2.6)
 
-    CHAPTERS.append((s.t, "Download"))
+    CHAPTERS.append((s.t, s.tr("Download")))
     s.cut()
     s.card(["On your USB.", "Any computer. Any gig."], 5.0, cta=CTA)
 
@@ -377,6 +382,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("out", type=Path)
     ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument("--lang", choices=("en", "fr"), default="en")
+    ap.add_argument("--voice", nargs="?", const="estimate", default="",
+                    help="pace the shots for a voice-over: 'estimate', or the durations file written by "
+                         "narrate.py --measure")
     ap.add_argument("--dry", action="store_true", help="rehearsal: run the scenario without rendering")
     args = ap.parse_args()
     if not shutil.which("ffmpeg"):
@@ -385,8 +394,16 @@ def main() -> int:
     vk.install_menu_patch()
     prepare()
     dv.W, dv.H = APP
-    app, usb, _frames, accent = dv.build_app("en", APP, zoom=120)
-    s = vk.Studio(app, str(args.out), args.fps, accent, CANVAS, DISPLAY, APP, portrait=False, dry=args.dry)
+    from tour_texts import FR
+
+    app, usb, _frames, accent = dv.build_app(args.lang, APP, zoom=120)
+    voice_len = None
+    if args.voice:
+        from narrate import voice_length
+
+        voice_len = voice_length(args.lang, None if args.voice == "estimate" else Path(args.voice))
+    s = vk.Studio(app, str(args.out), args.fps, accent, CANVAS, DISPLAY, APP, portrait=False, dry=args.dry,
+                  texts=FR if args.lang == "fr" else None, lang=args.lang, voice_len=voice_len)
     dv.settle(app, s, usb)
     warm_grid(app, s)
     try:

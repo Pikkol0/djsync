@@ -94,6 +94,8 @@ class Settings:
     search_hide_owned: bool = False    # recherche : masquer ce qui est déjà dans la bibliothèque
     search_max_minutes: int = 0        # recherche : durée maximale (0 = pas de limite ; exclut les mixes)
     feedback_id: str = ""              # onglet Retours : identifiant aléatoire (limites d'envoi)
+    # ---- 1.2.2
+    genre_playlists: dict = field(default_factory=dict)   # {bibliothèque: config des playlists par genre}
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
 
@@ -137,6 +139,7 @@ class Settings:
         if self.search_mode == "artists":          # 1.2.1 : « Artistes » passe du popup au champ de recherche
             self.search_field, self.search_mode = "artist", "all"
         self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
+        self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         return self

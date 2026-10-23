@@ -50,6 +50,7 @@ from ..models import FOLDER_KIND, PLAYLIST_KIND, SMART_PLAYLIST_KIND, LibraryTra
 from .errors import (
     DatabaseLockedError, DatabaseOpenError, LibraryError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
 )
+from .base import KEEP
 from .library.common import FILE_TYPES, PdbStatus, _Extras, _safe_name, extract_video_id
 from .library.metadata import BeatGrid, PlaylistStats
 
@@ -1042,6 +1043,69 @@ class LocalRekordboxLibrary:
                 c.TrackInfoUpdated = str(int(c.TrackInfoUpdated or 0) + 1)
                 c.updated_at = datetime.now()
         return changed
+
+    # ------------------------------------------------------- 1.2.2 : infos complètes
+    def track_details(self, content_id: int) -> Dict[str, Any]:
+        rows = self._read(
+            "SELECT COALESCE(al.Name,''), COALESCE(c.ReleaseYear,0), COALESCE(g.Name,''), COALESCE(lb.Name,''), "
+            "COALESCE(c.ImagePath,'') FROM djmdContent c LEFT JOIN djmdAlbum al ON al.ID = c.AlbumID "
+            "LEFT JOIN djmdGenre g ON g.ID = c.GenreID LEFT JOIN djmdLabel lb ON lb.ID = c.LabelID WHERE c.ID = :id",
+            {"id": str(content_id)})
+        if not rows:
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
+        album, year, genre, label, art = rows[0]
+        return {"album": album, "year": int(year or 0), "genre": genre, "label": label, "artwork_path": art or None}
+
+    def track_genres(self) -> Dict[int, str]:
+        out: Dict[int, str] = {}
+        for cid, name in self._read("SELECT c.ID, g.Name FROM djmdContent c JOIN djmdGenre g ON g.ID = c.GenreID "
+                                    f"WHERE g.Name IS NOT NULL AND g.Name <> '' AND {_VISIBLE}"):
+            try:
+                out[int(cid)] = name
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def edit_track_metadata(self, content_id: int, title: Optional[str] = None, artist: Optional[str] = None,
+                            album: Optional[str] = None, year: Optional[int] = None, genre: Optional[str] = None,
+                            artwork: Any = KEEP) -> LibraryTrack:
+        """1.2.2 : même contrat que la clé (None = inchangé, "" / 0 = effacé, pochette KEEP / None /
+        octets). Le fichier audio n'est ni modifié ni renommé."""
+        title = title.strip() if title is not None else None
+        if title is not None and not title:
+            raise LibraryError("The title cannot be empty.")
+        written: List[Path] = []
+        try:
+            with self._write() as db:
+                c = self._content(content_id)
+                if title is not None:
+                    c.Title = title
+                if artist is not None:
+                    c.ArtistID = self._artist_id(db, artist.strip()) if artist.strip() else None
+                if album is not None:
+                    c.AlbumID = self._album_id(db, album.strip()) if album.strip() else None
+                if year is not None:
+                    c.ReleaseYear = int(year) if year else None
+                if genre is not None:
+                    c.GenreID = self._genre_id(db, genre.strip()) if genre.strip() else None
+                if artwork is None:
+                    c.ImagePath = None
+                elif artwork is not KEEP:
+                    rel, written = self._write_artwork(f"{c.UUID}-{uuid4().hex[:6]}", artwork)
+                    if rel is None:
+                        raise LibraryError("Unreadable image.")
+                    c.ImagePath = rel
+                    self._file_row(db, c, rel)
+                c.TrackInfoUpdated = str(int(c.TrackInfoUpdated or 0) + 1)
+                c.updated_at = datetime.now()
+        except BaseException:
+            for f in written:
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+        return self.get_track(content_id)
 
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
