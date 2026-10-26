@@ -98,10 +98,12 @@ def test_save_beat_grid_rewrites_dat_bpm_and_backs_up(tmp_path):
 
 
 def test_anlz_rebuild_drops_pqt2_and_keeps_other_tags():
+    from djsync.analysis import cues
+
     tag = anlz._tag
-    data = anlz._file([anlz._ppth("/a.mp3"), tag(b"PQT2", b"\0" * 4, b"x" * 8), anlz._pcob(1)])
+    data = anlz._file([anlz._ppth("/a.mp3"), tag(b"PQT2", b"\0" * 4, b"x" * 8), cues.pcob(1, [])])
     out = anlz.drop_extended_grid(data)
-    assert "PQT2" not in anlz.parse(out) and anlz.iter_tags(out)[1][1] == anlz._pcob(1)
+    assert "PQT2" not in anlz.parse(out) and anlz.iter_tags(out)[1][1] == cues.pcob(1, [])
     assert anlz.drop_extended_grid(out) == out
 
 
