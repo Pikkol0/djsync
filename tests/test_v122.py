@@ -256,6 +256,7 @@ def test_track_info_dialog_saves_all_fields(demo):
 
 
 def test_uniformize_page_validate_then_save(demo):
+    """1.3.0 (C25) : deux lignes Actuellement / Après, validation un par un, le suivant prend la place."""
     from tests.qt_util import pump
 
     demo.show_view("library")
@@ -264,20 +265,28 @@ def test_uniformize_page_validate_then_save(demo):
     demo.ctrl._emit("open_uniformize", list(lib.all_tracks), "Toute la clé")
     page = demo.uniformize_page
     assert page is not None and pump(demo, 10, lambda: len(page.props) == 10)
+    assert pump(demo, 4, lambda: page.scan_finished) and page.blocks
     umbrella = next(cid for cid, x in page.tracks.items() if x.title == "Umbrella")
     clip = next(cid for cid, x in page.tracks.items() if x.title == "One More Time (Clip Officiel)")
-    # sons pas téléchargés par DJSync (démo) : propositions affichées mais décochées (S06)
-    assert page.state(clip) == "todo" and page.props[clip].values() == {}
-    assert page.props[clip].values(only_checked=False)["title"] == "One More Time"
-    for cid in (clip, umbrella):
-        for ch in page.props[cid].changes:
-            ch.checked = True
-    assert page.props[umbrella].values()["artist"] == "Rihanna, JAY-Z"
-    page._select(clip)
-    page._validate()
-    page._select(umbrella)
-    page._validate()
+    assert list(page.blocks)[0] == umbrella                                   # sûrs (Deezer) d'abord
+    # sons pas téléchargés par DJSync (démo) : proposition remplie mais incertaine (orange, S06)
+    b = page.blocks[clip]
+    assert page.state(clip) == "todo" and b.edits["title"].text() == "One More Time" and "title" in b.uncertain
+    assert page.blocks[umbrella].values()["artist"] == "Rihanna, JAY-Z"
+    # modifier sur place puis « ↺ »
+    b.edits["album"].setText("Discovery")
+    b._edited("album")
+    assert b.values()["album"] == "Discovery"
+    b._revert("album")
+    assert "album" not in b.values()
+    page.make_current(umbrella)
+    page.validate(umbrella)
+    assert umbrella not in page.blocks and page._current is not None           # le suivant prend la place
+    page.validate(clip)
     assert page.state(clip) == "validated" and page.state(umbrella) == "validated"
+    page.undo()                                                                # Ctrl+Z : revient à revoir
+    assert page.state(clip) == "todo" and clip in page.blocks
+    page.validate(clip)
     # progression gardée : une nouvelle page retrouve les validations
     assert set(demo.ctrl.review_store().validated()) == {clip, umbrella}
     page._save()
@@ -285,6 +294,43 @@ def test_uniformize_page_validate_then_save(demo):
     titles = {t.title: t for t in demo.ctrl.library.list_tracks()}
     assert "One More Time (Clip Officiel)" not in titles and titles["Umbrella"].artist == "Rihanna, JAY-Z"
     assert demo.ctrl.library.track_details(umbrella)["genre"] == "Pop"
+    page._leaving = True
+    page.close()
+    assert pump(demo, 2, lambda: demo.uniformize_page is None) and not demo.errors
+
+
+def test_uniformize_from_home_and_search_differently(demo, monkeypatch):
+    """1.3.0 (C25) : tuile de l'Accueil (portée au choix), « Chercher autrement », pochette."""
+    from djsync.core import metadata
+    from djsync.ui.uniformize_page import ScopeDialog
+    from tests.qt_util import pump
+
+    monkeypatch.setattr(metadata, "search_candidates", lambda text, duration=0, limit=5: [
+        {"id": 42, "title": "Ma Version", "artists": ["Quelqu'un"], "album": "Album X", "duration": 200, "score": 95}])
+    monkeypatch.setattr(metadata, "details_for", lambda tid, score=100.0: {
+        "title": "Ma Version", "artists": ["Quelqu'un", "Invité"], "album": "Album X", "year": 2001, "genre": "House",
+        "score": 100, "sure": True, "id": tid})
+    demo.show_view("home")
+    dlg = ScopeDialog(demo, demo.ctrl)
+    dlg.choice.setCurrentIndex(1)                                             # toute la bibliothèque
+    dlg._ok()
+    assert pump(demo, 6, lambda: getattr(demo, "uniformize_page", None) is not None)
+    page = demo.uniformize_page
+    assert pump(demo, 10, lambda: page.scan_finished)
+    page.filter.setCurrentText(page._filters["all"])
+    cid = next(c for c, x in page.tracks.items() if x.title == "Mon Survet")
+    assert pump(demo, 2, lambda: cid in page.blocks)
+    page.search(cid, "ma version")
+    b = page.blocks[cid]
+    assert pump(demo, 4, lambda: page.blocks[cid].edits["title"].text() == "Ma Version")
+    b = page.blocks[cid]
+    assert b.values()["artist"] == "Quelqu'un, Invité" and b.cands.isVisible() is not None
+    b._cover_file(_png())
+    assert isinstance(b.values()["artwork"], bytes)
+    b._cover_remove()
+    assert "artwork" not in b.values() or b.values()["artwork"] is None
+    page.validate(cid)
+    assert page.state(cid) == "validated"
     page._leaving = True
     page.close()
     assert pump(demo, 2, lambda: demo.uniformize_page is None) and not demo.errors

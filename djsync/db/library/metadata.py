@@ -256,6 +256,36 @@ class MetadataMixin:
                     self._stage_order(conn, pid)
             return self.delete_tracks(remove, delete_files=delete_files)
 
+    # ---------------------------------------------------------------- 1.3.0 (C22) : hot cues
+    def track_cues(self, content_id: int) -> List[Any]:
+        """Hot cues, boucles et mémoires du son (fichiers d'analyse, comme Rekordbox)."""
+        from ...analysis.cues import read_cues
+
+        dat = self.beat_grid(content_id).dat_path
+        ext = dat.with_suffix(".EXT")
+        try:
+            return read_cues(dat.read_bytes(), ext.read_bytes() if ext.is_file() else None)
+        except (OSError, ValueError) as exc:
+            raise LibraryError(f"Unreadable analysis file: {exc}") from exc
+
+    def save_track_cues(self, content_id: int, cues: Sequence[Any]) -> LibraryTrack:
+        """Écrit les cues dans le .DAT / .EXT (Rekordbox ne les met pas dans exportLibrary.db) ;
+        fichiers d'origine copiés dans DJSync_Backups/anlz/ avant écriture."""
+        from ...analysis.cues import save_to_files
+
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        dat = self.beat_grid(content_id).dat_path
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
+        backup.mkdir(parents=True, exist_ok=True)
+        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+        try:
+            save_to_files(dat, cues, backup)
+        except ValueError as exc:
+            raise LibraryError(str(exc)) from exc
+        return self.get_track(content_id)
+
     # ---------------------------------------------------------------- grille de temps
     def analysis_files(self, track: LibraryTrack) -> Tuple[Optional[Path], Optional[Path]]:
         """(.DAT, .EXT) existants du son (None si absents)."""

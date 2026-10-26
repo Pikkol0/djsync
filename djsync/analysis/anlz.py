@@ -49,31 +49,6 @@ def _pwav(code: bytes, data: bytes) -> bytes:
     return _tag(code, struct.pack(">II", len(data), 0x00010000), data)
 
 
-def _pcpt(hot_cue: int, ms: int, first: bool, last: bool) -> bytes:
-    """Entrée de cue (PCPT) : point simple, actif, sans boucle."""
-    rest = struct.pack(">IIIHHBBHIi", hot_cue, 4, 0x10000, 0xFFFF if first else 0, 0xFFFF if last else 1,
-                       1, 0, 1000, ms & 0xFFFFFFFF, -1) + b"\x00" * 16
-    return b"PCPT" + struct.pack(">II", 0x1C, 12 + len(rest)) + rest
-
-
-def _pcp2(hot_cue: int, ms: int) -> bytes:
-    """Entrée de cue étendue (PCP2, nxs2) : sans couleur ni commentaire."""
-    rest = (struct.pack(">IB3sIiB7sHHI", hot_cue, 1, b"\x00\x03\xe8", ms & 0xFFFFFFFF, -1, 0, b"", 0, 0, 0)
-            + b"\x00" * 4 + b"\x00" * 8)
-    return b"PCP2" + struct.pack(">II", 0x10, 12 + len(rest)) + rest
-
-
-def _pcob(kind: int, cues: Sequence[int] = ()) -> bytes:
-    """Liste de cues (kind 1 : hot cues, 0 : mémoires) ; `cues` = positions en ms (mémoires)."""
-    body = b"".join(_pcpt(0, ms, i == 0, i == len(cues) - 1) for i, ms in enumerate(cues))
-    return _tag(b"PCOB", struct.pack(">IHHi", kind, 0, len(cues), len(cues) if cues else -1), body)
-
-
-def _pco2(kind: int, cues: Sequence[int] = ()) -> bytes:
-    body = b"".join(_pcp2(0, ms) for ms in cues)
-    return _tag(b"PCO2", struct.pack(">IHH", kind, len(cues), 0), body)
-
-
 def _pwv(code: bytes, entry_bytes: int, count: int, unknown: int, data: bytes) -> bytes:
     return _tag(code, struct.pack(">III", entry_bytes, count, unknown), data)
 
@@ -93,18 +68,29 @@ def _file(tags: List[bytes]) -> bytes:
     return b"PMAI" + struct.pack(">IIIIII", 0x1C, 0x1C + len(body), 1, 0x00010000, 0x00010000, 0) + body
 
 
+def _as_cues(memory_cues: Sequence[int], cues: Optional[Sequence] = None) -> list:
+    from .cues import Cue
+
+    return list(cues) if cues is not None else [Cue(0, int(ms)) for ms in memory_cues]
+
+
 def build_dat(track_path: str, beats: Sequence[Tuple[int, int, int]], wf: Waveforms, total_samples: int = 0,
-              memory_cues: Sequence[int] = ()) -> bytes:
+              memory_cues: Sequence[int] = (), cues: Optional[Sequence] = None) -> bytes:
+    from .cues import dat_tags
+
+    hot, mem = dat_tags(_as_cues(memory_cues, cues))         # 1.3.0 : listes écrites comme Rekordbox
     return _file([_ppth(track_path), _pvbr(total_samples), _pqtz(beats), _pwav(b"PWAV", wf.preview),
-                  _pwav(b"PWV2", wf.tiny_preview), _pcob(1), _pcob(0, memory_cues)])
+                  _pwav(b"PWV2", wf.tiny_preview), hot, mem])
 
 
-def build_ext(track_path: str, wf: Waveforms, memory_cues: Sequence[int] = ()) -> bytes:
+def build_ext(track_path: str, wf: Waveforms, memory_cues: Sequence[int] = (), cues: Optional[Sequence] = None) -> bytes:
+    from .cues import ext_tags
+
     n = wf.detail_count
     return _file([
         _ppth(track_path),
         _pwv(b"PWV3", 1, n, 0x00960000, wf.detail),
-        _pcob(1), _pcob(0, memory_cues), _pco2(1), _pco2(0, memory_cues),
+        *ext_tags(_as_cues(memory_cues, cues)),
         _pwv(b"PWV5", 2, n, 0x00960305, wf.color_detail),
         _pwv(b"PWV4", 6, len(wf.color_preview) // 6, 0, wf.color_preview),
     ])
@@ -179,8 +165,18 @@ def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, in
     `memory_cues` : mémoires (ms) lues par les platines (V0.5.0 : premier temps fort)."""
     rel_dir = rel_dir or choose_anlz_dir(drive_root, track_path)
     folder = Path(drive_root) / rel_dir.lstrip("/")
-    dat = build_dat(track_path, beats, wf, total_samples, memory_cues)
-    ext = build_ext(track_path, wf, memory_cues)
+    cues = None
+    old_dat, old_ext = folder / "ANLZ0000.DAT", folder / "ANLZ0000.EXT"
+    if old_dat.is_file():                       # 1.3.0 : une réanalyse garde les cues déjà posées
+        try:
+            from .cues import read_cues
+
+            kept = read_cues(old_dat.read_bytes(), old_ext.read_bytes() if old_ext.is_file() else None)
+            cues = kept or None
+        except (OSError, ValueError):
+            cues = None
+    dat = build_dat(track_path, beats, wf, total_samples, memory_cues, cues)
+    ext = build_ext(track_path, wf, memory_cues, cues)
     two = build_2ex(track_path, wf) if wf.band_detail else b""
     for blob in (dat, ext) + ((two,) if two else ()):    # contrôle avant écriture : relisible
         parse(blob)

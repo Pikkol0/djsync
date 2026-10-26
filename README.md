@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-B79CFF">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-B79CFF">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-informational">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555">
@@ -32,7 +32,12 @@ Linux computer, nothing to install — that works on a drive exported by Rekordb
   changed.
 - **Manage the library** like a mini Rekordbox: playlists and folders, drag and drop, track order,
   harmonic filter, built-in player with waveform.
-- **Fix** a shifted beat grid (also straight from the player), **find and merge duplicates**, edit title / artist.
+- **Fix** a shifted beat grid (also straight from the player) and **set hot cues, loops and memories**
+  (pads A–H in the Rekordbox colours, 1–16 beat loops, names), without Rekordbox.
+- **Find and merge duplicates**, decided by comparing the audio (not only the title), with the hot cues of
+  the version you choose carried over to the one you keep.
+- **Clean up track info** (title, artists, album, year, genre, artwork) with suggestions from Deezer, reviewed
+  track by track on a before / after view.
 - **Update the Rekordbox collection of this computer** too (Rekordbox 6/7, `master.db`): same features as
   for a USB drive — download into the collection, playlists and folders, analysis, beat grid, title/artist,
   duplicates. DJSync only writes while Rekordbox is closed.
@@ -201,6 +206,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
+| **1.3.0** | **Hot cues, loops and memories** in the *Beat grid and cues* page (right-click a track ▸ *Beat grid and cues…*): eight pads A–H in the Rekordbox colours under the waveform; an empty pad sets a cue on the nearest beat (Shift: exactly at the cursor), a set pad plays from it; right-click for a 1–16 beat loop, a name, 16 colours, move or delete; drag a cue's letter on the waveform; memories at the cursor; *Suggest cues* fills the free pads only. Nothing is written before *Save*; written like Rekordbox (ANLZ files on the drive, `djmdCue` on the computer), originals backed up. **Clean up track info** (Uniformise v2, Home tile): each track on two lines, *Now* and *After*; click a field to edit it, colour shows what changes and what is uncertain; artwork removed on hover, uploaded or dropped; tracks one after the other, Enter validates and the next one comes; *Search differently* for a wrong title; better Deezer search (YouTube ids removed, featured artists used, several queries). **Duplicates by the audio**: versions found by the title are compared by their sound (same track, variant with a part in common, or different and taken out of the group). **Hot cues carried over**: when merging duplicates, choose whose hot cues to keep; they are lined up on the kept version by the audio offset, also after a replacement from the Diagnostic. |
 | **1.2.4** | **Older players (export.pdb)**: drives exported by Rekordbox 7 and older exports with big playlist pages are no longer refused ("next free page outside the file", "inconsistent counters"): DJSync updates their export.pdb again and catches up what was missing when the drive is opened. A file stored several times in an old export, or two playlists whose names differ only by upper/lower case, no longer lead to tracks added twice to a playlist. A drive that Rekordbox has not prepared yet now appears on Home with what to do, instead of not showing at all. |
 | **1.2.3** | **Send my logs** (Feedback tab): the log with personal paths hidden, a report on the drive (file system, PIONEER/rekordbox files, export.pdb check) and, if ticked, the drive's library files zipped — for tests and problems on the decks. **Error reports**: after an unexpected error, DJSync offers to send a report to the author (setting: ask each time, always, never). **Drive format**: the Home card shows the file system and warns when older players cannot read it (exFAT/NTFS: *NO USB / E-8307* on an XDJ-1000), and when export.pdb is missing or not up to date. **Mac feedback**: one click on a playlist name ticks it in *Download to…*, no more audio "rollback" when a window opens, macOS media keys and Now Playing, Duplicates / Diagnostic / Analyse open as pages of the main window, scrolling waveform with a centred playhead in the player (like Rekordbox). Developer: `python -m djsync.db.pdb.compare` compares two export.pdb files. |
 | **1.2.2** | **Edit info** (right-click a track, the player or Tools): title, artists, album, year, genre and artwork (keep, pick one found on Deezer, an image from the computer, or none) — the audio file is never touched. **Uniformise** a playlist or the whole library: clean titles (no *feat.*, no *Official Video*), artists separated by commas with guests taken from the title, album / year / genre / artwork filled in when empty; a review page where nothing is written until you validate track by track and *Save*, progress kept between sessions, suggestions unticked for tracks not downloaded by DJSync. **Playlists by genre** (off by default): a *DJSync ▸ Genres* folder, one playlist per genre or group of genres, kept up to date as you download or edit, even once moved or renamed; tracks you add yourself are never removed. Developer: voice-over and subtitles for the tour video (`tools/narrate.py`), French tour (`--lang fr`). |

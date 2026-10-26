@@ -77,6 +77,19 @@ def shoot_dialogs(app, out: Path) -> None:
     app.open_grid_editor(target)                        # V0.2.4 : page de la fenêtre principale
     _pump(1.5)
     capture(app, out / "grid_editor.png")
+    ed = app.grid_editor                                # 1.3.0 (C22) : pads, boucle, mémoire
+    if ed.beats:
+        from djsync.analysis.cues import Cue, loop_end_ms
+
+        bars = [b[2] for b in ed.beats if b[0] == 1]
+        ed.cues = [Cue(1, bars[0], name="Intro"), Cue(2, bars[min(1, len(bars) - 1)], color_code=56,
+                                                       rgb=(0xB3, 0x00, 0xFF)), Cue(0, bars[0])]
+        if len(bars) > 1:
+            ed.cues.append(Cue(4, bars[1], loop_end_ms(ed.beats, bars[1], 4), 4))
+        ed.cue_panel.refresh()
+        ed.cues_changed()
+        _pump(0.5)
+        capture(app, out / "grid_cues.png")
     app.grid_editor.close()
     _pump(0.3)
     # V1.1.0 : diagnostic (propositions de remplacement et débit simulés : aucun réseau)

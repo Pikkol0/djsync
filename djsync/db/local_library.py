@@ -1195,6 +1195,81 @@ class LocalRekordboxLibrary:
             raise
         return self.get_track(content_id)
 
+    # ------------------------------------------------------------ hot cues (1.3.0, C22)
+    def track_cues(self, content_id: int) -> List[Any]:
+        """Cues du son tels que Rekordbox les montre : table djmdCue (Kind 0 mémoire, 1-3 A-C, 5-9 D-H)."""
+        from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
+
+        rows = self._read("SELECT Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize FROM djmdCue "
+                          "WHERE ContentID = :id AND COALESCE(rb_local_deleted,0) = 0", {"id": str(content_id)})
+        out: List[Any] = []
+        for kind, in_ms, out_ms, color, comment, loop_size in rows:
+            slot = SLOT_FOR_KIND.get(int(kind or 0))
+            if slot is None or in_ms is None or int(in_ms) < 0:
+                continue
+            loop = int(out_ms) if out_ms is not None and int(out_ms) > int(in_ms) else None
+            code = int(color or 0)
+            out.append(Cue(slot, int(in_ms), loop, int(loop_size or 0) if loop else 0, comment or "",
+                           code if code in PALETTE else 0, PALETTE.get(code, (0, 0, 0))))
+        hot = sorted((c for c in out if c.slot), key=lambda c: c.slot)
+        mem = sorted((c for c in out if not c.slot), key=lambda c: c.ms)
+        return hot + mem
+
+    def save_track_cues(self, content_id: int, cues: Sequence[Any]) -> LibraryTrack:
+        """Remplace les cues du son : djmdCue + contentCue (master.db) et fichiers d'analyse (ANLZ du dossier
+        de partage Rekordbox). Rekordbox doit être fermé ; sauvegardes avant écriture."""
+        from pyrekordbox.masterdb import models
+
+        from ..analysis.cues import KIND_FOR_SLOT, save_to_files
+        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
+
+        self.ensure_writable()
+        slots = [c.slot for c in cues if c.slot]
+        if len(slots) != len(set(slots)):
+            raise LibraryError("Two hot cues on the same pad.")
+        track = self.get_track(content_id)
+        dat, _ext = self.analysis_files(track)
+        if dat is not None:
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
+            backup.mkdir(parents=True, exist_ok=True)
+            prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+            try:
+                save_to_files(dat, cues, backup)
+            except ValueError as exc:
+                raise LibraryError(str(exc)) from exc
+        with self._write() as db:
+            content = self._content(content_id)
+            for row in db.query(models.DjmdCue).filter_by(ContentID=content.ID).all():
+                db.delete(row)
+            db.flush()
+            now = datetime.now()
+            stamp_iso = now.astimezone().isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            entries = []
+            for c in cues:
+                loop = c.loop_ms if c.is_loop else None
+                cue = dict(ID=str(db.generate_unused_id(models.DjmdCue)), ContentID=content.ID,
+                           ContentUUID=content.UUID, InMsec=int(c.ms), InFrame=int(c.ms) * 150 // 1000,
+                           InMpegFrame=0, InMpegAbs=0, OutMsec=int(loop) if loop else -1,
+                           OutFrame=int(loop) * 150 // 1000 if loop else 0, OutMpegFrame=0, OutMpegAbs=0,
+                           Kind=KIND_FOR_SLOT.get(int(c.slot), 0), Color=-1,
+                           ColorTableIndex=int(c.color_code) if c.slot else None, ActiveLoop=0,
+                           Comment=c.name or None, BeatLoopSize=int(c.loop_beats) if loop else 0, CueMicrosec=0,
+                           UUID=str(uuid4()))
+                db.add(models.DjmdCue.create(**cue, created_at=now, updated_at=now))
+                db.flush()
+                entries.append(dict(cue, created_at=stamp_iso, updated_at=stamp_iso))
+            row = db.query(models.ContentCue).filter_by(ContentID=content.ID).one_or_none()
+            if row is None and entries:
+                db.add(models.ContentCue.create(ID=content.UUID, ContentID=content.ID, Cues=json.dumps(entries),
+                                                rb_cue_count=len(entries), UUID=str(uuid4()), created_at=now,
+                                                updated_at=now))
+            elif row is not None:
+                row.Cues, row.rb_cue_count, row.updated_at = json.dumps(entries), len(entries), now
+            content.CueUpdated = str(int(content.CueUpdated or 0) + 1)
+            content.updated_at = now
+        return self.get_track(content_id)
+
     # -------------------------------------------------------------- suppression
     def _delete_content(self, db: Any, content: Any) -> None:
         from pyrekordbox.masterdb import models

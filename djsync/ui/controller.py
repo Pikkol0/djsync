@@ -156,6 +156,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.library: Optional[RekordboxUsbLibrary] = None
         self.drives: List[UsbDrive] = []
         self.unprepared: List[Any] = []            # 1.2.4 (T02) : clés sans bibliothèque
+        self.duplicate_matches: Dict[int, Any] = {}   # 1.3.0 (B02) : verdicts audio de l'outil Doublons
         self.local: Optional[LocalRekordbox] = None    # V0.4.0 : Rekordbox installé sur cet ordinateur
         self.playlists: List[PlaylistInfo] = []
         self.jobs: List[DownloadJob] = []

@@ -166,7 +166,10 @@ def test_player_buttons_grid_editor_page_and_reveal(demo_grid):
     bar._edit_grid()                                        # …la rouvrir garde les modifications
     assert pump(app, 2, lambda: app.grid_editor is ed and app.stack.currentWidget() is ed)
     assert ed.beats != ed.original
-    ed.close()                                              # retour à l'onglet d'avant
+    assert ed.close() is False                              # 1.3.0 : modifié -> on demande d'abord
+    from djsync.ui.dialogs import ConfirmDialog
+
+    app.findChildren(ConfirmDialog)[-1]._ok()               # « Quitter sans enregistrer » : onglet d'avant
     assert app.grid_editor is None and app.current == "search"
     app.ctrl.player.stop()
 

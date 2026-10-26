@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Any, Callable, Iterable, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
 
 from rapidfuzz import fuzz
 
@@ -196,3 +196,115 @@ def best_keeper(group: List[Any]) -> Any:
         return (int(bool(getattr(t, "is_analysed", False))), int(bool(getattr(t, "artwork_path", None))),
                 int(normalize(t.artist or "") not in UNKNOWN_ARTISTS), clean)
     return max(group, key=score)
+
+
+# ------------------------------------------------------------------ 1.3.0 (B02) : par le son
+def refine_by_audio(groups: List[List[Any]], fingerprint_of: Any, progress: Any = None
+                    ) -> Tuple[List[List[Any]], Dict[int, Any]]:
+    """Le titre propose des candidats, l'empreinte audio décide. Chaque membre est comparé au son de
+    référence du groupe (plus de regroupement en chaîne) : « same » ou « variant » restent dans le
+    groupe, « different » en sort (les sons sortis sont comparés entre eux une fois de plus).
+
+    `fingerprint_of(track)` -> empreinte ou None (fichier illisible : le son reste, sans verdict).
+    Renvoie (groupes, {content_id: Match relatif à la référence de son groupe ; None = non comparé}).
+    """
+    from ..analysis.fingerprint import compare, is_usable
+
+    total = sum(len(g) for g in groups)
+    done = [0]
+    cache: Dict[int, Any] = {}
+
+    def fp(track: Any) -> Any:
+        cid = int(track.content_id)
+        if cid not in cache:
+            got = fingerprint_of(track)
+            cache[cid] = got if is_usable(got) else None
+            done[0] += 1
+            if progress is not None:
+                progress(min(done[0], total), total)
+        return cache[cid]
+
+    out: List[List[Any]] = []
+    matches: Dict[int, Any] = {}
+
+    def split(group: List[Any], depth: int) -> None:
+        ref = best_keeper(group)
+        ref_fp = fp(ref)
+        if ref_fp is None:
+            out.append(group)
+            matches.update({int(x.content_id): None for x in group})
+            return
+        kept, rest = [ref], []
+        found: Dict[int, Any] = {}
+        for x in group:
+            if x is ref:
+                continue
+            other = fp(x)
+            if other is None:
+                kept.append(x)
+                found[int(x.content_id)] = None
+                continue
+            m = compare(ref_fp, other, float(ref.duration_seconds or 0), float(x.duration_seconds or 0))
+            if m.verdict == "different":
+                rest.append(x)
+            else:
+                kept.append(x)
+                found[int(x.content_id)] = m
+        if len(kept) > 1:
+            out.append(kept)
+            matches.update(found)
+            matches[int(ref.content_id)] = "reference"
+        if len(rest) > 1 and depth < 1:
+            split(rest, depth + 1)
+
+    for g in groups:
+        split(list(g), 0)
+
+    def rank(g: List[Any]) -> Tuple[int, int, str]:
+        verdicts = [matches.get(int(x.content_id)) for x in g]
+        same = any(getattr(v, "verdict", "") == "same" for v in verdicts)
+        return (0 if same else 1, -len(g), normalize(g[0].title))
+
+    out.sort(key=rank)
+    return out, matches
+
+
+def shift_cues(cues: List[Any], shift_ms: float, duration_ms: int) -> Tuple[List[Any], int]:
+    """1.3.0 (C13) : cues d'une version reportés sur une autre (position + décalage). Renvoie (cues
+    reportés, nombre de cues tombés hors du nouveau fichier)."""
+    import copy
+
+    out, lost = [], 0
+    for c in cues:
+        n = copy.copy(c)
+        n.ms = int(round(c.ms + shift_ms))
+        if c.is_loop:
+            n.loop_ms = int(round(c.loop_ms + shift_ms))
+        end = n.loop_ms if n.is_loop else n.ms
+        if n.ms < 0 or (duration_ms and end > duration_ms):
+            lost += 1
+            continue
+        out.append(n)
+    return out, lost
+
+
+def carry_cues(lib: Any, src_id: int, dst_id: int, fingerprint_of: Any) -> Tuple[List[Any], int]:
+    """1.3.0 (C13) : hot cues, boucles et mémoires de `src_id` recalés sur `dst_id` par alignement du
+    son. Variante (intro différente, edit) : seuls les cues posés sur un passage identique suivent.
+    Renvoie (cues pour dst, nombre de cues non reportés) ; lève LibraryError si impossible."""
+    from ..analysis.fingerprint import compare, is_usable, matches_at
+    from ..db.errors import LibraryError
+
+    src, dst = lib.get_track(src_id), lib.get_track(dst_id)
+    if not dst.analysis_path:
+        raise LibraryError("Analyse the kept version first: its hot cues are stored in its analysis files.")
+    cues = list(lib.track_cues(src_id))
+    a, b = fingerprint_of(src), fingerprint_of(dst)
+    if not is_usable(a) or not is_usable(b):
+        raise LibraryError("Cannot compare the two versions (unreadable audio): hot cues not carried over.")
+    m = compare(a, b, float(src.duration_seconds or 0), float(dst.duration_seconds or 0))
+    if m.verdict == "different":
+        raise LibraryError("The two versions do not line up: hot cues not carried over.")
+    ok_cues = [c for c in cues if m.verdict == "same" or matches_at(a, b, m.shift_ms, c.ms)]
+    moved, lost = shift_cues(ok_cues, m.shift_ms, int(dst.duration_seconds or 0) * 1000)
+    return moved, lost + len(cues) - len(ok_cues)

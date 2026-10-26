@@ -98,9 +98,11 @@ class CurationMixin:
                     continue
                 title, feats, head = uniformize.clean_title(track.title, track.artist or "")
                 artist = head or uniformize.clean_artist(track.artist or "")
+                # 1.3.0 (C25) : les invités du « feat. » servent aussi à chercher (artiste vide compris)
+                names = ([artist] if artist else []) + [f for f in feats if f != artist]
                 found: Dict[str, Any] = {}
                 try:
-                    found = metadata.match(title, artist, track.duration_seconds, cleaned=True)
+                    found = metadata.match(title, ", ".join(names), track.duration_seconds, cleaned=True)
                 except Exception as exc:  # noqa: BLE001 - hors ligne : règles seules
                     log.info("Deezer lookup failed for %s: %s", track.title, exc)
                     time.sleep(0.5)
@@ -111,6 +113,39 @@ class CurationMixin:
             self.dispatcher.post(on_done)
 
         self.dispatcher.submit(work, None, self._on_error, pool="net")
+
+    def uniformize_search(self, text: str, duration: int, ok: Callback) -> None:
+        """1.3.0 (C25) : « Chercher autrement » -> ok([candidats légers]) ([] hors ligne)."""
+        from ...core.metadata import search_candidates
+
+        def failed(exc: BaseException) -> None:
+            log.info("Deezer search failed: %s", exc)
+            ok([])
+
+        self.dispatcher.submit(lambda: search_candidates(text, duration), ok, failed, pool="net")
+
+    def uniformize_pick(self, track: LibraryTrack, details: Dict[str, Any], candidate: Dict[str, Any],
+                        ok: Callback) -> None:
+        """Candidat choisi à la main -> nouvelle proposition (sûre : c'est l'utilisateur qui a choisi)."""
+        def work() -> Any:
+            from ...core import metadata, uniformize
+
+            found = metadata.details_for(candidate["id"], 100.0)
+            found["candidates"] = []
+            prop = uniformize.propose(track, details, found, owned=True)
+            # résultat choisi à la main : son titre aussi (le titre d'origine était sans doute faux)
+            new_title = found.get("title") or ""
+            if new_title:
+                prop.changes = [c for c in prop.changes if c.field != "title"]
+                if new_title != (track.title or ""):
+                    prop.changes.insert(0, uniformize.Change("title", track.title, new_title, True))
+            return prop
+
+        def failed(exc: BaseException) -> None:
+            log.info("Deezer details failed: %s", exc)
+            self.message("warn", t("uni.search_failed"))
+
+        self.dispatcher.submit(work, ok, failed, pool="net")
 
     def uniformize_apply(self, items: Sequence[Any], ok: Optional[Callback] = None) -> None:
         """items : [(track, values)] validés -> écrits en une fois (une sauvegarde)."""

@@ -374,3 +374,20 @@ def qicon(name: str, size: int = 16, color: str = "#E6E6EA") -> Any:
 
 def reset_icons() -> None:
     _qcache.clear()
+
+
+def swatch_icon(color: str, size: int = 16) -> Any:
+    """1.3.0 (C22) : pastille de couleur pleine (choix de la couleur d'un hot cue)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+
+    pm = QPixmap(size * 2, size * 2)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    p.drawRoundedRect(2, 2, size * 2 - 4, size * 2 - 4, 6, 6)
+    p.end()
+    pm.setDevicePixelRatio(2.0)
+    return QIcon(pm)

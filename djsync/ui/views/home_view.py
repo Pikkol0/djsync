@@ -51,6 +51,7 @@ class HomeView(View):
         tools = hbox(spacing=theme.px(10))
         for key, icon, cmd in (("home.tool_analysis", "wave", self._analysis),
                                ("home.tool_duplicates", "duplicates", self._duplicates),
+                               ("home.tool_uniformize", "tag", self._uniformize),
                                ("home.tool_import", "import", lambda: self.ctrl._emit("navigate", "import"))):
             b = button(t(key), cmd, kind="tile", icon=icon)
             b.setIconSize(QSize(theme.px(20), theme.px(20)))
@@ -239,6 +240,15 @@ class HomeView(View):
 
     def _analysis(self) -> None:
         self.ctrl._emit("show_unanalysed")
+
+    def _uniformize(self) -> None:
+        """1.3.0 (C25) : Uniformiser depuis l'Accueil, portée au choix."""
+        if not self.ctrl.has_library:
+            self.ctrl.message("error", t("msg.no_drive"))
+            return
+        from ..uniformize_page import ScopeDialog
+
+        ScopeDialog(self, self.ctrl)
 
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:

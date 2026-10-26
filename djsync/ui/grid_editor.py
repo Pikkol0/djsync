@@ -1,4 +1,5 @@
-"""Éditeur de grille de temps (comme le mode GRID de Rekordbox).
+"""Éditeur « Grille et cues » : grille de temps (comme le mode GRID de Rekordbox) et, depuis la 1.3.0
+(C22), hot cues A à H, boucles et mémoires (voir `cue_pads.py`).
 
 Pour corriger un décalage observé sur les platines : la forme d'onde détaillée du son (ANLZ) avec
 ses temps (1ers temps de mesure plus épais, à la couleur d'accent). On peut :
@@ -15,6 +16,7 @@ changer d'onglet la cache sans perdre les modifications ; « Retour » ou Échap
 """
 from __future__ import annotations
 
+import copy
 from typing import Any, List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, Qt, QTimer
@@ -22,6 +24,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QShortcut, Q
 from PySide6.QtWidgets import QComboBox, QLineEdit, QScrollBar, QWidget
 
 from ..analysis import grid as G
+from ..analysis.cues import Cue, nearest_beat_ms
 from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
@@ -57,13 +60,16 @@ class GridCanvas(QWidget):
         self.setFocus()
         x = e.position().x()
         if e.button() == Qt.LeftButton:
-            self.ed.press(x)
+            if not self.ed.grab_cue(x, e.position().y()):
+                self.ed.press(x)
         else:
             self._drag_x, self._drag_start = x, self.ed.start_ms
 
     def mouseMoveEvent(self, e: Any) -> None:       # noqa: N802
         x = e.position().x()
-        if e.buttons() & Qt.LeftButton:
+        if e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
+            self.ed.drag_cue(x, bool(e.modifiers() & Qt.ShiftModifier))
+        elif e.buttons() & Qt.LeftButton:
             self.ed.press(x, dragging=True)
         elif self._drag_x is not None and e.buttons() & (Qt.RightButton | Qt.MiddleButton):
             self.ed.start_ms = self._drag_start - (x - self._drag_x) / self.ed.px_per_ms
@@ -71,7 +77,10 @@ class GridCanvas(QWidget):
 
     def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
         if e.button() == Qt.LeftButton:
-            self.ed.release()
+            if self.ed.dragging_cue():
+                self.ed.drop_cue()
+            else:
+                self.ed.release()
         self._drag_x = None
 
     def contextMenuEvent(self, e: Any) -> None:     # noqa: N802
@@ -116,6 +125,10 @@ class GridEditor(QWidget):
         self.start_ms = 0.0
         self.cursor_ms = 0.0
         self.selected = 0
+        self.cues: List[Cue] = []              # 1.3.0 (C22) : hot cues, boucles, mémoires
+        self.original_cues: List[Cue] = []
+        self.active_loop: Optional[Tuple[int, int]] = None
+        self._drag_cue: Optional[Cue] = None
         self._native = False
         self._scrubbing = False
         self._lead_ms = self._timeline_lead(track)
@@ -146,6 +159,11 @@ class GridEditor(QWidget):
         self.scroll.setRange(0, SCROLL_STEPS)
         self.scroll.valueChanged.connect(self._scrolled)
         self.body.addWidget(self.scroll)
+
+        from .cue_pads import CuePanel
+
+        self.cue_panel = CuePanel(self)
+        self.body.addWidget(self.cue_panel)
 
         tools = hbox()
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
@@ -231,6 +249,9 @@ class GridEditor(QWidget):
         self.detail = data["detail"]
         self.duration_ms = max(g.duration_ms, g.beats[-1][2] + 1000, int(len(self.detail) / COLS_PER_S * 1000))
         self._native = g.native
+        self.cues = copy.deepcopy(list(data.get("cues") or []))
+        self.original_cues = copy.deepcopy(self.cues)
+        self.cue_panel.refresh()
         self.selected = next((i for i, b in enumerate(self.beats) if b[0] == 1), 0)
         self.cursor_ms = self.beats[self.selected][2]
         self.start_ms = max(0.0, self.cursor_ms - 1000)
@@ -320,6 +341,7 @@ class GridEditor(QWidget):
                 p.setBrush(QColor(theme.WARN))
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
+        self._paint_cues(p, w, h)
         xc = self._x(self.cursor_ms)
         if 0 <= xc <= w:
             p.setPen(QPen(QColor(theme.TEXT), 1, Qt.DashLine))
@@ -327,6 +349,115 @@ class GridEditor(QWidget):
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 2, -6, 0), Qt.AlignRight | Qt.AlignTop,
                    format_duration(int(self.start_ms / 1000)))
+
+    def _paint_cues(self, p: QPainter, w: int, h: int) -> None:
+        """Boucles (bande colorée), hot cues (trait + étiquette de la lettre en haut), mémoires (▼ rouge)."""
+        from .cue_pads import rgb_hex
+
+        lo, hi = self._ms(-40), self._ms(w + 2)
+        font = QFont(p.font())
+        font.setBold(True)
+        p.setFont(font)
+        for c in self.cues:
+            if c.is_loop and c.loop_ms >= lo and c.ms <= hi:
+                col = QColor(rgb_hex(c.colour()))
+                col.setAlpha(70 if self.active_loop != (c.ms, c.loop_ms) else 120)
+                x0, x1 = max(0.0, self._x(c.ms)), min(float(w), self._x(c.loop_ms))
+                p.fillRect(int(x0), 18, max(1, int(x1 - x0)), h - 18, col)
+        for c in self.cues:
+            if c.ms < lo or c.ms > hi:
+                continue
+            x = self._x(c.ms)
+            col = QColor(rgb_hex(c.colour()))
+            if c.slot:
+                p.setPen(QPen(col, theme.px(2)))
+                p.drawLine(QPointF(x, 18), QPointF(x, h))
+                p.setPen(Qt.NoPen)
+                p.setBrush(col)
+                p.drawRect(int(x), 0, theme.px(16), 18)
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QColor("#101010"))
+                p.drawText(int(x) + 3, 14, c.label)
+            else:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(theme.ERR))
+                p.drawPolygon(QPolygonF([QPointF(x - 6, 0), QPointF(x + 6, 0), QPointF(x, 10)]))
+                p.setBrush(Qt.NoBrush)
+
+    # ------------------------------------------------------------ cues : glisser
+    def grab_cue(self, x: float, y: float) -> bool:
+        """Clic sur l'étiquette d'une hot cue (bande du haut) : on la déplace en glissant."""
+        if y > 20:
+            return False
+        near = [c for c in self.cues if c.slot and -3 <= x - self._x(c.ms) <= theme.px(16) + 3]
+        if not near:
+            return False
+        self._drag_cue = near[0]
+        return True
+
+    def dragging_cue(self) -> bool:
+        return self._drag_cue is not None
+
+    def drag_cue(self, x: float, exact: bool = False) -> None:
+        c = self._drag_cue
+        if c is None:
+            return
+        ms = max(0.0, min(float(self.duration_ms), self._ms(x)))
+        ms = int(round(ms)) if exact or not self.beats else nearest_beat_ms(self.beats, ms)
+        if c.is_loop:
+            c.loop_ms = ms + (c.loop_ms - c.ms)
+        c.ms = ms
+        self.cue_panel.refresh()
+        self.draw()
+
+    def drop_cue(self) -> None:
+        self._drag_cue = None
+        self.cues_changed()
+
+    def cues_changed(self) -> None:
+        self._refresh_info()
+        self.draw()
+
+    def cues_dirty(self) -> bool:
+        def sig(cs: List[Cue]) -> List[Any]:
+            return sorted((c.slot, c.ms, c.loop_ms if c.is_loop else None, c.loop_beats, c.name, c.color_code)
+                          for c in cs)
+        return sig(self.cues) != sig(self.original_cues)
+
+    def go_to(self, ms: float) -> None:
+        """Curseur sur ce point (vue recentrée) ; en lecture, la lecture y saute."""
+        self.active_loop = None
+        self.cursor_ms = float(ms)
+        span = self.view_s * 1000.0
+        if not (self.start_ms <= ms <= self.start_ms + span * 0.85):
+            self.start_ms = ms - span * 0.15
+        self._show_time()
+        if self._is_playing_this() and self.ctrl.player.state in (PLAYING, PAUSED):
+            self._player_seek(ms)
+        self.draw()
+
+    def play_from(self, ms: float, loop: Optional[Tuple[int, int]] = None) -> None:
+        """Pad posé : écouter depuis ce point ; une boucle tourne jusqu'au prochain clic sur la forme d'onde."""
+        self.go_to(ms)
+        self.active_loop = (int(loop[0]), int(loop[1])) if loop else None
+        if self._is_playing_this() and self.ctrl.player.state == PLAYING:
+            return
+        if self._is_playing_this() and self.ctrl.player.state == PAUSED:
+            self.ctrl.player.toggle_pause()
+            return
+        self._play()
+
+    def keyPressEvent(self, e: Any) -> None:         # noqa: N802
+        """Touches 1 à 8 (ou la même rangée sur un clavier AZERTY) : pads A à H."""
+        keys = "12345678"
+        azerty = "".join(map(chr, (38, 233, 34, 39, 40, 45, 232, 95)))     # même rangée en AZERTY, sans Maj
+        text = e.text()
+        if text and not self.bpm_entry.hasFocus():
+            slot = keys.find(text) + 1 or azerty.find(text) + 1
+            if slot:
+                self.cue_panel.pad_clicked(slot)
+                return
+        super().keyPressEvent(e)
 
     def _paint_bands(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """Forme d'onde 3 bandes façon Rekordbox : basses (bleu) derrière, médiums (orange), aigus
@@ -366,9 +497,13 @@ class GridEditor(QWidget):
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))
         self.bpm_entry.setText(f"{bpm:.2f}")
-        changed = self.beats != self.original
-        self.save_btn.setEnabled(changed)
-        self.state_lbl.setText(t("grid.modified", ms=f"{delta:+d}") if changed else "")
+        grid_changed = self.beats != self.original
+        cues_changed = self.cues_dirty()
+        self.save_btn.setEnabled(grid_changed or cues_changed)
+        parts = [t("grid.modified", ms=f"{delta:+d}")] if grid_changed else []
+        if cues_changed:
+            parts.append(t("cue.modified"))
+        self.state_lbl.setText("  ·  ".join(parts))
 
     def _original_at(self, index: int) -> int:
         """Position d'origine du temps le plus proche (pour afficher le décalage appliqué)."""
@@ -438,6 +573,9 @@ class GridEditor(QWidget):
 
     def _reset(self) -> None:
         self.beats = list(self.original)
+        self.cues = copy.deepcopy(self.original_cues)
+        self.active_loop = None
+        self.cue_panel.refresh()
         self.selected = min(self.selected, len(self.beats) - 1)
         self._refresh_info()
         self.draw()
@@ -478,6 +616,8 @@ class GridEditor(QWidget):
         relâchement (et pendant le glisser, au plus toutes les ~60 ms)."""
         w = max(1, self.canvas.width())
         x = min(max(0.0, x), float(w))
+        if not dragging:
+            self.active_loop = None
         self.cursor_ms = min(max(0.0, self._ms(x)), float(self.duration_ms))
         self._scrubbing = True
         if self.beats:
@@ -528,6 +668,9 @@ class GridEditor(QWidget):
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
             self.cursor_ms = player.position() * 1000.0 + self._lead_ms
+            if self.active_loop and self.cursor_ms >= self.active_loop[1]:
+                self.cursor_ms = float(self.active_loop[0])
+                self._player_seek(self.cursor_ms)
             self._show_time()
             span = self.view_s * 1000.0
             if not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
@@ -542,6 +685,7 @@ class GridEditor(QWidget):
 
             def done(_r: Any) -> None:
                 if self.winfo_exists():
+                    self._leaving = True
                     self.close()
 
             def failed(_e: BaseException) -> None:
@@ -549,18 +693,32 @@ class GridEditor(QWidget):
                     self.save_btn.setEnabled(True)
                     self.save_btn.setText(t("action.save"))
 
-            self.ctrl.save_grid(self.track.content_id, self.beats, ok=done, err=failed)
+            beats = self.beats if self.beats != self.original else None
+            cues = self.cues if self.cues_dirty() else None
+            self.ctrl.save_grid_and_cues(self.track.content_id, beats, cues, ok=done, err=failed)
 
-        if self._native:
+        if self._native and self.beats != self.original:
             ConfirmDialog(self, t("grid.native_title"), t("grid.native_msg"), go, confirm_text=t("action.save"),
                           detail=t("grid.native_detail"))
         else:
             go()
 
+    def is_dirty(self) -> bool:
+        return bool(self.beats) and (self.beats != self.original or self.cues_dirty())
+
     def close(self) -> bool:                 # noqa: D401
-        """Quitte la page (sans enregistrer) ; la lecture du son continue."""
+        """Quitte la page (sans enregistrer) ; la lecture du son continue. 1.3.0 : grille ou cues
+        modifiés et pas enregistrés -> on demande avant de les perdre."""
         if self._closed:
             return True
+        if self.is_dirty() and not getattr(self, "_leaving", False):
+            def leave() -> None:
+                self._leaving = True
+                self.close()
+
+            ConfirmDialog(self, t("grid.leave_title"), t("grid.leave_msg"), leave,
+                          confirm_text=t("grid.leave_confirm"), danger=True)
+            return False
         self._closed = True
         self._timer.stop()
         callback, self._on_close = self._on_close, None

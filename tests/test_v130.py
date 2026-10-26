@@ -77,3 +77,271 @@ def test_pdb_compare_finds_dangling_entries(tmp_path):
     struct.pack_into("<I", f.data, f.page(p).base + off + 4, 999)          # son inexistant
     bad = compare.anomalies(f)
     assert any("missing tracks" in b for b in bad)
+
+
+# ============================================================================ C22 : cues dans les ANLZ
+def test_cue_lists_written_like_rekordbox():
+    import struct
+
+    from djsync.analysis.cues import Cue, pcob, pco2, read_cues
+
+    mem = [Cue(0, 410), Cue(0, 43733, name="train"), Cue(0, 107749, 118095, 16)]
+    raw = pcob(0, mem)
+    kind, _u, n, last = struct.unpack(">IHHi", raw[12:24])
+    assert (kind, n, last) == (0, 3, 2)
+    first = raw[24:24 + 56]
+    assert first[:4] == b"PCPT" and struct.unpack(">HH", first[24:28]) == (0xFFFF, 1)     # liste chaînée
+    assert struct.unpack(">I", first[16:20])[0] == 0                                         # status 0
+    hot = pcob(1, [Cue(1, 410), Cue(3, 43733)])
+    assert struct.unpack(">i", hot[20:24])[0] == -1
+    ext2 = pco2(1, [Cue(2, 34034, name="drop", color_code=60, rgb=(77, 0, 255))])
+    assert len(ext2) == 20 + 98                                                              # 88 + nom UTF-16
+    assert read_cues(None, b"PMAI" + struct.pack(">IIIIII", 0x1C, 0x1C + len(ext2), 1, 0x10000, 0x10000, 0) + ext2) \
+        [0].name == "drop"
+
+
+def test_write_and_read_cues_roundtrip(tmp_path):
+    from djsync.analysis import anlz
+    from djsync.analysis.cues import Cue, read_cues, save_to_files
+    from djsync.analysis.waveform import Waveforms
+
+    wf = Waveforms(detail=b"\x00" * 150, color_detail=b"\x00" * 300, preview=b"\x00" * 400,
+                   tiny_preview=b"\x00" * 100, color_preview=b"\x00" * 6 * 1200)
+    rel = anlz.write_files(tmp_path, "/Contents/a.m4a", [(1, 12000, 500), (2, 12000, 1000)], wf, memory_cues=[500])
+    dat = tmp_path / rel.lstrip("/")
+    assert [c.ms for c in read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())] == [500]
+    cues = [Cue(1, 500), Cue(4, 2000, name="Drop"), Cue(5, 3000, 5000, 4), Cue(0, 500), Cue(0, 7000, 8000, 2)]
+    save_to_files(dat, cues, tmp_path / "bk")
+    back = read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())
+    assert [(c.slot, c.ms, c.loop_ms, c.name) for c in back] == [
+        (1, 500, None, ""), (4, 2000, None, "Drop"), (5, 3000, 5000, ""), (0, 500, None, ""), (0, 7000, 8000, "")]
+    assert (tmp_path / "bk" / "ANLZ0000.DAT").is_file()
+    # réanalyse : les cues posées sont gardées
+    anlz.write_files(tmp_path, "/Contents/a.m4a", [(1, 12000, 500), (2, 12000, 1000)], wf, rel_dir=rel[:-14],
+                     memory_cues=[500])
+    assert len(read_cues(dat.read_bytes(), dat.with_suffix(".EXT").read_bytes())) == 5
+
+
+def test_cue_editing_helpers():
+    from djsync.analysis.cues import Cue, loop_end_ms, nearest_beat_ms, suggest_cues
+
+    beats = [((i % 4) + 1, 12000, 1000 + i * 500) for i in range(400)]        # 120 BPM, mesure tous les 2 s
+    assert nearest_beat_ms(beats, 1240) == 1000 and nearest_beat_ms(beats, 1260) == 1500
+    assert loop_end_ms(beats, 1000, 4) == 3000
+    assert loop_end_ms(beats, beats[-1][2], 2) == beats[-1][2] + 1000          # au-delà : au tempo du dernier temps
+    got = suggest_cues(beats, [Cue(1, 5000), Cue(0, 1000)])
+    assert [c.slot for c in got] == [2, 3, 4, 5] and got[0].ms == 1000            # A déjà pris : pads libres seulement
+    assert [c.ms for c in got] == [1000 + k * 32 * 2000 for k in range(4)]
+    full = [Cue(s, s * 100) for s in range(1, 9)]
+    assert suggest_cues(beats, full) == []
+
+
+def test_master_db_kind_mapping():
+    from djsync.analysis.cues import KIND_FOR_SLOT, SLOT_FOR_KIND
+
+    assert [KIND_FOR_SLOT[s] for s in range(9)] == [0, 1, 2, 3, 5, 6, 7, 8, 9]
+    assert SLOT_FOR_KIND[5] == 4 and 4 not in SLOT_FOR_KIND
+
+
+def test_local_library_cues_roundtrip(tmp_path, monkeypatch):
+    pytest.importorskip("pyrekordbox")
+    import shutil
+
+    from djsync.analysis.cues import Cue
+    from djsync.db import local_library as L
+
+    db_dir = tmp_path / "Pioneer" / "rekordbox"
+    db_dir.mkdir(parents=True)
+    data = Path(__file__).parent / "data" / "rekordbox6"
+    for f in data.glob("*"):
+        if f.suffix != ".md":
+            shutil.copy(f, db_dir / f.name)
+    monkeypatch.setattr(L, "rekordbox_running", lambda: False)
+    lib = L.LocalRekordboxLibrary(L.LocalRekordbox(db_dir, tmp_path / "Music"), backup_root=tmp_path / "bk",
+                                  owned_path=tmp_path / "owned.json").connect()
+    try:
+        cid = lib.list_tracks()[0].content_id
+        assert lib.track_cues(cid) == []
+        cues = [Cue(1, 500, name="Intro"), Cue(5, 9000, 11000, 4, color_code=56, rgb=(0xB3, 0, 0xFF)), Cue(0, 500)]
+        lib.save_track_cues(cid, cues)
+        back = lib.track_cues(cid)
+        assert [(c.slot, c.ms, c.loop_ms, c.loop_beats, c.name, c.color_code) for c in back] == \
+            [(1, 500, None, 0, "Intro", 0), (5, 9000, 11000, 4, "", 56), (0, 500, None, 0, "", 0)]
+        kinds = sorted(int(k) for (k,) in lib._read("SELECT Kind FROM djmdCue WHERE ContentID = :i", {"i": str(cid)}))
+        assert kinds == [0, 1, 6]                                          # E = Kind 6 dans master.db
+        assert lib._read("SELECT rb_cue_count FROM contentCue WHERE ContentID = :i", {"i": str(cid)})[0][0] == 3
+        lib.save_track_cues(cid, [])                                       # tout effacer
+        assert lib.track_cues(cid) == []
+        with pytest.raises(Exception):
+            lib.save_track_cues(cid, [Cue(1, 0), Cue(1, 500)])            # deux cues sur un même pad
+    finally:
+        lib.close()
+
+
+# ============================================================================ C25 : Uniformiser v2
+def test_video_id_removed_from_titles():
+    from djsync.core.uniformize import clean_title, needs_review, strip_video_id
+
+    assert clean_title("Charger (feat. MC YOSHI, Mauvais djo & Kokosvoice) [Om_gqUBQzll]")[:2] == \
+        ("Charger", ["MC YOSHI", "Mauvais djo", "Kokosvoice"])
+    assert strip_video_id("X (dQw4w9WgXcQ)") == "X"
+    for keep in ("Y [Instrumental]", "Song [Remastered1]", "Z (Extended Mix)"):
+        assert strip_video_id(keep) == keep
+    from types import SimpleNamespace as N
+    assert needs_review(N(title="Charger [Om_gqUBQzll]", artist="", artwork_path="a.jpg"))
+    assert needs_review(N(title="Slow", artist="DANNTZ!", artwork_path=None))              # pas de pochette
+    assert not needs_review(N(title="Slow", artist="DANNTZ!", artwork_path="a.jpg"))
+
+
+def test_deezer_cascade_uses_guests_and_duration(monkeypatch):
+    from djsync.core import metadata as M
+
+    calls = []
+
+    def hit(i, title, artist, dur):
+        return {"id": i, "title": title, "artist": {"name": artist}, "duration": dur, "album": {"title": "A", "id": 0}}
+
+    def fake_get(path, params=None):
+        if path == "/search":
+            q = params["q"]
+            calls.append(q)
+            if q == 'artist:"Mauvais djo" track:"Charger"':
+                return {"data": [hit(7, "Charger", "Mauvais djo", 200)]}
+            return {"data": []}
+        if path.startswith("/track/"):
+            return {"title": "Charger", "artist": {"name": "Mauvais djo"},
+                    "contributors": [{"name": "Mauvais djo"}, {"name": "MC YOSHI"}], "album": {}}
+        return {}
+
+    monkeypatch.setattr(M, "_get", fake_get)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    out = M.match("Charger", "MC YOSHI, Mauvais djo, Kokosvoice", 201, cleaned=True)
+    assert out["sure"] and out["artists"] == ["Mauvais djo", "MC YOSHI"] and out["candidates"][0]["id"] == 7
+    assert calls.index('artist:"Mauvais djo" track:"Charger"') == 2                # 3e essai, puis arrêt
+    assert len(calls) == 3
+
+    # titre seul : jamais « sûr », et la durée doit coller à ± 3 s
+    def title_only(path, params=None):
+        if path == "/search":
+            return {"data": [hit(1, "Namba Namba", "Zola", 180), hit(2, "Namba Namba", "Other", 260)]}
+        return {"title": "Namba Namba", "artist": {"name": "Zola"}, "album": {}}
+
+    monkeypatch.setattr(M, "_get", title_only)
+    got = M.match("Namba Namba (2015 Revisit)", "", 181, cleaned=True)
+    assert got["id"] == 1 and not got["sure"] and got["score"] < M.SURE
+    assert M.match("Namba Namba", "", 220, cleaned=True) == {}
+
+
+def test_manual_search_ranks_by_text_and_duration(monkeypatch):
+    from djsync.core import metadata as M
+
+    def fake_get(path, params=None):
+        return {"data": [{"id": 1, "title": "Charger", "artist": {"name": "Mauvais djo"}, "duration": 300},
+                         {"id": 2, "title": "Charger", "artist": {"name": "Mauvais djo"}, "duration": 201},
+                         {"id": 3, "title": "Other", "artist": {"name": "X"}, "duration": 201}]}
+
+    monkeypatch.setattr(M, "_get", fake_get)
+    got = M.search_candidates("mauvais djo charger", 200)
+    assert [c["id"] for c in got][:2] == [2, 1] and got[-1]["id"] == 3
+
+
+# ============================================================================ B02 / C13 : par le son
+def _fp_of(y):
+    from djsync.analysis.fingerprint import fingerprint
+    from tests.audio_fixture import SR
+
+    return fingerprint(y.astype("float32"), SR)
+
+
+def test_fingerprint_same_shifted_variant_and_different(tmp_path):
+    import numpy as np
+
+    from djsync.analysis.fingerprint import compare, file_fingerprint, is_usable
+    from tests.audio_fixture import HAS_FFMPEG, SR, song, write_m4a, write_wav
+
+    a = song(124.0, 0.42, 60, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    shifted = np.concatenate([np.zeros(int(1.5 * SR)), a * 0.8])
+    other = song(97.0, 0.1, 60, ("D", "G", "E", "A"), (0, 0, 1, 0))
+    variant = np.concatenate([a[:int(30 * SR)], other[:int(30 * SR)]])
+    fa = _fp_of(a)
+    m = compare(fa, _fp_of(shifted), 60, 61.5)
+    assert m.verdict == "same" and abs(m.shift_ms - 1500) < 60
+    assert compare(fa, _fp_of(other), 60, 60).verdict == "different"
+    assert compare(fa, _fp_of(variant), 60, 60).verdict == "variant"
+    assert not is_usable(_fp_of(np.zeros(SR * 30))) and not is_usable(None)
+    if HAS_FFMPEG:                                   # m4a (AAC) contre wav : même son
+        m4a = write_m4a(tmp_path / "a.m4a", a)
+        wav = write_wav(tmp_path / "b.wav", shifted)
+        cache = tmp_path / "fp"
+        got = compare(file_fingerprint(m4a, cache_dir=cache), file_fingerprint(wav, cache_dir=cache), 60, 61.5)
+        assert got.verdict == "same" and abs(got.shift_ms - 1500) < 120
+        assert len(list(cache.glob("*.npy"))) == 2
+
+
+def test_refine_groups_by_audio_and_shift_cues():
+    from types import SimpleNamespace as N
+
+    import numpy as np
+
+    from djsync.analysis.cues import Cue
+    from djsync.core.duplicates import refine_by_audio, shift_cues
+    from tests.audio_fixture import SR, song
+
+    a = song(124.0, 0.42, 40, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    b = np.concatenate([np.zeros(SR), a])
+    c = song(140.0, 0.2, 40, ("D", "G", "E", "A"), (0, 0, 1, 0))
+    tracks = [N(content_id=1, title="Afro Trap Pt. 3", artist="MHD", duration_seconds=40, is_analysed=True,
+                artwork_path="x"),
+              N(content_id=2, title="Afro Trap Pt. 3 (Clip)", artist="MHD", duration_seconds=41, is_analysed=False,
+                artwork_path=None),
+              N(content_id=3, title="Afro Trap Pt. 7", artist="MHD", duration_seconds=40, is_analysed=False,
+                artwork_path=None),
+              N(content_id=4, title="Afro Trap Pt. 8", artist="MHD", duration_seconds=3, is_analysed=False,
+                artwork_path=None)]
+    audio = {1: _fp_of(a), 2: _fp_of(b), 3: _fp_of(c), 4: None}
+    seen = []
+    groups, matches = refine_by_audio([tracks], lambda x: audio[x.content_id], lambda i, n: seen.append((i, n)))
+    assert [[x.content_id for x in g] for g in groups] == [[1, 2, 4]]          # Pt. 7 sort du groupe
+    assert matches[1] == "reference" and matches[2].verdict == "same" and matches[4] is None
+    assert seen[-1] == (4, 4)
+    cues = [Cue(1, 500), Cue(2, 39_500), Cue(3, 10_000, 12_000, 4)]
+    moved, lost = shift_cues(cues, matches[2].shift_ms, 41_000)
+    assert lost == 0 and abs(moved[0].ms - 1500) < 60 and moved[2].loop_ms - moved[2].ms == 2000
+    moved, lost = shift_cues(cues, -1000, 40_000)
+    assert lost == 1 and [c.slot for c in moved] == [2, 3]
+
+
+def test_merge_carries_hot_cues_to_the_kept_version(tmp_path):
+    from tests.audio_fixture import HAS_FFMPEG
+
+    if not HAS_FFMPEG:
+        pytest.skip("FFmpeg absent")
+    import numpy as np
+
+    from djsync.analysis.cues import Cue
+    from djsync.analysis.fingerprint import file_fingerprint
+    from djsync.core.duplicates import carry_cues
+    from djsync.db import RekordboxUsbLibrary, drive_from_letter
+    from tests.audio_fixture import SR, song, write_wav
+    from tests.test_usb_library import usb as make_usb
+    from tests.test_v050 import _add_cue_table
+
+    root = make_usb.__wrapped__(tmp_path) if hasattr(make_usb, "__wrapped__") else None
+    if root is None:
+        pytest.skip("fixture not callable")
+    _add_cue_table(root)
+    a = song(124.0, 0.42, 45, ("A", "F", "C", "G"), (1, 0, 0, 0))
+    with RekordboxUsbLibrary(drive_from_letter(str(root)), analyze=True) as lib:
+        d = lib.default_download_dir("DJ")
+        d.mkdir(parents=True, exist_ok=True)
+        src = lib.add_track(write_wav(d / "a.wav", a), "Song (Clip)", "DJ")
+        dst = lib.add_track(write_wav(d / "b.wav", np.concatenate([np.zeros(int(2 * SR)), a])), "Song", "DJ")
+        lib.save_track_cues(src.content_id, [Cue(1, 4000, name="Drop"), Cue(2, 20000, 24000, 8), Cue(0, 4000)])
+        cues, lost = carry_cues(lib, src.content_id, dst.content_id,
+                                lambda x: file_fingerprint(lib.absolute_path(x), cache_dir=tmp_path / "fp"))
+        assert lost == 0 and abs(cues[0].ms - 6000) < 60 and cues[0].name == "Drop"
+        assert cues[1].loop_ms - cues[1].ms == 4000
+        lib.merge_duplicates(dst.content_id, [src.content_id])
+        lib.save_track_cues(dst.content_id, cues)
+        back = lib.track_cues(dst.content_id)
+        assert [c.slot for c in back] == [1, 2, 0] and abs(back[0].ms - 6000) < 60

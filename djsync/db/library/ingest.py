@@ -297,7 +297,8 @@ class IngestMixin:
         """Mémoire cue au premier temps fort dans la table `cue` (en plus des fichiers ANLZ), seulement
         si le son n'a encore aucun cue. Pas pour le MP3 : les platines y repèrent la position par
         numéro de trame MPEG, que DJSync ne calcule pas (la mémoire reste dans l'ANLZ)."""
-        if ex.cue_ms is None or file_type == 1:
+        return              # 1.3.0 : Rekordbox laisse la table `cue` vide (cues dans les ANLZ seulement)
+        if ex.cue_ms is None or file_type == 1:  # pragma: no cover - ancien comportement, gardé pour mémoire
             return
         try:
             if conn.execute("SELECT 1 FROM cue WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
