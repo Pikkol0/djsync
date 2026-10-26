@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from .anlz import write_files
 from .decode import ANALYSIS_SR, DecodeError, find_ffmpeg
@@ -20,9 +20,24 @@ from .key import KeyResult, analyze_key
 from .tempo import BeatGrid, analyze_tempo
 from .waveform import Waveforms, compute_waveforms
 
-__all__ = ["AnalysisResult", "analyze_file", "write_anlz", "DecodeError", "find_ffmpeg", "BeatGrid", "KeyResult"]
+__all__ = ["AnalysisResult", "analyze_file", "write_anlz", "configure", "OPTIONS", "RESULT_HOOKS", "BPM_RANGES", "DecodeError", "find_ffmpeg", "BeatGrid", "KeyResult"]
 
 MP3_FILE_TYPE = 1
+
+# 1.3.0 (C16) : options d'analyse choisies dans les Réglages (appliquées à toutes les analyses).
+#   tempo_mode : "auto" (une grille qui suit le tempo quand il change nettement, à vérifier) ou
+#                "constant" (toujours un tempo unique, comme le réglage par défaut de Rekordbox) ;
+#   bpm_range  : plage d'affichage du BPM (le tempo est ramené à l'octave qui tombe dedans).
+OPTIONS: Dict[str, Any] = {"tempo_mode": "auto", "bpm_range": (70, 180)}
+BPM_RANGES = ((70, 180), (58, 115), (68, 135), (78, 155), (88, 175), (98, 195))
+# Appelées après chaque analyse : hook(chemin du fichier, AnalysisResult). Ne doivent pas lever.
+RESULT_HOOKS: List[Callable[[Path, "AnalysisResult"], None]] = []
+
+
+def configure(tempo_mode: str = "auto", bpm_range: Tuple[int, int] = (70, 180)) -> None:
+    OPTIONS["tempo_mode"] = tempo_mode if tempo_mode in ("auto", "constant") else "auto"
+    lo, hi = (int(v) for v in bpm_range)
+    OPTIONS["bpm_range"] = (lo, hi) if (lo, hi) in BPM_RANGES else (70, 180)
 
 
 @dataclass
@@ -59,10 +74,18 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) 
     started = time.perf_counter()
     audio = decode_audio(path, ffmpeg_location, ANALYSIS_SR)
     x, sr = audio.samples, audio.sr
-    grid = analyze_tempo(x, sr)
+    grid = analyze_tempo(x, sr, constant=OPTIONS["tempo_mode"] == "constant", bpm_range=OPTIONS["bpm_range"])
     key = analyze_key(x, sr)
     wf = compute_waveforms(x, sr, audio.duration)
-    return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started)
+    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started)
+    for hook in list(RESULT_HOOKS):
+        try:
+            hook(Path(path), result)
+        except Exception:  # noqa: BLE001 - un suivi (sons à tempo variable) ne doit jamais casser l'analyse
+            import logging
+
+            logging.getLogger(__name__).exception("analysis hook")
+    return result
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,

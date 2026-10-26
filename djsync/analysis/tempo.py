@@ -69,24 +69,28 @@ def _frames(x: np.ndarray, n_fft: int, hop: int):
         yield np.abs(np.fft.rfft(view[start:start + 512] * win, axis=1)).astype(np.float32)
 
 
-def onset_envelopes(x: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray, float]:
-    """(enveloppe globale, enveloppe des basses, images par seconde)."""
+# 1.3.0 (B11) : bandes qui distinguent le temps du contretemps. Kick : fondamentale 40-100 Hz ;
+# clap / caisse claire : bruit 1,5-5 kHz (toujours SUR un temps, 2 et 4 ou 3) ; charleston : 7-11 kHz
+# (souvent ouvert sur le contretemps en house, ce qui attire la grille dessus).
+BANDS = {"full": (30, 8000), "bass": (30, 150), "kick": (40, 100), "clap": (1500, 5000), "hat": (7000, 11000)}
+
+
+def onset_bands(x: np.ndarray, sr: int) -> Tuple[Dict[str, np.ndarray], float]:
+    """Enveloppes d'attaques par bande (flux spectral log, normalisé) et images par seconde."""
     freqs = np.fft.rfftfreq(N_FFT, 1.0 / sr)
-    band = (freqs >= 30) & (freqs <= 8000)
-    bass = (freqs >= 30) & (freqs <= 150)
+    masks = {k: (freqs >= lo) & (freqs <= hi) for k, (lo, hi) in BANDS.items()}
     prev = None
-    full, low = [], []
+    acc: Dict[str, list] = {k: [] for k in BANDS}
     for mag in _frames(x, N_FFT, HOP):
         lm = np.log1p(100.0 * mag)
         if prev is None:
             prev = lm[:1]
         d = np.diff(np.concatenate([prev, lm], axis=0), axis=0)
         d = np.maximum(d, 0.0)
-        full.append(d[:, band].sum(axis=1))
-        low.append(d[:, bass].sum(axis=1))
+        for k, m in masks.items():
+            acc[k].append(d[:, m].sum(axis=1))
         prev = lm[-1:]
     fps = sr / HOP
-    env, benv = np.concatenate(full), np.concatenate(low)
 
     def clean(e: np.ndarray) -> np.ndarray:
         w = max(1, int(fps * 0.4))
@@ -95,7 +99,13 @@ def onset_envelopes(x: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray, flo
         s = e.std()
         return (e / s).astype(np.float64) if s > 0 else e.astype(np.float64)
 
-    return clean(env), clean(benv), fps
+    return {k: clean(np.concatenate(v)) for k, v in acc.items()}, fps
+
+
+def onset_envelopes(x: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray, float]:
+    """(enveloppe globale, enveloppe des basses, images par seconde)."""
+    bands, fps = onset_bands(x, sr)
+    return bands["full"], bands["bass"], fps
 
 
 def _autocorr(env: np.ndarray) -> np.ndarray:
@@ -165,6 +175,7 @@ def _alignment(smooth: np.ndarray, period: float, step: float = 0.25) -> float:
     return float(_sample(smooth, phases[:, None] + k[None, :] * period).mean(axis=1).max())
 
 
+THREE_HALVES_SCORE = 0.95     # A02 : voir analyze_tempo
 REF_LO, REF_HI = 90.0, 180.0         # octave de référence des candidats
 OCTAVE_SLOW_FROM = 168.0             # au-delà, Rekordbox affiche presque toujours la moitié (84-90)
 
@@ -218,22 +229,48 @@ def _refine_align(smooth: np.ndarray, fps: float, bpm0: float, span: float = 0.0
     return round(bpm, 2), best
 
 
-OFFBEAT_FLIP = 1.3     # basses du contretemps / basses du temps au-delà duquel la grille est décalée
+OFFBEAT_FLIP = 1.3     # (avant 1.3.0) basses du contretemps / basses du temps : gardé pour le diagnostic
+BACKBEAT_MIN = 0.20    # motif clap / caisse claire net (contraste sur 4 temps) …
+BACKBEAT_GAIN = 2.5    # … et nettement plus marqué un demi-temps plus loin
 
 
-def _kick_phase(benv: np.ndarray, period: float, phase: float, debug: Optional[Dict] = None) -> float:
-    """Temps ou contretemps ? Le calage sur toutes les attaques peut tomber sur le contretemps quand
-    les charlestons ouverts y dominent (house). Le KICK tranche : si les attaques graves sont
-    nettement plus fortes un demi-temps plus loin, la grille est décalée d'un demi-temps.
-    Mesuré sur 10 sons réels comparés aux grilles Rekordbox : 1,78 pour le seul son décalé (Pump It
-    Up), 1,03 au plus pour les 9 autres -> seuil 1,3."""
-    smooth = np.convolve(benv, [0.25, 0.5, 0.25], mode="same")
-    k = np.arange(0, max(1, int((smooth.size - 1 - phase) // period)))
-    on = float(_sample(smooth, phase + k * period).mean())
-    off = float(_sample(smooth, phase + period / 2 + k * period).mean())
+def _pattern(env: np.ndarray, period: float, phase: float) -> float:
+    """Contraste du motif sur 4 temps : (temps le plus fort du cycle − moyenne) / moyenne, mesuré aux
+    positions phase + k·période. Une caisse claire / un clap sur 2 et 4 (ou sur le 3 en trap) donne un
+    motif net SUR les temps ; des charlestons réguliers sur les contretemps n'en donnent aucun."""
+    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
+    n = int((smooth.size - 1 - phase - period) // period)
+    if n < 16:
+        return 0.0
+    v = _sample(smooth, phase + np.arange(n) * period)
+    m = np.array([v[j::4].mean() for j in range(4)])
+    mean = float(m.mean())
+    return float((m.max() - mean) / mean) if mean > 0 else 0.0
+
+
+def _kick_phase(bands: Dict[str, np.ndarray], period: float, phase: float, debug: Optional[Dict] = None) -> float:
+    """Temps ou contretemps ? (B11, 1.3.0) Le calage sur toutes les attaques tombe parfois sur le
+    contretemps quand les charlestons ouverts y dominent. La règle 1.2 (basses du contretemps plus
+    fortes) ne séparait pas les sons fautifs des bons sur 52 m4a comparés à Rekordbox (0,39 à 2,46
+    contre jusqu'à 2,07) : les lignes de basse jouent souvent sur le contretemps. Nouvelle règle :
+    le CLAP / la caisse claire (1,5-5 kHz) dessine un motif net sur 4 temps, toujours sur les temps.
+    Si ce motif est net un demi-temps plus loin et quasi absent sous la grille, la grille est décalée.
+    Synthétique : house à charleston ouvert dominant 0,25-0,51 contre 0,02-0,04 ; sons justes :
+    0,11 au plus un demi-temps plus loin. À revalider sur la clé avec --compare (colonnes b11_*)."""
+    here = _pattern(bands["clap"], period, phase)
+    there = _pattern(bands["clap"], period, phase + period / 2)
     if debug is not None:
+        smooth = np.convolve(bands["bass"], [0.25, 0.5, 0.25], mode="same")
+        k = np.arange(0, max(1, int((smooth.size - 1 - phase) // period)))
+        on = float(_sample(smooth, phase + k * period).mean())
+        off = float(_sample(smooth, phase + period / 2 + k * period).mean())
         debug["kick_offbeat_ratio"] = round(off / on, 3) if on > 0 else -1
-    if on > 0 and off > OFFBEAT_FLIP * on:
+        for name in ("kick", "hat", "full"):
+            debug[f"b11_{name}"] = f"{_pattern(bands[name], period, phase):.3f}/{_pattern(bands[name], period, phase + period / 2):.3f}"
+        debug["b11_clap"] = f"{here:.3f}/{there:.3f}"
+    if there >= BACKBEAT_MIN and there >= BACKBEAT_GAIN * here:
+        if debug is not None:
+            debug["b11_flip"] = True
         return (phase + period / 2) % period
     return phase
 
@@ -279,9 +316,13 @@ def _warp(env: np.ndarray, fps: float, bpm: float, phase0: float, debug: Optiona
     inside = tracked[(tracked >= 0) & (tracked <= env.size - 1)]
     score_c = float(_sample(smooth, base).mean())
     score_t = float(_sample(smooth, inside).mean())
-    # écart de chaque temps suivi au temps constant le plus proche (repliement sur ±1/2 temps)
-    dev = (inside - phase0) / period
-    dev = (dev - np.round(dev)) * period
+    # écart de chaque temps suivi à la grille constante, mesuré comme un angle (repliement circulaire),
+    # puis recentré sur l'écart moyen. 1.3.0 : un décalage CONSTANT (grille suivie calée un demi-temps
+    # plus loin, sur les charlestons) n'est pas un tempo qui varie ; seule compte la variation de
+    # l'écart au fil du morceau.
+    ang = 2 * np.pi * (inside - phase0) / period
+    centre = np.angle(np.mean(np.exp(1j * ang)))
+    dev = np.angle(np.exp(1j * (ang - centre))) / (2 * np.pi) * period
     dev = np.array([np.median(dev[max(0, i - 4): i + 5]) for i in range(dev.size)])
     drift = float(np.max(np.abs(dev))) / fps
     if debug is not None:
@@ -362,12 +403,27 @@ def _harmonic_change(x: np.ndarray, sr: int, times: np.ndarray) -> np.ndarray:
     return out
 
 
-def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatGrid:
-    """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque."""
+def _fit_range(bpm: float, bpm_range: Tuple[float, float]) -> float:
+    """C16 : ramène le tempo dans la plage choisie (octave : ×2 / ÷2), comme le réglage de Rekordbox."""
+    lo, hi = bpm_range
+    if bpm <= 0 or (lo, hi) == (BPM_MIN, BPM_MAX):
+        return bpm
+    while bpm >= hi and bpm / 2 >= lo:
+        bpm /= 2
+    while bpm < lo and bpm * 2 < hi:
+        bpm *= 2
+    return round(bpm, 2)
+
+
+def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None, constant: bool = False,
+                  bpm_range: Tuple[float, float] = (BPM_MIN, BPM_MAX)) -> BeatGrid:
+    """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque.
+    `constant` (C16) : jamais de grille variable ; `bpm_range` : plage d'affichage du BPM."""
     duration = x.size / float(sr)
     if duration < 4.0 or peak_level(x) < 1e-3:
         return BeatGrid()
-    env, benv, fps = onset_envelopes(x, sr)
+    bands, fps = onset_bands(x, sr)
+    env, benv = bands["full"], bands["bass"]
     if env.size < fps * 3 or not np.any(env):
         return BeatGrid()
     bpm0, strength = _coarse_tempo(env, fps)
@@ -380,9 +436,18 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     if not refined:
         return BeatGrid()
     rep, rep_score = refined[0]
+    # A02 (1.3.0) : rapport 3:2. Quand le tempo 3/2 fois plus rapide aligne presque aussi bien (≥ 95 %),
+    # Rekordbox le retient. Mesuré sur 52 m4a : corrige Alicante (90 -> 135) et ЗАВОД (106,67 -> 160),
+    # aucun son juste ne bascule.
+    for b, sc in refined[1:]:
+        if abs(b / rep - 1.5) < 0.015 and sc >= THREE_HALVES_SCORE * rep_score:
+            if debug is not None:
+                debug["a02_three_halves"] = f"{rep:.2f}->{b:.2f}"
+            rep, rep_score = b, sc
+            break
     if debug is not None:
         debug["candidats"] = " ".join(f"{b:.2f}:{sc:.2f}" for b, sc in refined[:5])
-    bpm = _choose_octave(env, benv, fps, rep, debug)
+    bpm = _fit_range(_choose_octave(env, benv, fps, rep, debug), bpm_range)
     coherence = abs(complex(_fourier(env, fps, np.array([bpm]))[0])) / (float(np.abs(env).sum()) or 1.0)
     if debug is not None:
         debug.update(before_refine=round(rep, 2), coherence=round(coherence, 4))
@@ -390,20 +455,25 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     # position du 1er temps (en images) par recherche directe ; la différence spectrale place une
     # attaque entre deux images (-0.5 image) et l'image est centrée sur sa fenêtre (+N_FFT/2)
     phase_frames, _, _ = _best_phase(env, period)
-    phase_frames = _kick_phase(benv, period, phase_frames, debug)
+    phase_frames = _kick_phase(bands, period, phase_frames, debug)
     t_of = lambda f: ((f - 0.5) * HOP + N_FFT / 2) / sr + ONSET_LATENCY   # image -> secondes
     first = t_of(phase_frames)
     beat_len = 60.0 / bpm
     first %= beat_len
     times = np.arange(first, duration, beat_len)
-    warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
+    warped = None if constant else _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
     variable = warped is not None
     if variable:
         times = t_of(warped)
         times = times[(times >= 0) & (times < duration)]
         first = float(times[0])
         bpm = round(float(np.median(60.0 / np.diff(times))), 2)        # tempo affiché : tempo médian
-    # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
+    # temps fort (B12, 1.3.0) : décalage (0..3) choisi par plusieurs indices, chacun mesuré en
+    # CONTRASTE relatif (écart à la moyenne / moyenne) et non plus normalisé (z) : un indice sans
+    # motif (pas d'accords, kick sur chaque temps) reste proche de 0 au lieu de peser autant que les
+    # autres. Indices : kick (40-100 Hz : le 1 porte souvent le kick le plus fort ou le seul),
+    # changement harmonique (accords en début de mesure), basses, et clap / caisse claire (presque
+    # jamais sur le 1). Synthétique : 1 retrouvé en hip-hop / trap (0 sur 6 avec l'ancien calcul).
     frames = ((times - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5
 
     def sample(e: np.ndarray) -> np.ndarray:
@@ -412,14 +482,22 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
         return np.maximum.reduce([e[lo], e[i], e[hi]])
 
     nums = np.arange(times.size) % 4
-    bass = sample(benv)
     harm = _harmonic_change(x, sr, times)
 
-    def z(v: np.ndarray) -> np.ndarray:
+    def rel(v: np.ndarray) -> np.ndarray:
         per = np.array([float(v[nums == j].mean()) if np.any(nums == j) else 0.0 for j in range(4)])
-        return (per - per.mean()) / (per.std() + 1e-9)
+        mean = float(per.mean())
+        return (per - mean) / mean if mean > 0 else np.zeros(4)
 
-    scores = list(z(harm) + 0.5 * z(bass)) if times.size >= 8 else [0.0, 0.0, 0.0, 0.0]
+    if times.size >= 8:
+        parts = {"kick": rel(sample(bands["kick"])), "harm": rel(harm), "bass": rel(sample(benv)),
+                 "clap": rel(sample(bands["clap"]))}
+        scores = list(parts["kick"] + parts["harm"] + 0.5 * parts["bass"] - 0.5 * parts["clap"])
+        if debug is not None:
+            for k, v in parts.items():
+                debug[f"b12_{k}"] = " ".join(f"{a:+.2f}" for a in v)
+    else:
+        scores = [0.0, 0.0, 0.0, 0.0]
     if debug is not None:
         debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
     down = int(np.argmax(scores))

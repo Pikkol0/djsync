@@ -104,3 +104,68 @@ def write_m4a(path: Path, y: np.ndarray, cover: Optional[bytes] = None) -> Path:
         mp4["covr"] = [MP4Cover(cover, imageformat=MP4Cover.FORMAT_PNG)]
         mp4.save()
     return path
+
+
+def groove(bpm: float, first: float, duration: float, style: str, seed: int = 3) -> np.ndarray:
+    """1.3.0 (B11) : batteries où l'attaque la plus forte n'est PAS sur le temps.
+    house : kick sur chaque temps, clap 2 et 4, charleston OUVERT très fort sur les contretemps, basse
+    sur les contretemps ; trap : kick syncopé (1, 2&, 3&), clap sur le 3, charlestons en doubles
+    croches, 808 tenue ; hiphop : kick 1 et 3&, caisse claire 2 et 4, charleston en croches.
+    Temps fort (1) = `first`."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(0.25 * SR)) / SR
+    kick = np.sin(2 * np.pi * np.cumsum(50 + 100 * np.exp(-t * 30)) / SR) * np.exp(-t * 12)
+    tc = np.arange(int(0.18 * SR)) / SR
+    clap = rng.normal(0, 0.6, tc.size) * np.exp(-tc * 22)
+    clap = np.convolve(clap, [1, -0.9], mode="same")                     # surtout des aigus/médiums
+    to = np.arange(int(0.22 * SR)) / SR
+    ohat = np.diff(rng.normal(0, 1, to.size), n=3, prepend=[0, 0, 0]) * 0.35 * np.exp(-to * 16)   # aigus
+    th = np.arange(int(0.04 * SR)) / SR
+    chat = 0.3 * np.diff(rng.normal(0, 1, th.size), prepend=0) * np.exp(-th * 90)
+    y = np.zeros(int(duration * SR) + SR)
+
+    def add(sig: np.ndarray, at: float, gain: float = 1.0) -> None:
+        i = int(round(at * SR))
+        if 0 <= i < y.size:
+            e = min(y.size, i + sig.size)
+            y[i:e] += gain * sig[: e - i]
+
+    def bass(f: float, dur: float) -> np.ndarray:
+        tb = np.arange(int(dur * SR)) / SR
+        return np.sin(2 * np.pi * f * tb) * np.minimum(1, tb / 0.005) * np.exp(-tb * 6) * np.minimum(1, (dur - tb) / 0.02)
+
+    beat = 60.0 / bpm
+    k, at = 0, first
+    while at < duration:
+        n = k % 4
+        if style == "house":
+            add(kick, at)
+            if n in (1, 3):
+                add(clap, at, 0.6)
+            add(ohat, at + beat / 2, 1.6)
+            add(bass(55.0 * (1.5 if n == 2 else 1.0), beat * 0.45), at + beat / 2, 0.8)
+            add(chat, at, 0.4)
+        elif style == "trap":
+            if n == 0:
+                add(kick, at)
+                add(bass(49.0, beat * 1.8), at, 0.9)
+            if n == 1:
+                add(kick, at + beat / 2, 0.9)
+            if n == 2:
+                add(clap, at, 1.0)
+                add(kick, at + beat / 2, 0.8)
+            for s in range(4):
+                add(chat, at + s * beat / 4, 1.2 if s % 2 else 1.6)
+        else:  # hiphop
+            if n == 0:
+                add(kick, at)
+            if n == 2:
+                add(kick, at + beat / 2, 0.9)
+            if n in (1, 3):
+                add(clap, at, 0.9)
+            add(chat, at, 1.0)
+            add(chat, at + beat / 2, 1.3)
+        k += 1
+        at += beat
+    y = y[: int(duration * SR)]
+    return (y / np.max(np.abs(y)) * 0.9).astype(np.float32)

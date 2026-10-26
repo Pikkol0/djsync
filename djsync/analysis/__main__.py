@@ -113,7 +113,7 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
         skipped = sum(1 for t in lib.list_tracks() if t.is_analysed and t.content_id not in native)
         print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
               f"{f' ({skipped} analysed by DJSync ignored)' if skipped else ''}.\n", flush=True)
-        bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = half_n = 0
+        bpm_ok = octave = key_ok = key_rel = key_nb = grid_ok = grid_n = down_ok = half_n = 0
         by_format: dict = {}
         for i, t in enumerate(tracks, start=1):
             dbg: dict = {}
@@ -131,7 +131,9 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
             bpm_ok += same_bpm
             octave += is_oct
             key_ok += bool(mine and mine == theirs)
-            key_rel += bool(mine and theirs and mine != theirs and mine[:-1] == theirs[:-1])
+            kind = key_relation(mine, theirs)
+            key_rel += kind == "relative"
+            key_nb += kind == "neighbour"
             grid_txt = ""
             half = False
             if gap is not None and (same_bpm or is_oct):
@@ -153,11 +155,11 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
                          "rb_bpm": t.bpm, "rb_key": theirs or "", "dj_bpm": grid.bpm, "dj_key": mine or "",
                          "dj_first_beat": round(grid.first_beat, 4), "dj_variable": grid.variable,
                          "grid_gap_ms": gap if gap is not None else "", "grid_signed_ms": signed if signed is not None else "",
-                         "same_downbeat": same_down
+                         "key_relation": key_relation(mine, theirs), "same_downbeat": same_down
                          if same_down is not None else "", "half_beat": half,
                          **(mp4_timing(lib.absolute_path(t)) if t.path.lower().endswith(MP4_SUFFIXES) else {}),
                          "lead_ms": round(timeline_lead_seconds(lib.absolute_path(t)) * 1000, 1), **dbg})
-        _summary(len(rows), bpm_ok, octave, key_ok, key_rel, grid_n, grid_ok, down_ok, half_n)
+        _summary(len(rows), bpm_ok, octave, key_ok, key_rel, grid_n, grid_ok, down_ok, half_n, key_nb)
         if by_format:
             import statistics
 
@@ -177,8 +179,26 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
     return 0
 
 
+def key_relation(mine: str | None, theirs: str | None) -> str:
+    """A01 : « same », « relative » (même numéro Camelot, A <-> B), « neighbour » (numéro voisin, même
+    lettre : compatible en mix harmonique), « wrong » (vraie erreur) ou « » (tonalité inconnue)."""
+    if not mine or not theirs:
+        return ""
+    if mine == theirs:
+        return "same"
+    try:
+        nm, lm, nt, lt = int(mine[:-1]), mine[-1], int(theirs[:-1]), theirs[-1]
+    except ValueError:
+        return "wrong"
+    if nm == nt:
+        return "relative"
+    if lm == lt and (nm - nt) % 12 in (1, 11):
+        return "neighbour"
+    return "wrong"
+
+
 def _summary(n: int, bpm_ok: int, octave: int, key_ok: int, key_rel: int, grid_n: int, grid_ok: int,
-             down_ok: int, half_n: int = 0) -> None:
+             down_ok: int, half_n: int = 0, key_nb: int = 0) -> None:
     """Résumé avec intervalles de confiance à 95 % : au-dessous de ~100 sons, ils sont larges."""
     def line(name: str, k: int, total: int) -> str:
         lo, hi = wilson(k, total)
@@ -190,6 +210,8 @@ def _summary(n: int, bpm_ok: int, octave: int, key_ok: int, key_rel: int, grid_n
     print(line("Same BPM or ×2 / ÷2", bpm_ok + octave, n))
     print(line("Same key", key_ok, n))
     print(line("Same key or relative maj./min.", key_ok + key_rel, n))
+    print(line("Compatible (+ neighbour on the wheel)", key_ok + key_rel + key_nb, n))
+    print(line("Key really wrong", n - key_ok - key_rel - key_nb, n))
     if grid_n:
         print(line("Grid: beats within 20 ms", grid_ok, grid_n))
         print(line("Grid: same downbeat (bar start)", down_ok, grid_n))

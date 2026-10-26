@@ -38,6 +38,11 @@ SHAATH_MINOR = np.array([7.00255045759871, 3.14360061770071, 4.35908323706906, 5
 # 206 sons réels (29 majeurs, 177 mineurs : rap/club FR surtout), normalisés à 100.
 MAJOR = np.array([12.4558, 6.3104, 8.1697, 5.5927, 10.769, 8.0643, 5.6778, 12.2947, 6.219, 8.8315, 6.9589, 8.6563])
 MINOR = np.array([12.9, 6.0059, 8.6862, 9.8416, 6.5706, 8.4704, 6.5798, 11.8502, 7.0887, 5.9945, 9.3565, 6.6555])
+# A01 (1.3.0) : léger avantage aux tonalités mineures, comme Rekordbox (177 mineures sur 206 dans la
+# bibliothèque de référence, 46 sur 52 dans la mesure du 23/10). Mesuré sur ces 52 m4a : 34 -> 36
+# identiques à Rekordbox, vraies erreurs 6 -> 5 ; plus fort (0,15) gagnerait encore 1 son mais pénaliserait
+# les morceaux vraiment majeurs. À revalider sur un échantillon large (--compare).
+MINOR_BIAS = 0.05
 N_FFT = 8192
 HOP = 4096
 MIDI_LO, MIDI_HI = 36, 96            # C2 .. C7
@@ -109,7 +114,7 @@ def analyze_key(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> KeyResu
     for tonic in range(12):
         rolled = np.roll(chroma, -tonic)
         scores[tonic] = np.corrcoef(rolled, MAJOR)[0, 1]
-        scores[12 + tonic] = np.corrcoef(rolled, MINOR)[0, 1]
+        scores[12 + tonic] = np.corrcoef(rolled, MINOR)[0, 1] + MINOR_BIAS
     order = np.argsort(scores)[::-1]
     best, second = scores[order[0]], scores[order[1]]
     if not np.isfinite(best) or best < 0.1:
