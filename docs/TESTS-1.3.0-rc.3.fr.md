@@ -1,7 +1,7 @@
 # Scénarios de test — DJSync 1.3.0-rc.3
 
 Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse après téléchargement
-(**C32**), message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
+(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
 `docs/TESTS-1.3.0.fr.md` restent à faire s'ils ne sont pas cochés.
 
 ## W. Lancement et version (C31, C35)
@@ -21,6 +21,13 @@ Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse 
 | A3 | Décocher « — clé USB », télécharger un son. | Le son arrive sans analyse (section « Non analysés »). |
 | A4 | Bibliothèque de l'ordinateur (Rekordbox fermé), case « — bibliothèque de l'ordinateur » cochée : télécharger un son. | Son analysé après le téléchargement ; les sons de Rekordbox ne sont pas touchés. |
 | A5 | Pendant l'analyse de A2, passer sur l'autre bibliothèque. | Pas d'erreur ; les sons pas encore analysés le seront à la demande. |
+
+## H. Accueil : mettre à jour export.pdb (C36)
+| # | Étapes | Attendu |
+|---|---|---|
+| H1 | Ouvrir la clé dans Rekordbox et le laisser ouvert ; dans DJSync, renommer une playlist. Revenir à l'Accueil. | Pastille orange « export.pdb pas à jour », une ligne « Pas encore sur les anciennes platines : … » et un bouton **Mettre à jour export.pdb**. |
+| H2 | Cliquer **Mettre à jour export.pdb** avec Rekordbox toujours ouvert sur la clé. | Le bouton affiche « Mise à jour… », puis message « export.pdb est utilisé par un autre programme (Rekordbox ouvert sur la clé ?)… » ; la carte reste « pas à jour ». |
+| H3 | Fermer Rekordbox, cliquer de nouveau **Mettre à jour export.pdb**. | Message « export.pdb est à jour » ; la pastille orange, la ligne de détail et le bouton disparaissent. Dans Rekordbox (Device Library), la playlist porte le nouveau nom. |
 
 ## E. export.pdb (B14)
 | # | Étapes | Attendu |

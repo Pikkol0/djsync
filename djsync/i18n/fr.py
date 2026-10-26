@@ -589,6 +589,9 @@ STRINGS = {
     "msg.pdb_full_track": "« {title} » n'apparaîtra pas sur les platines qui lisent export.pdb (fichier plein). "
                           "Autorisez l'ajout de pages dans Paramètres ▸ Anciennes platines, puis « Synchroniser maintenant ».",
     "msg.pdb_synced": "export.pdb synchronisé : {tracks} titre(s), {playlists} playlist(s) ajouté(s).",
+    "msg.pdb_up_to_date": "export.pdb est à jour (anciennes platines).",
+    "msg.pdb_left": "export.pdb mis à jour, mais il manque encore : {detail}",
+    "msg.pdb_locked": "export.pdb est utilisé par un autre programme (Rekordbox ouvert sur la clé ?) : fermez-le puis réessayez.",
     "msg.queued_one": "{n} téléchargement ajouté{where}.",
     "msg.queued_many": "{n} téléchargements ajoutés{where}.",
     "msg.queued_to": " → {names}",
@@ -948,6 +951,10 @@ STRINGS = {
     # ---- 1.3.0 : format de la clé, export.pdb (T01)
     "home.pdb_no_tip": "Pas d'export.pdb sur cette clé : les anciennes platines (CDJ-2000NXS2, XDJ-1000…) n'afficheront pas ses playlists. Dans Rekordbox, exportez aussi la clé une fois au format « Device Library » : DJSync le tiendra ensuite à jour.",
     "home.pdb_stale": "export.pdb pas à jour",
+    "home.pdb_detail": "Pas encore sur les anciennes platines : {detail}",
+    "home.pdb_update": "Mettre à jour export.pdb",
+    "home.pdb_update_tip": "Met export.pdb (anciennes platines : CDJ-2000NXS2, XDJ-1000…) en accord avec la bibliothèque de cette clé. Fermez Rekordbox avant.",
+    "home.pdb_updating": "Mise à jour…",
     "home.pdb_stale_tip": "Les anciennes platines ne voient pas tout ce que DJSync a ajouté. Paramètres ▸ Anciennes platines ▸ Synchroniser maintenant. Détail : {detail}",
     "home.fs_ok": "Clé formatée en {fs} : lue par toutes les platines rekordbox.",
     "home.fs_recent_only": "Clé formatée en {fs} : lue par les platines récentes, mais les plus anciennes (XDJ-1000 par exemple) ne lisent que FAT32 ou HFS+ et affichent « NO USB / E-8307 DEVICE NO RESPONSE ». Pour jouer dessus, copiez le contenu de la clé ailleurs et formatez-la en FAT32.",

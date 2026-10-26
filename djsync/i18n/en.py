@@ -583,6 +583,9 @@ STRINGS = {
     "msg.pdb_full_track": "\"{title}\" will not appear on players reading export.pdb (file full). Allow adding "
                           "pages in Settings ▸ Older players, then click \"Synchronise now\".",
     "msg.pdb_synced": "export.pdb synchronised: {tracks} track(s), {playlists} playlist(s) added.",
+    "msg.pdb_up_to_date": "export.pdb is up to date (older players).",
+    "msg.pdb_left": "export.pdb updated, but something is still missing: {detail}",
+    "msg.pdb_locked": "export.pdb is in use by another program (Rekordbox open on the drive?): close it, then try again.",
     "msg.queued_one": "{n} download queued{where}.",
     "msg.queued_many": "{n} downloads queued{where}.",
     "msg.queued_to": " → {names}",
@@ -942,6 +945,10 @@ STRINGS = {
     # ---- 1.3.0 : format de la clé, export.pdb (T01)
     "home.pdb_no_tip": "No export.pdb on this drive: older players (CDJ-2000NXS2, XDJ-1000…) will not show its playlists. In Rekordbox, also export the drive in the “Device Library” format once: DJSync then keeps it up to date.",
     "home.pdb_stale": "export.pdb not up to date",
+    "home.pdb_detail": "Not yet on older players: {detail}",
+    "home.pdb_update": "Update export.pdb",
+    "home.pdb_update_tip": "Brings export.pdb (older players: CDJ-2000NXS2, XDJ-1000…) in line with this drive's library. Close Rekordbox first.",
+    "home.pdb_updating": "Updating…",
     "home.pdb_stale_tip": "Older players do not see everything added by DJSync. Settings ▸ Older players ▸ Synchronise now. Detail: {detail}",
     "home.fs_ok": "Drive formatted as {fs}: read by all rekordbox players.",
     "home.fs_recent_only": "Drive formatted as {fs}: read by recent players, but older ones (XDJ-1000 for example) only read FAT32 or HFS+ and show “NO USB / E-8307 DEVICE NO RESPONSE”. To play on them, copy the drive's contents elsewhere and format it as FAT32.",

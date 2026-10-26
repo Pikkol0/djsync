@@ -286,17 +286,34 @@ class LibraryOpsMixin:
         if lib is not None:
             self.dispatcher.submit(lib.pdb_status, ok, self._on_error, pool="db")
 
-    def pdb_sync_now(self, ok: Optional[Callback] = None) -> None:
+    def pdb_sync_now(self, ok: Optional[Callback] = None, failed: Optional[Callback] = None) -> None:
+        """Paramètres ▸ Synchroniser maintenant, et 1.3.0-rc.3 (C36) bouton de l'Accueil : réconciliation
+        complète d'export.pdb. L'Accueil est redessiné dans tous les cas (réussite, écart restant, échec)."""
+        lib = self.library
+
         def done(summary: Any) -> None:
-            self.message("ok", t("msg.pdb_synced", tracks=summary.tracks_added, playlists=summary.playlists_added))
+            if getattr(lib, "pdb_state", "ok") == "stale":
+                self.message("warn", t("msg.pdb_left", detail=getattr(lib, "pdb_problem", "") or "?"))
+            else:
+                self.message("ok", t("msg.pdb_up_to_date"))
             self._emit("library")
             if ok:
                 ok(summary)
-        lib = self.library
+
+        def error(exc: BaseException) -> None:
+            text = str(exc)
+            if "another program" in text or "Permission denied" in text:
+                self.message("warn", t("msg.pdb_locked"))
+            else:
+                self._on_error(exc)
+            self._emit("library")
+            if failed:
+                failed(exc)
+
         if lib is None:
             self.message("error", t("msg.no_drive"))
             return
-        self.dispatcher.submit(lib.pdb_catch_up, done, self._on_error, pool="db")
+        self.dispatcher.submit(lib.pdb_catch_up, done, error, pool="db")
 
     # ------------------------------------------------------------------ analyse (V0.2.0)
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:

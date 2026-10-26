@@ -97,3 +97,97 @@ def test_pdb_error_messages_are_english():
     for f in Path(pdb_pkg.__file__).parent.glob("*.py"):
         for m in re.finditer(r'raise \w*Error\(f?"([^"]*)"', f.read_text(encoding="utf-8")):
             assert not french.search(m.group(1)), (f.name, m.group(1))
+
+
+# ------------------------------------------------------------------ C36 : bouton « Mettre à jour export.pdb »
+def _demo_app(tmp_path, monkeypatch):
+    from djsync.db import UsbDrive
+    from djsync.settings import Settings
+    from tests.demo_fixture import make_demo_usb
+
+    from .qt_util import make_window
+    from .test_ui_smoke import FakeService
+    import djsync.ui.controller as controller
+
+    usb = make_demo_usb(tmp_path)
+    monkeypatch.setenv("DJSYNC_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(controller, "find_usb_drives", lambda: [UsbDrive(root=usb, label="DEMO")])
+    monkeypatch.setattr(controller, "MusicService", FakeService)
+    return make_window(Settings(), monkeypatch), usb
+
+
+def test_home_offers_to_update_a_stale_export_pdb(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QLabel, QPushButton
+
+    from djsync.db import UsbDrive
+    from djsync.i18n import t
+    from djsync.ui.ctrl.library_ops import DriveSummary
+
+    from .qt_util import close_window, pump
+
+    app, usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        home = app.views["home"]
+        calls = []
+        monkeypatch.setattr(home.ctrl, "pdb_sync_now", lambda ok=None, failed=None: calls.append((ok, failed)))
+        drive = UsbDrive(root=usb, label="DEMO")
+        stale = home._card(DriveSummary(drive=drive, connected=True, tracks=3, playlists=1, has_pdb=True,
+                                        pdb_state="stale", pdb_problem="1 playlist(s) missing"))
+        buttons = [b for b in stale.findChildren(QPushButton) if b.text() == t("home.pdb_update")]
+        assert len(buttons) == 1
+        assert any("1 playlist(s) missing" in l.text() for l in stale.findChildren(QLabel))
+        buttons[0].click()
+        pump(app, 0.1)
+        assert len(calls) == 1 and buttons[0].text() == t("home.pdb_updating") and not buttons[0].isEnabled()
+        calls[0][0](None)                                     # réconciliation finie : bouton rétabli
+        assert buttons[0].isEnabled() and buttons[0].text() == t("home.pdb_update")
+        ok = home._card(DriveSummary(drive=drive, connected=True, tracks=3, playlists=1, has_pdb=True, pdb_state="ok"))
+        assert not [b for b in ok.findChildren(QPushButton) if b.text() == t("home.pdb_update")]
+    finally:
+        close_window(app)
+
+
+def test_sync_now_always_refreshes_home_and_reports_what_is_left(tmp_path, monkeypatch):
+    from djsync.ui.ctrl.library_ops import LibraryOpsMixin
+
+    class Lib:
+        pdb_state, pdb_problem = "stale", "1 track(s) missing"
+
+        def pdb_catch_up(self):
+            return object()
+
+    class Ctrl(LibraryOpsMixin):
+        def __init__(self):
+            self.library, self.events, self.msgs = Lib(), [], []
+            self.dispatcher = SimpleNamespace(submit=self._run)
+
+        def _run(self, fn, ok, err, pool=None):
+            try:
+                ok(fn())
+            except Exception as exc:  # noqa: BLE001
+                err(exc)
+
+        def message(self, kind, text):
+            self.msgs.append(kind)
+
+        def _emit(self, name, *a):
+            self.events.append(name)
+
+        def _on_error(self, exc):
+            self.msgs.append("error")
+
+    c = Ctrl()
+    c.pdb_sync_now()
+    assert c.msgs == ["warn"] and c.events == ["library"]           # écart restant : dit, Accueil redessiné
+    c.library.pdb_state = "ok"
+    c.msgs, c.events = [], []
+    c.pdb_sync_now()
+    assert c.msgs == ["ok"] and c.events == ["library"]
+
+    def locked():
+        raise OSError("cannot write export.pdb (file used by another program?)")
+    c.library.pdb_catch_up = locked
+    c.msgs, c.events = [], []
+    failed = []
+    c.pdb_sync_now(failed=failed.append)
+    assert c.msgs == ["warn"] and c.events == ["library"] and failed
