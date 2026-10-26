@@ -516,10 +516,11 @@ STRINGS = {
     "settings.ffmpeg_not_in_folder": "FFmpeg introuvable dans ce dossier.",
     "settings.ffmpeg_missing": "FFmpeg introuvable : requis (téléchargement, lecture m4a, analyse).",
     "settings.analysis": "Analyse (BPM, tonalité, formes d'onde)",
-    "settings.analysis_hint": "Par défaut, les titres sont analysés à la demande (Bibliothèque ▸ Outils ▸ Analyser). "
-                              "Cochez la case pour analyser automatiquement chaque titre téléchargé (quelques secondes "
-                              "par titre).",
-    "settings.analyze_on_add": "Analyser chaque titre à son téléchargement",
+    "settings.analysis_hint": "Les titres téléchargés sont analysés en arrière-plan, l'un après l'autre (quelques "
+                              "secondes par titre) : les téléchargements suivants n'attendent pas. Décochez pour "
+                              "analyser à la demande (Bibliothèque ▸ Outils ▸ Analyser).",
+    "settings.analyze_after_usb": "Analyser les titres après téléchargement — clé USB",
+    "settings.analyze_after_local": "Analyser les titres après téléchargement — bibliothèque de l'ordinateur",
     "settings.key_notation": "Tonalité écrite en",
     "settings.notation_auto": "Comme la clé (automatique)",
     "settings.notation_camelot": "Camelot (8A)",

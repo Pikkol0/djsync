@@ -46,7 +46,23 @@ import sys
 pyz = PYZ(a.pure)
 if sys.platform == "win32":
     # Native splash screen while Python starts (closed by djsync/ui/splash.close_native).
-    splash = Splash("splash.png", binaries=a.binaries, datas=a.datas, text_pos=None)
+    # 1.3.0-rc.3 (C31): the image carries the exact version of this build (djsync/_build_version.py,
+    # written by the workflow), drawn here so that it shows from the very first second.
+    splash_png = "splash.png"
+    try:
+        import importlib, os
+        sys.path.insert(0, os.path.abspath(os.path.join(SPECPATH, "..")))
+        import djsync
+        importlib.reload(djsync)
+        from tools.export_logos import make_splash
+        from djsync.ui.palettes import DEFAULT_THEME, PALETTES
+        os.makedirs(os.path.join(SPECPATH, "..", "build"), exist_ok=True)
+        splash_png = os.path.abspath(os.path.join(SPECPATH, "..", "build", "splash-version.png"))
+        make_splash(__import__("pathlib").Path(splash_png), PALETTES[DEFAULT_THEME], djsync.full_version())
+    except Exception as exc:  # noqa: BLE001 - the plain image is better than no build
+        print(f"WARNING: splash without version ({exc})")
+        splash_png = "splash.png"
+    splash = Splash(splash_png, binaries=a.binaries, datas=a.datas, text_pos=None)
     exe = EXE(pyz, a.scripts, splash, [], exclude_binaries=True, name="DJSync", console=False, upx=False,
               icon="djsync.ico")
     coll = COLLECT(exe, splash.binaries, a.binaries, a.datas, name="DJSync", upx=False)

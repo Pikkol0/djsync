@@ -92,6 +92,18 @@ class DownloadsMixin:
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":
             self.dispatcher.post(self._emit, "library")
+            self.dispatcher.post(self._analyse_after_download, job)
+
+    def _analyse_after_download(self, job: DownloadJob) -> None:
+        """1.3.0-rc.3 (C32) : son téléchargé mis dans la file d'analyse en arrière-plan (le téléchargement
+        suivant n'attend pas). Réglage séparé pour la clé et pour la bibliothèque de l'ordinateur ; rien
+        si l'utilisateur a changé de bibliothèque entre-temps."""
+        if not job.content_id or job.library is None or job.library is not self.library:
+            return
+        s = self.settings
+        if not (s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb):
+            return
+        self.analyze([job.content_id], quiet=True)
 
     def retry(self, job: DownloadJob) -> None:
         if job.status != "error" or self.library is None:

@@ -190,9 +190,12 @@ class SettingsView(View):
 
         # ---- analyse
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
-        self.analyze_var = QCheckBox(t("settings.analyze_on_add"))
-        self.analyze_var.setChecked(s.analyze_on_add)
-        card.addWidget(self.analyze_var)
+        self.analyze_usb_var = QCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
+        self.analyze_usb_var.setChecked(s.analyze_after_download_usb)
+        card.addWidget(self.analyze_usb_var)
+        self.analyze_local_var = QCheckBox(t("settings.analyze_after_local"))
+        self.analyze_local_var.setChecked(s.analyze_after_download_local)
+        card.addWidget(self.analyze_local_var)
         self.cue_var = QCheckBox(t("settings.auto_cue"))
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
@@ -636,7 +639,8 @@ class SettingsView(View):
         s.backup_keep = int(self.keep.currentText())
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
-        s.analyze_on_add = self.analyze_var.isChecked()
+        s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
+        s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()

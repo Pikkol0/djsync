@@ -38,7 +38,7 @@ class ToolsMixin:
         from ...db import RekordboxUsbLibrary
 
         s = self.settings
-        common = dict(backup_keep=s.backup_keep, analyze=s.analyze_on_add, artwork=True,
+        common = dict(backup_keep=s.backup_keep, analyze=False, artwork=True,
                       ffmpeg_location=s.ffmpeg_location or None, key_notation=s.key_notation)
         if isinstance(target, LocalRekordbox):
             lib: Any = LocalRekordboxLibrary(target, **common).connect()

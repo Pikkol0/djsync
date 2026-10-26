@@ -511,9 +511,11 @@ STRINGS = {
     "settings.ffmpeg_not_in_folder": "FFmpeg not found in this folder.",
     "settings.ffmpeg_missing": "FFmpeg not found: required (download, m4a playback, analysis).",
     "settings.analysis": "Analysis (BPM, key, waveforms)",
-    "settings.analysis_hint": "By default tracks are analysed on demand (Library ▸ Tools ▸ Analyse). Tick the box to "
-                              "analyse every downloaded track automatically (a few seconds per track).",
-    "settings.analyze_on_add": "Analyse each track when it is downloaded",
+    "settings.analysis_hint": "Downloaded tracks are analysed in the background, one after the other (a few seconds "
+                              "per track): the next downloads do not wait. Untick to analyse on demand instead "
+                              "(Library ▸ Tools ▸ Analyse).",
+    "settings.analyze_after_usb": "Analyse tracks after download — USB drive",
+    "settings.analyze_after_local": "Analyse tracks after download — this computer's library",
     "settings.key_notation": "Key written as",
     "settings.notation_auto": "Same as the drive (automatic)",
     "settings.notation_camelot": "Camelot (8A)",

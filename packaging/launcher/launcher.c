@@ -9,7 +9,7 @@
  * Au lancement :
  *   1. si <dossier de l'exe>\.djsync\app\VERSION.txt == version embarquée : on lance l'application ;
  *   2. sinon (premier lancement, exe déplacé seul, dossier supprimé, nouvelle version) : fenêtre de
- *      progression, extraction dans .djsync\app.new, remplacement de .djsync\app, puis lancement.
+ *      progression (« installation » ou « mise à jour A -> B », 1.3.0-rc.3), extraction dans .djsync\app.new, remplacement de .djsync\app, puis lancement.
  *      Tout ce qui est dans .djsync est remplacé SAUF .djsync\data (réglages, journal, moteur yt-dlp).
  * .djsync reçoit les attributs « caché » + « système » : l'utilisateur ne voit que DJSync.exe.
  * L'application reçoit DJSYNC_APP_DIR = dossier de ce lanceur (où vivent ses données) et
@@ -54,9 +54,46 @@ static void fail(const wchar_t *what, DWORD code) {
 }
 
 /* ------------------------------------------------------------ petite fenêtre */
+/* 1.3.0-rc.3 (C35) : une seule langue (celle de Windows), « installation » ou « mise à jour A -> B »,
+ * tailles à l'échelle de l'affichage (125 %, 150 %…), police de Windows, fond uni, pourcentage. */
+static HWND g_pct;
+static HFONT g_font;
+static int g_total = 1, g_last_pct = -1;
+
+static int is_french(void) { return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH; }
+
+static UINT screen_dpi(void) {
+    typedef UINT(WINAPI * GetDpiForSystemFn)(void);
+    GetDpiForSystemFn fn = (GetDpiForSystemFn)(void *)GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForSystem");
+    if (fn) return fn();
+    HDC dc = GetDC(NULL);
+    UINT dpi = (UINT)GetDeviceCaps(dc, LOGPIXELSY);
+    ReleaseDC(NULL, dc);
+    return dpi ? dpi : 96;
+}
+
 static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_CLOSE) return 0;                  /* pas d'interruption pendant l'extraction */
+    if (m == WM_CTLCOLORSTATIC) {                 /* texte sur le fond de la fenêtre (plus de rectangle gris) */
+        SetBkColor((HDC)w, GetSysColor(COLOR_WINDOW));
+        SetTextColor((HDC)w, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
     return DefWindowProcW(h, m, w, l);
+}
+
+/* Texte affiché : `previous` = version déjà sur la clé ("" si aucune). Exposé pour les tests. */
+void window_text(const char *previous, const char *version, int french, wchar_t *title, size_t ntitle,
+                 wchar_t *text, size_t ntext) {
+    wchar_t v[40], old[70];
+    MultiByteToWideChar(CP_UTF8, 0, version, -1, v, 40);
+    MultiByteToWideChar(CP_UTF8, 0, previous ? previous : "", -1, old, 70);
+    swprintf(title, ntitle, L"DJSync %ls", v);
+    if (old[0] && wcscmp(old, v))
+        swprintf(text, ntext, french ? L"Mise à jour de DJSync %ls → %ls…" : L"Updating DJSync %ls → %ls…", old, v);
+    else
+        swprintf(text, ntext, french ? L"Installation de DJSync %ls sur cette clé…"
+                                     : L"Setting up DJSync %ls on this drive…", v);
 }
 
 static void pump(void) {
@@ -67,7 +104,7 @@ static void pump(void) {
     }
 }
 
-static void show_window(int total) {
+static void show_window(int total, const char *previous, const char *version) {
     INITCOMMONCONTROLSEX icc = {sizeof(icc), ICC_PROGRESS_CLASS};
     InitCommonControlsEx(&icc);
     WNDCLASSW wc = {0};
@@ -78,19 +115,61 @@ static void show_window(int total) {
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = L"DJSyncSetup";
     RegisterClassW(&wc);
-    int w = 460, h = 150;
-    int x = (GetSystemMetrics(SM_CXSCREEN) - w) / 2, y = (GetSystemMetrics(SM_CYSCREEN) - h) / 2;
-    g_win = CreateWindowExW(0, wc.lpszClassName, L"DJSync",
-                            WS_OVERLAPPED | WS_CAPTION | WS_VISIBLE, x, y, w, h, NULL, NULL, wc.hInstance, NULL);
-    g_text = CreateWindowExW(0, L"STATIC",
-                             L"Preparing DJSync on this drive (first launch only)…\n"
-                             L"Préparation de DJSync sur la clé (premier lancement seulement)…",
-                             WS_CHILD | WS_VISIBLE, 16, 14, w - 40, 40, g_win, NULL, wc.hInstance, NULL);
-    SendMessageW(g_text, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-    g_bar = CreateWindowExW(0, PROGRESS_CLASSW, NULL, WS_CHILD | WS_VISIBLE, 16, 64, w - 48, 22, g_win, NULL,
+
+    wchar_t title[64], text[256];
+    window_text(previous, version, is_french(), title, 64, text, 256);
+    int dpi = (int)screen_dpi();
+#define S(x) MulDiv((x), dpi, 96)
+    g_font = CreateFontW(-MulDiv(10, dpi, 72), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    int margin = S(20), inner = S(400);
+    /* hauteur réelle du texte (retour à la ligne automatique) */
+    HDC dc = GetDC(NULL);
+    HGDIOBJ old = SelectObject(dc, g_font);
+    RECT r = {0, 0, inner, 0};
+    DrawTextW(dc, text, -1, &r, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+    TEXTMETRICW tm;
+    GetTextMetricsW(dc, &tm);
+    SelectObject(dc, old);
+    ReleaseDC(NULL, dc);
+    int text_h = r.bottom - r.top, bar_y = margin + text_h + S(12), bar_h = S(18);
+    int pct_y = bar_y + bar_h + S(6), pct_h = tm.tmHeight;
+    int cw = inner + 2 * margin, ch = pct_y + pct_h + margin;
+
+    DWORD style = WS_OVERLAPPED | WS_CAPTION, ex = 0;
+    RECT wr = {0, 0, cw, ch};                     /* taille de la ZONE CLIENTE, cadre ajouté ensuite */
+    typedef BOOL(WINAPI * AdjustForDpiFn)(LPRECT, DWORD, BOOL, DWORD, UINT);
+    AdjustForDpiFn adjust = (AdjustForDpiFn)(void *)GetProcAddress(GetModuleHandleW(L"user32.dll"), "AdjustWindowRectExForDpi");
+    if (adjust) adjust(&wr, style, FALSE, ex, (UINT)dpi);
+    else AdjustWindowRectEx(&wr, style, FALSE, ex);
+    int w = wr.right - wr.left, h = wr.bottom - wr.top;
+    RECT work;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    int x = work.left + (work.right - work.left - w) / 2, y = work.top + (work.bottom - work.top - h) / 2;
+    g_win = CreateWindowExW(ex, wc.lpszClassName, title, style | WS_VISIBLE, x, y, w, h, NULL, NULL, wc.hInstance, NULL);
+    g_text = CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_NOPREFIX, margin, margin, inner, text_h,
+                             g_win, NULL, wc.hInstance, NULL);
+    g_bar = CreateWindowExW(0, PROGRESS_CLASSW, NULL, WS_CHILD | WS_VISIBLE, margin, bar_y, inner, bar_h, g_win, NULL,
                             wc.hInstance, NULL);
-    SendMessageW(g_bar, PBM_SETRANGE32, 0, total > 0 ? total : 1);
+    g_pct = CreateWindowExW(0, L"STATIC", L"0 %", WS_CHILD | WS_VISIBLE | SS_RIGHT, margin, pct_y, inner, pct_h,
+                            g_win, NULL, wc.hInstance, NULL);
+    SendMessageW(g_text, WM_SETFONT, (WPARAM)g_font, TRUE);
+    SendMessageW(g_pct, WM_SETFONT, (WPARAM)g_font, TRUE);
+#undef S
+    g_total = total > 0 ? total : 1;
+    SendMessageW(g_bar, PBM_SETRANGE32, 0, g_total);
     pump();
+}
+
+static void set_progress(int done) {
+    SendMessageW(g_bar, PBM_SETPOS, done, 0);
+    int pct = (int)((long long)done * 100 / g_total);
+    if (pct != g_last_pct) {
+        g_last_pct = pct;
+        wchar_t s[16];
+        swprintf(s, 16, L"%d %%", pct);
+        SetWindowTextW(g_pct, s);
+    }
 }
 
 /* ------------------------------------------------------------------ fichiers */
@@ -142,7 +221,8 @@ static int read_text(const wchar_t *path, char *out, int size) {
 }
 
 /* ---------------------------------------------------------------- extraction */
-static int extract(const wchar_t *self, uint64_t start, uint64_t size, const wchar_t *base, const char *version) {
+static int extract(const wchar_t *self, uint64_t start, uint64_t size, const wchar_t *base, const char *version,
+                   const char *previous) {
     wchar_t staging[MAX_PATH * 2], app[MAX_PATH * 2], data[MAX_PATH * 2];
     swprintf(staging, MAX_PATH * 2, L"%ls\\app.new", base);
     swprintf(app, MAX_PATH * 2, L"%ls\\app", base);
@@ -159,7 +239,7 @@ static int extract(const wchar_t *self, uint64_t start, uint64_t size, const wch
         return 0;
     }
     int count = (int)mz_zip_reader_get_num_files(&zip);
-    show_window(count);
+    show_window(count, previous, version);
     make_dirs((wchar_t *)base);
     remove_tree(staging);
     int ok = make_dirs(staging);
@@ -185,7 +265,7 @@ static int extract(const wchar_t *self, uint64_t start, uint64_t size, const wch
             CloseHandle(h);
             if (!ok) fail(L"Cannot write the files of DJSync (drive full?)", GetLastError());
         }
-        SendMessageW(g_bar, PBM_SETPOS, i + 1, 0);
+        set_progress(i + 1);
         pump();
     }
     mz_zip_reader_end(&zip);
@@ -267,8 +347,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
     int ready = GetFileAttributesW(exe) != INVALID_FILE_ATTRIBUTES && read_text(stamp, current, sizeof(current))
                 && !strcmp(current, version);
     if (!ready) {
-        if (!extract(self, start, size, base, version)) return 1;
+        if (!extract(self, start, size, base, version, current)) return 1;
         if (g_win) DestroyWindow(g_win);
+        if (g_font) DeleteObject(g_font);
     }
     SetFileAttributesW(base, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY);
 

@@ -131,7 +131,7 @@ def test_settings_migration_enables_pdb_growth(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"pdb_allow_growth": False, "language": "fr"}), encoding="utf-8")
     s = Settings.load(path)
-    assert s.pdb_allow_growth and s.settings_version == 1 and s.language == "fr"
+    assert s.pdb_allow_growth and s.settings_version == 2 and s.language == "fr"   # 1.3.0-rc.3 : migration 2 (C32)
     s.pdb_allow_growth = False
     s.save(path)
     assert Settings.load(path).pdb_allow_growth is False

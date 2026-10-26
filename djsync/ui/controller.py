@@ -377,7 +377,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         def work() -> Any:
             if isinstance(drive, LocalRekordbox):
                 lib: Any = LocalRekordboxLibrary(
-                    drive, backup_keep=self.settings.backup_keep, analyze=self.settings.analyze_on_add, artwork=True,
+                    drive, backup_keep=self.settings.backup_keep, analyze=False, artwork=True,
                     ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
@@ -389,7 +389,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
                 pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
-                analyze=self.settings.analyze_on_add, artwork=True,
+                analyze=False, artwork=True,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
@@ -686,7 +686,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.backup_keep = s.backup_keep
             self.library.pdb_sync = s.pdb_sync
             self.library.pdb_allow_growth = s.pdb_allow_growth
-            self.library.analyze = s.analyze_on_add
+            self.library.analyze = False          # 1.3.0-rc.3 (C32) : analyse par la file, après le téléchargement
             self.library.artwork = True
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation

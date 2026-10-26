@@ -321,7 +321,7 @@ class LibraryOpsMixin:
 
     def analyze(self, content_ids: Sequence[int], force: bool = False,
                 on_progress: Optional[Callable[[int, int, Optional[LibraryTrack], str], None]] = None,
-                on_done: Optional[Callable[[Any], None]] = None) -> Optional[TaskHandle]:
+                on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False) -> Optional[TaskHandle]:
         """Met des sons dans la file d'analyse (BPM / grille / tonalité / formes d'onde) et la lance si
         elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés."""
         lib = self.library
@@ -337,7 +337,7 @@ class LibraryOpsMixin:
             q.on_progress.append(on_progress)
         added = q.add(content_ids, force)
         if q.running:
-            if added:
+            if added and not quiet:       # quiet : analyse après téléchargement (C32), pas de message par son
                 self.message("info", plural("msg.analysis_queued_one", "msg.analysis_queued_many", added))
             self._emit("analysis")
             return q
