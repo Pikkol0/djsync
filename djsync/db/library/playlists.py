@@ -98,14 +98,14 @@ class PlaylistsMixin:
                 raise DuplicatePlaylistError(f"A playlist \"{new_name}\" already exists here.")
             old_path = self._pl_path(conn, playlist_id)
             conn.execute("UPDATE playlist SET name = ? WHERE playlist_id = ?", (new_name, playlist_id))
-            self._stage(lambda db, p=old_path, n=new_name: db.rename_playlist(p, n))
+            self._pdb_mark(PLAYLIST_DELETED, *old_path)   # 1.3.0-rc.2 : l'ancien chemin part, le nouveau est réconcilié
 
     def delete_playlist(self, playlist_id: int) -> None:
         """Supprime la playlist (et, pour un dossier, tout son contenu). Les SONS sont conservés."""
         with self._write() as conn:
             self._require_playlist(conn, playlist_id)
             gone_path = self._pl_path(conn, playlist_id)
-            self._stage(lambda db, p=gone_path: db.delete_playlist(p))
+            self._pdb_mark(PLAYLIST_DELETED, *gone_path)
             doomed, frontier = [playlist_id], [playlist_id]
             while frontier:
                 marks = ",".join("?" * len(frontier))

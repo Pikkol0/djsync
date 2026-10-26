@@ -495,13 +495,28 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._emit("drive")
         self.message("info", t("eject.working"))
 
+        pdb_left: List[str] = []
+
         def work() -> bool:
             if lib is not None:
+                # 1.3.0-rc.2 (P02) : dernière réconciliation d'export.pdb avant de débrancher ; s'il reste
+                # des écarts, on le dit (les anciennes platines ne verraient pas tout).
+                try:
+                    if lib.pdb_status().state == "stale":
+                        lib.pdb_catch_up()
+                        st = lib.pdb_status()
+                        if st.state == "stale":
+                            pdb_left.append(st.detail or lib.pdb_problem)
+                except Exception as exc:  # noqa: BLE001 - l'éjection passe toujours
+                    pdb_left.append(str(exc))
+                    log.warning("export.pdb not up to date at eject: %s", exc)
                 lib.close()
             _flush()
             return True if same else eject_volume(drive.root)
 
         def ok(ejected: bool) -> None:
+            if pdb_left:
+                self.message("warn", t("eject.pdb_stale", detail=pdb_left[0]))
             if same:
                 self._emit("eject_own", drive)
             elif ejected:

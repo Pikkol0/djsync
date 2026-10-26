@@ -237,7 +237,7 @@ NOW = datetime(2026, 10, 20, 11, 23, 45, 123456, tzinfo=timezone.utc)
 
 
 @pytest.mark.parametrize("sample,expected", [
-    (None, "2026-10-20 11:23:45.123 +00:00"),                       # base vide : format OneLibrary complet
+    (None, None),                                                    # base vide (1.3.0-rc.2, B13) : date seule, comme Rekordbox
     ("2025-04-12 19:11:29.274 +00:00", "2026-10-20 11:23:45.123 +00:00"),
     ("2025-04-12T19:11:29Z", "2026-10-20T11:23:45Z"),
     ("2024-10-18", None),                                            # date seule : date locale
@@ -286,8 +286,9 @@ def test_added_track_is_cdj_ready_in_both_databases(tmp_path):
     _native_rows(usb)
     with open_lib(usb) as lib:
         t = lib.add_track(_m4a(lib, "am128"), "Am 128", "Synth", None, None, [1])
-        # (état « stale » attendu : la ligne native de test n'existe pas dans le vrai export.pdb)
-        assert lib.last_problems == [] and lib.pdb_problem == "" and lib.pdb_last_summary.tracks_added == 1
+        # 1.3.0-rc.2 : la réconciliation ajoute aussi la ligne native de test, absente du vrai export.pdb
+        assert lib.last_problems == [] and lib.pdb_problem == "" and lib.pdb_last_summary.tracks_added == 2
+        assert lib.pdb_state == "ok"
         row = lib._read("SELECT c.bpmx100, k.name, im.path, c.analysisDataFilePath, c.analysedBits, c.dateAdded, "
                         "c.dateCreated FROM content c LEFT JOIN key k ON k.key_id = c.key_id "
                         "LEFT JOIN image im ON im.image_id = c.image_id WHERE c.content_id = ?", (t.content_id,))[0]
@@ -338,7 +339,7 @@ def test_old_djsync_track_is_upgraded_in_place(tmp_path):
         assert [x.content_id for x in lib.unanalysed_tracks()] == [t.content_id]
         assert lib.analyze_missing() == (1, 0)
         t2 = lib.get_track(t.content_id)
-        assert t2.is_analysed and t2.key == "8A" and t2.artwork_path and abs(t2.bpm - 128) < 0.01
+        assert t2.is_analysed and t2.key == "Am" and t2.artwork_path and abs(t2.bpm - 128) < 0.01
         assert lib.pdb_last_summary.tracks_updated == 1
         assert lib.unanalysed_tracks() == []
     after = PdbDatabase((usb / "PIONEER" / "rekordbox" / "export.pdb").read_bytes())

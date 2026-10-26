@@ -133,7 +133,7 @@ class TracksMixin:
             shared = conn.execute(
                 "SELECT 1 FROM content WHERE path = ? COLLATE NOCASE", (path,)).fetchone() is not None
             if path and not shared:
-                self._stage(lambda db, p=path: db.delete_track(p))
+                self._pdb_mark(TRACK_DELETED, path)
 
         if not delete_file or shared or not path:
             return False

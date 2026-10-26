@@ -123,7 +123,7 @@ class MetadataMixin:
                              (*cols.values(), content_id))
                 path = row[0]
                 if path:
-                    self._stage(lambda db, p=path, t=title, a=artist: db.update_track(p, title=t, artist=a))
+                    self._pdb_mark(TRACK_FIELDS, path)
         return self.get_track(content_id)
 
     # ------------------------------------------------------- 1.2.2 : infos complètes
@@ -351,7 +351,7 @@ class MetadataMixin:
                 conn.execute("UPDATE content SET bpmx100 = ?, analysisDataUpdateCount = ? WHERE content_id = ?",
                              (bpmx100, int(row[1]) + 1, content_id))
                 if row[0]:
-                    self._stage(lambda db, p=row[0], b=bpmx100: db.update_track(p, bpmx100=b))
+                    self._pdb_mark(TRACK_FIELDS, row[0])
         except BaseException:
             for f, data in originals.items():          # retour à l'état d'origine
                 try:

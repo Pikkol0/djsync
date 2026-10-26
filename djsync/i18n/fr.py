@@ -667,6 +667,7 @@ STRINGS = {
     "eject.hint": "Fermer la bibliothèque proprement et éjecter la clé",
     "eject.working": "Fermeture de la clé…",
     "eject.done": "{drive} éjectée : vous pouvez la débrancher.",
+    "eject.pdb_stale": "Attention : export.pdb (anciennes platines : CDJ-2000NXS2, XDJ-1000…) n'est pas à jour ({detail}). Rebranchez la clé dans DJSync pour terminer la mise à jour.",
     "eject.closed_only": "{drive} est fermée et peut être débranchée, mais le système a refusé de l'éjecter (un fichier est peut-être encore ouvert).",
     "eject.own_title": "Clé fermée",
     "eject.own_msg": "DJSync tourne depuis {drive} : sa bibliothèque est fermée et enregistrée. Quittez DJSync, puis débranchez la clé.",

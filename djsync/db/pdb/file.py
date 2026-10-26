@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+import logging
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from . import rows as _rows
@@ -31,6 +32,14 @@ class TableRef:
     empty_candidate: int
     first_page: int
     last_page: int
+
+
+# 1.3.0-rc.2 (B13) : dans une page d'index, u32 à 0x2C = première page de données de la table, ou
+# 0x03FFFFFF tant que la table n'en a aucune (clé vide préparée par Rekordbox). Relevé sur trois exports
+# Rekordbox 7 : clé vide, clé avec 3 sons, export de 213 sons.
+INDEX_FIRST_DATA = 0x2C
+INDEX_NO_PAGE = 0x03FFFFFF
+log = logging.getLogger(__name__)
 
 
 class Page:
@@ -329,6 +338,49 @@ class PdbFile:
             self._begun = True
             self.seq += 1
             struct.pack_into("<I", self.data, 0x14, self.seq)
+            self._repair_index_links()
+
+    def index_link_problems(self) -> List[str]:
+        """1.3.0-rc.2 (B13) : tables dont la page d'index ne désigne pas la première page de données.
+        Rekordbox juge alors la bibliothèque de la clé « corrompue » (écrit par la 1.3.0-rc.1 et avant
+        sur une clé vide, quand DJSync créait la première page de données d'une table)."""
+        out = []
+        for ttype in sorted(self.tables):
+            try:
+                chain = self.chain(ttype)
+            except PdbFormatError:
+                continue
+            idx = self.page(chain[0])
+            data = [p for p in chain if not self.page(p).is_index]
+            if not idx.is_index:
+                continue
+            link = idx.u32(INDEX_FIRST_DATA)
+            want = data[0] if data else INDEX_NO_PAGE
+            if link != want:
+                out.append(f"table {ttype}: index page {chain[0]} points to "
+                           f"{'no page' if link == INDEX_NO_PAGE else link} instead of "
+                           f"{'no page' if want == INDEX_NO_PAGE else want}")
+        return out
+
+    def repairable_index_links(self) -> List[str]:
+        """Parmi `index_link_problems`, ceux que DJSync sait réparer : la table a des pages de données
+        mais son index dit « aucune » (seul cas produit par DJSync). Les autres écarts sont signalés
+        par le diagnostic sans être touchés."""
+        return [p for p in self.index_link_problems() if " points to no page instead of " in p]
+
+    def _repair_index_links(self) -> None:
+        """Remet d'aplomb, à la première écriture, le lien index -> première page de données (B13)."""
+        for ttype in sorted(self.tables):
+            try:
+                chain = self.chain(ttype)
+            except PdbFormatError:
+                continue
+            idx = self.page(chain[0])
+            data = [p for p in chain if not self.page(p).is_index]
+            if idx.is_index and data and idx.u32(INDEX_FIRST_DATA) == INDEX_NO_PAGE:
+                idx.set_u32(INDEX_FIRST_DATA, data[0])
+                self.touched.add(idx.index)
+                log.warning("export.pdb: table %s index page repaired (first data page %s)", ttype, data[0])
 
     def _save_table(self, tab: TableRef) -> None:
         struct.pack_into("<IIII", self.data, FILE_TABLES_AT + 16 * tab.slot,
@@ -460,6 +512,14 @@ class PdbFile:
         pg.set_u16(0x22, 0x1FFF)
         last.set_u32(0x0C, new)
         last.set_u32(0x10, self.seq)
+        if not data_pages and indexes:
+            # 1.3.0-rc.2 (B13) : première page de données d'une table vide : la page d'index la désigne,
+            # comme le fait Rekordbox (sinon Rekordbox déclare la bibliothèque de la clé corrompue).
+            idx = self.page(indexes[0])
+            if idx.u32(INDEX_FIRST_DATA) not in (INDEX_NO_PAGE, new):
+                raise PdbFormatError(f"table {ttype}: unexpected index page link ({idx.u32(INDEX_FIRST_DATA)})")
+            idx.set_u32(INDEX_FIRST_DATA, new)
+            self.touched.add(idx.index)
         tab.last_page, tab.empty_candidate = new, spare
         self._save_table(tab)
         self.touched.update((new, last.index))
@@ -474,6 +534,13 @@ def validate_against(old: bytes, new: bytes, touched: set) -> None:
     """Preuve avant écriture : `new` est un fichier valide et seules les pages `touched` (plus la
     page 0) diffèrent de `old`. Lève PdbFormatError sinon."""
     fresh = PdbFile(new)
+    try:
+        before = set(PdbFile(old).index_link_problems())
+    except PdbFormatError:
+        before = set()
+    problems = [p for p in fresh.index_link_problems() if p not in before]   # écarts AJOUTÉS par DJSync
+    if problems:
+        raise PdbFormatError("index page inconsistent after the change: " + "; ".join(problems))
     for ttype in fresh.tables:
         for p in fresh.data_pages(ttype):
             fresh.page(p).check_data_page()

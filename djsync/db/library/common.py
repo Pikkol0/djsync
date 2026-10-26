@@ -56,6 +56,8 @@ from ...core.camelot import to_camelot
 from ...models import FOLDER_KIND, PLAYLIST_KIND, LibraryTrack, PlaylistInfo
 from .. import artwork as _art
 from ..pdb import PdbDatabase, PdbError, PdbStore, Summary as PdbSummary, TrackMeta
+from ..pdb import sync as pdb_sync_mod
+from ..pdb.sync import PLAYLIST_DELETED, TRACK_DELETED, TRACK_FIELDS
 from ..usb import UsbDrive, drive_from_letter
 
 log = logging.getLogger(__name__)
@@ -107,9 +109,11 @@ _CAMELOT_NAME = re.compile(r"^(0?[1-9]|1[0-2])[AB]$", re.I)
 def format_date_like(sample: Optional[str], now: Optional[datetime] = None) -> str:
     """Date d'ajout « maintenant », dans la même forme que `sample` (une date d'un son natif).
 
-    sample None (base sans son natif) : horodatage complet UTC « AAAA-MM-JJ HH:MM:SS.mmm +00:00 »."""
+    sample None (base sans son natif, ex. clé vide préparée par Rekordbox) : date seule « AAAA-MM-JJ »,
+    la forme qu'écrit Rekordbox 7 dans exportLibrary.db. (Jusqu'à la 1.3.0-rc.1 : horodatage complet UTC,
+    que Rekordbox n'écrit pas ; sur une clé vide, Rekordbox jugeait alors la bibliothèque corrompue, B13.)"""
     now = now or datetime.now(timezone.utc)
-    if sample is not None and len(sample.strip()) == 10:
+    if sample is None or len(sample.strip()) == 10:
         return now.astimezone().strftime("%Y-%m-%d")
     m = _DATE_FULL.match(sample.strip()) if sample else None
     if sample is not None and m is None:
@@ -154,6 +158,10 @@ class PdbStatus:
     ol_tracks: int = 0
     missing_tracks: int = 0
     missing_playlists: int = 0
+    # 1.3.0-rc.2 : écarts complets (voir db/pdb/sync.py)
+    different_playlists: int = 0     # contenu ou ordre différent
+    changed_tracks: int = 0          # infos modifiées pas encore recopiées, ou analyse manquante
+    pending_removals: int = 0        # sons / playlists supprimés ou renommés encore présents
 
 
 def _track_select(has_key: bool, with_sequence: bool = False) -> str:

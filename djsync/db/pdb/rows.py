@@ -106,12 +106,15 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     fx[0x58], fx[0x59] = 0, 0                                  # couleur, note
     struct.pack_into("<H", fx, 0x5A, meta.file_type)
 
+    # 1.3.0-rc.2 (B13) : sans piste modèle (clé vide préparée par Rekordbox), les chaînes que Rekordbox
+    # remplit toujours prennent ses valeurs les plus courantes (213 pistes d'un vrai export).
+    defaults = {"unk3": "1", "kuvo_public": "ON", "autoload_hot_cues": "ON"}
     own = {"isrc": "", "date_added": meta.date_added[:10], "release_date": "", "analyze_path": meta.analyze_path,
            "analyze_date": meta.analyze_date[:10] if meta.analyze_path else "", "comment": meta.comment, "title": meta.title,
            "filename": meta.file_name, "file_path": meta.path, "mix_name": ""}
     body = bytearray()
     for k, name in enumerate(STR_NAMES):
-        text = own[name] if name in OWN_STRINGS else (template.strings.get(name, "") if template else "")
+        text = own[name] if name in OWN_STRINGS else (template.strings.get(name, "") if template else defaults.get(name, ""))
         struct.pack_into("<H", fx, 0x5E + 2 * k, TRACK_FIXED + len(body))
         body += encode_string(text)
     return pad4(bytes(fx) + bytes(body))

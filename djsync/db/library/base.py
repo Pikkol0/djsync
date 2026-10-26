@@ -17,7 +17,7 @@ class LibraryBase:
         backup_session_keep: int = 5,
         busy_timeout_ms: int = 5000,
         pdb_sync: str = "auto",
-        pdb_allow_growth: bool = False,
+        pdb_allow_growth: bool = True,          # 1.3.0-rc.2 : comme l'app (défaut depuis la 1.0.0)
         analyze: bool = True,
         artwork: bool = True,
         ffmpeg_location: Optional[str] = None,
@@ -47,6 +47,10 @@ class LibraryBase:
         self.pdb_last_summary: Optional[PdbSummary] = None
         self._pdb_queue: List[PdbOp] = []           # opérations validées en base, pas encore écrites dans export.pdb
         self._txn_ops: List[PdbOp] = []             # opérations de la transaction en cours
+        # 1.3.0-rc.2 : export.pdb est réconcilié avec exportLibrary.db (db/pdb/sync.py) ; les
+        # suppressions / renommages / infos modifiées sont notés dans un journal sur la clé.
+        self._txn_marks: List[Any] = []
+        self._pdb_dirty = False
         # ---- analyse / pochettes (V1.1-A4)
         self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
         self.auto_cue = False                       # V0.5.0 : mémoire cue sur le premier temps fort
@@ -254,6 +258,7 @@ class LibraryBase:
                 raise ReadOnlyError("Library opened read-only.")
             self._backup_before_write()
             self._txn_ops = []
+            self._txn_marks = []
             try:
                 conn.execute("BEGIN IMMEDIATE")
             except sqlcipher.OperationalError as exc:
@@ -265,14 +270,18 @@ class LibraryBase:
                 conn.execute("COMMIT")
             except BaseException:
                 self._txn_ops = []             # transaction annulée : rien à répercuter dans export.pdb
+                self._txn_marks = []
                 try:
                     conn.execute("ROLLBACK")
                 except sqlcipher.Error:
                     pass
                 raise
             self._checkpoint()
-            self._pdb_queue.extend(self._txn_ops)
-            self._txn_ops = []
+            if self._txn_ops or self._txn_marks:
+                self._pdb_dirty = True
+                if self._txn_marks:
+                    self._pdb_journal().add(self._txn_marks)
+            self._txn_ops, self._txn_marks = [], []
             if self._batch_depth == 0:
                 self._pdb_flush()
 
