@@ -191,3 +191,70 @@ def test_sync_now_always_refreshes_home_and_reports_what_is_left(tmp_path, monke
     failed = []
     c.pdb_sync_now(failed=failed.append)
     assert c.msgs == ["warn"] and c.events == ["library"] and failed
+
+
+# ------------------------------------------------------------------ B16 / B17 : page Grille et cues
+from .test_ui_v024 import demo_grid  # noqa: E402,F401
+
+
+def _open_grid(app):
+    from .qt_util import pump
+
+    app.show_view("library")
+    lib = app.views["library"]
+    assert pump(app, 4, lambda: lib.table.total == 11)
+    target = next(r.data for r in lib.table.all_rows() if r.data.title == "Grid Test")
+    app.open_grid_editor(target)
+    ed = app.grid_editor
+    assert pump(app, 4, lambda: bool(ed.beats))
+    return ed
+
+
+def test_grid_page_player_overview_and_cursor_modes(demo_grid):  # noqa: F811
+    from .qt_util import pump
+
+    app = demo_grid
+    ed = _open_grid(app)
+    bar = app.player_bar
+    # B17 : le lecteur montre la vue d'ensemble 3 bandes (pas la forme d'onde défilante)
+    assert bar._grid_editor is ed and not bar.grid_overview.isHidden() and bar.scroll_wave.isHidden()
+    bar.grid_overview.resize(400, 40)
+    bar.grid_overview._go(200)                                     # milieu de la vue d'ensemble
+    assert abs(ed.cursor_ms - ed.duration_ms / 2) < ed.duration_ms * 0.01
+    bar.grid_overview.grab()
+    # curseur volant par défaut ; case « fixe au centre » gardée dans les réglages
+    assert not ed.fixed_cursor and not ed.fixed_box.isChecked()
+    ed.fixed_box.setChecked(True)
+    assert ed.fixed_cursor and app.ctrl.settings.grid_fixed_cursor
+    ed.canvas.resize(800, 200)
+    ed.go_to(ed.beats[20][2])
+    ed.grab()
+    assert abs(ed._x(ed.cursor_ms) - ed.canvas.width() / 2) < 2          # curseur au milieu
+    before = ed.cursor_ms
+    ed.begin_scrub(400)
+    ed.scrub_to(300)                                                     # le son glisse vers la gauche
+    ed.end_scrub(300)
+    assert ed.cursor_ms > before and abs(ed._x(ed.cursor_ms) - ed.canvas.width() / 2) < 2
+    ed.pan(0.15)                                                         # molette : avance sous le curseur
+    assert ed.cursor_ms > before
+    ed.fixed_box.setChecked(False)
+    assert not app.ctrl.settings.grid_fixed_cursor
+    ed.close()
+    pump(app, 0.2)
+    assert bar._grid_editor is None and bar.grid_overview.isHidden()
+
+
+def test_grid_page_top_strip_and_pads_fit(demo_grid):  # noqa: F811
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    app = demo_grid
+    ed = _open_grid(app)
+    ed.canvas.resize(900, 220)
+    ed.grab()
+    fm = QFontMetrics(ed.canvas.font())
+    assert ed._label_top >= fm.height() * 0.8 and ed._label_bottom > ed._label_top   # deux niveaux
+    pad = ed.cue_panel.pads[0]
+    f = QFont(pad.font())
+    f.setBold(True)
+    assert pad.minimumHeight() >= 2 * QFontMetrics(f).lineSpacing()                # deux lignes tiennent
+    ed.close()

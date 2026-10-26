@@ -193,6 +193,14 @@ class PlayerBar(QWidget):
         self.scroll_wave = ScrollingWave(lambda: min(self.player.position(), self.player.duration or 1e9))
         self.scroll_wave.hide()
         col.addWidget(self.scroll_wave)
+        # 1.3.0-rc.3 (B17) : page « Grille et cues » ouverte : vue d'ensemble 3 bandes, navigable, à la place
+        from .grid_overview import GridOverview
+
+        self.grid_overview = GridOverview()
+        self.grid_overview.hide()
+        col.addWidget(self.grid_overview)
+        self._grid_editor: Any = None
+        controller.on("grid_page", self._grid_page)
         row = hbox(spacing=theme.px(10))
         col.addLayout(row)
 
@@ -482,10 +490,20 @@ class PlayerBar(QWidget):
         self.wave.setVisible(on)
         self.seek.setVisible(not on)
 
+    def _grid_page(self, editor: Any) -> None:
+        """La page Grille et cues s'ouvre (editor) ou se ferme (None)."""
+        self._grid_editor = editor
+        self.grid_overview.set_editor(editor)
+        self.grid_overview.setVisible(editor is not None)
+        if editor is not None:
+            self.scroll_wave.hide()
+        else:
+            self.scroll_wave.setVisible(self.scroll_wave.has_data and self.player.state != STOPPED)
+
     def _use_scroll(self, data: Any) -> None:
         detail, beats = data if data else ([], [])
         self.scroll_wave.set_data(detail, beats)
-        self.scroll_wave.setVisible(bool(detail))
+        self.scroll_wave.setVisible(bool(detail) and self._grid_editor is None)
         self.scroll_wave.set_running(self.player.state == PLAYING)
 
     @staticmethod
@@ -514,6 +532,7 @@ class PlayerBar(QWidget):
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
         self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
+        self.grid_overview.setFixedHeight(theme.px(SCROLL_H))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 

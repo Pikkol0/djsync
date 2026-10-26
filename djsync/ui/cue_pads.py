@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, nearest_beat_ms, suggest_cues
@@ -43,7 +43,7 @@ class Pad(QPushButton):
     def __init__(self, panel: "CuePanel", slot: int) -> None:
         super().__init__()
         self.panel, self.slot = panel, slot
-        self.setMinimumHeight(theme.px(46))
+        self._fit_height()
         self.setMinimumWidth(theme.px(60))
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.NoFocus)
@@ -51,7 +51,22 @@ class Pad(QPushButton):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(lambda pos: panel.pad_menu(slot, self.mapToGlobal(pos)))
 
+    def _fit_height(self) -> None:
+        """1.3.0-rc.3 (B16) : deux lignes (lettre + temps / boucle) d'après la police réelle (qui suit
+        l'échelle d'affichage de Windows, contrairement aux marges), avec une marge haute et basse."""
+        f = QFont(self.font())
+        f.setBold(True)
+        self.setMinimumHeight(max(theme.px(46), 2 * QFontMetrics(f).lineSpacing() + max(12, theme.px(12))))
+
+    def changeEvent(self, e: Any) -> None:          # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        if e.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._fit_height()
+        super().changeEvent(e)
+
     def show_cue(self, cue: Optional[Cue]) -> None:
+        self._fit_height()
         letter = SLOTS[self.slot - 1]
         r = theme.px(8)
         if cue is None:

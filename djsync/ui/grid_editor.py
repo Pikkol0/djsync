@@ -20,8 +20,8 @@ import copy
 from typing import Any, List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
-from PySide6.QtWidgets import QComboBox, QLineEdit, QScrollBar, QWidget
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QScrollBar, QWidget
 
 from ..analysis import grid as G
 from ..analysis.cues import Cue, nearest_beat_ms
@@ -44,7 +44,7 @@ class GridCanvas(QWidget):
     def __init__(self, editor: "GridEditor") -> None:
         super().__init__()
         self.ed = editor
-        self.setMinimumHeight(theme.px(190))
+        self.setMinimumHeight(theme.px(110))        # 1.3.0-rc.3 (B16) : rétrécit avant les pads
         self.setCursor(Qt.CrossCursor)
         self._drag_x: Optional[float] = None
         self._drag_start = 0.0
@@ -61,7 +61,12 @@ class GridCanvas(QWidget):
         x = e.position().x()
         if e.button() == Qt.LeftButton:
             if not self.ed.grab_cue(x, e.position().y()):
-                self.ed.press(x)
+                if self.ed.fixed_cursor:              # 1.3.0-rc.3 (B17) : on fait glisser le son sous le curseur
+                    self.ed.begin_scrub(x)
+                else:
+                    self.ed.press(x)
+        elif self.ed.fixed_cursor:
+            self.ed.begin_scrub(x)
         else:
             self._drag_x, self._drag_start = x, self.ed.start_ms
 
@@ -69,6 +74,8 @@ class GridCanvas(QWidget):
         x = e.position().x()
         if e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
             self.ed.drag_cue(x, bool(e.modifiers() & Qt.ShiftModifier))
+        elif self.ed.scrubbing_fixed():
+            self.ed.scrub_to(x)
         elif e.buttons() & Qt.LeftButton:
             self.ed.press(x, dragging=True)
         elif self._drag_x is not None and e.buttons() & (Qt.RightButton | Qt.MiddleButton):
@@ -76,7 +83,9 @@ class GridCanvas(QWidget):
             self.ed.draw()
 
     def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
-        if e.button() == Qt.LeftButton:
+        if self.ed.scrubbing_fixed():
+            self.ed.end_scrub(e.position().x())
+        elif e.button() == Qt.LeftButton:
             if self.ed.dragging_cue():
                 self.ed.drop_cue()
             else:
@@ -131,6 +140,11 @@ class GridEditor(QWidget):
         self._drag_cue: Optional[Cue] = None
         self._native = False
         self._scrubbing = False
+        self._scrub: Optional[Tuple[float, float, bool]] = None    # (x de départ, curseur de départ, a bougé)
+        # 1.3.0-rc.3 (B17) : curseur volant par défaut (il suit la souris sur une vue fixe) ; case « Curseur
+        # fixe au centre » : le son défile sous un curseur immobile, comme Rekordbox. Choix gardé.
+        self.fixed_cursor = bool(getattr(controller.settings, "grid_fixed_cursor", False))
+        self._label_top, self._label_bottom = 14, 32               # bande des étiquettes (B16, recalculée au dessin)
         self._lead_ms = self._timeline_lead(track)
         self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
@@ -181,6 +195,11 @@ class GridEditor(QWidget):
         tools.addSpacing(theme.px(8))
         tools.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
         tools.addStretch(1)
+        self.fixed_box = QCheckBox(t("grid.fixed_cursor"))
+        self.fixed_box.setToolTip(t("grid.fixed_cursor_tip"))
+        self.fixed_box.setChecked(self.fixed_cursor)
+        self.fixed_box.toggled.connect(self._set_fixed)
+        tools.addWidget(self.fixed_box)
         self.body.addLayout(tools)
 
         tools2 = hbox()
@@ -220,6 +239,7 @@ class GridEditor(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(60)
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
+        controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
 
     def _timeline_lead(self, track: LibraryTrack) -> float:
         """La grille est dans la base de temps de Rekordbox (silence d'amorçage MP3, décalage m4a), le
@@ -255,6 +275,7 @@ class GridEditor(QWidget):
         self.selected = next((i for i, b in enumerate(self.beats) if b[0] == 1), 0)
         self.cursor_ms = self.beats[self.selected][2]
         self.start_ms = max(0.0, self.cursor_ms - 1000)
+        self._center()
         self._refresh_info()
         self.draw()
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
@@ -285,11 +306,66 @@ class GridEditor(QWidget):
 
     def _clamp_view(self) -> None:
         span = self.view_s * 1000.0
-        self.start_ms = max(0.0, min(self.start_ms, max(0.0, self.duration_ms - span)))
-        total = max(1.0, self.duration_ms - span)
+        if self.fixed_cursor:                # le curseur reste au centre, même au début et à la fin du son
+            self.cursor_ms = max(0.0, min(float(self.duration_ms), self.cursor_ms))
+            self.start_ms = self.cursor_ms - span / 2
+            value = self.cursor_ms / max(1.0, float(self.duration_ms))
+        else:
+            self.start_ms = max(0.0, min(self.start_ms, max(0.0, self.duration_ms - span)))
+            value = self.start_ms / max(1.0, self.duration_ms - span)
         self.scroll.blockSignals(True)
-        self.scroll.setValue(int(SCROLL_STEPS * self.start_ms / total))
+        self.scroll.setValue(int(SCROLL_STEPS * value))
         self.scroll.blockSignals(False)
+
+    def _center(self) -> None:
+        if self.fixed_cursor:
+            self.start_ms = self.cursor_ms - self.view_s * 500.0
+
+    def _set_fixed(self, on: bool) -> None:
+        self.fixed_cursor = bool(on)
+        try:
+            self.ctrl.settings.grid_fixed_cursor = bool(on)
+            self.ctrl.settings.save()
+        except Exception:  # noqa: BLE001 - réglage de confort
+            pass
+        self._center()
+        self.draw()
+
+    # -------------------------------------------- curseur fixe : faire glisser le son (B17)
+    def begin_scrub(self, x: float) -> None:
+        self.active_loop = None
+        self._scrub = (x, self.cursor_ms, False)
+        self._scrubbing = True
+
+    def scrubbing_fixed(self) -> bool:
+        return self._scrub is not None
+
+    def scrub_to(self, x: float) -> None:
+        if self._scrub is None:
+            return
+        x0, c0, moved = self._scrub
+        moved = moved or abs(x - x0) > 3
+        self._scrub = (x0, c0, moved)
+        if moved:
+            self._move_cursor(c0 - (x - x0) / self.px_per_ms)
+
+    def end_scrub(self, x: float) -> None:
+        if self._scrub is None:
+            return
+        _x0, _c0, moved = self._scrub
+        self._scrub = None
+        if not moved:                        # simple clic : ce point vient sous le curseur
+            self._move_cursor(self._ms(x))
+        self.release()
+
+    def _move_cursor(self, ms: float) -> None:
+        self.cursor_ms = min(max(0.0, ms), float(self.duration_ms))
+        if self.beats:
+            self.selected = G.nearest(self.beats, self.cursor_ms)
+            self._refresh_info()
+        self._center()
+        self._show_time()
+        self.draw()
 
     # ------------------------------------------------------------------- dessin
     def draw(self) -> None:
@@ -323,6 +399,13 @@ class GridEditor(QWidget):
         font = QFont(p.font())
         font.setBold(True)
         p.setFont(font)
+        # 1.3.0-rc.3 (B16) : bande du haut à l'échelle de la police, sur deux niveaux : numéros de mesure,
+        # puis étiquettes des cues (plus de « B73 ») ; temps de la vue à droite, jamais recouvert
+        fm = QFontMetrics(font)
+        row = fm.height() + theme.px(2)
+        self._label_top, self._label_bottom = row, row + fm.height() + theme.px(4)
+        time_text = format_duration(int(max(0.0, self.start_ms) / 1000))
+        time_left = w - theme.px(6) - fm.horizontalAdvance(time_text) - theme.px(6)
         bar_no = 0
         for i, (n, _tempo, ms) in enumerate(self.beats):
             if n == 1:
@@ -333,9 +416,9 @@ class GridEditor(QWidget):
             down = n == 1
             color = QColor(theme.ACCENT if down else theme.mix(theme.SURFACE, theme.TEXT, 0.55))
             p.setPen(QPen(color, theme.px(2.5) if down else 1))
-            p.drawLine(QPointF(x, 14), QPointF(x, h))
-            if down:
-                p.drawText(QPointF(x + 4, 12), str(bar_no))
+            p.drawLine(QPointF(x, row), QPointF(x, h))
+            if down and x + 4 + fm.horizontalAdvance(str(bar_no)) < time_left:
+                p.drawText(QPointF(x + 4, fm.ascent() + 1), str(bar_no))
             if i == self.selected:
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(theme.WARN))
@@ -347,8 +430,7 @@ class GridEditor(QWidget):
             p.setPen(QPen(QColor(theme.TEXT), 1, Qt.DashLine))
             p.drawLine(QPointF(xc, 0), QPointF(xc, h))
         p.setPen(QColor(theme.FAINT))
-        p.drawText(self.canvas.rect().adjusted(0, 2, -6, 0), Qt.AlignRight | Qt.AlignTop,
-                   format_duration(int(self.start_ms / 1000)))
+        p.drawText(self.canvas.rect().adjusted(0, 1, -theme.px(6), 0), Qt.AlignRight | Qt.AlignTop, time_text)
 
     def _paint_cues(self, p: QPainter, w: int, h: int) -> None:
         """Boucles (bande colorée), hot cues (trait + étiquette de la lettre en haut), mémoires (▼ rouge)."""
@@ -358,12 +440,15 @@ class GridEditor(QWidget):
         font = QFont(p.font())
         font.setBold(True)
         p.setFont(font)
+        fm = QFontMetrics(font)
+        top, bottom = self._label_top, self._label_bottom
+        tag_w = fm.horizontalAdvance("W") + theme.px(6)
         for c in self.cues:
             if c.is_loop and c.loop_ms >= lo and c.ms <= hi:
                 col = QColor(rgb_hex(c.colour()))
                 col.setAlpha(70 if self.active_loop != (c.ms, c.loop_ms) else 120)
                 x0, x1 = max(0.0, self._x(c.ms)), min(float(w), self._x(c.loop_ms))
-                p.fillRect(int(x0), 18, max(1, int(x1 - x0)), h - 18, col)
+                p.fillRect(int(x0), bottom, max(1, int(x1 - x0)), h - bottom, col)
         for c in self.cues:
             if c.ms < lo or c.ms > hi:
                 continue
@@ -371,25 +456,27 @@ class GridEditor(QWidget):
             col = QColor(rgb_hex(c.colour()))
             if c.slot:
                 p.setPen(QPen(col, theme.px(2)))
-                p.drawLine(QPointF(x, 18), QPointF(x, h))
+                p.drawLine(QPointF(x, bottom), QPointF(x, h))
                 p.setPen(Qt.NoPen)
                 p.setBrush(col)
-                p.drawRect(int(x), 0, theme.px(16), 18)
+                p.drawRect(int(x), top, tag_w, bottom - top)
                 p.setBrush(Qt.NoBrush)
                 p.setPen(QColor("#101010"))
-                p.drawText(int(x) + 3, 14, c.label)
+                p.drawText(int(x), top, tag_w, bottom - top, Qt.AlignCenter, c.label)
             else:
+                k = theme.px(6)
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(theme.ERR))
-                p.drawPolygon(QPolygonF([QPointF(x - 6, 0), QPointF(x + 6, 0), QPointF(x, 10)]))
+                p.drawPolygon(QPolygonF([QPointF(x - k, top), QPointF(x + k, top), QPointF(x, top + 1.6 * k)]))
                 p.setBrush(Qt.NoBrush)
 
     # ------------------------------------------------------------ cues : glisser
     def grab_cue(self, x: float, y: float) -> bool:
         """Clic sur l'étiquette d'une hot cue (bande du haut) : on la déplace en glissant."""
-        if y > 20:
+        if y > self._label_bottom:
             return False
-        near = [c for c in self.cues if c.slot and -3 <= x - self._x(c.ms) <= theme.px(16) + 3]
+        tag_w = QFontMetrics(self.canvas.font()).horizontalAdvance("W") + theme.px(6)
+        near = [c for c in self.cues if c.slot and -3 <= x - self._x(c.ms) <= tag_w + 3]
         if not near:
             return False
         self._drag_cue = near[0]
@@ -429,7 +516,9 @@ class GridEditor(QWidget):
         self.active_loop = None
         self.cursor_ms = float(ms)
         span = self.view_s * 1000.0
-        if not (self.start_ms <= ms <= self.start_ms + span * 0.85):
+        if self.fixed_cursor:
+            self._center()
+        elif not (self.start_ms <= ms <= self.start_ms + span * 0.85):
             self.start_ms = ms - span * 0.15
         self._show_time()
         if self._is_playing_this() and self.ctrl.player.state in (PLAYING, PAUSED):
@@ -582,7 +671,7 @@ class GridEditor(QWidget):
 
     # --------------------------------------------------------------- navigation
     def _view_changed(self, text: str) -> None:
-        center = self.start_ms + self.view_s * 500
+        center = self.cursor_ms if self.fixed_cursor else self.start_ms + self.view_s * 500
         self.view_s = int(text.split()[0])
         self.start_ms = center - self.view_s * 500
         self.draw()
@@ -596,6 +685,8 @@ class GridEditor(QWidget):
         span = self.view_s * 1000.0
         anchor = self.cursor_ms if self.start_ms <= self.cursor_ms <= self.start_ms + span else self.start_ms + span / 2
         ratio = (anchor - self.start_ms) / span if span else 0.5
+        if self.fixed_cursor:
+            anchor, ratio = self.cursor_ms, 0.5
         self.view_s = VIEW_CHOICES[j]
         self.start_ms = anchor - ratio * self.view_s * 1000.0
         self.view_menu.blockSignals(True)
@@ -604,10 +695,18 @@ class GridEditor(QWidget):
         self.draw()
 
     def _scrolled(self, value: int) -> None:
+        if self.fixed_cursor:
+            self._move_cursor(value / SCROLL_STEPS * self.duration_ms)
+            self.release()
+            return
         self.start_ms = value / SCROLL_STEPS * max(0.0, self.duration_ms - self.view_s * 1000.0)
         self.draw()
 
     def pan(self, fraction: float) -> None:
+        if self.fixed_cursor:                    # molette : le son avance sous le curseur
+            self._move_cursor(self.cursor_ms + fraction * self.view_s * 1000)
+            self.release()
+            return
         self.start_ms += fraction * self.view_s * 1000
         self.draw()
 
@@ -673,7 +772,9 @@ class GridEditor(QWidget):
                 self._player_seek(self.cursor_ms)
             self._show_time()
             span = self.view_s * 1000.0
-            if not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
+            if self.fixed_cursor:
+                self._center()
+            elif not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
 
@@ -721,6 +822,7 @@ class GridEditor(QWidget):
             return False
         self._closed = True
         self._timer.stop()
+        self.ctrl._emit("grid_page", None)
         callback, self._on_close = self._on_close, None
         self.hide()
         self.deleteLater()

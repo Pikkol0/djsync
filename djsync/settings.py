@@ -101,6 +101,7 @@ class Settings:
     genre_playlists: dict = field(default_factory=dict)   # {bibliothèque: config des playlists par genre}
     # ---- 1.2.3
     scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
+    grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés

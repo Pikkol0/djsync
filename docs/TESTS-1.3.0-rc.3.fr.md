@@ -1,7 +1,8 @@
 # Scénarios de test — DJSync 1.3.0-rc.3
 
 Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse après téléchargement
-(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
+(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**),
+message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
 `docs/TESTS-1.3.0.fr.md` restent à faire s'ils ne sont pas cochés.
 
 ## W. Lancement et version (C31, C35)
@@ -28,6 +29,17 @@ Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse 
 | H1 | Ouvrir la clé dans Rekordbox et le laisser ouvert ; dans DJSync, renommer une playlist. Revenir à l'Accueil. | Pastille orange « export.pdb pas à jour », une ligne « Pas encore sur les anciennes platines : … » et un bouton **Mettre à jour export.pdb**. |
 | H2 | Cliquer **Mettre à jour export.pdb** avec Rekordbox toujours ouvert sur la clé. | Le bouton affiche « Mise à jour… », puis message « export.pdb est utilisé par un autre programme (Rekordbox ouvert sur la clé ?)… » ; la carte reste « pas à jour ». |
 | H3 | Fermer Rekordbox, cliquer de nouveau **Mettre à jour export.pdb**. | Message « export.pdb est à jour » ; la pastille orange, la ligne de détail et le bouton disparaissent. Dans Rekordbox (Device Library), la playlist porte le nouveau nom. |
+
+## Q. Page Grille et cues (B16, B17)
+| # | Étapes | Attendu |
+|---|---|---|
+| Q1 | Windows à 125 % ou 150 %. Ouvrir Grille et cues sur un son, poser A en boucle de 4 temps et B. | Pads A et B : les deux lignes (lettre, puis « ⟳ 4 0:03.3 » / temps) sont entières. |
+| Q2 | Regarder la bande du haut de la forme d'onde. | Numéros de mesure sur une ligne, étiquettes A / B juste en dessous : plus de « B73 ». Le temps en haut à droite n'est jamais recouvert par un numéro de mesure. |
+| Q3 | Réduire la hauteur de la fenêtre. | La forme d'onde rétrécit ; pads, mémoires, boutons et lecteur restent visibles. |
+| Q4 | Lancer la lecture depuis la page. | En bas, le lecteur montre le son entier en 3 bandes (mêmes couleurs que l'éditeur), avec la zone affichée encadrée, les hot cues et le curseur ; plus de forme d'onde rose / verte. Cliquer ou glisser dessus déplace l'éditeur et la lecture. |
+| Q5 | Quitter la page (Retour), lecture en cours. | Le lecteur reprend sa forme d'onde habituelle. |
+| Q6 | Cocher **Curseur fixe au centre**. Glisser la forme d'onde, tourner la molette. | Le curseur reste au milieu, le son défile dessous ; en lecture, le son défile sous le curseur. Un simple clic amène ce point sous le curseur. |
+| Q7 | Fermer DJSync, le rouvrir, rouvrir Grille et cues. | La case est toujours cochée. La décocher : retour au curseur volant (défaut). |
 
 ## E. export.pdb (B14)
 | # | Étapes | Attendu |
