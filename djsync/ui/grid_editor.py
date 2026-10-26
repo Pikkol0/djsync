@@ -685,6 +685,7 @@ class GridEditor(QWidget):
 
             def done(_r: Any) -> None:
                 if self.winfo_exists():
+                    self._leaving = True
                     self.close()
 
             def failed(_e: BaseException) -> None:
@@ -702,10 +703,22 @@ class GridEditor(QWidget):
         else:
             go()
 
+    def is_dirty(self) -> bool:
+        return bool(self.beats) and (self.beats != self.original or self.cues_dirty())
+
     def close(self) -> bool:                 # noqa: D401
-        """Quitte la page (sans enregistrer) ; la lecture du son continue."""
+        """Quitte la page (sans enregistrer) ; la lecture du son continue. 1.3.0 : grille ou cues
+        modifiés et pas enregistrés -> on demande avant de les perdre."""
         if self._closed:
             return True
+        if self.is_dirty() and not getattr(self, "_leaving", False):
+            def leave() -> None:
+                self._leaving = True
+                self.close()
+
+            ConfirmDialog(self, t("grid.leave_title"), t("grid.leave_msg"), leave,
+                          confirm_text=t("grid.leave_confirm"), danger=True)
+            return False
         self._closed = True
         self._timer.stop()
         callback, self._on_close = self._on_close, None

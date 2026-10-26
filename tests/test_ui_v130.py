@@ -66,3 +66,31 @@ def test_pads_loops_memories_and_save(demo_grid):  # noqa: F811
     c = next(c for c in back if c.slot == 3)
     assert c.ms == ed.beats[4][2] and c.is_loop and c.loop_beats == 2
     assert not app.errors
+
+
+def test_leaving_with_unsaved_cues_asks_first(demo_grid):  # noqa: F811
+    from djsync.ui.dialogs import ConfirmDialog
+
+    app = demo_grid
+    app.show_view("library")
+    lib = app.views["library"]
+    assert pump(app, 4, lambda: lib.table.total == 11)
+    target = next(r.data for r in lib.table.all_rows() if r.data.title == "Grid Test")
+    app.open_grid_editor(target)
+    ed = app.grid_editor
+    assert pump(app, 4, lambda: bool(ed.beats))
+    assert ed.close() and pump(app, 2, lambda: app.grid_editor is None)    # rien de modifié : on sort
+    app.open_grid_editor(target)
+    ed = app.grid_editor
+    assert pump(app, 4, lambda: bool(ed.beats))
+    ed.cursor_ms = ed.beats[3][2]
+    ed.cue_panel.pad_clicked(1)
+    assert ed.is_dirty()
+    assert ed.close() is False                                             # on demande
+    dlg = app.findChildren(ConfirmDialog)[-1]
+    assert app.grid_editor is ed
+    dlg._ok()                                                              # « Quitter sans enregistrer »
+    assert pump(app, 2, lambda: app.grid_editor is None)
+    assert app.ctrl.library.track_cues(target.content_id) == [] or \
+        all(not c.slot for c in app.ctrl.library.track_cues(target.content_id))
+    assert not app.errors

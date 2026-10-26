@@ -528,6 +528,11 @@ class DJSyncApp(QMainWindow):
             if ed.track.content_id == track.content_id:
                 self._show_page(ed)
                 return
+            if ed.is_dirty():                 # 1.3.0 : modifications en cours -> on demande d'abord
+                self._show_page(ed)
+                ed._on_close = lambda: (self._grid_closed(), self.open_grid_editor(track))
+                ed.close()
+                return
             ed._on_close = None
             ed.close()
         self._grid_return = self._current or "library"
