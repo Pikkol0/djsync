@@ -130,7 +130,7 @@ def test_full_page_marks_stale_then_catch_up_with_growth_heals(tmp_path):
     full, _n = fill_tracks_page()
     usb = make_usb(tmp_path, pdb_bytes=full)
     raw = full
-    with open_lib(usb) as lib:                                     # agrandissement désactivé (défaut)
+    with open_lib(usb, pdb_allow_growth=False) as lib:             # agrandissement désactivé
         for i in range(12):
             lib.add_track(make_wav(lib, f"F{i}", f"f{i}"), f"f{i}", f"F{i}", None, None, [1])
             if lib.pdb_state == "stale":

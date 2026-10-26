@@ -23,6 +23,22 @@ Corrigé grâce à ce fichier (le premier modèle était faux sur ces points) :
   supprimées) : l'ancien code qui y enregistrait les nouvelles pages a été supprimé ;
 * champs « inconnus » d'une piste : seuls `kuvo_public`/`autoload_hot_cues` (« ON ») sont repris d'une piste existante.
 
+## 1.3.0-rc.2 : réconciliation et lien de la page d'index (B13, P02)
+- **exportLibrary.db fait foi** (`djsync/db/pdb/sync.py`) : à chaque écriture, à l'ouverture de la clé,
+  à « Synchroniser maintenant » et à l'éjection, DJSync calcule l'écart complet (sons, playlists,
+  contenu et ordre, titres/artistes/BPM modifiés, suppressions) et le comble en une écriture. Les
+  suppressions et renommages faits par DJSync sont notés dans `DJSync_Backups/pdb-journal.json`
+  jusqu'à ce qu'export.pdb soit à jour ; rien d'inconnu de DJSync n'est retiré.
+- **Page d'index** : le u32 à `0x2C` désigne la **première page de données** de la table, ou
+  `0x03FFFFFF` si la table n'en a pas (constaté sur une clé vide préparée par Rekordbox et sur deux
+  exports remplis). Jusqu'à la 1.3.0-rc.1, quand DJSync créait la première page de données d'une
+  table vide, ce lien restait à `0x03FFFFFF` : Rekordbox juge alors la bibliothèque de la clé
+  « corrompue » (test K2). Corrigé ; une clé déjà touchée est réparée à la première écriture, et
+  `python -m djsync.db.pdb.check` signale le défaut (lignes `INDEX:`).
+- Sur une clé sans son Rekordbox (pas de modèle), les lignes de son reçoivent les chaînes que
+  Rekordbox écrit toujours (`unk3` = 1, `kuvo_public` et `autoload_hot_cues` = ON) ; dans
+  exportLibrary.db, dates d'ajout en date seule et tonalités en notation musicale.
+
 ## V1.0.0 : agrandissement activé par défaut
 Sans ajout de pages, une clé fraîchement exportée par Rekordbox est **pleine en une quinzaine de sons**
 (table des albums d'abord : Rekordbox laisse peu de place dans chaque page). Validation faite sur le vrai

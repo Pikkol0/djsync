@@ -73,6 +73,7 @@ class PdbDatabase:
         self._alias: Dict[int, int] = {}
         self._alias_rows: Dict[int, List[_Ref]] = {}           # id retenu -> autres lignes du même fichier
         self._artists: Dict[str, int] = {}
+        self._artist_names: Dict[int, str] = {}              # 1.3.0-rc.2 : id -> nom (comparaison des infos)
         self._albums: Dict[Tuple[str, int], int] = {}
         self._trees: Dict[int, _Tree] = {}
         self._entries: Dict[int, List[_Entry]] = {}
@@ -100,6 +101,7 @@ class PdbDatabase:
         for p, slot, off in f.iter_rows(T.ARTISTS):
             r = rows.read_artist(d, p * PAGE_SIZE + off)
             self._artists.setdefault(_key(r["name"]), r["id"])               # type: ignore[arg-type]
+            self._artist_names[r["id"]] = r["name"]                           # type: ignore[index]
             self._max["artist"] = max(self._max["artist"], r["id"])          # type: ignore[type-var]
         for p, slot, off in f.iter_rows(T.ALBUMS):
             r = rows.read_album(d, p * PAGE_SIZE + off)
@@ -165,6 +167,35 @@ class PdbDatabase:
             parent = node.id
         return node
 
+    def track_info(self, path: str) -> Optional[Dict[str, object]]:
+        """1.3.0-rc.2 : titre, nom d'artiste, BPM×100 et chemin d'analyse de la piste (None si absente)."""
+        row = self.track_row(path)
+        if row is None:
+            return None
+        return {"title": row["title"], "artist": self._artist_names.get(row["artist_id"], ""),  # type: ignore[arg-type]
+                "bpmx100": row["bpmx100"], "analyze_path": row["strings"]["analyze_path"],     # type: ignore[index]
+                "artwork_id": row["artwork_id"]}
+
+    def playlist_tracks(self, path: PlaylistPath) -> Optional[List[Optional[str]]]:
+        """1.3.0-rc.2 : chemins des pistes de la playlist, dans l'ordre (None pour une entrée qui pointe
+        vers une piste absente de la table). None si la playlist n'existe pas."""
+        node = self.find_playlist(path)
+        if node is None:
+            return None
+        by_id = {ref.id: k for k, ref in self._tracks.items()}
+        return [by_id.get(self._canon(e.track)) for e in self._ordered_entries(node.id)]
+
+    def playlists(self) -> List[Tuple[PlaylistPath, bool]]:
+        """1.3.0-rc.2 : toutes les playlists et dossiers (chemin de noms, dossier ?)."""
+        def path_of(t: _Tree) -> PlaylistPath:
+            names, seen, node = [], set(), t
+            while node is not None and node.id not in seen:
+                seen.add(node.id)
+                names.append(node.name)
+                node = self._trees.get(node.parent)
+            return tuple(reversed(names))
+        return [(path_of(t), t.folder) for t in self._trees.values()]
+
     def playlist_count(self) -> int:
         return len(self._trees)
 
@@ -186,6 +217,7 @@ class PdbDatabase:
         self.file.insert_row(T.ARTISTS, rows.build_artist(new_id, name, self._shift(T.ARTISTS)))
         self._max["artist"] = new_id
         self._artists[_key(name)] = new_id
+        self._artist_names[new_id] = name
         return new_id
 
     def _ensure_album(self, name: str, artist_id: int) -> int:

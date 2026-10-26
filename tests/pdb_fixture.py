@@ -50,7 +50,9 @@ def _index_page(index: int, ttype: int, next_page: int, data_pages: List[int], s
     struct.pack_into("<IIIIII", page, 0, 0, index, ttype, next_page, seq, 0)
     page[0x1B] = 0x64
     struct.pack_into("<HHHH", page, 0x20, 0x1FFF, 0x1FFF, 1004, 0)
-    struct.pack_into("<IIIIHH", page, 0x28, index, next_page, 0x03FFFFFF, 0, 0, 0x1FFF)
+    # 0x2C : première page de données de la table, 0x03FFFFFF si elle n'en a pas (comme Rekordbox, B13)
+    first_data = data_pages[0] if data_pages else 0x03FFFFFF
+    struct.pack_into("<IIIIHH", page, 0x28, index, first_data, 0x03FFFFFF, 0, 0, 0x1FFF)
     for pos in range(0x3C, 0x1F0, 4):
         struct.pack_into("<I", page, pos, EMPTY_ENTRY)
     return bytes(page)

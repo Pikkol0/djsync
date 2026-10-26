@@ -59,6 +59,9 @@ def report(path: Path) -> List[str]:
             if ttype in WRITABLE:
                 ok = False
             lines.append(f"  [{ttype:2d}] {label:22s} PROBLEM: {exc}")
+    links = f.index_link_problems()
+    for problem in links:
+        lines.append(f"  INDEX: {problem} (Rekordbox reports the library as corrupted; DJSync repairs it at its next write)")
     try:
         db = PdbDatabase(data)
         lines.append(f"Tracks: {db.track_count}; playlists/folders: {db.playlist_count()}")

@@ -73,7 +73,8 @@ class IngestMixin:
 
     def _key_id_for(self, conn: Any, musical: str) -> Optional[int]:
         """Ligne de la table `key` pour une tonalité détectée (« Am »). Notation : celle demandée, ou en
-        « auto » celle déjà majoritaire sur la clé (Camelot si la table est vide) ; une ligne équivalente
+        « auto » celle déjà majoritaire sur la clé (1.3.0-rc.2 : musicale si la table est vide, comme
+        Rekordbox ; Camelot jusqu'à la rc.1, B13) ; une ligne équivalente
         existante dans cette notation est toujours réutilisée (« Am » ≡ « 8A »)."""
         if not self._has_key:
             return None
@@ -84,7 +85,7 @@ class IngestMixin:
         style = self.key_notation
         if style not in ("camelot", "musical"):
             styles = Counter(self._key_style(n) for _k, n in rows if to_camelot(n))
-            style = styles.most_common(1)[0][0] if styles else "camelot"
+            style = styles.most_common(1)[0][0] if styles else "musical"
         for kid, name in rows:
             if to_camelot(name) == code and self._key_style(name) == style:
                 return kid

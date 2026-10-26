@@ -660,6 +660,7 @@ STRINGS = {
     "eject.hint": "Close the library safely and eject the drive",
     "eject.working": "Closing the drive…",
     "eject.done": "{drive} ejected: you can unplug it.",
+    "eject.pdb_stale": "Warning: export.pdb (older players: CDJ-2000NXS2, XDJ-1000…) is not up to date ({detail}). Plug the drive back into DJSync to finish the update.",
     "eject.closed_only": "{drive} is closed and safe to unplug, but the system refused to eject it (a file may still be open).",
     "eject.own_title": "Drive closed",
     "eject.own_msg": "DJSync runs from {drive}: its library is closed and saved. Quit DJSync, then unplug the drive.",
