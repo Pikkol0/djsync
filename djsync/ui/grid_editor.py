@@ -770,9 +770,13 @@ class GridEditor(QWidget):
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
             self.cursor_ms = player.position() * 1000.0 + self._lead_ms
-            if self.active_loop and self.cursor_ms >= self.active_loop[1]:
-                self.cursor_ms = float(self.active_loop[0])
-                self._player_seek(self.cursor_ms)
+            # 1.3.0-rc.3 (C39) : la fin de boucle se décide sur ce qui est ENVOYÉ à la carte son (en avance
+            # de sa réserve), pour que le retour au début s'entende pile à la fin de la boucle
+            sent_ms = player.sent_position() * 1000.0 + self._lead_ms
+            if self.active_loop and sent_ms >= self.active_loop[1]:
+                over = sent_ms - self.active_loop[1]
+                length = max(1.0, self.active_loop[1] - self.active_loop[0])
+                self._player_seek(self.active_loop[0] + over % length)
             self._show_time()
             span = self.view_s * 1000.0
             if self.fixed_cursor:

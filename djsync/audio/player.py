@@ -182,6 +182,7 @@ class AudioPlayer:
         self._cb_frames = 0                        # trames envoyées à cet instant
         self._cb_period = 0.0                      # durée du dernier paquet (s)
         self._base = 0                             # trames au dernier seek / pause : jamais en dessous
+        self._prev: Optional[tuple] = None         # avant un seek : (instant, trames, paquet, envoyées) de l'ancien flux
         self.latency_offset_ms = 0                 # réglage : retard supplémentaire (Bluetooth…), en ms
         self._paused = False
 
@@ -272,6 +273,10 @@ class AudioPlayer:
 
     def _swap(self, stream: Optional[_Stream], frames: int = 0) -> None:
         with self._lock:
+            # seek en pleine lecture : la carte son joue encore la fin de l'ancien flux (sa réserve) ;
+            # on garde de quoi afficher cette fin avant de passer au nouveau point
+            playing = self._stream is not None and stream is not None and self._cb_time is not None and not self._paused
+            self._prev = (self._cb_time, self._cb_frames, self._cb_period, self._frames) if playing else None
             old, self._stream, self._frames = self._stream, stream, frames
             self._base, self._cb_time = frames, None
         if old is not None:
@@ -365,13 +370,29 @@ class AudioPlayer:
         with self._lock:
             frames, cb_time, cb_frames, period, base = (self._frames, self._cb_time, self._cb_frames,
                                                         self._cb_period, self._base)
-            paused = self._paused
-        if paused or cb_time is None:
-            return max(base, frames if paused else base) / RATE
+            paused, prev = self._paused, self._prev
+        if paused:
+            return max(base, frames) / RATE
         latency = BUFFER_MS / 1000.0 + self.latency_offset_ms / 1000.0
-        elapsed = min(max(0.0, time.monotonic() - cb_time), max(period, 0.001) * 1.5)
-        heard = cb_frames / RATE - latency + elapsed
-        return max(base / RATE, min(heard, frames / RATE))
+        now = time.monotonic()
+        if cb_time is not None:
+            elapsed = min(max(0.0, now - cb_time), max(period, 0.001) * 1.5)
+            heard = cb_frames / RATE - latency + elapsed
+            if heard >= base / RATE:
+                return min(heard, frames / RATE)
+        if prev is not None:                     # la fin de l'ancien flux s'entend encore
+            p_time, p_frames, p_period, p_sent = prev
+            old = p_frames / RATE - latency + min(max(0.0, now - p_time), latency + max(p_period, 0.001))
+            if old < p_sent / RATE:
+                return old
+        return base / RATE
+
+    def sent_position(self) -> float:
+        """Position de ce qui a été ENVOYÉ à la carte son (en avance sur ce qu'on entend) : pour décider
+        d'un saut (fin de boucle) assez tôt pour qu'il soit entendu au bon moment."""
+        if self.state not in (PLAYING, PAUSED):
+            return 0.0
+        return self._frames / RATE
 
     def poll(self) -> None:
         """À appeler régulièrement (timer UI) : détecte la fin du morceau (ou une erreur de flux)."""

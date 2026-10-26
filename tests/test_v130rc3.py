@@ -288,3 +288,25 @@ def test_heard_position_is_smooth_and_never_ahead(monkeypatch):
     # après un seek : jamais avant le point demandé
     p._base, p._cb_frames, p._frames, p._cb_time = 10 * P.RATE, 10 * P.RATE + 2205, 10 * P.RATE + 2205, 100.0
     assert p.position() == pytest.approx(10.0)
+
+
+def test_after_a_seek_the_end_of_the_old_audio_is_still_shown(monkeypatch):
+    from djsync.audio import player as P
+
+    p = P.AudioPlayer(post=lambda f: f())
+    p.state = P.PLAYING
+    clock = [50.0]
+    monkeypatch.setattr(P.time, "monotonic", lambda: clock[0])
+    lat = P.BUFFER_MS / 1000
+    p._frames = p._cb_frames = 30 * P.RATE
+    p._cb_time, p._cb_period = 50.0, 0.05
+    before = p.position()                                           # ≈ 30 s - réserve
+    monkeypatch.setattr(P.AudioPlayer, "_swap", P.AudioPlayer._swap)
+    fake = type("S", (), {"close": lambda self: None})
+    p._stream = fake()
+    p._swap(fake(), 5 * P.RATE)                                     # saut à 5 s
+    clock[0] += 0.05
+    assert p.position() == pytest.approx(before + 0.05, abs=1e-6)   # on entend encore l'ancien passage
+    clock[0] += lat + 0.2                                           # ancienne réserve jouée
+    assert p.position() == pytest.approx(5.0)
+    assert p.sent_position() == pytest.approx(5.0)
