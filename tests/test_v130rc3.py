@@ -1,6 +1,7 @@
 """1.3.0-rc.3 : version au démarrage (C31), analyse après téléchargement (C32)."""
 import json
 from types import SimpleNamespace
+import pytest
 
 from djsync.settings import Settings
 from djsync.ui.ctrl.downloads import DownloadsMixin
@@ -258,3 +259,32 @@ def test_grid_page_top_strip_and_pads_fit(demo_grid):  # noqa: F811
     f.setBold(True)
     assert pad.minimumHeight() >= 2 * QFontMetrics(f).lineSpacing()                # deux lignes tiennent
     ed.close()
+
+
+# ------------------------------------------------------------------ C39 : position entendue, interpolée
+def test_heard_position_is_smooth_and_never_ahead(monkeypatch):
+    from djsync.audio import player as P
+
+    p = P.AudioPlayer(post=lambda f: f())
+    p.state = P.PLAYING
+    clock = [100.0]
+    monkeypatch.setattr(P.time, "monotonic", lambda: clock[0])
+    assert p.position() == 0.0                                   # rien envoyé : au point de départ
+    # la carte son réclame un paquet de 50 ms ; 2 s déjà envoyées
+    p._frames = p._cb_frames = 2 * P.RATE
+    p._cb_time, p._cb_period = 100.0, 0.05
+    heard = [p.position()]
+    for _ in range(4):
+        clock[0] += 0.01
+        heard.append(p.position())
+    assert heard[0] == pytest.approx(2.0 - P.BUFFER_MS / 1000, abs=1e-6)   # retard de la carte son retiré
+    steps = [b - a for a, b in zip(heard, heard[1:])]
+    assert all(s == pytest.approx(0.01, abs=1e-6) for s in steps)        # avance avec l'horloge, sans sauts
+    clock[0] += 5.0                                                       # plus de paquet : s'arrête
+    assert p.position() <= 2.0 - P.BUFFER_MS / 1000 + 0.05 * 1.5 + 1e-6
+    p.latency_offset_ms = 100                                             # réglage Bluetooth
+    clock[0] = 100.0
+    assert p.position() == pytest.approx(2.0 - P.BUFFER_MS / 1000 - 0.1, abs=1e-6)
+    # après un seek : jamais avant le point demandé
+    p._base, p._cb_frames, p._frames, p._cb_time = 10 * P.RATE, 10 * P.RATE + 2205, 10 * P.RATE + 2205, 100.0
+    assert p.position() == pytest.approx(10.0)

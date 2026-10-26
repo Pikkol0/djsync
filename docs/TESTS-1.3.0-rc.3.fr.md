@@ -1,7 +1,7 @@
 # Scénarios de test — DJSync 1.3.0-rc.3
 
 Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse après téléchargement
-(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**),
+(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**), curseur de lecture précis (**C39**),
 message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
 `docs/TESTS-1.3.0.fr.md` restent à faire s'ils ne sont pas cochés.
 
@@ -40,6 +40,13 @@ message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-r
 | Q5 | Quitter la page (Retour), lecture en cours. | Le lecteur reprend sa forme d'onde habituelle. |
 | Q6 | Cocher **Curseur fixe au centre**. Glisser la forme d'onde, tourner la molette. | Le curseur reste au milieu, le son défile dessous ; en lecture, le son défile sous le curseur. Un simple clic amène ce point sous le curseur. |
 | Q7 | Fermer DJSync, le rouvrir, rouvrir Grille et cues. | La case est toujours cochée. La décocher : retour au curseur volant (défaut). |
+
+## P. Curseur de lecture précis (C39)
+| # | Étapes | Attendu |
+|---|---|---|
+| P1 | Page Grille et cues, vue 2 s ou 4 s, lancer la lecture sur un passage avec des kicks nets. | Le curseur défile sans à-coups et passe sur chaque trait de temps au moment où l'on entend le kick (plus d'avance d'environ 0,2 s). |
+| P2 | Pause, puis reprise ; cliquer ailleurs dans la forme d'onde pendant la lecture. | Le curseur s'arrête là où le son s'arrête, repart avec lui, et ne part jamais avant le point cliqué. |
+| P3 | (Casque Bluetooth ou carte son avec du retard) Paramètres ▸ Retard audio en plus pour les curseurs : augmenter par pas de 10 ms. | Le curseur se recale sur ce qu'on entend ; le réglage est gardé au prochain lancement. |
 
 ## E. export.pdb (B14)
 | # | Étapes | Attendu |

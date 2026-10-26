@@ -150,6 +150,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             ffmpeg_location=settings.ffmpeg_location or None,
         )
         self.player.set_volume(settings.volume)
+        self.player.latency_offset_ms = settings.audio_latency_ms      # 1.3.0-rc.3 (C39)
         self._apply_output()
 
         self.drive: Optional[UsbDrive] = None
@@ -681,6 +682,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.service.set_ffmpeg_location(s.ffmpeg_location or None)
         self._apply_output()
         self.player.ffmpeg_location = s.ffmpeg_location or None
+        self.player.latency_offset_ms = s.audio_latency_ms
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep

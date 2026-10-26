@@ -764,6 +764,9 @@ class GridEditor(QWidget):
     def _tick(self) -> None:
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
+        interval = 16 if playing else 60          # 1.3.0-rc.3 (C39) : ~60 images/s pendant la lecture
+        if self._timer.interval() != interval:
+            self._timer.setInterval(interval)
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
             self.cursor_ms = player.position() * 1000.0 + self._lead_ms

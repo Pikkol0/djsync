@@ -370,6 +370,8 @@ STRINGS = {
                          "(toute la grille suit)",
     "grid.double": "BPM × 2",
     "grid.half_beat": "½ temps",
+    "settings.audio_latency": "Retard audio en plus pour les curseurs",
+    "settings.audio_latency_tip": "Laissez 0 ms. Si le curseur de la page Grille et cues est en avance sur ce que vous entendez (casque Bluetooth, certaines cartes son), augmentez jusqu'à ce qu'il tombe sur les kicks.",
     "grid.fixed_cursor": "Curseur fixe au centre",
     "grid.fixed_cursor_tip": "Coché : le curseur reste au milieu et le son défile dessous (glisser la forme d'onde, molette, ou la vue d'ensemble du lecteur). Décoché : le curseur suit la souris. Choix gardé pour la prochaine fois.",
     "grid.overview_tip": "Tout le son : cliquer ou glisser pour s'y déplacer",

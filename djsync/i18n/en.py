@@ -370,6 +370,8 @@ STRINGS = {
                          "(the whole grid moves with it)",
     "grid.double": "BPM × 2",
     "grid.half_beat": "½ beat",
+    "settings.audio_latency": "Extra audio delay for the cursors",
+    "settings.audio_latency_tip": "Leave at 0 ms. If the cursor of the Beat grid page runs ahead of what you hear (Bluetooth headphones, some sound cards), raise it until the cursor hits the kicks.",
     "grid.fixed_cursor": "Fixed cursor in the middle",
     "grid.fixed_cursor_tip": "Ticked: the cursor stays in the middle and the track scrolls under it (drag the waveform, wheel, or the overview in the player). Unticked: the cursor follows the mouse. Kept for next time.",
     "grid.overview_tip": "Whole track: click or drag to move through it",

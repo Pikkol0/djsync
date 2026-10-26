@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QToolButton,
+    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton,
     QWidget,
 )
 
@@ -113,6 +113,17 @@ class SettingsView(View):
         self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
         self.scroll_wave_var.setChecked(s.scrolling_wave)
         card.addWidget(self.scroll_wave_var)
+        row = hbox()                                                         # 1.3.0-rc.3 (C39)
+        row.addWidget(label(t("settings.audio_latency"), ""))
+        self.latency_box = QSpinBox()
+        self.latency_box.setRange(-200, 500)
+        self.latency_box.setSingleStep(10)
+        self.latency_box.setSuffix(" ms")
+        self.latency_box.setValue(s.audio_latency_ms)
+        self.latency_box.setToolTip(t("settings.audio_latency_tip"))
+        row.addWidget(self.latency_box)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- clé USB
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
@@ -645,6 +656,7 @@ class SettingsView(View):
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
+        s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
         s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
                                 "auto")
