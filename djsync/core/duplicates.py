@@ -143,8 +143,34 @@ def _artists_match(a: str, b: str) -> bool:
     return fuzz.token_set_ratio(a, b) >= 75
 
 
+# 1.3.0-rc.5 (C62) : numéro de partie / volume, ou version (remix, live…) différents = pas le même son,
+# même si les titres se ressemblent à 90 % (« Afro Trap Pt. 3 » / « Afro Trap Pt. 7 »).
+_PART = re.compile(r"(?:\b(?:pt|part|partie|parte|vol|volume|chapter|chapitre|episode|ep|no|n°)\s*\.?\s*|#\s*)(\d+|[ivxlc]+\b)",
+                   re.IGNORECASE)
+_VERSION = re.compile(r"\b(remix|rmx|extended|live|edit|instrumental|acapella|a cappella|bootleg|vip|rework|dub|"
+                      r"sped up|slowed)\b", re.IGNORECASE)
+
+
+def variant_tokens(title: str) -> frozenset:
+    """Numéros de partie et mots de version d'un titre (« pt 3 », « remix ») ; vide si aucun."""
+    text = unicodedata.normalize("NFKD", title or "").lower()
+    parts = {"p:" + m.group(1).lower() for m in _PART.finditer(text)}
+    versions = {"v:" + m.group(1).lower().replace("rmx", "remix")
+                for m in _VERSION.finditer(text)}
+    return frozenset(parts | versions)
+
+
+def ignore_key(track: Any) -> str:
+    """Identifiant stable d'un son pour la mémoire « pas un doublon » (chemin du fichier)."""
+    return (getattr(track, "path", "") or f"#{getattr(track, 'content_id', '')}").replace("\\", "/").lower()
+
+
+def ignored_pair(a: Any, b: Any) -> frozenset:
+    return frozenset((ignore_key(a), ignore_key(b)))
+
+
 def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
-                          max_duration_gap: int = 90) -> List[List[Any]]:
+                          max_duration_gap: int = 90, ignored: Optional[set] = None) -> List[List[Any]]:
     """Groupes de sons qui semblent identiques (≥ 2 sons par groupe), du plus gros au plus petit.
 
     `tracks` : objets avec .title, .artist, .duration_seconds (LibraryTrack). Exemples reconnus :
@@ -174,8 +200,14 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
     except Exception:  # noqa: BLE001 - repli sans numpy
         pairs = ((i, j) for i in range(len(items)) for j in range(i + 1, len(items))
                  if fuzz.ratio(titles[i], titles[j]) >= title_threshold)
+    ignored = ignored or set()
+    variants = [variant_tokens(t.title) for t in items]
     for i, j in pairs:
         if not titles[i] or not _artists_match(keys[i][1], keys[j][1]):
+            continue
+        if variants[i] != variants[j]:                     # rc.5 (C62) : Pt. 3 / Pt. 7, original / remix
+            continue
+        if ignored and ignored_pair(items[i], items[j]) in ignored:
             continue
         di, dj = int(items[i].duration_seconds or 0), int(items[j].duration_seconds or 0)
         if di and dj and abs(di - dj) > max_duration_gap:
@@ -184,9 +216,25 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
     groups: dict = {}
     for i in range(len(items)):
         groups.setdefault(find(i), []).append(items[i])
-    out = [g for g in groups.values() if len(g) > 1]
+    out: List[List[Any]] = []
+    for g in groups.values():
+        out += _split_ignored(g, ignored) if ignored else [g]
+    out = [g for g in out if len(g) > 1]
     out.sort(key=lambda g: (-len(g), normalize(g[0].title)))
     return out
+
+
+def _split_ignored(group: List[Any], ignored: set) -> List[List[Any]]:
+    """Un groupe relié « en chaîne » peut encore contenir deux sons déclarés différents : ceux qui le
+    sont du son de référence forment un autre groupe (même règle, une fois de plus)."""
+    if len(group) < 2:
+        return [group]
+    ref = best_keeper(group)
+    kept = [x for x in group if x is ref or ignored_pair(ref, x) not in ignored]
+    rest = [x for x in group if x not in kept]
+    if not rest:
+        return [kept]
+    return [kept] + (_split_ignored(rest, ignored) if len(rest) < len(group) else [])
 
 
 def best_keeper(group: List[Any]) -> Any:

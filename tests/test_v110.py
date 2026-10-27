@@ -132,7 +132,8 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     # ---- doublon : 2 versions + versions propres (la proposition « Official Video » est écartée)
     assert pump(demo, 4, lambda: dlg._choice.button(ALT) is not None)
     assert dlg._choice.button(ALT + 1) is None
-    assert dlg._choice.checkedId() == 0 and dlg.apply_btn.text() == "Keep this version"
+    # rc.5 (C63) : garder une version = fusionner dans l'outil Doublons
+    assert dlg._choice.checkedId() == 0 and dlg.apply_btn.text() == "Merge in Duplicates…"
     dlg._choice.button(ALT).setChecked(True)
     assert dlg.apply_btn.text() == "Download and replace" and not dlg.note.isHidden()
 
