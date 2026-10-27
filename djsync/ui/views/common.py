@@ -125,6 +125,11 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
 
         values["source"] = f"{track.source_label} · {t('sc.original_short')}"
         values["source__color"] = theme.GOLD
+    elif track.free_download_url:              # 1.4.0 (C45) : téléchargement gratuit proposé par l'artiste
+        from .. import theme
+
+        values["source"] = f"{track.source_label} · {t('sc.free_short')}"
+        values["source__color"] = theme.SILVER
     if track.is_album:                         # 1.2.1 (C09) : une ligne par album, s'ouvre au double-clic
         values.update(artist=" · ".join(x for x in (track.artist, track.album or "") if x), views="", duration="",
                       lib="", dl="›")

@@ -50,9 +50,13 @@ class DownloadsMixin:
             return
 
         def work() -> List[TrackResult]:
-            from ...core.soundcloud import original_available
+            from ...core.soundcloud import track_info
 
-            return [replace(x, original_available=original_available(x.url)) for x in todo]
+            out = []
+            for x in todo:
+                info = track_info(x.url)
+                out.append(replace(x, original_available=info["original"], free_download_url=info["free_url"]))
+            return out
 
         self.dispatcher.submit(work, ok, lambda _e: None, pool="net")
 

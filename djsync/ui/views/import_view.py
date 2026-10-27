@@ -336,7 +336,7 @@ class ImportView(View):
             old = self._tracks.get(tr.video_id)
             if old is None:
                 continue
-            new = replace(old, original_available=tr.original_available)
+            new = replace(old, original_available=tr.original_available, free_download_url=tr.free_download_url)
             self._tracks[tr.video_id] = new
             row = self.dl_table.row(tr.video_id)
             if row is not None:
@@ -347,6 +347,9 @@ class ImportView(View):
         n = sum(1 for tr in tracks if tr.original_available)
         if n:
             self.info.setText(self.info.text() + "  ·  " + plural("sc.originals_one", "sc.originals_many", n))
+        n = sum(1 for tr in tracks if tr.free_download_url and not tr.original_available)
+        if n:
+            self.info.setText(self.info.text() + "  ·  " + plural("sc.free_one", "sc.free_many", n))
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
         for tr in tracks:
@@ -440,6 +443,13 @@ class ImportView(View):
                                 lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=True)))
             entries.append((t("sc.download_stream"),
                             lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=False)))
+            if len(picked) == 1 and picked[0].free_download_url:        # 1.4.0 (C45)
+                url = picked[0].free_download_url
+                entries.append((t("sc.free_open"), lambda: self.ctrl._emit("open_url", url), "download"))
+        if len(picked) == 1:
+            from .common import buy_entry
+
+            entries.append(buy_entry(self.ctrl, picked[0].artist, picked[0].title))
         return entries
 
     def _library_changed(self) -> None:

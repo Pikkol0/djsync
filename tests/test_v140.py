@@ -164,6 +164,18 @@ def test_soundcloud_auth_and_availability_without_network():
     assert original_available("https://www.youtube.com/watch?v=x") is None
 
 
+def test_soundcloud_free_download_link():
+    from djsync.core.soundcloud import free_download
+    from djsync.ui.views.common import result_row
+
+    assert free_download({"purchase_url": "https://hypeddit.com/x/y", "purchase_title": "Buy"}) == "https://hypeddit.com/x/y"
+    assert free_download({"purchase_url": "https://example.com/a", "purchase_title": "FREE DL"}) == "https://example.com/a"
+    assert free_download({"purchase_url": "https://www.beatport.com/track/x/1", "purchase_title": "Buy"}) is None
+    assert free_download({"purchase_url": "javascript:alert(1)", "purchase_title": "free"}) is None
+    row = result_row(_sc("f1", free_download_url="https://hypeddit.com/x/y"))
+    assert "free download" in row.values["source"].lower() or "gratuit" in row.values["source"].lower()
+
+
 def test_downloader_keeps_the_original_untouched(tmp_path, monkeypatch):
     from djsync.core import downloader as D
 
