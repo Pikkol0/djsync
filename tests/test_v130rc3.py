@@ -369,6 +369,7 @@ def test_removed_drive_gives_a_clear_message(tmp_path, monkeypatch):
     ctrl.message = lambda kind, text: msgs.append((kind, text))
     ctrl.disconnect = lambda by_user=True: closed.append(by_user)
     ctrl.drive_gone = lambda: C.AppController.drive_gone(ctrl)
+    ctrl._drive_removed = lambda cause=None: C.AppController._drive_removed(ctrl, cause)   # rc.4 : même message
     C.AppController._on_error(ctrl, OSError("disk I/O error"))
     assert msgs and msgs[0][0] == "warn" and "gone" in msgs[0][1] and closed == [False]
 

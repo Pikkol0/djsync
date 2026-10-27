@@ -1,8 +1,8 @@
 """Écran de démarrage : s'affiche dès le double-clic, pendant le chargement des modules lourds et la
 construction de la fenêtre. Volontairement minimal : logo, nom, « Loading… », sans barre de progression.
 
-Exécutable PyInstaller : l'écran de démarrage natif de PyInstaller (packaging/DJSync.spec) couvre
-déjà la décompression ; celui-ci n'est alors pas affiché et `close_native()` ferme le natif.
+Exécutable PyInstaller : l'écran natif (packaging/DJSync.spec) couvre la décompression ; 1.3.0-rc.4
+(B24) : il est fermé juste avant la création de QApplication et celui-ci prend le relais.
 """
 from __future__ import annotations
 
@@ -23,7 +23,15 @@ def native_splash_active() -> bool:
         return False
 
 
+_native_closed = False
+
+
 def close_native() -> None:
+    """Ferme l'écran natif de l'exe (une seule fois : un 2e appel ne fait rien)."""
+    global _native_closed
+    if _native_closed:
+        return
+    _native_closed = True
     try:
         import pyi_splash
 
@@ -92,9 +100,8 @@ class Splash:
 
 
 def show(app: Any) -> Optional[Splash]:
-    """Affiche l'écran de démarrage (sauf si celui de l'exécutable est déjà visible)."""
-    if native_splash_active():
-        return None
+    """Affiche l'écran de démarrage. 1.3.0-rc.4 (B24) : toujours, y compris dans l'exe Windows, dont
+    l'écran natif vient d'être fermé (voir launcher.main)."""
     try:
         return Splash(app)
     except Exception:  # noqa: BLE001 - pas d'écran : on s'en passe

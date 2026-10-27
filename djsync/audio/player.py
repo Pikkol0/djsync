@@ -329,17 +329,42 @@ class AudioPlayer:
         self._set_state(PLAYING)
 
     def toggle_pause(self) -> None:
+        """1.3.0-rc.4 (C39) : la pause coupe la sortie TOUT DE SUITE. Avant, on cessait seulement d'envoyer :
+        la réserve de la carte son (et celle d'un casque Bluetooth, parfois près d'une seconde) continuait
+        de jouer. On arrête la carte son (sa réserve est jetée) et on reprendra exactement à ce qu'on a
+        entendu, flux rouvert à cet endroit."""
         if self.state == PLAYING:
+            heard = self.position()
             with self._lock:
                 self._paused = True
-                # ce qui est déjà dans la carte son finit d'être joué : position = tout ce qui a été envoyé
-                self._base, self._cb_time = self._frames, None
+                self._cb_time = None
+            self._halt_device()
+            if self._path is not None and self.duration > 0:
+                heard = max(0.0, min(heard, self.duration))
+                self._swap(self._open(heard), int(round(heard * RATE)))
+            else:
+                with self._lock:
+                    self._base = self._frames
             self._set_state(PAUSED)
         elif self.state == PAUSED:
             self._paused = False
+            if not self._ensure_device():
+                return
             self._set_state(PLAYING)
 
+    def _halt_device(self) -> None:
+        """Arrête la carte son (sa réserve est jetée) ; `_ensure_device` la relance."""
+        device, self._device = self._device, None
+        if device is not None:
+            try:
+                device.stop()
+                device.close()
+            except Exception as exc:  # noqa: BLE001 - pilote capricieux : la lecture reste possible
+                log.info("Audio device stop: %s", exc)
+
     def stop(self, keep_meta: bool = True) -> None:
+        if self.state == PLAYING:
+            self._halt_device()                  # rc.4 (C39) : silence tout de suite
         self._gen += 1
         self._swap(None)
         if not keep_meta:
@@ -372,8 +397,8 @@ class AudioPlayer:
                                                         self._cb_period, self._base)
             paused, prev = self._paused, self._prev
         if paused:
-            return max(base, frames) / RATE
-        latency = BUFFER_MS / 1000.0 + self.latency_offset_ms / 1000.0
+            return base / RATE
+        latency = max(0.0, BUFFER_MS / 1000.0 + self.latency_offset_ms / 1000.0)
         now = time.monotonic()
         if cb_time is not None:
             elapsed = min(max(0.0, now - cb_time), max(period, 0.001) * 1.5)

@@ -123,6 +123,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
+        self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
         self._bind_shortcuts()
         self._place_window(settings)
 
@@ -312,6 +313,7 @@ class DJSyncApp(QMainWindow):
         old = self.centralWidget()
         self._nav = {}
         self._build()
+        self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
         if old is not None:
             old.deleteLater()
         self.show_view(current)
@@ -324,6 +326,13 @@ class DJSyncApp(QMainWindow):
         reconstruire les vues."""
         s = self.ctrl.settings
         theme.apply_palette(s.theme)
+        if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT):
+            # 1.3.0-rc.4 (B23) : nouvelle couleur -> toutes les vues sont reconstruites, comme pour un
+            # changement de langue. Icônes, pastilles, formes d'onde, logo… sont dessinés à leur création
+            # dans la couleur du moment : les reprendre une à une en oubliait (Outils de l'Accueil).
+            self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
+            self.rebuild_ui()
+            return
         theme.apply(self.qapp, s.zoom)
         self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
         self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))

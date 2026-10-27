@@ -53,6 +53,7 @@ class PlaybackMixin:
     def _init_playback(self) -> None:
         self.queue, self.queue_index = [], -1
         self._started_at = 0.0
+        self.grid_editor: Any = None                       # page Grille et cues ouverte (B20)
         from ...audio.nowplaying import MediaKeys         # 1.2.3 : touches multimédia sur macOS
 
         self.now_playing = MediaKeys(self.toggle_play, self.play_next, self.play_previous, self.dispatcher.post,
@@ -148,6 +149,18 @@ class PlaybackMixin:
         self._emit("queue")
 
     def toggle_play(self) -> None:
+        # 1.3.0-rc.4 (B20) : page Grille et cues ouverte -> Lecture / Pause (barre du bas, Espace, touches
+        # multimédia) joue le son de la page, à la position de son curseur, comme son propre bouton
+        editor = getattr(self, "grid_editor", None)
+        if editor is not None:
+            try:
+                alive = editor.winfo_exists()
+            except RuntimeError:
+                alive = False
+            if alive:
+                editor._play()
+                return
+            self.grid_editor = None
         state = self.player.state
         if state in (PLAYING, PAUSED):
             self.player.toggle_pause()
