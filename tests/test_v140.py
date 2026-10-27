@@ -507,3 +507,60 @@ def test_analysis_measures_the_real_quality(tmp_path):
     f = _noise(tmp_path / "n.flac", cutoff=16000)
     res = analyze_file(f)
     assert res.cutoff and S.estimate(res.cutoff) == 128 and S.known(f) == res.cutoff
+
+
+# ------------------------------------------------------------------ C51 / C52 : éditeur des cues et du BPM
+from .test_ui_v024 import demo_grid  # noqa: E402,F401
+from .test_v130rc3 import _open_grid  # noqa: E402
+
+
+def test_overview_in_the_grid_page_and_red_cursor(demo_grid):  # noqa: F811
+    from djsync.ui.cursor import CURSOR
+
+    app = demo_grid
+    ed = _open_grid(app)
+    # C51 : vue d'ensemble dans la page, sous la forme d'onde zoomée et au-dessus des hot cues
+    lay = ed.body
+    idx = {w: i for i in range(lay.count()) for w in [lay.itemAt(i).widget()] if w is not None}
+    assert idx[ed.canvas] < idx[ed.overview] < idx[ed.cue_panel]
+    assert not hasattr(app.player_bar, "grid_overview")
+    # C52 : curseur rouge vif, centré sur sa position (le halo ne la décale pas)
+    ed.canvas.resize(800, 200)
+    ed.go_to(ed.beats[20][2])
+    img = ed.canvas.grab().toImage()
+    xc = int(round(ed._x(ed.cursor_ms)))
+    dpr = img.devicePixelRatio()
+    row = int(150 * dpr)
+    reds = [x for x in range(img.width()) if img.pixelColor(x, row).name().upper() == CURSOR.upper()]
+    assert reds and abs((min(reds) + max(reds)) / 2 / dpr - ed._x(ed.cursor_ms)) <= 1.0 and xc > 0
+    ed.close()
+
+
+def test_waveform_cached_between_frames_and_adaptive_rate(demo_grid, monkeypatch):  # noqa: F811
+    from .qt_util import pump
+
+    app = demo_grid
+    ed = _open_grid(app)
+    assert pump(app, 8, lambda: ed.wave is not None)
+    ed.canvas.resize(800, 200)
+    ed.go_to(ed.beats[20][2])
+    ed.canvas.grab()
+    calls = []
+    real = ed._paint_bands
+    monkeypatch.setattr(ed, "_paint_bands", lambda *a: (calls.append(1), real(*a)))
+    for _ in range(10):                              # lecture : la vue avance un peu à chaque image
+        ed.start_ms += 15
+        ed.canvas.grab()
+    assert calls == []                               # recopie de l'image, pas de nouveau calcul
+    assert ed.wave is not None
+    ed.go_to(ed.beats[-8][2])                        # la vue sort de l'image : refaite une fois
+    ed.canvas.grab()
+    assert len(calls) == 1
+    ed.canvas.paint_ms = 30.0                        # PC lent : moins d'images par seconde
+    slow = [ed._frame_interval() for _ in range(5)][-1]
+    assert slow >= 30
+    ed.canvas.paint_ms = 1.0                         # PC rapide : retour à la cadence de l'écran
+    fast = [ed._frame_interval() for _ in range(40)][-1]
+    assert 7 <= fast <= 17
+    ed.close()
+

@@ -101,8 +101,9 @@ class GridOverview(QWidget):
         for c in getattr(ed, "cues", []) or []:
             if c.slot:
                 p.fillRect(QRectF(c.ms / dur * w - 1, 0, 2, theme.px(8)), QColor(rgb_hex(c.colour())))
-        xc = ed.cursor_ms / dur * w
-        p.fillRect(QRectF(xc - 1, 0, 2, h), QColor(theme.ACCENT))
+        from .cursor import draw_cursor
+
+        draw_cursor(p, ed.cursor_ms / dur * w, 0, h, glow=False)       # 1.4.0 (C52)
         p.end()
 
     # ---------------------------------------------------------------- navigation

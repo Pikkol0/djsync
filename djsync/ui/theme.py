@@ -76,6 +76,9 @@ def palette_colors(accent: str) -> dict:
 def apply_palette(name: str) -> str:
     """Active une palette (identifiant inconnu -> défaut). Renvoie l'identifiant appliqué."""
     global ACCENT, ON_ACCENT, ACCENT_DIM, CURRENT_THEME
+    from .palettes import RETIRED
+
+    name = RETIRED.get(name, name)
     if name not in PALETTES:
         name = DEFAULT_THEME
     c = palette_colors(PALETTES[name])

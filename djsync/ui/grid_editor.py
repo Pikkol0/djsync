@@ -29,6 +29,7 @@ from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
 from . import theme
+from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
 from .widgets import button, hbox, icon_button, label, restyle, vbox
@@ -49,11 +50,17 @@ class GridCanvas(QWidget):
         self._drag_x: Optional[float] = None
         self._drag_start = 0.0
 
+    paint_ms = 0.0                                  # 1.4.0 (C52) : durée moyenne d'un dessin (cadence adaptée)
+
     def paintEvent(self, _e: Any) -> None:          # noqa: N802
+        import time
+
+        t0 = time.perf_counter()
         p = QPainter(self)
         p.fillRect(self.rect(), QColor(theme.SURFACE))
         self.ed.paint(p, self.width(), self.height())
         p.end()
+        self.paint_ms = 0.8 * self.paint_ms + 0.2 * (time.perf_counter() - t0) * 1000.0
 
     def mousePressEvent(self, e: Any) -> None:      # noqa: N802
         """Clic gauche : curseur d'écoute ; clic droit / milieu : faire défiler en glissant."""
@@ -177,7 +184,15 @@ class GridEditor(QWidget):
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
         self.scroll.valueChanged.connect(self._scrolled)
+        self.scroll.hide()            # 1.4.0 (C51) : remplacée par la vue d'ensemble, qui navigue aussi
         self.body.addWidget(self.scroll)
+        from .grid_overview import GridOverview
+
+        # 1.4.0 (C51) : vue d'ensemble du son ici, entre la forme d'onde zoomée et les hot cues (elle était
+        # dans la barre du lecteur) : cliquer ou glisser déplace la vue et la lecture
+        self.overview = GridOverview()
+        self.overview.set_editor(self)
+        self.body.addWidget(self.overview)
 
         from .cue_pads import CuePanel
 
@@ -393,7 +408,7 @@ class GridEditor(QWidget):
         self._clamp_view()
         mid = h * 0.55
         if self.wave is not None:
-            self._paint_bands(p, w, h, mid)
+            self._paint_bands_cached(p, w, h, mid)
         elif self._wave_state == "loading":         # pas d'ancienne forme d'onde le temps du calcul
             p.setPen(QColor(theme.FAINT))
             p.drawText(self.canvas.rect(), Qt.AlignCenter, t("grid.wave_loading"))
@@ -442,9 +457,8 @@ class GridEditor(QWidget):
                 p.setBrush(Qt.NoBrush)
         self._paint_cues(p, w, h)
         xc = self._x(self.cursor_ms)
-        if 0 <= xc <= w:
-            p.setPen(QPen(QColor(theme.TEXT), 1, Qt.DashLine))
-            p.drawLine(QPointF(xc, 0), QPointF(xc, h))
+        if -10 <= xc <= w + 10:                   # 1.4.0 (C52) : trait rouge vif, net au centre
+            draw_cursor(p, xc, 0, h)
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 1, -theme.px(6), 0), Qt.AlignRight | Qt.AlignTop, time_text)
 
@@ -574,6 +588,34 @@ class GridEditor(QWidget):
                 self.cue_panel.pad_clicked(slot)
                 return
         super().keyPressEvent(e)
+
+    def _paint_bands_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """1.4.0 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la
+        vue, puis seulement recopiée, décalée, à chaque image de la lecture (avant, toute la forme d'onde
+        était recalculée 60 fois par seconde : saccades sur un écran 4K). Refaite au zoom, à la taille,
+        au changement de forme d'onde, ou quand la vue sort de l'image."""
+        from PySide6.QtGui import QPixmap
+
+        dpr = self.canvas.devicePixelRatioF()
+        key = (round(self.px_per_ms, 9), w, h, id(self.wave), dpr)
+        span_ms = w / self.px_per_ms
+        c = getattr(self, "_band_cache", None)
+        if c is None or c[0] != key or not (c[1] <= self.start_ms and self.start_ms + span_ms <= c[1] + 3 * span_ms):
+            start = self.start_ms - span_ms
+            pm = QPixmap(int(3 * w * dpr), int(h * dpr))
+            pm.setDevicePixelRatio(dpr)
+            pm.fill(Qt.transparent)
+            q = QPainter(pm)
+            q.setRenderHint(QPainter.Antialiasing, p.testRenderHint(QPainter.Antialiasing))
+            saved = self.start_ms
+            self.start_ms = start                         # dessin de [start, start + 3 vues]
+            try:
+                self._paint_bands(q, 3 * w, h, mid)
+            finally:
+                self.start_ms = saved
+                q.end()
+            c = self._band_cache = (key, start, pm)
+        p.drawPixmap(QPointF((c[1] - self.start_ms) * self.px_per_ms, 0), c[2])
 
     def _paint_bands(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """Forme d'onde 3 bandes façon Rekordbox : basses (bleu) derrière, médiums (orange), aigus
@@ -790,10 +832,27 @@ class GridEditor(QWidget):
 
         QTimer.singleShot(100, seek_when_ready)
 
+    def _frame_interval(self) -> int:
+        """1.4.0 (C52) : une image par rafraîchissement de l'écran (60, 120, 144 Hz…), ralentie (jusqu'à
+        30 images/s) si le PC met trop de temps à dessiner, puis réaccélérée quand il suit."""
+        try:
+            hz = float(self.screen().refreshRate() or 60.0)
+        except Exception:  # noqa: BLE001
+            hz = 60.0
+        best = max(7, int(1000.0 / min(max(hz, 30.0), 144.0)))
+        cost = getattr(self.canvas, "paint_ms", 0.0)       # durée moyenne d'un dessin
+        cur = getattr(self, "_interval", best)
+        if cost > 0.7 * cur:
+            cur = min(33, max(cur + 4, int(cost * 1.5)))
+        elif cost < 0.3 * cur:
+            cur = max(best, cur - 2)
+        self._interval = cur
+        return cur
+
     def _tick(self) -> None:
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
-        interval = 16 if playing else 60          # 1.3.0-rc.3 (C39) : ~60 images/s pendant la lecture
+        interval = self._frame_interval() if playing else 60    # 1.4.0 (C52) : cadence de l'écran, adaptée
         self.exit_btn.setVisible(self.active_loop is not None and playing)
         if self._timer.interval() != interval:
             self._timer.setInterval(interval)
@@ -814,6 +873,7 @@ class GridEditor(QWidget):
             elif not (self.start_ms <= self.cursor_ms <= self.start_ms + span * 0.85):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
+            self.overview.update()
 
     # -------------------------------------------------------------- enregistrer
     def _save(self) -> None:

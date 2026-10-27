@@ -217,12 +217,12 @@ def test_grid_page_player_overview_and_cursor_modes(demo_grid):  # noqa: F811
     app = demo_grid
     ed = _open_grid(app)
     bar = app.player_bar
-    # B17 : le lecteur montre la vue d'ensemble 3 bandes (pas la forme d'onde défilante)
-    assert bar._grid_editor is ed and not bar.grid_overview.isHidden() and bar.scroll_wave.isHidden()
-    bar.grid_overview.resize(400, 40)
-    bar.grid_overview._go(200)                                     # milieu de la vue d'ensemble
+    # B17, puis 1.4.0 (C51) : la vue d'ensemble 3 bandes est dans la page ; le lecteur ne défile pas
+    assert bar._grid_editor is ed and not ed.overview.isHidden() and bar.scroll_wave.isHidden()
+    ed.overview.resize(400, 40)
+    ed.overview._go(200)                                           # milieu de la vue d'ensemble
     assert abs(ed.cursor_ms - ed.duration_ms / 2) < ed.duration_ms * 0.01
-    bar.grid_overview.grab()
+    ed.overview.grab()
     # curseur volant par défaut ; case « fixe au centre » gardée dans les réglages
     assert not ed.fixed_cursor and not ed.fixed_box.isChecked()
     ed.fixed_box.setChecked(True)
@@ -242,7 +242,7 @@ def test_grid_page_player_overview_and_cursor_modes(demo_grid):  # noqa: F811
     assert not app.ctrl.settings.grid_fixed_cursor
     ed.close()
     pump(app, 0.2)
-    assert bar._grid_editor is None and bar.grid_overview.isHidden()
+    assert bar._grid_editor is None
 
 
 def test_grid_page_top_strip_and_pads_fit(demo_grid):  # noqa: F811

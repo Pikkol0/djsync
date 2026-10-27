@@ -97,8 +97,9 @@ class ScrollingWave(QWidget):
                                QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
                     p.fillRect(int(tx), h - theme.px(7 if bar else 4), 1, theme.px(7 if bar else 4),
                                QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
-        cx = w // 2
-        p.fillRect(cx - theme.px(1), 0, max(2, theme.px(2)), h, QColor(theme.ACCENT))
+        from .cursor import draw_cursor
+
+        draw_cursor(p, w / 2, 0, h)                          # 1.4.0 (C52)
         p.end()
 
 
@@ -144,7 +145,9 @@ class WaveformBar(QWidget):
             x = c * step
             half = max(1.0, v * (h / 2 - 1))
             p.fillRect(int(x), int(mid - half), step - 1, max(1, int(2 * half)), on if x < played else off)
-        p.fillRect(int(played), 0, max(1, theme.px(1)), h, QColor(theme.TEXT))
+        from .cursor import draw_cursor
+
+        draw_cursor(p, played, 0, h, glow=False)             # 1.4.0 (C52)
         p.end()
 
     def _seek(self, e: Any) -> None:
@@ -193,12 +196,8 @@ class PlayerBar(QWidget):
         self.scroll_wave = ScrollingWave(lambda: min(self.player.position(), self.player.duration or 1e9))
         self.scroll_wave.hide()
         col.addWidget(self.scroll_wave)
-        # 1.3.0-rc.3 (B17) : page « Grille et cues » ouverte : vue d'ensemble 3 bandes, navigable, à la place
-        from .grid_overview import GridOverview
-
-        self.grid_overview = GridOverview()
-        self.grid_overview.hide()
-        col.addWidget(self.grid_overview)
+        # 1.4.0 (C51) : la vue d'ensemble 3 bandes de la page « Grille et cues » est dans la page elle-même ;
+        # le lecteur garde sa forme d'onde habituelle (la forme défilante est masquée pendant la page)
         self._grid_editor: Any = None
         controller.on("grid_page", self._grid_page)
         row = hbox(spacing=theme.px(10))
@@ -515,8 +514,6 @@ class PlayerBar(QWidget):
     def _grid_page(self, editor: Any) -> None:
         """La page Grille et cues s'ouvre (editor) ou se ferme (None)."""
         self._grid_editor = editor
-        self.grid_overview.set_editor(editor)
-        self.grid_overview.setVisible(editor is not None)
         if editor is not None:
             self.scroll_wave.hide()
         else:
@@ -554,12 +551,15 @@ class PlayerBar(QWidget):
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
         self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
-        self.grid_overview.setFixedHeight(theme.px(SCROLL_H))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 
     # ---------------------------------------------------------------- timer
     def _tick(self) -> None:
+        # 1.4.0 (C52) : ~30 mises à jour par seconde pendant la lecture (curseur fluide), 4 au repos
+        want = 33 if self.player.state == PLAYING else 250
+        if self._timer.interval() != want:
+            self._timer.setInterval(want)
         self.player.poll()
         if self.player.state in (PLAYING, PAUSED) and self.player.duration > 0 and not self._dragging:
             pos = min(self.player.position(), self.player.duration)

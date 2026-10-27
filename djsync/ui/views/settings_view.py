@@ -113,19 +113,24 @@ class SettingsView(View):
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.theme"))), 0, Qt.AlignTop)
-        grid = QGridLayout()
-        grid.setSpacing(theme.px(3))
-        for i, (name, accent) in enumerate(PALETTES.items()):
-            b = QToolButton()
-            b.setCheckable(True)
-            b.setIcon(logo_pixmap(theme.px(22), accent))
-            b.setIconSize(QSize(theme.px(22), theme.px(22)))
-            b.setToolTip(t(f"theme.{name}"))
-            b.setChecked(name == theme.CURRENT_THEME)
-            b.clicked.connect(lambda _=False, n=name: self._theme_changed(n))
-            grid.addWidget(b, i // 10, i % 10)
-            self._swatches[name] = b
-        row.addLayout(grid)
+        # 1.4.0 (C50) : une pastille (la couleur actuelle) ; un clic ouvre un petit menu avec les couleurs
+        from PySide6.QtWidgets import QMenu
+
+        self.theme_btn = QToolButton()
+        self.theme_btn.setIcon(logo_pixmap(theme.px(22), PALETTES[theme.CURRENT_THEME]))
+        self.theme_btn.setIconSize(QSize(theme.px(22), theme.px(22)))
+        self.theme_btn.setText(t(f"theme.{theme.CURRENT_THEME}"))
+        self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.theme_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.theme_btn)
+        for name, accent in PALETTES.items():
+            act = menu.addAction(logo_pixmap(theme.px(18), accent), t(f"theme.{name}"))
+            act.setCheckable(True)
+            act.setChecked(name == theme.CURRENT_THEME)
+            act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
+            self._swatches[name] = act
+        self.theme_btn.setMenu(menu)
+        row.addWidget(self.theme_btn)
         row.addStretch(1)
         card.addLayout(row)
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
