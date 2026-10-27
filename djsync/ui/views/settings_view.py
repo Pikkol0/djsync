@@ -116,12 +116,13 @@ class SettingsView(View):
         row = hbox()                                                         # 1.3.0-rc.3 (C39)
         row.addWidget(label(t("settings.audio_latency"), ""))
         self.latency_box = QSpinBox()
-        self.latency_box.setRange(-200, 500)
+        self.latency_box.setRange(-200, 2000)                                # 1.3.0-rc.4 : Bluetooth ~1 s
         self.latency_box.setSingleStep(10)
         self.latency_box.setSuffix(" ms")
         self.latency_box.setValue(s.audio_latency_ms)
         self.latency_box.setToolTip(t("settings.audio_latency_tip"))
         row.addWidget(self.latency_box)
+        row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
         row.addStretch(1)
         card.addLayout(row)
 
@@ -538,6 +539,17 @@ class SettingsView(View):
         }.get(st.state, t("pdb.unknown"))
         self.pdb_state.setText(text)
         self.pdb_sync_btn.setEnabled(st.state == "stale")
+
+    def _latency_test(self) -> None:
+        from ..latency_dialog import LatencyDialog
+
+        def done(ms: int) -> None:
+            if self.winfo_exists():
+                self.latency_box.setValue(ms)
+            self.ctrl.settings.audio_latency_ms = ms
+            self.ctrl.settings.save()
+
+        LatencyDialog(self, self.ctrl, self.latency_box.value(), done)
 
     def _browse_into(self, entry: QLineEdit) -> None:
         folder = QFileDialog.getExistingDirectory(self, "", entry.text() or "")

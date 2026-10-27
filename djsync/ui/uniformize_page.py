@@ -445,6 +445,13 @@ class TrackBlock(QFrame):
         self.updateGeometry()
 
     # ------------------------------------------------------------------ état
+    def minimumSizeHint(self) -> Any:               # noqa: N802
+        """1.3.0-rc.4 (B18) : jamais plus bas que sa hauteur naturelle. Sans cela, quand des sons arrivent,
+        la liste les répartit un instant dans l'ancienne hauteur (blocs écrasés, lignes superposées) avant
+        de s'agrandir : c'était le « saut » visible pendant la recherche."""
+        base = super().minimumSizeHint()
+        return QSize(base.width(), max(base.height(), self.sizeHint().height()))
+
     def set_current(self, on: bool) -> None:
         border = theme.ACCENT if on else theme.BORDER
         self.setStyleSheet(f"#uniBlock {{ background: {theme.ELEV}; border: {2 if on else 1}px solid {border}; "
@@ -593,6 +600,7 @@ class UniformizePage(QWidget):
             more = button(t("uni.more", n=len(wanted) - len(shown)), self._more, kind="flat")
             self.list_lay.addWidget(more)
         self.list_lay.addStretch(1)
+        self._grow_holder()
         self._shown = shown
         if self._current not in self.blocks:
             self._current = shown[0] if shown else None
@@ -658,9 +666,25 @@ class UniformizePage(QWidget):
                 if len(self._shown) >= self._limit or cid in self.blocks or not self._visible(cid):
                     continue
                 self._append(cid)
+            self._grow_holder()
         finally:
             holder.setUpdatesEnabled(True)
         self.scroll.verticalScrollBar().setValue(bar)
+
+    def _grow_holder(self) -> None:
+        """1.3.0-rc.4 (B18) : hauteur minimale de la liste = somme des hauteurs naturelles des blocs, posée
+        AVANT que Qt ne refasse la mise en page. Sans cela, quand des sons arrivaient, la zone de défilement
+        gardait un instant l'ancienne hauteur : Qt y tassait tous les blocs (lignes superposées), les
+        affichait, puis les rallongeait — le « saut » visible pendant la recherche."""
+        holder = self.scroll.widget()
+        if holder is None:
+            return
+        lay = self.list_lay
+        items = [lay.itemAt(i) for i in range(lay.count())]
+        heights = [it.widget().sizeHint().height() for it in items if it.widget() is not None]
+        m = lay.contentsMargins()
+        need = sum(heights) + lay.spacing() * max(0, len(heights) - 1) + m.top() + m.bottom()
+        holder.setMinimumHeight(need)
 
     def _append(self, cid: int) -> None:
         if not self._shown:
