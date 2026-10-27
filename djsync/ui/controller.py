@@ -502,8 +502,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         périmée et peut réécrire export.pdb par-dessus (sons ajoutés par DJSync perdus).
         V1.2.0 : quand Rekordbox se ferme, la bibliothèque de l'ordinateur est relue (playlists créées
         dans Rekordbox entre-temps, fichier master.db éventuellement remplacé)."""
+        # 1.3.0-rc.5 (B26) : « ouvert » seulement s'il est vu deux fois de suite (≈ 8 s : pas pendant sa
+        # fermeture) ; « fermé » tout de suite
+        seen = getattr(self, "_rekordbox_seen", 0)
+        self._rekordbox_seen = seen + 1 if running else 0
+        running = running and self._rekordbox_seen >= 2
         was = getattr(self, "_rekordbox_was_running", False)
         self._rekordbox_was_running = running
+        if was != running:
+            self._emit("drives")
         if was and not running and self.is_local and self.library is not None:
             lib = self.library
             self.dispatcher.submit(lib.refresh, lambda _r: self._emit("library"),

@@ -89,12 +89,14 @@ class DiagnosticMixin:
             ok(Diagnosis())
             return
 
+        ignored = self.duplicate_ignores.pairs()
+
         def work() -> Diagnosis:
             from ...core.duplicates import find_duplicate_groups
             from ...core.quality import find_issues
 
             tracks = lib.list_tracks()
-            groups = find_duplicate_groups(tracks) if duplicates else []
+            groups = find_duplicate_groups(tracks, ignored=ignored) if duplicates else []     # rc.5 (C62)
             in_groups = {x.content_id for g in groups for x in g}
             rest = [x for x in tracks if x.content_id not in in_groups]
             if not duplicates:

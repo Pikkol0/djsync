@@ -206,7 +206,8 @@ def test_anlz_parsed_by_independent_reader(tmp_path):
     assert set(np.unique(bpms)) == {128.0} and abs(times[0] - 0.37) < 0.006 and nums[0] == 1
     heights, colors = ext.get("wf_color_detail")
     # (pyrekordbox décale le rouge d'un bit de trop : 0..14 ; vert et bleu 0..7)
-    assert heights.max() == 1.0 and colors[:, 0].max() <= 14 and colors[:, 1:].max() <= 7
+    # rc.5 (B25) : hauteur au niveau réel du son, comme Rekordbox (plus étirée jusqu'en haut)
+    assert 0 < heights.max() <= 1.0 and colors[:, 0].max() <= 14 and colors[:, 1:].max() <= 7
     assert dat.build() == (tmp_path / rel.lstrip("/")).read_bytes()           # relu puis reconstruit à l'identique
     two = pyrekordbox.AnlzFile.parse_file(str((tmp_path / rel.lstrip("/")).with_suffix(".2EX")))
     assert {tag.type for tag in two.tags} >= {"PWV6", "PWV7"}
