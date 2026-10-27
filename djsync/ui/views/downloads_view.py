@@ -69,6 +69,10 @@ class DownloadsView(View):
         self.detail = label("", "err", wrap=True)
         self.detail.hide()
         tv.addWidget(self.detail)
+        from ..p2p_panel import P2PPanel                 # 1.4.0 (C10.2) : compteurs Soulseek
+
+        self.p2p = P2PPanel(controller)
+        tv.addWidget(self.p2p)
         split.addWidget(top)
 
         # ------------------------------------------------------------------- analyse

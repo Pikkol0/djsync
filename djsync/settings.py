@@ -108,6 +108,12 @@ class Settings:
     player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
     youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
+    soulseek_enabled: bool = False     # 1.4.0 (C10.2) : désactivé par défaut
+    soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
+    soulseek_user: str = ""
+    soulseek_password: str = ""
+    soulseek_share: bool = False       # partager le dossier musique de la bibliothèque ouverte (rien par défaut)
+    soulseek_port: int = 0             # 0 = port par défaut d'aioslsk
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Importés »
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet

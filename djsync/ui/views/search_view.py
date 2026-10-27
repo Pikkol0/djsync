@@ -50,6 +50,14 @@ class SearchView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
+        # 1.4.0 (C10.2, C45) : recherche « haute qualité » (Soulseek) à part de la recherche classique
+        self.mode = QComboBox()
+        self.mode.addItems([t("search.mode_classic"), t("search.mode_hq")])
+        self.mode.setToolTip(t("search.mode_hq_tip"))
+        self.mode.setMinimumHeight(self.entry.sizeHint().height())
+        self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.mode.setVisible(controller.slsk_ready)
+        bar.addWidget(self.mode)
         self.root.addLayout(bar)
         info_row = hbox(spacing=theme.px(8))
         self.back_btn = button(t("search.back_to_albums"), self._close_album, kind="flat", icon="back")
@@ -77,6 +85,44 @@ class SearchView(View):
         self.root.addLayout(actions)
         self._refresh_filter_label()
         self._refresh_buttons()
+        controller.on("slsk_search", self._slsk_search_for)
+        controller.on("settings_saved", lambda: self.mode.setVisible(self.ctrl.slsk_ready))
+
+    # ------------------------------------------------- 1.4.0 (C10.2) : haute qualité (Soulseek)
+    @property
+    def hq(self) -> bool:
+        return not self.mode.isHidden() and self.mode.currentIndex() == 1
+
+    def _mode_changed(self, _i: int) -> None:
+        self._last_query = ""
+        self.entry.setPlaceholderText(t("search.placeholder_hq") if self.hq else t("search.placeholder"))
+        self.filter_btn.setEnabled(not self.hq)
+        if self.entry.text().strip():
+            self.run_search(force=True)
+
+    def _slsk_search_for(self, query: str) -> None:
+        self.mode.setVisible(self.ctrl.slsk_ready)
+        if not self.ctrl.slsk_ready:
+            return
+        self.ctrl._emit("navigate", "search")
+        self.mode.setCurrentIndex(1)
+        self.entry.setText(query)
+        self.run_search(force=True)
+
+    def _run_hq(self, query: str, token: int) -> None:
+        from ..ctrl.soulseek import track_of
+
+        def show(results: List[Any], final: bool) -> None:
+            if token != self._token or not self.winfo_exists():
+                return
+            tracks = [track_of(r) for r in results]
+            n_ll = sum(1 for r in results if r.lossless)
+            summary = (t("slsk.results", n=len(tracks), lossless=n_ll) if final
+                       else t("slsk.searching_n", n=len(tracks)))
+            self._show_results(tracks, summary)
+
+        self.info.setText(t("slsk.searching"))
+        self.ctrl.slsk_search(query, lambda rs: show(rs, True), lambda rs: show(rs, False))
 
     def on_show(self) -> None:
         self.entry.setFocus()
@@ -150,6 +196,8 @@ class SearchView(View):
 
     # -------------------------------------------------------------- recherche
     def _debounced(self) -> None:
+        if self.hq:                                   # Soulseek : seulement sur Entrée (recherche réseau)
+            return
         query = self.entry.text().strip()
         if len(query) >= MIN_CHARS and query != self._last_query:
             self.run_search()
@@ -167,6 +215,9 @@ class SearchView(View):
 
         self._albums, self._album_open = [], None
         self.back_btn.hide()
+        if self.hq:
+            self._run_hq(query, token)
+            return
 
         def ok(results: List[TrackResult]) -> None:
             if token != self._token or not self.winfo_exists():
@@ -205,7 +256,8 @@ class SearchView(View):
             self.info.setText(plural("search.results_one", "search.results_many", len(results))
                               + self._filter_summary() + tail)
         self._refresh_buttons()
-        self.ctrl.enrich_views([x for x in results if not x.is_album], self._on_views)
+        if not self.hq:
+            self.ctrl.enrich_views([x for x in results if not x.is_album], self._on_views)
 
     # --------------------------------------------------------- albums (1.2.1, C09)
     def _open_album(self, album: TrackResult) -> None:
@@ -260,7 +312,8 @@ class SearchView(View):
         n = len(self._selected())
         self.dl_btn.setText(t("action.download_n", n=n) if n else t("action.download"))
         self.dl_btn.setEnabled(bool(n))
-        self.preview_btn.setEnabled(bool(self.table.selected_iids()))
+        self.preview_btn.setEnabled(bool(self.table.selected_iids()) and not self.hq)
+        self.preview_btn.setToolTip(t("slsk.no_preview") if self.hq else "")
 
     def _play(self, iid: str) -> None:
         target = self._tracks.get(iid)
@@ -268,6 +321,9 @@ class SearchView(View):
             self._open_album(target)
             return
         shown = [self._tracks[i] for i in self.table.displayed_iids() if i in self._tracks and not self._tracks[i].is_album]
+        if target is not None and target.slsk is not None:      # Soulseek : pas d'écoute avant téléchargement
+            self.ctrl.message("info", t("slsk.no_preview"))
+            return
         if target is not None:
             self.ctrl.play_queue(shown, shown.index(target))
             focus_list(self.table)

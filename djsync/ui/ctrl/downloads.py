@@ -76,6 +76,9 @@ class DownloadsMixin:
             job.percent = p.percent
             self.dispatcher.post(self._job_changed, job)
 
+        if job.track.source == "soulseek":              # 1.4.0 (C10.2)
+            self._run_slsk_job(job)
+            return
         job.status = "downloading"
         self.dispatcher.post(self._job_changed, job)
         try:

@@ -37,7 +37,7 @@ SEARCH_MODE_LABELS = LazyLabels(lambda: {
     SearchMode.ARTISTS: "mode.artists",
 })
 
-SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud"}
+SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud", "soulseek": "Soulseek"}
 
 
 def source_from_url(url: Optional[str]) -> str:
@@ -108,6 +108,7 @@ class TrackResult:
     free_download_url: Optional[str] = None     # 1.4.0 (C45) : lien « Free Download » de l'artiste (SoundCloud)
     original_available: Optional[bool] = None   # None : pas encore vérifié ; True : téléchargement autorisé
     want_original: bool = False                 # ce téléchargement demande le fichier d'origine
+    slsk: Any = field(default=None, compare=False, repr=False)   # 1.4.0 (C10.2) : résultat Soulseek d'origine
 
     # Renseignés par DuplicateChecker
     is_duplicate: bool = False

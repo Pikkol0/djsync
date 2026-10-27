@@ -47,6 +47,7 @@ from .ctrl.backups import BackupsMixin
 from .ctrl.curation import CurationMixin
 from .ctrl.diagnostic import DiagnosticMixin
 from .ctrl.imports import ImportsMixin
+from .ctrl.soulseek import SoulseekMixin
 from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
 from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
 from .runner import UiDispatcher
@@ -136,7 +137,7 @@ class MatchHandle:
 
 
 class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin, ToolsMixin,
-                    DiagnosticMixin, BackupsMixin, CurationMixin, ImportsMixin):
+                    DiagnosticMixin, BackupsMixin, CurationMixin, ImportsMixin, SoulseekMixin):
     def __init__(
         self,
         settings: Settings,
@@ -738,6 +739,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         s.save()
+        if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
+            self.slsk_disconnect()
+        self._emit("settings_saved")
 
     def _apply_output(self) -> None:
         if hasattr(self.service, "set_output"):
@@ -769,6 +773,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.settings.volume = self.player.volume
         self.settings.save()
         self.player.close()
+        slsk, self.slsk = self.slsk, None                  # 1.4.0 (C10.2) : déconnexion de Soulseek
+        if slsk is not None:
+            try:
+                slsk.stop()
+            except Exception:  # noqa: BLE001
+                log.info("Soulseek stop failed", exc_info=True)
         lib, self.library = self.library, None
         if lib is not None:
             try:

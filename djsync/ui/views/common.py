@@ -120,7 +120,16 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         "lib": t("track.already") if track.is_duplicate else "", "dl": DOWNLOAD_GLYPH,
         "source": track.source_label,
     }
-    if track.original_available:               # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
+    if track.slsk is not None:                 # 1.4.0 (C10.2) : Soulseek, qualité annoncée en doré / argenté
+        from .. import theme
+
+        r = track.slsk
+        values["source"] = f"Soulseek · {r.quality_label()}"
+        if r.lossless or r.bitrate >= 300:
+            values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
+        values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
+        values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
+    elif track.original_available:             # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
         from .. import theme
 
         values["source"] = f"{track.source_label} · {t('sc.original_short')}"

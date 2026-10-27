@@ -378,6 +378,31 @@ class SettingsView(View):
         row.addWidget(self.sc_token, 1)
         card.addLayout(row)
 
+        # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
+        card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"))
+        self.slsk_var = QCheckBox(t("slsk.settings_enable"))
+        self.slsk_var.setChecked(s.soulseek_enabled)
+        self.slsk_var.toggled.connect(self._slsk_toggled)
+        card.addWidget(self.slsk_var)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("slsk.settings_user"))))
+        self.slsk_user = QLineEdit(s.soulseek_user)
+        self.slsk_user.setPlaceholderText(t("slsk.settings_user_ph"))
+        row.addWidget(self.slsk_user, 1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("slsk.settings_password"))))
+        self.slsk_password = QLineEdit(s.soulseek_password)
+        self.slsk_password.setEchoMode(QLineEdit.Password)
+        row.addWidget(self.slsk_password, 1)
+        card.addLayout(row)
+        card.addWidget(label(t("slsk.settings_account_hint"), "faint", wrap=True))
+        self.slsk_share_var = QCheckBox(t("slsk.settings_share"))
+        self.slsk_share_var.setChecked(s.soulseek_share)
+        self.slsk_share_var.setToolTip(t("slsk.settings_share_tip"))
+        card.addWidget(self.slsk_share_var)
+        card.addWidget(label(t("slsk.settings_warning_short"), "warn", wrap=True))
+
         # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
         card = self._card(t("watch.settings_title"), "folder", t("watch.settings_hint"))
         row = hbox()
@@ -764,6 +789,24 @@ class SettingsView(View):
         self.pdb_state.setText(text)
         self.pdb_sync_btn.setEnabled(st.state == "stale")
 
+    def _slsk_toggled(self, on: bool) -> None:
+        """1.4.0 (C10.2) : première activation -> avertissement à accepter (VPN, droits, fiabilité)."""
+        if not on or self.ctrl.settings.soulseek_accepted:
+            return
+        from ..dialogs import ConfirmDialog
+
+        def accept() -> None:
+            self.ctrl.settings.soulseek_accepted = True
+            self.ctrl.settings.save()
+
+        def refuse() -> None:
+            self.slsk_var.blockSignals(True)
+            self.slsk_var.setChecked(False)
+            self.slsk_var.blockSignals(False)
+
+        ConfirmDialog(self, t("slsk.warn_title"), t("slsk.warn_text"), accept, confirm_text=t("slsk.warn_accept"),
+                      detail=t("slsk.warn_detail"), on_cancel=refuse)
+
     def _latency_test(self) -> None:
         from ..latency_dialog import LatencyDialog
 
@@ -897,6 +940,10 @@ class SettingsView(View):
         s.youtube_best = self.yt_best_var.isChecked()
         s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
         s.watch_folder = self.watch_folder.text().strip()
+        s.soulseek_enabled = self.slsk_var.isChecked() and s.soulseek_accepted
+        s.soulseek_user = self.slsk_user.text().strip()
+        s.soulseek_password = self.slsk_password.text()
+        s.soulseek_share = self.slsk_share_var.isChecked()
         s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
         s.watch_playlist = self.watch_playlist_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
