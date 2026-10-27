@@ -183,6 +183,11 @@ class GridEditor(QWidget):
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
         tools.addWidget(self.play_btn)
+        # 1.3.0-rc.3 (C40) : sortir de la boucle sans coupure (« Loop Exit » des platines)
+        self.exit_btn = button(t("grid.loop_exit"), self.exit_loop, kind="primary", icon="next",
+                               tooltip=t("grid.loop_exit_tip"))
+        self.exit_btn.hide()
+        tools.addWidget(self.exit_btn)
         self.time_lbl = label("0:00.000", "dim")
         self.time_lbl.setMinimumWidth(theme.px(64))
         tools.addWidget(self.time_lbl)
@@ -267,6 +272,7 @@ class GridEditor(QWidget):
         self.original = list(g.beats)
         self.beats = list(g.beats)
         self.detail = data["detail"]
+        self._band_fallback = data.get("band")      # B21 : 3 bandes de Rekordbox si le fichier est introuvable
         self.duration_ms = max(g.duration_ms, g.beats[-1][2] + 1000, int(len(self.detail) / COLS_PER_S * 1000))
         self._native = g.native
         self.cues = copy.deepcopy(list(data.get("cues") or []))
@@ -283,6 +289,10 @@ class GridEditor(QWidget):
     def _wave_loaded(self, wave: Any) -> None:
         if not self.winfo_exists():
             return
+        if wave is None:                             # B21 : fichier introuvable ou illisible
+            from ..analysis.anlz import band_from_detail
+
+            wave = getattr(self, "_band_fallback", None) or band_from_detail(self.detail)
         self.wave = wave
         self._wave_state = "ready" if wave is not None else "failed"
         self.draw()
@@ -536,11 +546,22 @@ class GridEditor(QWidget):
             return
         self._play()
 
+    def exit_loop(self) -> None:
+        """C40 : la boucle s'arrête de revenir au début ; la lecture continue sans coupure."""
+        if self.active_loop is None:
+            return
+        self.active_loop = None
+        self.exit_btn.hide()
+        self.draw()
+
     def keyPressEvent(self, e: Any) -> None:         # noqa: N802
-        """Touches 1 à 8 (ou la même rangée sur un clavier AZERTY) : pads A à H."""
+        """Touches 1 à 8 (ou la même rangée sur un clavier AZERTY) : pads A à H ; 0 (« à ») : sortir de la boucle."""
         keys = "12345678"
         azerty = "".join(map(chr, (38, 233, 34, 39, 40, 45, 232, 95)))     # même rangée en AZERTY, sans Maj
         text = e.text()
+        if text in ("0", chr(224)) and self.active_loop is not None and not self.bpm_entry.hasFocus():
+            self.exit_loop()
+            return
         if text and not self.bpm_entry.hasFocus():
             slot = keys.find(text) + 1 or azerty.find(text) + 1
             if slot:
@@ -765,6 +786,7 @@ class GridEditor(QWidget):
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
         interval = 16 if playing else 60          # 1.3.0-rc.3 (C39) : ~60 images/s pendant la lecture
+        self.exit_btn.setVisible(self.active_loop is not None and playing)
         if self._timer.interval() != interval:
             self._timer.setInterval(interval)
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))

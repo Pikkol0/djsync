@@ -1,7 +1,8 @@
 # Scénarios de test — DJSync 1.3.0-rc.3
 
 Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse après téléchargement
-(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**), curseur de lecture précis (**C39**),
+(**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**), curseur de lecture précis (**C39**), sortie de boucle (**C40**), Uniformiser (**B18**, **B19**),
+forme d'onde sans fichier audio (**B21**), clé retirée (**B22**),
 message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
 `docs/TESTS-1.3.0.fr.md` restent à faire s'ils ne sont pas cochés.
 
@@ -47,6 +48,20 @@ message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-r
 | P1 | Page Grille et cues, vue 2 s ou 4 s, lancer la lecture sur un passage avec des kicks nets. | Le curseur défile sans à-coups et passe sur chaque trait de temps au moment où l'on entend le kick (plus d'avance d'environ 0,2 s). |
 | P2 | Pause, puis reprise ; cliquer ailleurs dans la forme d'onde pendant la lecture. | Le curseur s'arrête là où le son s'arrête, repart avec lui, et ne part jamais avant le point cliqué. |
 | P3 | (Casque Bluetooth ou carte son avec du retard) Paramètres ▸ Retard audio en plus pour les curseurs : augmenter par pas de 10 ms. | Le curseur se recale sur ce qu'on entend ; le réglage est gardé au prochain lancement. |
+
+## X. Sortir d'une boucle, fichier introuvable, clé retirée (C40, B21, B22)
+| # | Étapes | Attendu |
+|---|---|---|
+| X1 | Grille et cues : mettre A en boucle de 4 temps, cliquer A, puis **Sortir de la boucle** (ou touche 0 / à). | Le bouton n'apparaît que pendant la boucle ; la lecture continue après la fin de la boucle sans coupure ni saut ; recliquer A relance la boucle. |
+| X2 | Bibliothèque de l'ordinateur : ouvrir Grille et cues sur un son dont le fichier n'existe plus (B.M.S (by my side)). | Forme d'onde en 3 bandes (bleu, orange, blanc), plus en rouge / vert / bleu. |
+| X3 | Clé ouverte dans DJSync : la retirer sans éjecter. | Message « La clé E:\ a été retirée sans être éjectée : DJSync l'a refermée… » ; plus de « disk I/O error ». La rebrancher : elle se rouvre normalement. |
+
+## Y. Uniformiser (B18, B19)
+| # | Étapes | Attendu |
+|---|---|---|
+| Y1 | Accueil ▸ Uniformiser les infos ▸ toute la bibliothèque, regarder pendant la recherche. | Petite barre d'avancement à gauche sous le titre ; les sons s'ajoutent en bas, par petits groupes, sans que ce qui est au-dessus bouge ni clignote. |
+| Y2 | Sur un son, **Chercher autrement** (ex. « Canon la mano »), à 125 % ou 150 % sous Windows. | Résultats en cartes sur deux lignes, entières, 3 par rangée ; texte trop long terminé par « … », complet au survol ; un clic choisit le résultat. |
+| Y3 | Regarder le champ Genre (ex. « Rap/Hip Hop »). | Le genre tient dans son champ ; texte complet au survol. |
 
 ## E. export.pdb (B14)
 | # | Étapes | Attendu |

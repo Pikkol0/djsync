@@ -473,12 +473,21 @@ class LibraryOpsMixin:
                 detail = read_detail(ext.read_bytes()) if ext.is_file() else []
             except (OSError, ValueError):
                 detail = []
+            band = None                                # 1.3.0-rc.3 (B21) : 3 bandes de Rekordbox (.2EX)
+            two = grid.dat_path.with_suffix(".2EX")
+            try:
+                if two.is_file():
+                    from ...analysis.anlz import read_band_detail
+
+                    band = read_band_detail(two.read_bytes())
+            except (OSError, ValueError):
+                band = None
             try:                                       # 1.3.0 (C22) : hot cues, boucles et mémoires
                 cues = list(lib.track_cues(content_id))
             except Exception as exc:  # noqa: BLE001 - la grille reste éditable sans les cues
                 log.info("Cues not read for %s: %s", content_id, exc)
                 cues = []
-            return {"grid": grid, "detail": detail, "cues": cues}
+            return {"grid": grid, "detail": detail, "cues": cues, "band": band}
 
         self.dispatcher.submit(work, ok, err or self._on_error, pool="db")
 

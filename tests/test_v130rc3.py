@@ -310,3 +310,97 @@ def test_after_a_seek_the_end_of_the_old_audio_is_still_shown(monkeypatch):
     clock[0] += lat + 0.2                                           # ancienne réserve jouée
     assert p.position() == pytest.approx(5.0)
     assert p.sent_position() == pytest.approx(5.0)
+
+
+# ------------------------------------------------------------------ C40 : sortir de la boucle
+def test_exit_loop_keeps_playing_without_seek(demo_grid):  # noqa: F811
+    app = demo_grid
+    ed = _open_grid(app)
+    seeks = []
+    ed._player_seek = lambda ms: seeks.append(ms)
+    ed.active_loop = (ed.beats[4][2], ed.beats[8][2])
+    ed.exit_loop()
+    assert ed.active_loop is None and seeks == [] and ed.exit_btn.isHidden()
+    ed.active_loop = (ed.beats[4][2], ed.beats[8][2])
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    ed.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_0, Qt.NoModifier, "0"))     # touche 0
+    assert ed.active_loop is None
+    ed.close()
+
+
+# ------------------------------------------------------------------ B21 : 3 bandes sans fichier audio
+def test_band_wave_from_rekordbox_2ex_and_fallback():
+    import numpy as np
+
+    from djsync.analysis import anlz
+    from djsync.analysis.waveform import Waveforms
+
+    raw = bytes([10, 60, 120] * 300)
+    wf = Waveforms(detail=b"", color_detail=b"", preview=b"", tiny_preview=b"", color_preview=b"",
+                   band_detail=raw, band_preview=bytes(3 * 1200))
+    two = anlz.build_2ex("/Contents/x.m4a", wf)
+    if True:
+        band = anlz.read_band_detail(two)
+        assert band.rate == 150 and band.low.size == 300
+        assert (int(band.low[0]), int(band.mid[0]), int(band.high[0])) == (10, 60, 120)
+    fb = anlz.band_from_detail([(1.0, "#FF0000"), (0.5, "#00FF00")])
+    assert fb.rate == 150 and int(fb.low[0]) == 127 and int(fb.high[0]) < int(fb.mid[0]) < int(fb.low[0])
+    assert anlz.band_from_detail([]) is None and isinstance(fb.low, np.ndarray)
+
+
+def test_grid_page_without_audio_file_uses_three_bands(demo_grid, monkeypatch):  # noqa: F811
+    app = demo_grid
+    monkeypatch.setattr(app.ctrl, "load_grid_wave", lambda track, ok: ok(None))     # fichier introuvable
+    ed = _open_grid(app)
+    from .qt_util import pump
+    pump(app, 0.5)
+    assert ed.wave is not None and ed._wave_state == "ready"                           # pas de RGB
+    ed.close()
+
+
+# ------------------------------------------------------------------ B22 : clé retirée
+def test_removed_drive_gives_a_clear_message(tmp_path, monkeypatch):
+    from djsync.ui import controller as C
+
+    msgs, closed = [], []
+    ctrl = SimpleNamespace(is_local=False, drive=SimpleNamespace(root=tmp_path / "gone"), library=object())
+    ctrl.message = lambda kind, text: msgs.append((kind, text))
+    ctrl.disconnect = lambda by_user=True: closed.append(by_user)
+    ctrl.drive_gone = lambda: C.AppController.drive_gone(ctrl)
+    C.AppController._on_error(ctrl, OSError("disk I/O error"))
+    assert msgs and msgs[0][0] == "warn" and "gone" in msgs[0][1] and closed == [False]
+
+
+# ------------------------------------------------------------------ B18 / B19 : Uniformiser
+from .test_v122 import demo, usb  # noqa: E402,F401
+
+
+def test_search_results_are_two_line_cards_that_fit(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.uniformize_page import CandidateCard, ScopeDialog
+
+    from .qt_util import pump
+
+    dlg = ScopeDialog(demo, demo.ctrl)
+    dlg.choice.setCurrentIndex(1)
+    dlg._ok()
+    assert pump(demo, 6, lambda: getattr(demo, "uniformize_page", None) is not None)
+    page = demo.uniformize_page
+    assert pump(demo, 10, lambda: page.scan_finished)
+    assert page.scan_bar.isHidden()                                           # avancement fini : barre cachée
+    page.filter.setCurrentText(page._filters["all"])
+    cid = next(iter(page.blocks))
+    blk = page.blocks[cid]
+    cands = [{"title": f"Titre très long numéro {i} " * 3, "artists": ["Artiste"], "album": "Album", "duration": 180}
+             for i in range(5)]
+    blk.show_candidates(cands)
+    pump(demo, 0.3)
+    cards = blk.cands.findChildren(CandidateCard)
+    assert len(cards) == 5
+    fm = cards[0].fontMetrics()
+    assert all(c.minimumHeight() >= 2 * fm.lineSpacing() for c in cards)
+    assert blk.cands_lay.itemAtPosition(1, 0) is not None                     # retour à la ligne (3 + 2)
+    demo.grab().save("/tmp/claude-0/-home-claude/7654d4ba-1bad-5978-9785-24ca386eb8d1/scratchpad/uni.png")
+    page._leaving = True
+    page.close()

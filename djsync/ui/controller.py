@@ -243,7 +243,23 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return str(exc)
         return f"{type(exc).__name__}: {exc}"
 
+    def drive_gone(self) -> bool:
+        """1.3.0-rc.3 (B22) : la clé ouverte a disparu (retirée sans être éjectée, reformatée…)."""
+        if self.is_local or self.drive is None or self.library is None:
+            return False
+        root = getattr(self.drive, "root", None)
+        try:
+            return root is not None and not Path(root).exists()
+        except OSError:
+            return True
+
     def _on_error(self, exc: BaseException) -> None:
+        if self.drive_gone():                          # B22 : plus de « disk I/O error » brut
+            name = str(getattr(self.drive, "root", "") or self.drive)
+            log.info("Drive %s removed without eject (%s): library closed", name, exc)
+            self.message("warn", t("msg.drive_removed", drive=name))
+            self.disconnect(by_user=False)
+            return
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         self.message("error", self.error_text(exc))
         reporter = getattr(self, "error_reporter", None)

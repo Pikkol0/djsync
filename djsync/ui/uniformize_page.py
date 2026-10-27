@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QIntValidator, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QGridLayout, QLabel, QLineEdit, QPushButton,
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QGridLayout, QLabel, QLineEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QToolButton, QWidget)
 
 from ..core.uniformize import Proposal
@@ -138,6 +138,42 @@ class CoverBox(QLabel):
 
 
 # ============================================================================ un son
+class CandidateCard(QFrame):
+    """1.3.0-rc.3 (B19) : résultat de « Chercher autrement » sur deux lignes, hauteur d'après la police
+    (rien n'est coupé à 125-150 %), texte trop long terminé par « … » et complet au survol."""
+
+    def __init__(self, title: str, sub: str, on_pick: Any) -> None:
+        super().__init__()
+        self._on_pick = on_pick
+        self.setObjectName("candCard")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(f"{title}\n{sub}\n\n{t('uni.pick_tip')}")
+        self.setStyleSheet(f"#candCard {{ background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; "
+                           f"border-radius: {theme.px(6)}px; }} #candCard:hover {{ border-color: {theme.ACCENT}; }}")
+        lay = vbox(self, margins=theme.px(8), spacing=theme.px(2))
+        self._texts = [(label("", ""), title), (label("", "faint"), sub)]
+        for lbl, _txt in self._texts:
+            lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            lay.addWidget(lbl)
+        fm = self.fontMetrics()
+        self.setMinimumHeight(2 * fm.lineSpacing() + 2 * theme.px(8) + theme.px(4))
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._elide()
+
+    def _elide(self) -> None:
+        for lbl, txt in self._texts:
+            w = max(20, lbl.width() if lbl.width() > 20 else self.width() - 2 * theme.px(8))
+            lbl.setText(lbl.fontMetrics().elidedText(txt, Qt.ElideRight, w))
+
+    def resizeEvent(self, e: Any) -> None:          # noqa: N802
+        super().resizeEvent(e)
+        self._elide()
+
+    def mousePressEvent(self, e: Any) -> None:       # noqa: N802
+        if e.button() == Qt.LeftButton:
+            self._on_pick()
+
+
 class TrackBlock(QFrame):
     """Un son : en-tête (confiance, boutons), ligne « Actuellement », ligne « Après », Chercher autrement."""
 
@@ -202,7 +238,7 @@ class TrackBlock(QFrame):
         editable = st not in ("applied",)
         self.cover_new = CoverBox(self._cover_file, self._cover_remove, editable)
         grid.addWidget(self.cover_new, 1, 1)
-        stretch = {"title": 3, "artist": 3, "album": 2, "year": 0, "genre": 1}
+        stretch = {"title": 3, "artist": 3, "album": 2, "year": 0, "genre": 2}      # B19 : genre plus large
         for col, f in enumerate(FIELDS, start=2):
             now = label(str(self.current[f] or "—") if f != "year" else (str(self.current[f]) if self.current[f] else "—"),
                         "faint")
@@ -216,8 +252,9 @@ class TrackBlock(QFrame):
                 e.setValidator(QIntValidator(0, 2100, e))
                 e.setFixedWidth(theme.px(84))
             else:
-                e.setMinimumWidth(theme.px(60))
+                e.setMinimumWidth(theme.px(110) if f == "genre" else theme.px(60))
             e.setReadOnly(not editable)
+            e.textChanged.connect(lambda txt, w=e, k=f: w.setToolTip(f"{t(FIELD_KEYS[k])} : {txt}" if txt else t(FIELD_KEYS[k])))
             revert = e.addAction(qicon("back", 14, theme.DIM), QLineEdit.TrailingPosition)
             revert.setToolTip(t("uni.revert"))
             revert.triggered.connect(lambda _=False, k=f: self._revert(k))
@@ -240,7 +277,9 @@ class TrackBlock(QFrame):
                                 icon="search"))
         lay.addLayout(search)
         self.cands = QWidget()
-        self.cands_lay = hbox(self.cands, spacing=theme.px(6))
+        self.cands_lay = QGridLayout(self.cands)          # B19 : cartes sur 3 colonnes, retour à la ligne
+        self.cands_lay.setContentsMargins(0, 0, 0, 0)
+        self.cands_lay.setSpacing(theme.px(6))
         self.cands.hide()
         lay.addWidget(self.cands)
 
@@ -389,22 +428,21 @@ class TrackBlock(QFrame):
             if item.widget() is not None:
                 item.widget().deleteLater()
         if not cands:
-            self.cands_lay.addWidget(label(t("uni.search_none"), "faint"))
+            self.cands_lay.addWidget(label(t("uni.search_none"), "faint"), 0, 0)
+        cols = 3
         for i, c in enumerate(cands[:5], start=1):
             d = int(c.get("duration") or 0)
             gap = d - int(self.track.duration_seconds or 0) if d else None
             txt = f"{i}. {', '.join(a for a in c.get('artists') or [] if a)} – {c.get('title', '')}"
             sub = " · ".join(x for x in (c.get("album") or "", f"{d // 60}:{d % 60:02d}" if d else "",
                                          (f"{gap:+d} s" if gap else "=") if gap is not None else "") if x)
-            b = QPushButton(f"{txt}\n{sub}")
-            b.setStyleSheet(f"QPushButton {{ text-align: left; padding: 4px 8px; background: {theme.SURFACE}; "
-                            f"border: 1px solid {theme.BORDER}; border-radius: {theme.px(6)}px; }}"
-                            f"QPushButton:hover {{ border-color: {theme.ACCENT}; }}")
-            b.setToolTip(t("uni.pick_tip"))
-            b.clicked.connect(lambda _=False, cand=c: self.page.pick(self.cid, cand))
-            self.cands_lay.addWidget(b)
-        self.cands_lay.addStretch(1)
+            card = CandidateCard(txt, sub, lambda cand=c: self.page.pick(self.cid, cand))
+            self.cands_lay.addWidget(card, (i - 1) // cols, (i - 1) % cols)
+        for col in range(cols):
+            self.cands_lay.setColumnStretch(col, 1)
         self.cands.show()
+        self.cands.updateGeometry()
+        self.updateGeometry()
 
     # ------------------------------------------------------------------ état
     def set_current(self, on: bool) -> None:
@@ -445,6 +483,12 @@ class UniformizePage(QWidget):
         self._refill.setSingleShot(True)
         self._refill.setInterval(250)
         self._refill.timeout.connect(self._fill)
+        # 1.3.0-rc.3 (B18) : sons analysés ajoutés par paquets (au plus 4 fois par seconde), sans tout redessiner
+        self._pending: List[int] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.setInterval(250)
+        self._flush_timer.timeout.connect(self._flush_pending)
         self.setFocusPolicy(Qt.StrongFocus)
 
         body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
@@ -452,8 +496,16 @@ class UniformizePage(QWidget):
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
         titles = vbox(spacing=0)
         titles.addWidget(label(t("uni.title", scope=scope), "title"))
+        info_row = hbox(spacing=theme.px(8))
+        self.scan_bar = QProgressBar()                     # B18 : avancement à gauche, à place fixe
+        self.scan_bar.setTextVisible(False)
+        self.scan_bar.setFixedWidth(theme.px(140))
+        self.scan_bar.hide()
+        info_row.addWidget(self.scan_bar, 0, Qt.AlignVCenter)
         self.info = label("", "dim")
-        titles.addWidget(self.info)
+        info_row.addWidget(self.info)
+        info_row.addStretch(1)
+        titles.addLayout(info_row)
         head.addLayout(titles, 1)
         head.addWidget(label(t("uni.show"), "dim"))
         self._filters = {"todo": t("uni.f_todo"), "validated": t("uni.f_validated"), "ignored": t("uni.f_ignored"),
@@ -559,8 +611,13 @@ class UniformizePage(QWidget):
             counts[self.state(cid)] += 1
         parts = [t("uni.count_todo", n=counts["todo"]), t("uni.count_validated", n=counts["validated"]),
                  t("uni.count_done", n=counts["applied"] + counts["clean"])]
-        if self._scanned < self._to_scan and not self._cancel:
+        scanning = self._scanned < self._to_scan and not self._cancel
+        if scanning:
             parts.insert(0, t("uni.scanning", i=self._scanned, n=self._to_scan))
+        if hasattr(self, "scan_bar"):
+            self.scan_bar.setVisible(scanning)
+            self.scan_bar.setRange(0, max(1, self._to_scan))
+            self.scan_bar.setValue(self._scanned)
         self.info.setText("  ·  ".join(parts))
         n = counts["validated"]
         self.save_btn.setText(t("uni.save_n", n=n))
@@ -579,16 +636,38 @@ class UniformizePage(QWidget):
         self._scanned += 1
         self.details[track.content_id] = details
         self.props[track.content_id] = prop
-        # nouveaux blocs ajoutés en bas tant que la liste n'est pas pleine (rien ne bouge au-dessus)
-        if self._visible(track.content_id) and len(self._shown) < self._limit and track.content_id not in self.blocks:
-            self._append(track.content_id)
+        # nouveaux blocs ajoutés en bas tant que la liste n'est pas pleine (rien ne bouge au-dessus), par paquets
+        if self._visible(track.content_id) and track.content_id not in self.blocks and track.content_id not in self._pending:
+            self._pending.append(track.content_id)
+            if not self._flush_timer.isActive():
+                self._flush_timer.start()
         self._refresh_info()
+
+    def _flush_pending(self) -> None:
+        if not self.winfo_exists():
+            return
+        todo, self._pending = self._pending, []
+        if not self._shown:
+            self._fill()
+            return
+        holder = self.scroll.widget()
+        bar = self.scroll.verticalScrollBar().value()
+        holder.setUpdatesEnabled(False)
+        try:
+            for cid in todo:
+                if len(self._shown) >= self._limit or cid in self.blocks or not self._visible(cid):
+                    continue
+                self._append(cid)
+        finally:
+            holder.setUpdatesEnabled(True)
+        self.scroll.verticalScrollBar().setValue(bar)
 
     def _append(self, cid: int) -> None:
         if not self._shown:
             self._fill()
             return
         blk = TrackBlock(self, cid)
+        blk.setParent(self.scroll.widget())                 # jamais affiché hors de la liste (B18)
         self.blocks[cid] = blk
         self.list_lay.insertWidget(self.list_lay.count() - 1, blk)
         self._shown.append(cid)
@@ -597,9 +676,15 @@ class UniformizePage(QWidget):
         if self.winfo_exists():
             self._scanned = self._to_scan
             self.scan_finished = True
-            if not self._touched:
+            self._flush_pending()
+            # sûrs d'abord, une fois tout analysé : seulement si rien n'a encore été touché et si l'ordre
+            # change vraiment (B18 : sinon la liste ne bouge pas)
+            wanted = sorted((cid for cid in self.tracks if self._visible(cid)), key=self._sort_key)[:self._limit]
+            if not self._touched and wanted != self._shown:
                 self._current = None
-            self._fill()                                 # sûrs d'abord, une fois tout analysé
+                self._fill()
+            else:
+                self._refresh_info()
 
     # ------------------------------------------------------------------ navigation
     def make_current(self, cid: Optional[int], scroll: bool = False) -> None:

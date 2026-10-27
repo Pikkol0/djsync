@@ -372,6 +372,8 @@ STRINGS = {
     "grid.half_beat": "½ temps",
     "settings.audio_latency": "Retard audio en plus pour les curseurs",
     "settings.audio_latency_tip": "Laissez 0 ms. Si le curseur de la page Grille et cues est en avance sur ce que vous entendez (casque Bluetooth, certaines cartes son), augmentez jusqu'à ce qu'il tombe sur les kicks.",
+    "grid.loop_exit": "Sortir de la boucle",
+    "grid.loop_exit_tip": "Quitter la boucle : la lecture continue après sa fin, sans coupure (touche 0 / à). Recliquer le pad pour reboucler.",
     "grid.fixed_cursor": "Curseur fixe au centre",
     "grid.fixed_cursor_tip": "Coché : le curseur reste au milieu et le son défile dessous (glisser la forme d'onde, molette, ou la vue d'ensemble du lecteur). Décoché : le curseur suit la souris. Choix gardé pour la prochaine fois.",
     "grid.overview_tip": "Tout le son : cliquer ou glisser pour s'y déplacer",
@@ -594,6 +596,7 @@ STRINGS = {
     "msg.pdb_full_track": "« {title} » n'apparaîtra pas sur les platines qui lisent export.pdb (fichier plein). "
                           "Autorisez l'ajout de pages dans Paramètres ▸ Anciennes platines, puis « Synchroniser maintenant ».",
     "msg.pdb_synced": "export.pdb synchronisé : {tracks} titre(s), {playlists} playlist(s) ajouté(s).",
+    "msg.drive_removed": "La clé {drive} a été retirée sans être éjectée : DJSync l'a refermée. Rebranchez-la : DJSync la vérifiera et rattrapera export.pdb.",
     "msg.pdb_up_to_date": "export.pdb est à jour (anciennes platines).",
     "msg.pdb_left": "export.pdb mis à jour, mais il manque encore : {detail}",
     "msg.pdb_locked": "export.pdb est utilisé par un autre programme (Rekordbox ouvert sur la clé ?) : fermez-le puis réessayez.",

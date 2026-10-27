@@ -372,6 +372,8 @@ STRINGS = {
     "grid.half_beat": "½ beat",
     "settings.audio_latency": "Extra audio delay for the cursors",
     "settings.audio_latency_tip": "Leave at 0 ms. If the cursor of the Beat grid page runs ahead of what you hear (Bluetooth headphones, some sound cards), raise it until the cursor hits the kicks.",
+    "grid.loop_exit": "Exit loop",
+    "grid.loop_exit_tip": "Leave the loop: playback carries on past its end, without a cut (key 0). Click the pad again to loop.",
     "grid.fixed_cursor": "Fixed cursor in the middle",
     "grid.fixed_cursor_tip": "Ticked: the cursor stays in the middle and the track scrolls under it (drag the waveform, wheel, or the overview in the player). Unticked: the cursor follows the mouse. Kept for next time.",
     "grid.overview_tip": "Whole track: click or drag to move through it",
@@ -588,6 +590,7 @@ STRINGS = {
     "msg.pdb_full_track": "\"{title}\" will not appear on players reading export.pdb (file full). Allow adding "
                           "pages in Settings ▸ Older players, then click \"Synchronise now\".",
     "msg.pdb_synced": "export.pdb synchronised: {tracks} track(s), {playlists} playlist(s) added.",
+    "msg.drive_removed": "The drive {drive} was removed without being ejected: DJSync closed it. Plug it back in: DJSync will check it and catch up export.pdb.",
     "msg.pdb_up_to_date": "export.pdb is up to date (older players).",
     "msg.pdb_left": "export.pdb updated, but something is still missing: {detail}",
     "msg.pdb_locked": "export.pdb is in use by another program (Rekordbox open on the drive?): close it, then try again.",
