@@ -313,7 +313,7 @@ def test_watch_tick_imports_into_the_imported_playlist(tmp_path, monkeypatch):
         pl = next(p for p in ctrl.library.list_playlists() if p.name == "Imported")
         tracks = ctrl.library.get_playlist_tracks(pl.playlist_id)
         assert [x.title for x in tracks] == ["Nanana"]
-        assert not w.exists() and (folder / "DJSync importés" / w.name).exists()
+        assert not w.exists() and (folder / "DJSync imported" / w.name).exists()
         assert not app.errors
     finally:
         close_window(app)

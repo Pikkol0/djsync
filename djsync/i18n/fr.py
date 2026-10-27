@@ -320,7 +320,7 @@ STRINGS = {
     "players.aiff": "Enregistrer en AIFF (toutes les platines, garde les tags)",
     "players.settings_tip": "Les platines d'avant la série NXS2 (CDJ-2000NXS, CDJ-900NXS, XDJ-1000…) ne lisent pas le FLAC. Même son, fichier environ deux fois plus lourd. S'applique aux fichiers ajoutés et aux fichiers d'origine SoundCloud.",
     "watch.settings_title": "Dossier surveillé",
-    "watch.settings_hint": "Les fichiers audio enregistrés dans ce dossier (achats Bandcamp ou Beatport, record pools, promos, téléchargements gratuits) sont ajoutés tout seuls à la bibliothèque ouverte, une fois entièrement téléchargés. Ils sont ensuite rangés dans son sous-dossier « DJSync importés », jamais supprimés.",
+    "watch.settings_hint": "Les fichiers audio enregistrés dans ce dossier (achats Bandcamp ou Beatport, record pools, promos, téléchargements gratuits) sont ajoutés tout seuls à la bibliothèque ouverte, une fois entièrement téléchargés. Ils sont ensuite rangés dans son sous-dossier « DJSync imported », jamais supprimés.",
     "watch.settings_off": "Aucun dossier (désactivé)",
     "watch.settings_browse": "Choisir…",
     "watch.settings_clear": "Désactiver",

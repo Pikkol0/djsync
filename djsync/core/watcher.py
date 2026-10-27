@@ -3,7 +3,7 @@ Beatport, record pools, promos, téléchargements « Free Download ») sont impo
 
 Un fichier n'est pris que lorsqu'il ne bouge plus (même taille et même date pendant deux passages) :
 un téléchargement en cours n'est jamais importé à moitié. Il est ensuite rangé dans le sous-dossier
-« DJSync importés » (jamais supprimé) pour ne pas être pris deux fois ; c'est de là qu'il est importé.
+« DJSync imported » (jamais supprimé) pour ne pas être pris deux fois ; c'est de là qu'il est importé.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .importer import is_audio
 
 log = logging.getLogger(__name__)
 
-DONE_DIR = "DJSync importés"
+DONE_DIR = "DJSync imported"
 PARTIAL = (".part", ".crdownload", ".download", ".tmp", ".djsync-part")
 MIN_AGE = 3.0          # secondes sans changement avant import
 
@@ -58,7 +58,7 @@ class FolderWatch:
         return ready
 
     def take(self, path: Path) -> Path:
-        """Range le fichier dans « DJSync importés » (même sous-dossier relatif) ; renvoie le nouveau chemin."""
+        """Range le fichier dans « DJSync imported » (même sous-dossier relatif) ; renvoie le nouveau chemin."""
         rel = path.relative_to(self.folder)
         target = self.folder / DONE_DIR / rel
         target.parent.mkdir(parents=True, exist_ok=True)

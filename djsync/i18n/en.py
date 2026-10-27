@@ -320,7 +320,7 @@ STRINGS = {
     "players.aiff": "Save as AIFF (all players, keeps the tags)",
     "players.settings_tip": "Players before the NXS2 series (CDJ-2000NXS, CDJ-900NXS, XDJ-1000…) do not read FLAC. Same sound, file about twice as large. Applies to imported files and SoundCloud original files.",
     "watch.settings_title": "Watched folder",
-    "watch.settings_hint": "Audio files saved in this folder (purchases from Bandcamp or Beatport, record pools, promos, free downloads) are added to the open library by themselves, once fully downloaded. They are then moved to its \"DJSync importés\" subfolder, never deleted.",
+    "watch.settings_hint": "Audio files saved in this folder (purchases from Bandcamp or Beatport, record pools, promos, free downloads) are added to the open library by themselves, once fully downloaded. They are then moved to its \"DJSync imported\" subfolder, never deleted.",
     "watch.settings_off": "No folder (off)",
     "watch.settings_browse": "Choose…",
     "watch.settings_clear": "Turn off",

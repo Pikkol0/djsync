@@ -32,7 +32,7 @@ def auth_options(browser: str = "", token: str = "") -> Dict[str, Any]:
 # 1.4.0 (C45) : services de « Free Download » (téléchargement gratuit contre un abonnement ou un like)
 FREE_GATES = ("hypeddit.com", "toneden.io", "gate.fm", "fanlink.to", "show.co", "edmdistrict", "click.dj",
               "lnk.to", "dropbox.com", "drive.google.com", "wetransfer.com", "we.tl", "bandcamp.com")
-_FREE_WORDS = ("free", "gratuit", "download", "dl", "télécharg", "telecharg")
+_FREE_WORDS = ("free", "gratuit", "download", "dl", "telecharg")   # titre comparé sans accents
 
 
 def free_download(info: Dict[str, Any]) -> Optional[str]:
@@ -41,7 +41,10 @@ def free_download(info: Dict[str, Any]) -> Optional[str]:
     url = str(info.get("purchase_url") or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return None
-    title = str(info.get("purchase_title") or "").lower()
+    import unicodedata
+
+    title = unicodedata.normalize("NFKD", str(info.get("purchase_title") or "").lower())
+    title = "".join(c for c in title if not unicodedata.combining(c))
     if any(w in title for w in _FREE_WORDS) or any(g in url.lower() for g in FREE_GATES):
         return url
     return None
