@@ -86,6 +86,11 @@ class HomeView(View):
             app.show_view("search")
             app.views["search"].search_for(text)
 
+    def open_settings(self, section: str) -> None:
+        app = self.window()
+        app.show_view("settings")
+        app.views["settings"].show_section(section)
+
     # ------------------------------------------------------------------- clés
     def on_show(self) -> None:
         self.refresh()
@@ -184,6 +189,8 @@ class HomeView(View):
             else:
                 pdb = chip(t("home.pdb_short_yes"), "chip_good")          # C29
                 pdb.setToolTip(t("home.pdb_yes"))
+            pdb.setCursor(Qt.PointingHandCursor)              # 1.3.1 (C28) : ouvre la section des réglages
+            pdb.mousePressEvent = lambda _e: self.open_settings("libraries")
             chips.addWidget(pdb)
             if s.filesystem:
                 from ...db.usb import filesystem_compat

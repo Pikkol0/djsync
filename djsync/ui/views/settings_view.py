@@ -11,8 +11,8 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton,
-    QWidget,
+    QAbstractButton, QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QWidget,
 )
 
 from ...db import UsbDrive
@@ -21,12 +21,17 @@ from ...settings import ZOOM_MAX, ZOOM_MIN, ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
-from ..widgets import button, hbox, icon_button, icon_label, label, panel, vbox
+from ..icons import qicon
+from ..widgets import button, hbox, icon_button, icon_label, label, line_edit, panel, vbox
 from .common import View
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
 KEY_NOTATIONS = ("auto", "camelot", "musical")
 SIDEBAR_MODES = ("auto", "on", "off")
+# 1.3.1 (C28) : volet des sections (clé, icône)
+SECTIONS = (("general", "settings"), ("libraries", "library"), ("download", "download"), ("analysis", "key"),
+            ("privacy", "info"), ("djsync", "refresh"))
+NARROW_PX = 760          # en dessous (à 100 %), le volet devient une liste déroulante
 
 
 class SettingsView(View):
@@ -45,12 +50,54 @@ class SettingsView(View):
         head.addWidget(self.saved)
         head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
         self.root.addLayout(head)
+        # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
+        self._cards: list = []                 # [(section, carte)]
+        self._section = "general"
+        body = hbox(spacing=theme.px(12))
+        self.side = QWidget()
+        side = vbox(self.side, spacing=theme.px(6))
+        self._current_section = "general"
+        self.sections = QListWidget()
+        self.sections.setObjectName("settingsSections")
+        self.sections.setIconSize(QSize(theme.px(16), theme.px(16)))
+        self.sections.setSpacing(theme.px(2))
+        self.sections.setStyleSheet(f"#settingsSections::item {{ padding: {theme.px(7)}px {theme.px(6)}px; "
+                                    f"border-radius: {theme.px(6)}px; }}")
+        for key, icon in SECTIONS:
+            item = QListWidgetItem(qicon(icon, 16, theme.ACCENT), t(f"settings.section_{key}"))
+            item.setData(Qt.UserRole, key)
+            self.sections.addItem(item)
+        self.sections.currentItemChanged.connect(lambda cur, _old: cur and self.show_section(cur.data(Qt.UserRole)))
+        side.addWidget(self.sections, 1)
+        self.side.setFixedWidth(theme.px(230))
+        body.addWidget(self.side)
+        right = vbox(spacing=theme.px(6))
+        top = hbox(spacing=theme.px(8))
+        self.search = line_edit(t("settings.search"), "search")
+        self.search.setMaximumWidth(theme.px(320))
+        self.search.textChanged.connect(lambda _t: self._apply_filter())
+        top.addWidget(self.search)
+        self.section_menu = QComboBox()          # fenêtre étroite : le volet devient une liste déroulante
+        for key, icon in SECTIONS:
+            self.section_menu.addItem(qicon(icon, 16, theme.ACCENT), t(f"settings.section_{key}"), key)
+        self.section_menu.currentIndexChanged.connect(
+            lambda i: self.show_section(self.section_menu.itemData(i)) if i >= 0 else None)
+        self.section_menu.hide()
+        top.addWidget(self.section_menu)
+        top.addStretch(1)
+        right.addLayout(top)
         area = QScrollArea()
         area.setWidgetResizable(True)
+        self.area = area
         page = QWidget()
         self.page = vbox(page, spacing=theme.px(10))
         area.setWidget(page)
-        self.root.addWidget(area, 1)
+        right.addWidget(area, 1)
+        self.no_match = label("", "dim", wrap=True)
+        self.no_match.hide()
+        self.page.addWidget(self.no_match)
+        body.addLayout(right, 1)
+        self.root.addLayout(body, 1)
 
         # ---- apparence
         card = self._card(t("settings.appearance"), "settings")
@@ -126,6 +173,7 @@ class SettingsView(View):
         card.addLayout(row)
 
         # ---- clé USB
+        self._section = "libraries"
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
         row = hbox()
         self.drive_menu = QComboBox()
@@ -188,6 +236,7 @@ class SettingsView(View):
         card.addLayout(row)
 
         # ---- FFmpeg
+        self._section = "download"
         card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"))
         row = hbox()
         self.ffmpeg = QLineEdit(s.ffmpeg_location)
@@ -200,6 +249,7 @@ class SettingsView(View):
         card.addWidget(self.ffmpeg_state)
 
         # ---- analyse
+        self._section = "analysis"
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
         self.analyze_usb_var = QCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
         self.analyze_usb_var.setChecked(s.analyze_after_download_usb)
@@ -226,6 +276,7 @@ class SettingsView(View):
         card.addLayout(row)
 
         # ---- anciennes platines : export.pdb
+        self._section = "libraries"
         card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"))
         self.pdb_var = QCheckBox(t("settings.pdb_sync"))
         self.pdb_var.setChecked(s.pdb_sync == "auto")
@@ -243,6 +294,7 @@ class SettingsView(View):
         card.addWidget(self.pdb_state)
 
         # ---- recherche
+        self._section = "download"
         card = self._card(t("settings.downloads"), "download")
         self.views_var = QCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
@@ -281,6 +333,7 @@ class SettingsView(View):
         self._engine_release = None
 
         # ---- sauvegardes
+        self._section = "libraries"
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.backups_keep"))))
@@ -293,7 +346,6 @@ class SettingsView(View):
         row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
         self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
         row.addWidget(self.points_btn)
-        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
         row.addStretch(1)
         self.uninstall_btn = button(t("uninstall.open"), self._open_uninstall, kind="flat", icon="trash")
         self.uninstall_btn.setVisible(self.ctrl.can_uninstall())
@@ -303,6 +355,8 @@ class SettingsView(View):
         card.addWidget(self.points_hint)
         self._build_about(s)
         self.page.addStretch(1)
+        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self.show_section(start, remember=False)
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
@@ -318,6 +372,7 @@ class SettingsView(View):
         """1.2.0-rc.4 : mise à jour en un clic (C20) et « À propos » (C19)."""
         from ... import full_version
 
+        self._section = "djsync"
         card = self._card(t("about.title"), "refresh", t("about.hint"))
         row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
@@ -362,6 +417,10 @@ class SettingsView(View):
         row.addWidget(self.channel_menu)
         row.addStretch(1)
         card.addLayout(row)
+        card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
+        self._section = "privacy"
+        card = self._card(t("settings.section_privacy"), "info")
         row = hbox()                                   # 1.2.3 : rapports d'erreur
         row.addWidget(self._fixed(label(t("err_report.setting"))))
         self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
@@ -373,7 +432,11 @@ class SettingsView(View):
         row.addWidget(self.report_menu)
         row.addStretch(1)
         card.addLayout(row)
-        card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        row = hbox()
+        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
+        row.addStretch(1)
+        card.addLayout(row)
+        self._section = "djsync"
         row = hbox()
         row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
                              kind="flat", icon="go"))
@@ -444,7 +507,72 @@ class SettingsView(View):
         head.addStretch(1)
         lay.addLayout(head)
         self.page.addWidget(box)
+        self._cards.append((self._section, box))
         return lay
+
+    # ------------------------------------------------------- 1.3.1 (C28) : sections et recherche
+    def show_section(self, key: str, remember: bool = True) -> None:
+        """Affiche les cartes d'une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »)."""
+        if key not in dict(SECTIONS):
+            return
+        self._current_section = key
+        keys = [k for k, _i in SECTIONS]
+        for w, idx in ((self.sections, keys.index(key)), (self.section_menu, keys.index(key))):
+            w.blockSignals(True)
+            w.setCurrentRow(idx) if w is self.sections else w.setCurrentIndex(idx)
+            w.blockSignals(False)
+        if self.search.text():
+            self.search.blockSignals(True)
+            self.search.clear()
+            self.search.blockSignals(False)
+        self._apply_filter()
+        self.area.verticalScrollBar().setValue(0)
+        if remember and self.ctrl.settings.settings_section != key:
+            self.ctrl.settings.settings_section = key
+            try:
+                self.ctrl.settings.save()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _card_text(box: QWidget) -> str:
+        parts = []
+        for w in box.findChildren(QWidget):
+            if isinstance(w, (QLabel, QAbstractButton)):
+                parts += [w.text(), w.toolTip()]
+            elif isinstance(w, QComboBox):
+                parts += [w.itemText(i) for i in range(w.count())] + [w.toolTip()]
+            elif isinstance(w, QLineEdit):
+                parts.append(w.placeholderText())
+        return " ".join(p for p in parts if p).casefold()
+
+    def _apply_filter(self) -> None:
+        """Sans recherche : cartes de la section choisie. Avec : cartes de toutes les sections qui
+        contiennent tous les mots cherchés (titre, libellés, cases, choix, info-bulles)."""
+        words = self.search.text().casefold().split()
+        shown = 0
+        for sec, box in self._cards:
+            visible = all(w in self._card_text(box) for w in words) if words else sec == self._current_section
+            box.setVisible(visible)
+            shown += visible
+        self.sections.setEnabled(not words)
+        self.sections.blockSignals(True)
+        if words:
+            self.sections.clearSelection()                      # la recherche couvre toutes les sections
+        else:
+            self.sections.setCurrentRow([k for k, _i in SECTIONS].index(self._current_section))
+        self.sections.blockSignals(False)
+        self.no_match.setText(t("settings.search_none", text=self.search.text()))
+        self.no_match.setVisible(bool(words) and not shown)
+
+    def visible_cards(self) -> list:
+        return [box for _s, box in self._cards if not box.isHidden()]
+
+    def resizeEvent(self, e: Any) -> None:       # noqa: N802
+        super().resizeEvent(e)
+        narrow = self.width() < theme.px(NARROW_PX)
+        self.side.setVisible(not narrow)
+        self.section_menu.setVisible(narrow)
 
     @staticmethod
     def _fixed(w: Any) -> Any:

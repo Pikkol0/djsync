@@ -280,6 +280,7 @@ def test_settings_update_card_and_offer(env):
         ctrl = app.ctrl
         app.show_view("settings")
         view = app.views["settings"]
+        view.show_section("djsync")                            # 1.3.1 (C28) : section « DJSync »
         assert view.version_lbl.text().endswith(__import__("djsync").full_version())
         assert not view.update_install_btn.isVisible()
         up = Update("9.9.9", "https://example/rel", False, "https://dl/DJSync.exe", "https://dl/DJSync.exe.sha256")
