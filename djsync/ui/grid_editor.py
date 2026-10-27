@@ -249,6 +249,7 @@ class GridEditor(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(60)
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
+        controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
 
     def _timeline_lead(self, track: LibraryTrack) -> float:
@@ -858,6 +859,8 @@ class GridEditor(QWidget):
             return False
         self._closed = True
         self._timer.stop()
+        if getattr(self.ctrl, "grid_editor", None) is self:
+            self.ctrl.grid_editor = None
         self.ctrl._emit("grid_page", None)
         callback, self._on_close = self._on_close, None
         self.hide()

@@ -45,11 +45,16 @@ def main() -> int:
     portable.prepare_environment()
     from PySide6.QtWidgets import QApplication
 
+    from . import splash
+
+    # 1.3.0-rc.4 (B24, C31) : l'écran natif de l'exe (image fixe, sans réglage d'échelle) est fermé AVANT
+    # que Qt ne déclare à Windows qu'il gère lui-même le zoom : sinon, à 150-200 %, Windows le recalait en
+    # pixels réels et il glissait vers le haut à gauche. L'écran Qt (centré, net, version exacte du code
+    # qui tourne, même après une mise à jour depuis l'app) prend le relais tout de suite.
+    splash.close_native()
     app = QApplication(sys.argv[:1])
     app.setStyle("Fusion")
     app.setApplicationName("DJSync")
-    from . import splash
-
     screen = splash.show(app)
     try:
         from .app import DJSyncApp      # import lourd : pendant que l'écran de démarrage est visible

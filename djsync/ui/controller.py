@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import shutil
 import tempfile
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
@@ -253,12 +254,33 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         except OSError:
             return True
 
+    def _drive_removed(self, cause: Any = None) -> None:
+        """La clé ouverte a disparu sans être éjectée : un seul message clair, bibliothèque refermée, et
+        les erreurs des tâches encore en cours sur cette clé ne sont plus montrées (1.3.0-rc.4, B22)."""
+        name = str(getattr(self.drive, "root", "") or self.drive)
+        log.info("Drive %s removed without eject (%s): library closed", name, cause)
+        self._removed = (name, time.monotonic())
+        self.message("warn", t("msg.drive_removed", drive=name))
+        self.disconnect(by_user=False)
+
+    def _after_removal(self, exc: BaseException) -> bool:
+        """Erreur d'une tâche lancée avant le retrait de la clé (lecture, comptage, checkpoint…) ?"""
+        removed = getattr(self, "_removed", None)
+        if not removed or time.monotonic() - removed[1] > 120:
+            return False
+        text = f"{type(exc).__name__} {exc}".lower()
+        io = ("disk i/o", "no such file", "not ready", "unable to open", "cannot find the path", "winerror 21",
+              "winerror 3", "winerror 2", "errno 2", "errno 5", "input/output", "not connected",
+              "database is locked", "readonly database", "malformed")
+        root = removed[0].lower().rstrip("\\/")
+        return any(k in text for k in io) or bool(root and root in text)
+
     def _on_error(self, exc: BaseException) -> None:
         if self.drive_gone():                          # B22 : plus de « disk I/O error » brut
-            name = str(getattr(self.drive, "root", "") or self.drive)
-            log.info("Drive %s removed without eject (%s): library closed", name, exc)
-            self.message("warn", t("msg.drive_removed", drive=name))
-            self.disconnect(by_user=False)
+            self._drive_removed(exc)
+            return
+        if self._after_removal(exc):                   # rc.4 (B22) : suites du retrait, déjà annoncé
+            log.info("Error after the drive was removed, not shown: %s", exc)
             return
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         self.message("error", self.error_text(exc))
@@ -570,8 +592,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             if changed or blank_changed:
                 self._emit("drives")
             if self.drive is not None and self.drive is active and not still_there:
-                self.message("warn", t("msg.drive_unplugged", drive=active.label or str(active.root)))
-                self.disconnect(by_user=False)
+                if self.drive_gone():                  # rc.4 (B22) : retirée sans être éjectée
+                    self._drive_removed("drive no longer present")
+                else:
+                    self.message("warn", t("msg.drive_unplugged", drive=active.label or str(active.root)))
+                    self.disconnect(by_user=False)
             elif self.library is None and changed:
                 self._auto_connect()
             self.dispatcher.call_later(POLL_MS, self._poll)
