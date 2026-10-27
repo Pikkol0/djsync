@@ -169,7 +169,8 @@ def test_error_report_dialog(window, monkeypatch):
 def test_audio_buffer_and_media_keys_off_mac():
     from djsync.audio import nowplaying, player
 
-    assert player.BUFFER_MS >= 150
+    # réserve de la carte son : 200 ms par paquet sur macOS (1.2.3), au moins 80 ms au total ailleurs (rc.5)
+    assert player.BUFFER_MS * (player.PERIODS or 3) >= (150 if __import__("sys").platform == "darwin" else 80)
     keys = nowplaying.MediaKeys(lambda: None, lambda: None, lambda: None, lambda f: f())
     if __import__("sys").platform != "darwin":
         assert not keys.enabled

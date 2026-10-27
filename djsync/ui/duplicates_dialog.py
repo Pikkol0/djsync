@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QWidget,
 )
@@ -27,10 +28,16 @@ class DuplicatesDialog(BaseDialog):
     as_page = True                    # 1.2.3 : page de la fenêtre principale
     modal = False
 
-    def __init__(self, parent: Any, controller: Any) -> None:
+    def __init__(self, parent: Any, controller: Any, focus_ids: Optional[List[int]] = None, full: bool = False,
+                 keep_id: Optional[int] = None) -> None:
         super().__init__(parent, t("dup.title"), 820, 540)
         self.ctrl = controller
         self.groups: List[List[LibraryTrack]] = []
+        self.verified: List[bool] = []                       # rc.5 (C63) : son du groupe vérifié
+        self._refining: Optional[List[LibraryTrack]] = None
+        self._focus = set(focus_ids or [])
+        self._keep_id = keep_id                              # version choisie dans le Diagnostic
+        self._full = full
         self.index = -1
         self._busy = False
         self._keep = QButtonGroup(self)
@@ -61,37 +68,103 @@ class DuplicatesDialog(BaseDialog):
         self.body.addLayout(main, 1)
 
         bar = hbox()
+        # 1.3.0-rc.5 (C62) : choix « pas un doublon » retenus, réversibles
+        self.ignored_btn = button("", self._show_ignored, kind="flat", icon="menu", tooltip=t("dup.ignored_tip"))
+        bar.addWidget(self.ignored_btn)
+        bar.addWidget(button(t("dup.full_scan"), self._full_scan, kind="flat", icon="search",
+                             tooltip=t("dup.full_scan_tip")))
         bar.addStretch(1)
-        self.skip_btn = button(t("dup.skip"), self._skip, icon="close")
+        self.later_btn = button(t("dup.later"), self._skip, kind="flat", tooltip=t("dup.later_tip"))
+        self.skip_btn = button(t("dup.skip"), self._not_duplicates, icon="close", tooltip=t("dup.skip_tip"))
         self.apply_btn = button(t("dup.apply"), self._apply, kind="primary", icon="check")
+        bar.addWidget(self.later_btn)
         bar.addWidget(self.skip_btn)
         bar.addWidget(self.apply_btn)
         bar.addWidget(button(t("action.close"), self.close))
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
-        controller.find_duplicates(self._loaded, self._progress)
+        if full:
+            controller.message("info", t("dup.full_running"))
+        controller.find_duplicates(self._loaded, self._progress, full=full)
 
     def _progress(self, i: int, n: int) -> None:
         if self.winfo_exists() and not self.groups:
             self.count.setText(t("dup.comparing", i=i, n=n))
+
+    # ------------------------------------------------------------------ rc.5 (C63) : son vérifié groupe par groupe
+    def _refine_next(self) -> None:
+        if not self.winfo_exists() or self._refining is not None:
+            return
+        todo = [i for i, ok in enumerate(self.verified) if not ok]
+        if not todo:
+            self._update_count()
+            return
+        i = self.index if self.index in todo else todo[0]           # le groupe affiché d'abord
+        group = self.groups[i]
+        self._refining = group
+        self._update_count()
+        self.ctrl.refine_duplicate_group(list(group), lambda subs, g=group: self._refined(g, subs))
+
+    def _refined(self, group: List[LibraryTrack], subs: List[List[LibraryTrack]]) -> None:
+        self._refining = None
+        if not self.winfo_exists():
+            return
+        idx = next((i for i, g in enumerate(self.groups) if g is group), -1)
+        if idx >= 0:
+            ids = {x.content_id for x in group}
+            subs = [[x for x in sg if x.content_id in ids] for sg in subs]
+            subs = [sg for sg in subs if len(sg) > 1]
+            shown = idx == self.index
+            changed = [x.content_id for x in group] != [x.content_id for x in (subs[0] if subs else [])]
+            if subs:
+                self.groups[idx], self.verified[idx] = subs[0], True
+                for sg in subs[1:]:
+                    self.groups.append(sg)
+                    self.verified.append(True)
+            else:
+                self.groups.pop(idx)
+                self.verified.pop(idx)
+            self._fill_list()
+            if not self._busy and (shown or not subs):
+                self._select(min(self.index if self.index != idx or subs else idx, len(self.groups) - 1)
+                             if self.groups else -1)
+            elif shown and changed:
+                self._select(idx)
+        self._refine_next()
+
+    def _update_count(self) -> None:
+        todo = sum(1 for ok in self.verified if not ok)
+        n = len(self.groups)
+        if todo:
+            self.count.setText(t("dup.audio_checking", i=n - todo, n=n))
+        else:
+            self.count.setText(plural("dup.groups_one", "dup.groups_many", n))
+        self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
 
     # ------------------------------------------------------------------ liste
     def _loaded(self, groups: List[List[LibraryTrack]]) -> None:
         if not self.winfo_exists():
             return
         self.groups = groups
+        self.verified = [False] * len(groups)
         self._fill_list()
-        self._select(0 if groups else -1)
+        start = next((i for i, g in enumerate(groups) if self._focus & {x.content_id for x in g}), 0)
+        self._select(start if groups else -1)
+        self._refine_next()
 
     def _fill_list(self) -> None:
         self.list.blockSignals(True)
         self.list.clear()
-        self.count.setText(plural("dup.groups_one", "dup.groups_many", len(self.groups)))
-        for g in self.groups:
+        for i, g in enumerate(self.groups):
             k = best_keeper(g)
             title, artist = split_display(k.title, k.artist)
-            self.list.addItem(QListWidgetItem(f"{title}\n{artist or '—'}  ·  ×{len(g)}"))
+            item = QListWidgetItem(f"{title}\n{artist or '—'}  ·  ×{len(g)}")
+            if i < len(self.verified) and not self.verified[i]:
+                item.setToolTip(t("dup.unchecked"))
+                item.setForeground(QColor(theme.DIM))
+            self.list.addItem(item)
+        self._update_count()
         self.list.blockSignals(False)
 
     def _clear_detail(self) -> None:
@@ -125,6 +198,8 @@ class DuplicatesDialog(BaseDialog):
             return
         group = self.groups[i]
         keeper = best_keeper(group)
+        if self._keep_id is not None:
+            keeper = next((x for x in group if x.content_id == self._keep_id), keeper)
         self.detail_lay.addWidget(label(t("dup.choose"), "dim"))
         for k, x in enumerate(group):
             self.detail_lay.addWidget(self._version_row(k, x, x is keeper))
@@ -260,6 +335,9 @@ class DuplicatesDialog(BaseDialog):
         for b in (start, middle):
             b.setEnabled(not missing)
             lay.addWidget(b)
+        out = button(t("dup.exclude"), lambda: self._exclude(k), kind="flat", icon="close",
+                     tooltip=t("dup.exclude_tip"))              # rc.5 (C62)
+        lay.addWidget(out)
         return row
 
     def _listen(self, k: int, at: float) -> None:
@@ -302,14 +380,59 @@ class DuplicatesDialog(BaseDialog):
         ok = 0 <= self.index < len(self.groups) and not self._busy
         self.apply_btn.setEnabled(ok)
         self.skip_btn.setEnabled(ok)
+        self.later_btn.setEnabled(ok)
 
     # ------------------------------------------------------------------ actions
     def _skip(self) -> None:
         if 0 <= self.index < len(self.groups):
             self.groups.pop(self.index)
+            if self.index < len(self.verified):
+                self.verified.pop(self.index)
             idx = self.index
             self._fill_list()
             self._select(min(idx, len(self.groups) - 1))
+            self._refine_next()
+
+    def _exclude(self, k: int) -> None:
+        """rc.5 (C62) : ce son n'est pas un doublon des autres du groupe (retenu) ; le reste du groupe
+        peut toujours être fusionné."""
+        group = self.current_group
+        if group is None or self._busy or not (0 <= k < len(group)):
+            return
+        x = group[k]
+        self.ctrl.duplicate_ignores.add(x, [o for o in group if o is not x])
+        self.ctrl.message("info", t("dup.excluded_msg", title=x.title))
+        if len(group) <= 2:
+            self._skip()
+            return
+        group.pop(k)
+        self._fill_list()
+        self._select(self.index)
+
+    def _not_duplicates(self) -> None:
+        group = self.current_group
+        if group is None or self._busy:
+            return
+        self.ctrl.duplicate_ignores.add_group(group)
+        self.ctrl.message("info", t("dup.group_ignored_msg"))
+        self._skip()
+
+    def _show_ignored(self) -> None:
+        IgnoredDialog(self, self.ctrl, self._reload)
+
+    def _full_scan(self) -> None:
+        self._reload(full=True)
+
+    def _reload(self, full: bool = False) -> None:
+        if not self.winfo_exists() or self._busy:
+            return
+        self.groups, self.verified, self._refining = [], [], None
+        self._fill_list()
+        self._select(-1)
+        self.count.setText(t("dup.searching"))
+        if full:
+            self.ctrl.message("info", t("dup.full_running"))
+        self.ctrl.find_duplicates(self._loaded, self._progress, full=full)
 
     def _apply(self) -> None:
         if not (0 <= self.index < len(self.groups)) or self.title_entry is None:
@@ -350,6 +473,60 @@ class DuplicatesDialog(BaseDialog):
     @property
     def current_group(self) -> Optional[List[LibraryTrack]]:
         return self.groups[self.index] if 0 <= self.index < len(self.groups) else None
+
+
+class IgnoredDialog(BaseDialog):
+    """rc.5 (C62) : les paires « pas un doublon » retenues ; Annuler un choix ou tout rétablir."""
+
+    def __init__(self, parent: Any, controller: Any, on_change: Any) -> None:
+        super().__init__(parent, t("dup.ignored_title"), 560, 420)
+        self.ctrl, self.on_change = controller, on_change
+        self.changed = False
+        self.body.addWidget(label(t("dup.ignored_sub"), "dim", wrap=True))
+        self.list = QListWidget()
+        self.body.addWidget(self.list, 1)
+        bar = hbox()
+        self.undo_btn = button(t("dup.restore"), self._undo, icon="back")
+        self.all_btn = button(t("dup.restore_all"), self._undo_all, kind="flat")
+        bar.addWidget(self.undo_btn)
+        bar.addWidget(self.all_btn)
+        bar.addStretch(1)
+        bar.addWidget(button(t("action.close"), self.close))
+        self.body.addLayout(bar)
+        self._fill()
+        self.show_dialog()
+
+    def _fill(self) -> None:
+        self.list.clear()
+        entries = list(reversed(self.ctrl.duplicate_ignores.entries))     # les plus récents d'abord
+        for e in entries:
+            item = QListWidgetItem(t("dup.ignored_row", a=e.get("ta") or e["a"], b=e.get("tb") or e["b"])
+                                   + f"\n{(e.get('at') or '')[:16].replace('T', ' ')}")
+            item.setData(256, e)
+            self.list.addItem(item)
+        if not entries:
+            self.list.addItem(QListWidgetItem(t("dup.ignored_none")))
+        self.undo_btn.setEnabled(bool(entries))
+        self.all_btn.setEnabled(bool(entries))
+
+    def _undo(self) -> None:
+        picked = [i.data(256) for i in self.list.selectedItems() if i.data(256)]
+        if not picked and self.list.currentItem() is not None and self.list.currentItem().data(256):
+            picked = [self.list.currentItem().data(256)]
+        if picked:
+            self.ctrl.duplicate_ignores.remove(picked)
+            self.changed = True
+            self._fill()
+
+    def _undo_all(self) -> None:
+        self.ctrl.duplicate_ignores.clear()
+        self.changed = True
+        self._fill()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt
+        if self.changed and self.on_change is not None:
+            self.on_change()
+        super().closeEvent(event)
 
 
 def _drop_layout(lay: Any) -> None:

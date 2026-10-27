@@ -183,15 +183,15 @@ class LibraryOpsMixin:
             drives.insert(0, self.drive)
         lib, active = self.library, self.drive
 
-        def work() -> List[DriveSummary]:
-            from ...db.local_library import rekordbox_running
+        rb_open = bool(getattr(self, "_rekordbox_was_running", False))   # rc.5 (B26) : état stable de la veille
 
+        def work() -> List[DriveSummary]:
             out = []
             for d in drives:
                 local = bool(getattr(d, "is_local", False))
                 connected = active is not None and str(d.db_path) == str(active.db_path) and lib is not None
                 s = DriveSummary(d, connected, has_pdb=not local and (d.db_path.parent / "export.pdb").is_file(),
-                                 is_local=local, busy=local and rekordbox_running())
+                                 is_local=local, busy=local and rb_open)
                 if not local:
                     from ...db.usb import drive_filesystem
 
@@ -547,26 +547,53 @@ class LibraryOpsMixin:
         return carry_cues(lib, src_id, dst_id, lambda x: self._fingerprint(lib, x))
 
     # -------------------------------------------------------------- doublons, métadonnées
+    @property
+    def duplicate_ignores(self) -> Any:
+        """1.3.0-rc.5 (C62) : mémoire des « pas un doublon »."""
+        if getattr(self, "_dup_ignores", None) is None:
+            from ...core.dup_ignore import DuplicateIgnores
+
+            self._dup_ignores = DuplicateIgnores()
+        return self._dup_ignores
+
     def find_duplicates(self, ok: Callable[[List[List[LibraryTrack]]], None],
-                        progress: Optional[Callable[[int, int], None]] = None) -> None:
+                        progress: Optional[Callable[[int, int], None]] = None, full: bool = False) -> None:
+        """Groupes par le titre, tout de suite (1.3.0-rc.5, C63 : avant, l'empreinte audio de TOUS les sons
+        était calculée avant d'afficher quoi que ce soit). Le son de chaque groupe est vérifié ensuite,
+        groupe par groupe (`refine_duplicate_group`). Les sons déclarés « pas un doublon » ne sont plus
+        regroupés, sauf pour une détection complète (`full`)."""
         lib = self.library
         if lib is None:
             ok([])
             return
+        ignored = set() if full else self.duplicate_ignores.pairs()
 
         def work() -> List[List[LibraryTrack]]:
-            from ...core.duplicates import find_duplicate_groups, refine_by_audio
+            from ...core.duplicates import find_duplicate_groups
 
-            groups = find_duplicate_groups(lib.list_tracks())
-            if not groups or not getattr(self.settings, "audio_duplicates", True):
-                self.duplicate_matches = {}
-                return groups
-            # 1.3.0 (B02) : le titre propose, le son décide
-            report = (lambda i, n: self.dispatcher.post(progress, i, n)) if progress else None
-            groups, self.duplicate_matches = refine_by_audio(groups, lambda x: self._fingerprint(lib, x), report)
-            return groups
+            self.duplicate_matches = {}
+            return find_duplicate_groups(lib.list_tracks(), ignored=ignored)
 
         self.dispatcher.submit(work, ok, self._on_error, pool="match")
+
+    def refine_duplicate_group(self, group: List[LibraryTrack], ok: Callable[[List[List[LibraryTrack]]], None]) -> None:
+        """1.3.0 (B02) : le titre propose, le son décide, pour UN groupe : renvoie ses sous-groupes
+        (souvent le groupe lui-même ; [] si aucun son n'est le même). Empreintes en cache disque."""
+        lib = self.library
+        if lib is None or not getattr(self.settings, "audio_duplicates", True):
+            ok([group])
+            return
+
+        def work() -> List[List[LibraryTrack]]:
+            from ...core.duplicates import refine_by_audio
+
+            groups, matches = refine_by_audio([group], lambda x: self._fingerprint(lib, x))
+            if not isinstance(getattr(self, "duplicate_matches", None), dict):
+                self.duplicate_matches = {}
+            self.duplicate_matches.update(matches)
+            return groups
+
+        self.dispatcher.submit(work, ok, lambda exc: (log.info("Audio check: %s", exc), ok([group])), pool="match")
 
     def _fingerprint(self, lib: Any, track: LibraryTrack) -> Any:
         from ...analysis.fingerprint import file_fingerprint

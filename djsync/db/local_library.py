@@ -101,17 +101,35 @@ def _stale_file_error(exc: BaseException) -> bool:
     return any(k in text for k in ("malformed", "file is not a database", "disk i/o error", "no such table"))
 
 
+# 1.3.0-rc.5 (B26) : seul le programme principal compte. Avant, tout processus dont le nom commençait
+# par « rekordbox » (outil de mise à jour, rapport de plantage, serveur de médias…, encore là après la
+# fermeture) faisait afficher « Rekordbox ouvert ».
+REKORDBOX_PROCESSES = {"rekordbox.exe", "rekordbox"}
+
+
+def rekordbox_process_name(names) -> str:
+    """Nom du processus Rekordbox parmi `names` (ou "")."""
+    for name in names:
+        if (name or "").strip().lower() in REKORDBOX_PROCESSES:
+            return name
+    return ""
+
+
 def rekordbox_running() -> bool:
-    """Rekordbox est-il ouvert ? (rekordboxAgent, le service de synchronisation, ne compte pas)."""
+    """Rekordbox (le programme principal) est-il ouvert ?"""
     try:
         import psutil
     except ImportError:            # pragma: no cover - psutil vient avec pyrekordbox
         return False
-    for proc in psutil.process_iter(["name"]):
-        name = (proc.info.get("name") or "").lower()
-        if name.startswith("rekordbox") and "agent" not in name:
-            return True
-    return False
+    names = []
+    for proc in psutil.process_iter(["name", "status"]):
+        if proc.info.get("status") == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
+            continue
+        names.append(proc.info.get("name") or "")
+    found = rekordbox_process_name(names)
+    if found:
+        log.debug("Rekordbox running: %s", found)
+    return bool(found)
 
 
 @dataclass(frozen=True)

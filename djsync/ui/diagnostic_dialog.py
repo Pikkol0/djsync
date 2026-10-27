@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QWidget,
+    QButtonGroup, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QWidget,
 )
 
 from ..core.duplicates import best_keeper, split_display
@@ -216,21 +216,6 @@ class DiagnosticDialog(BaseDialog):
         self.note = label(t("diag.replace_note"), "faint", wrap=True)
         lay.addWidget(self.note)
 
-        if kind == "dup":
-            lay.addSpacing(theme.px(6))
-            title, artist = split_display(ref.title, ref.artist)
-            box = QWidget()
-            form = QFormLayout(box)
-            form.setContentsMargins(0, 0, 0, 0)
-            self.title_entry = QLineEdit(title)
-            self.artist_entry = QLineEdit(artist)
-            self.title_entry.setToolTip(t("dup.metadata_hint"))
-            form.addRow(t("track.title"), self.title_entry)
-            form.addRow(t("track.artist"), self.artist_entry)
-            self.meta_head = label(t("dup.fix_metadata"), "dim")
-            lay.addWidget(self.meta_head)
-            lay.addWidget(box)
-            self.meta_box = box
         lay.addStretch(1)
         self._choice_changed()
 
@@ -333,7 +318,10 @@ class DiagnosticDialog(BaseDialog):
         self.ignore_btn.setEnabled(cur is not None and not self._busy)
         if cur is not None:
             alt = self._choice.checkedId() >= ALT
-            self.apply_btn.setText(t("diag.apply_download") if alt else t("diag.apply"))
+            dup_keep = cur[0] == "dup" and not alt
+            self.apply_btn.setText(t("diag.apply_download") if alt else t("diag.merge_in_dup") if dup_keep
+                                   else t("diag.apply"))
+            self.apply_btn.setToolTip(t("diag.merge_in_dup_tip") if dup_keep else "")
 
     # ------------------------------------------------------------------ actions
     @property
@@ -387,6 +375,15 @@ class DiagnosticDialog(BaseDialog):
                           t("diag.replace_confirm", names=names, new=cand.track.title,
                             source=SOURCE_LABELS.get(cand.track.source, cand.track.source)),
                           go, confirm_text=t("diag.apply_download"), detail=t("diag.replace_detail"))
+            return
+        if kind == "dup":
+            # 1.3.0-rc.5 (C63) : une seule façon de fusionner des doublons : l'outil Doublons (son vérifié,
+            # hot cues reportés, sons écartés), ouvert sur ce groupe, avec la version choisie ici
+            from .duplicates_dialog import DuplicatesDialog
+
+            keep_id = olds[choice].content_id
+            self._drop_current()
+            DuplicatesDialog(self, self.ctrl, focus_ids=[x.content_id for x in olds], keep_id=keep_id)
             return
         keep = olds[choice]
         others = [x for x in olds if x is not keep]
