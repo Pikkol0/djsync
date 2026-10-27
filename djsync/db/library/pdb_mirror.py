@@ -184,7 +184,7 @@ class PdbMirrorMixin:
         return PdbStatus(state, detail or self.pdb_problem, pdb.track_count, len(target.tracks),
                          len(p.add_tracks), len(p.add_playlists),
                          different_playlists=p.changed_playlists,
-                         changed_tracks=len(p.update_tracks) + len(p.upgrade_tracks),
+                         changed_tracks=len(p.update_tracks) + len(p.upgrade_tracks) + len(p.rebuild_tracks),
                          pending_removals=len(p.delete_tracks) + len(p.delete_playlists))
 
     def pdb_catch_up(self) -> PdbSummary:

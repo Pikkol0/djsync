@@ -1,0 +1,70 @@
+# C64 (1.3.0-rc.6): keeps the audio-only FFmpeg builds in the cache of the default branch.
+#
+# A cache saved by a tag's run can only be restored by that same tag, so every release rebuilt FFmpeg
+# (3 builds, the longest steps). Caches of the default branch can be restored by every tag: this
+# workflow builds them once on main, and touches them every few days (GitHub evicts a cache that has
+# not been used for 7 days). Keys and build commands must stay identical to the "Build" workflow.
+name: FFmpeg cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["packaging/build_ffmpeg.sh", ".github/workflows/ffmpeg-cache.yml"]
+  schedule:
+    - cron: "17 3 */5 * *"
+
+jobs:
+  windows-cross:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: ffmpeg-out
+          key: ffmpeg-audio-${{ hashFiles('packaging/build_ffmpeg.sh') }}
+      - name: mingw-w64
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 25
+        run: |
+          opts="-q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get update $opts && sudo apt-get install -y $opts gcc-mingw-w64-x86-64 nasm make
+      - name: Cross-compile audio-only FFmpeg
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: packaging/build_ffmpeg.sh ffmpeg-out
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: ffmpeg-out
+          key: ffmpeg-audio-macos-arm64-${{ hashFiles('packaging/build_ffmpeg.sh') }}
+      - name: Audio-only FFmpeg
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: TARGET=native packaging/build_ffmpeg.sh ffmpeg-out
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: ffmpeg-out
+          key: ffmpeg-audio-linux-x86_64-${{ hashFiles('packaging/build_ffmpeg.sh') }}
+      - name: System packages
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          sudo apt-get install -y -q -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 nasm
+      - name: Audio-only FFmpeg
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: TARGET=native packaging/build_ffmpeg.sh ffmpeg-out

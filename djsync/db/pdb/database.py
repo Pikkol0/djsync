@@ -383,6 +383,19 @@ class PdbDatabase:
         self._tracks[_key(meta.path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))
         self.summary.tracks_updated += 1
 
+    def rebuild_track(self, meta: rows.TrackMeta) -> bool:
+        """1.3.0-rc.6 (B27) : réécrit en entier la ligne d'une piste AJOUTÉE PAR DJSYNC (l'appelant le
+        garantit : marque du journal posée pour un son sans masterDbId), même id : playlists intactes.
+        Sert quand son analyse change de dossier et pour mettre ses champs au format de Rekordbox."""
+        ref = self._tracks.get(_key(meta.path))
+        if ref is None:
+            self.summary.skipped.append(meta.path)
+            return False
+        page, slot = self.file.replace_row(T.TRACKS, ref.page, ref.slot, self._build_track(meta, ref.id))
+        self._tracks[_key(meta.path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))
+        self.summary.tracks_updated += 1
+        return True
+
     def update_track(self, path: str, title: Optional[str] = None, artist: Optional[str] = None,
                      bpmx100: Optional[int] = None, genre: Optional[str] = None, label: Optional[str] = None) -> bool:
         """Modifie titre / artiste / BPM d'une piste existante, MÊME id (playlists intactes), autres

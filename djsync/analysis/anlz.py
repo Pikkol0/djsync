@@ -14,6 +14,7 @@ aperçu bleu (liste, aperçu du morceau entier) au lieu de l'aperçu 3 bandes de
 from __future__ import annotations
 
 import os
+import re
 import struct
 import zlib
 from pathlib import Path
@@ -124,29 +125,61 @@ def read_path(data: bytes) -> str:
 
 
 # -------------------------------------------------------------------- emplacement
-def anlz_dir_for(track_path: str, salt: int = 0) -> str:
-    """Dossier « /PIONEER/USBANLZ/Pxxx/xxxxxxxx » déterministe pour un chemin de son.
+ANLZ_NAME = re.compile(r"^ANLZ(\d{4})\.DAT$", re.IGNORECASE)
 
-    Rekordbox dérive ce nom d'un hachage interne non documenté ; seule compte la référence écrite
-    dans la base (analysisDataFilePath / analyze_path), que les platines suivent telle quelle.
+
+def rekordbox_anlz_dir(track_path: str) -> str:
+    """1.3.0-rc.6 (B27) : dossier « /PIONEER/USBANLZ/Pxxx/xxxxxxxx » calculé comme Rekordbox.
+
+    Hachage du chemin du son sur la clé (« /Contents/… », unités UTF-16), repris de rkbdb2xml
+    (licence MIT, voir THIRD_PARTY_NOTICES) et vérifié sur les 213 pistes d'un vrai export
+    (tests/data/real_export.pdb). Les platines lisent le chemin écrit dans la base ; avoir le même
+    dossier que Rekordbox évite toute différence si un lecteur ou un logiciel le recalcule.
     """
+    v = 0
+    raw = track_path.encode("utf-16-le")
+    for i in range(0, len(raw), 2):
+        c = raw[i] | (raw[i + 1] << 8)
+        t = (v * 0x5BC9 + c) & 0xFFFFFFFF
+        v = (t * 0x93B5 + c) & 0xFFFFFFFF
+    r = v % 200003
+    p = ((r & 1) | ((r >> 1) & 2) | ((r >> 4) & 4) | ((r >> 4) & 8) | ((r >> 5) & 0x10)
+         | ((r >> 8) & 0x20) | ((r >> 10) & 0x40))
+    return f"/{ANLZ_ROOT}/P{p:03X}/{r:08X}"
+
+
+def anlz_dir_for(track_path: str, salt: int = 0) -> str:
+    """Ancien emplacement (jusqu'à la 1.3.0-rc.5, hachage propre à DJSync) : sert à reconnaître les
+    analyses à déplacer. Ne plus l'utiliser pour écrire."""
     h = zlib.crc32(f"{salt}:{track_path.casefold()}".encode("utf-8"))
     return f"/{ANLZ_ROOT}/P{h & 0x3FF:03X}/{(h >> 10) & 0x3FFFFF:08X}"
 
 
-def choose_anlz_dir(drive_root: Path, track_path: str) -> str:
-    """Dossier libre (ou déjà attribué à CE son) : jamais l'analyse d'un autre son écrasée."""
-    for salt in range(64):
-        rel = anlz_dir_for(track_path, salt)
-        dat = Path(drive_root) / rel.lstrip("/") / "ANLZ0000.DAT"
+def choose_anlz_base(drive_root: Path, track_path: str) -> str:
+    """« /PIONEER/USBANLZ/Pxxx/xxxxxxxx/ANLZnnnn » : le dossier de Rekordbox, et le premier jeu de
+    fichiers libre ou déjà à CE son. Deux sons dont le chemin donne le même dossier (rare) : comme
+    Rekordbox, le second prend ANLZ0001.*. Jamais l'analyse d'un autre son écrasée."""
+    rel_dir = rekordbox_anlz_dir(track_path)
+    folder = Path(drive_root) / rel_dir.lstrip("/")
+    for n in range(10000):
+        dat = folder / f"ANLZ{n:04d}.DAT"
         if not dat.exists():
-            return rel
+            return f"{rel_dir}/ANLZ{n:04d}"
         try:
             if read_path(dat.read_bytes()).casefold() == track_path.casefold():
-                return rel
+                return f"{rel_dir}/ANLZ{n:04d}"
         except (OSError, ValueError, UnicodeDecodeError):
             continue
     raise OSError("no free analysis folder found")
+
+
+def choose_anlz_dir(drive_root: Path, track_path: str) -> str:
+    """Compatibilité : dossier seul (le nom des fichiers peut être ANLZ0001 : préférer choose_anlz_base)."""
+    return choose_anlz_base(drive_root, track_path).rsplit("/", 1)[0]
+
+
+def is_anlz_dat(name: str) -> bool:
+    return bool(ANLZ_NAME.match(name))
 
 
 def _write_atomic(target: Path, data: bytes) -> None:
@@ -160,14 +193,23 @@ def _write_atomic(target: Path, data: bytes) -> None:
 
 
 def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, int, int]], wf: Waveforms,
-                total_samples: int = 0, rel_dir: Optional[str] = None, memory_cues: Sequence[int] = ()) -> str:
-    """Écrit ANLZ0000.DAT, .EXT et .2EX ; renvoie le chemin de base à inscrire (…/ANLZ0000.DAT).
-    `memory_cues` : mémoires (ms) lues par les platines (V0.5.0 : premier temps fort)."""
-    rel_dir = rel_dir or choose_anlz_dir(drive_root, track_path)
-    folder = Path(drive_root) / rel_dir.lstrip("/")
+                total_samples: int = 0, rel_dir: Optional[str] = None, memory_cues: Sequence[int] = (),
+                previous: Optional[str] = None) -> str:
+    """Écrit ANLZnnnn.DAT, .EXT et .2EX ; renvoie le chemin à inscrire (…/ANLZ0000.DAT, ou ANLZ0001…).
+    `memory_cues` : mémoires (ms) lues par les platines (V0.5.0 : premier temps fort).
+    `rel_dir` imposé (bibliothèque de l'ordinateur) : fichiers ANLZ0000.* dans ce dossier.
+    `previous` : ancien « …/ANLZnnnn.DAT » de ce son (1.3.0-rc.6 : emplacement changé), dont les cues
+    sont reprises si le nouvel emplacement n'en a pas encore."""
+    base = f"{rel_dir}/ANLZ0000" if rel_dir else choose_anlz_base(drive_root, track_path)
+    target = Path(drive_root) / base.lstrip("/")
     cues = None
-    old_dat, old_ext = folder / "ANLZ0000.DAT", folder / "ANLZ0000.EXT"
-    if old_dat.is_file():                       # 1.3.0 : une réanalyse garde les cues déjà posées
+    sources = [target.with_name(target.name + ".DAT")]
+    if previous:
+        sources.append(Path(drive_root) / previous.lstrip("/"))
+    for old_dat in sources:                     # 1.3.0 : une réanalyse garde les cues déjà posées
+        if not old_dat.is_file():
+            continue
+        old_ext = old_dat.with_suffix(".EXT")
         try:
             from .cues import read_cues
 
@@ -175,16 +217,17 @@ def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, in
             cues = kept or None
         except (OSError, ValueError):
             cues = None
+        break
     dat = build_dat(track_path, beats, wf, total_samples, memory_cues, cues)
     ext = build_ext(track_path, wf, memory_cues, cues)
     two = build_2ex(track_path, wf) if wf.band_detail else b""
     for blob in (dat, ext) + ((two,) if two else ()):    # contrôle avant écriture : relisible
         parse(blob)
-    _write_atomic(folder / "ANLZ0000.DAT", dat)
-    _write_atomic(folder / "ANLZ0000.EXT", ext)
+    _write_atomic(target.with_name(target.name + ".DAT"), dat)
+    _write_atomic(target.with_name(target.name + ".EXT"), ext)
     if two:
-        _write_atomic(folder / "ANLZ0000.2EX", two)
-    return f"{rel_dir}/ANLZ0000.DAT"
+        _write_atomic(target.with_name(target.name + ".2EX"), two)
+    return f"{base}.DAT"
 
 
 def read_memory_cues(data: bytes) -> List[int]:
