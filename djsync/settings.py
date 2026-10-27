@@ -147,7 +147,7 @@ class Settings:
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
-        self.audio_latency_ms = max(-200, min(500, int(self.audio_latency_ms or 0)))
+        self.audio_latency_ms = max(-200, min(2000, int(self.audio_latency_ms or 0)))
         if self.settings_version < 1:      # V1.0.0 : l'ajout de pages à export.pdb devient le défaut
             self.pdb_allow_growth = True   # (sans lui, une clé exportée par Rekordbox est pleine en ~15 sons)
             self.settings_version = 1
