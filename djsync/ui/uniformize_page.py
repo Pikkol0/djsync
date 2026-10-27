@@ -200,7 +200,7 @@ class TrackBlock(QFrame):
         if st == "scanning":
             head.addWidget(chip(t("uni.st_scanning")))
         elif conf:
-            role = {"sure": "chip_ok", "rules": "chip", "doubtful": "chip_warn"}[conf]
+            role = {"sure": "chip_good", "rules": "chip", "doubtful": "chip_warn"}[conf]      # C29
             head.addWidget(chip({"sure": t("uni.conf_sure", score=self.prop.score), "rules": t("uni.conf_rules"),
                                  "doubtful": t("uni.conf_doubtful")}[conf], role))
         if st in ("validated", "ignored", "applied", "clean"):

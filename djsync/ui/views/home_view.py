@@ -182,7 +182,7 @@ class HomeView(View):
                 pdb.setToolTip(t("home.pdb_stale_tip", detail=s.pdb_problem or "?"))
                 stale_detail = s.pdb_problem
             else:
-                pdb = chip(t("home.pdb_short_yes"))
+                pdb = chip(t("home.pdb_short_yes"), "chip_good")          # C29
                 pdb.setToolTip(t("home.pdb_yes"))
             chips.addWidget(pdb)
             if s.filesystem:

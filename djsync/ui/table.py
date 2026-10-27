@@ -128,6 +128,9 @@ class _Model(QAbstractTableModel):
                 return self.table._cover_for(row)
             return None
         if role == Qt.ForegroundRole:
+            level = row.values.get(col.key + "__level")       # 1.3.1 (C29) : couleur d'une cellule
+            if level:
+                return QColor(theme.LEVELS.get(level, theme.DIM))
             for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
                                ("ok", theme.ACCENT), ("dim", theme.DIM)):
                 if tag in row.tags:

@@ -26,6 +26,10 @@ DIM = "#9A9AA5"
 FAINT = "#62626C"
 WARN = "#E9A23B"
 ERR = "#E5575C"
+# 1.3.1 (C29) : échelle de qualité commune, indépendante de la couleur d'accent, toujours doublée d'un mot
+GOOD = "#4CC38A"          # bon
+FAIR = "#D2BE4E"          # moyen
+LEVELS = {"good": GOOD, "fair": FAIR, "warn": WARN, "bad": ERR, "neutral": DIM}
 
 ACCENT = ON_ACCENT = ACCENT_DIM = ""
 CURRENT_THEME = DEFAULT_THEME
@@ -140,6 +144,11 @@ QLabel[role="accent"] {{ color: {ACCENT}; }}
 QLabel[role="chip"], QFrame[role="panel"] QLabel[role="chip"] {{ background: {ELEV}; color: {DIM}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_warn"], QFrame[role="panel"] QLabel[role="chip_warn"] {{ background: {mix(SURFACE, WARN, 0.18)}; color: {WARN}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_ok"], QFrame[role="panel"] QLabel[role="chip_ok"] {{ background: {ACCENT_DIM}; color: {ACCENT}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="chip_good"], QFrame[role="panel"] QLabel[role="chip_good"] {{ background: {mix(SURFACE, GOOD, 0.16)}; color: {GOOD}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="chip_fair"], QFrame[role="panel"] QLabel[role="chip_fair"] {{ background: {mix(SURFACE, FAIR, 0.16)}; color: {FAIR}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="chip_bad"], QFrame[role="panel"] QLabel[role="chip_bad"] {{ background: {mix(SURFACE, ERR, 0.16)}; color: {ERR}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="good"] {{ color: {GOOD}; }}
+QLabel[role="fair"] {{ color: {FAIR}; }}
 QFrame[role="panel"] {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {r10}px; }}
 QFrame[role="panel"] QLabel, QFrame[role="panel"] QCheckBox, QFrame[role="panel"] QRadioButton {{ background: transparent; }}
 QFrame[role="sidebar"] {{ background: {SURFACE}; border: 0; border-right: 1px solid {BORDER}; }}

@@ -217,10 +217,13 @@ class DuplicatesDialog(BaseDialog):
             c = chip(t("dup.audio_unknown"))
             c.setToolTip(t("dup.audio_unknown_tip"))
             return c
+        from . import levels
+
+        pct = int(round(m.share * 100))
         if m.verdict == "same":
-            c = chip(t("dup.audio_same"), "chip_ok")
+            c = chip(t("dup.audio_same"), levels.CHIP_ROLE[levels.GOOD])          # C29 : vert, quel que soit l'accent
         else:
-            c = chip(t("dup.audio_variant", pct=int(round(m.share * 100))), "chip_warn")
+            c = chip(t("dup.audio_variant", pct=pct), levels.CHIP_ROLE[levels.similarity(pct)])
         c.setToolTip(t("dup.audio_tip", pct=int(round(m.share * 100)), shift=f"{m.shift_ms / 1000:+.2f}"))
         return c
 
