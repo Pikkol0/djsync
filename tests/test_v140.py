@@ -424,3 +424,74 @@ def test_youtube_best_stream_is_opt_in(tmp_path, monkeypatch):
     assert seen[-1]["cookiesfrombrowser"] == ("firefox",)
     d.download(_sc("s9"), tmp_path / "c")                          # SoundCloud : réglage YouTube sans effet
     assert "postprocessors" not in seen[-1] and "cookiesfrombrowser" not in seen[-1]
+
+
+# ------------------------------------------------------------------ C46 : vraie qualité (spectre)
+def _noise(path, cutoff=0, codec_args=()):
+    """Bruit rose de 30 s ; `cutoff` : passe par un MP3 coupé à cette fréquence (comme LAME / YouTube)."""
+    src = path.with_name(path.stem + ".src.flac")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=30:c=pink:a=0.3",
+                    "-ar", "44100", str(src)], check=True)
+    if not cutoff:
+        src.replace(path) if path.suffix == ".flac" else subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-y", "-i", str(src), *codec_args, str(path)], check=True)
+        src.unlink(missing_ok=True)
+        return path
+    mp3 = path.with_name(path.stem + ".lossy.mp3")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(src), "-b:a", "128k", "-cutoff", str(cutoff),
+                    str(mp3)], check=True)
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(mp3), *codec_args, str(path)], check=True)
+    src.unlink()
+    mp3.unlink()
+    return path
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg")
+def test_spectrum_tells_real_from_fake(tmp_path):
+    from djsync.analysis import spectrum as S
+    from djsync.core.quality import low_quality, probe
+
+    real = _noise(tmp_path / "real.flac")
+    fake = _noise(tmp_path / "fake.flac", cutoff=16000)
+    fake320 = _noise(tmp_path / "fake320.mp3", cutoff=16000, codec_args=("-b:a", "320k"))
+    good320 = _noise(tmp_path / "good320.mp3", codec_args=("-b:a", "320k", "-cutoff", "20500"))
+    assert S.estimate(S.measure(real)) == S.LOSSLESS
+    assert S.estimate(S.measure(fake)) == 128
+    assert S.estimate(S.measure(good320)) == 320
+    assert probe(fake).cutoff == 0                                 # pas encore mesuré : rien n'est décodé
+    for f in (real, fake, fake320, good320):
+        S.measure_and_remember(f)
+    r, f, f3, g3 = (probe(x) for x in (real, fake, fake320, good320))
+    assert r.real_lossless and not r.fake and low_quality(r) is None
+    assert f.fake and not f.real_lossless and f.effective_kbps == 128 and "≈ 128 kbps" in low_quality(f)
+    assert f3.fake and "MP3 320" in low_quality(f3)
+    assert not g3.fake and low_quality(g3) is None
+    assert S.lookup("FAKE.flac", fake.stat().st_size) == f.cutoff  # même nom (casse) et taille : sans disque
+
+
+def test_library_never_gives_gold_to_a_fake_lossless(tmp_path):
+    from djsync.analysis import spectrum as S
+    from djsync.models import LibraryTrack
+    from djsync.ui import theme
+    from djsync.ui.views.library_view import extra_values
+
+    f = tmp_path / "x.flac"
+    f.write_bytes(b"0" * 1000)
+    x = LibraryTrack(content_id=1, title="X", artist="A", album=None, duration_seconds=1, bpm=None, source_url=None,
+                     date_added="", is_analysed=False, path=str(f), file_type=5, bitrate=900,
+                     sample_rate=44100, file_size=1000)
+    assert extra_values(x)["format__color"] == theme.LEVELS["gold"] and "real" not in extra_values(x)
+    S.remember(f, 16100)
+    v = extra_values(x)
+    assert v["real"] == "≈ 128 kbps" and v["format__color"] == theme.LEVELS["warn"]
+    S.remember(f, 21800)
+    assert extra_values(x)["format__color"] == theme.LEVELS["gold"]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg")
+def test_analysis_measures_the_real_quality(tmp_path):
+    from djsync.analysis import analyze_file, spectrum as S
+
+    f = _noise(tmp_path / "n.flac", cutoff=16000)
+    res = analyze_file(f)
+    assert res.cutoff and S.estimate(res.cutoff) == 128 and S.known(f) == res.cutoff

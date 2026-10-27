@@ -9,6 +9,16 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _quality_register(tmp_path_factory):
+    """1.4.0 (C46) : registre des vraies qualités dans un dossier de test, jamais celui de l'utilisateur."""
+    from djsync.analysis import spectrum
+
+    spectrum.use_store(tmp_path_factory.mktemp("quality") / "quality.json")
+    yield
+    spectrum.use_store(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
     """Jamais de vraie requête « nouvelle version de DJSync ? » pendant les tests."""
     import djsync.core.updates as updates

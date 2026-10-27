@@ -38,11 +38,14 @@ def _fmt(track: LibraryTrack) -> str:
     return _FORMATS.get(track.file_type) or Path(track.path).suffix.lstrip(".").upper()
 
 
-EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "rate", "rating", "color", "plays", "created", "size",
+EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "real", "rate", "rating", "color", "plays", "created", "size",
                  "comment", "path")
 # Couleurs des sons Rekordbox (identifiants 1 à 8, même ordre dans exportLibrary.db et master.db)
 TRACK_COLORS = {1: "#F06EB4", 2: "#E5464A", 3: "#F08C2E", 4: "#E8D23C", 5: "#4CC38A", 6: "#3CC8D2",
                 7: "#3C78E6", 8: "#9A5BE0"}
+
+
+_CODECS = {".flac": "flac", ".wav": "wav", ".aiff": "aiff", ".aif": "aiff", ".mp3": "mp3", ".m4a": "aac", ".aac": "aac"}
 
 
 def extra_values(x: LibraryTrack) -> Dict[str, Any]:
@@ -60,11 +63,26 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     }
     if color:
         out["color__dot"] = color
-    # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit)
-    lossless = x.file_type in (5, 11, 12) or Path(x.path).suffix.lower() in (".wav", ".flac", ".aiff", ".aif")
-    tier = "gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None)
+    # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit) ; (C46) jamais
+    # pour un fichier dont le spectre trahit une qualité inférieure (colonne « Qualité réelle »)
+    from ...analysis.spectrum import lookup
+    from ...core.quality import AudioInfo
+    from .. import levels
+
+    suffix = Path(x.path).suffix.lower()
+    lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
+    codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
+    info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
+                     cutoff=lookup(Path(x.path).name, x.file_size) or 0)
+    real = info.real_kbps
+    if real:
+        out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
+        out["real__color"] = levels.color(levels.audio_quality(info.effective_kbps, info.real_lossless))
+    tier = None if info.fake else ("gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None))
     if tier:
         out["format__color"] = out["bitrate__color"] = theme.LEVELS[tier]
+    elif info.fake:
+        out["format__color"] = out["bitrate__color"] = out["real__color"] = theme.LEVELS["warn"]
     return out
 
 
@@ -173,6 +191,7 @@ class LibraryView(View):
             Column("year", t("track.year"), 52, "e", sort=lambda r: r.data.year or None if r.data else None),
             Column("label", t("track.label"), 120),
             Column("bitrate", t("track.bitrate"), 78, "e", sort=lambda r: r.data.bitrate or None if r.data else None),
+            Column("real", t("track.real_quality"), 96, "e"),               # 1.4.0 (C46)
             Column("rate", t("track.sample_rate"), 78, "e",
                    sort=lambda r: r.data.sample_rate or None if r.data else None),
             Column("rating", t("track.rating"), 76, "center", sort=lambda r: r.data.rating or None if r.data else None),

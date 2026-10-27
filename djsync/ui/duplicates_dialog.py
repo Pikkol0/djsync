@@ -329,8 +329,8 @@ class DuplicatesDialog(BaseDialog):
         if len(group) < 2 or any(y.content_id not in self._quality or self._quality[y.content_id] is None
                                  for y in group):
             return None
-        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].bitrate,
-                                                  self._quality[y.content_id].lossless) for y in group}
+        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].effective_kbps,
+                                                  self._quality[y.content_id].real_lossless) for y in group}
         top = max(rank.values())
         winners = [y for y in group if rank[y.content_id] == top]
         return winners[0] if top > 0 and len(winners) == 1 else None
@@ -350,7 +350,7 @@ class DuplicatesDialog(BaseDialog):
             _drop_layout(slot)
             q = self._quality.get(x.content_id)                # 1.4.0 (C10) : badge doré / argenté
             if q is not None:
-                badge = levels.tier_chip(q.bitrate, q.lossless)
+                badge = levels.tier_chip(q.effective_kbps, q.real_lossless)
                 if badge is not None:
                     slot.addWidget(badge)
             if best is not None and x is best:

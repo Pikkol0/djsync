@@ -32,6 +32,7 @@ class AnalysisResult:
     key: KeyResult
     waveforms: Waveforms
     seconds: float = 0.0          # temps de calcul
+    cutoff: Optional[int] = None  # 1.4.0 (C46) : coupure du spectre (Hz), vraie qualité du fichier
 
     @property
     def bpm(self) -> float:
@@ -62,7 +63,14 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) 
     grid = analyze_tempo(x, sr)
     key = analyze_key(x, sr)
     wf = compute_waveforms(x, sr, audio.duration)
-    return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started)
+    cutoff = None
+    try:                                              # 1.4.0 (C46) : ~0,2 s, gardé dans le registre
+        from .spectrum import measure_and_remember
+
+        cutoff = measure_and_remember(path, ffmpeg_location, audio.duration)
+    except Exception:  # noqa: BLE001 - la vraie qualité n'est qu'une information en plus
+        pass
+    return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff)
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,

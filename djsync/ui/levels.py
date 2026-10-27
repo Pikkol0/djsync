@@ -88,6 +88,12 @@ def audio_text(info, file_type: int = 0, missing: bool = False):
             parts.append(f"{info.bitrate} kbps")
         if info.sample_rate:
             parts.append(f"{info.sample_rate / 1000:g} kHz")
+        real = getattr(info, "real_label", "")
+        if real:                                   # 1.4.0 (C46) : faux sans perte / faux 320
+            from ..i18n import t
+
+            parts.append(t("quality.real", value=real))
+            return " · ".join(parts), audio_quality(info.effective_kbps)
         return " · ".join(parts), tier(info.bitrate, info.lossless) or audio_quality(info.bitrate, info.lossless)
     return _FORMATS.get(file_type, ""), NEUTRAL
 
