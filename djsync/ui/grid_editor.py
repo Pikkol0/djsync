@@ -262,8 +262,10 @@ class GridEditor(QWidget):
         except Exception:  # noqa: BLE001
             return 0.0
 
-    def _player_seek(self, ms: float) -> None:
-        self.ctrl.player.seek(max(0.0, (ms - self._lead_ms) / 1000.0))
+    def _player_seek(self, ms: float, flush: bool = True) -> None:
+        # flush=False pour le retour au début d'une boucle : décidé en avance, il doit passer après ce
+        # que la carte son a déjà en réserve (rc.5, C39)
+        self.ctrl.player.seek(max(0.0, (ms - self._lead_ms) / 1000.0), flush=flush)
 
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid
@@ -806,7 +808,7 @@ class GridEditor(QWidget):
             if self.active_loop and sent_ms >= self.active_loop[1]:
                 over = sent_ms - self.active_loop[1]
                 length = max(1.0, self.active_loop[1] - self.active_loop[0])
-                self._player_seek(self.active_loop[0] + over % length)
+                self._player_seek(self.active_loop[0] + over % length, flush=False)
             self._show_time()
             span = self.view_s * 1000.0
             if self.fixed_cursor:
