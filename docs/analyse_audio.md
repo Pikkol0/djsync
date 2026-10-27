@@ -126,8 +126,14 @@ Aussi testé : m4a/AAC, mp3 VBR, intro silencieuse de 8 s, vidéo désaccordée 
   DJSync dans la liste et sous les platines. Les sons analysés avant la V0.3.0 l'obtiennent avec
   « Analyser à nouveau ».
 * Non écrits : PQT2, PSSI (phrases).
-* Le dossier `USBANLZ/Pxxx/xxxxxxxx` est un hachage DJSync (celui de Rekordbox n'est pas documenté) ;
-  les platines suivent le chemin inscrit dans la base, quel qu'il soit.
+* Dossier `USBANLZ/Pxxx/xxxxxxxx` (1.3.0-rc.6, B27) : calculé **comme Rekordbox**, à partir du chemin
+  du son sur la clé (`/Contents/…`, unités UTF-16) : `t = h·0x5BC9 + c ; h = t·0x93B5 + c` (32 bits),
+  `r = h mod 200003`, `xxxxxxxx = r` en hexadécimal, `Pxxx` = bits 0, 2, 6, 7, 9, 13, 16 de `r`
+  (algorithme du projet rkbdb2xml, MIT ; vérifié sur les 213 sons de `tests/data/real_export.pdb`).
+  Deux sons dans le même dossier : le second prend `ANLZ0001.*`, comme Rekordbox. Jusqu'à la rc.5,
+  DJSync utilisait son propre hachage ; les clés concernées sont rangées à l'ouverture
+  (`djsync/db/library/anlz_migrate.py` : copie, base mise à jour, ligne export.pdb réécrite, anciens
+  fichiers effacés une fois export.pdb à jour ; état dans `DJSync_Backups/djsync-migrations.json`).
 
 ## Utilisation
 * V0.2.0 : **à la demande** (Bibliothèque ▸ Outils ▸ Analyser, Accueil, Paramètres) via

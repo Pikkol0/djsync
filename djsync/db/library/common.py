@@ -57,7 +57,7 @@ from ...models import FOLDER_KIND, PLAYLIST_KIND, LibraryTrack, PlaylistInfo
 from .. import artwork as _art
 from ..pdb import PdbDatabase, PdbError, PdbStore, Summary as PdbSummary, TrackMeta
 from ..pdb import sync as pdb_sync_mod
-from ..pdb.sync import PLAYLIST_DELETED, TRACK_DELETED, TRACK_FIELDS
+from ..pdb.sync import PLAYLIST_DELETED, TRACK_DELETED, TRACK_FIELDS, TRACK_REBUILT
 from ..usb import UsbDrive, drive_from_letter
 
 log = logging.getLogger(__name__)
@@ -146,6 +146,7 @@ class _Extras:
     problems: List[str] = field(default_factory=list)
     written: List[Path] = field(default_factory=list)   # fichiers créés (supprimés si la base refuse)
     cue_ms: Optional[int] = None            # V0.5.0 : mémoire automatique (premier temps fort)
+    replaced: Optional[str] = None          # 1.3.0-rc.6 : ancien …/ANLZnnnn.DAT, remplacé par anlz_path
 
 
 @dataclass

@@ -486,9 +486,14 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
 
         def work() -> Any:
-            if lib.pdb_status().state != "stale":
-                return None
-            return lib.pdb_catch_up()
+            summary = lib.pdb_catch_up() if lib.pdb_status().state == "stale" else None
+            migrate = getattr(lib, "migrate_analysis", None)
+            if migrate is not None:          # 1.3.0-rc.6 (B27) : analyses rangées comme Rekordbox
+                try:
+                    migrate()
+                except Exception as exc:  # noqa: BLE001 - clé verrouillée (Rekordbox ouvert) : rien changé,
+                    log.warning("Analysis folders not moved yet: %s", exc)  # refait à l'ouverture suivante
+            return summary
 
         def done(summary: Any) -> None:
             if summary is not None and (summary.tracks_added or summary.playlists_added or summary.entries_added):

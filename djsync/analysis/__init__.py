@@ -66,10 +66,11 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) 
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,
-               native_sr: int = 44100, rel_dir: Optional[str] = None, auto_cue: bool = False) -> str:
+               native_sr: int = 44100, rel_dir: Optional[str] = None, auto_cue: bool = False,
+               previous: Optional[str] = None) -> str:
     """Écrit les fichiers d'analyse sur la clé (ou dans le dossier « share » de Rekordbox sur
     l'ordinateur : `rel_dir` imposé) ; renvoie « /PIONEER/USBANLZ/…/ANLZ0000.DAT »."""
     total = int(round(result.duration * native_sr)) if file_type == MP3_FILE_TYPE else 0
     cue = result.first_downbeat_ms if auto_cue else None
     return write_files(Path(drive_root), track_path, result.pqtz_beats(), result.waveforms, total, rel_dir=rel_dir,
-                       memory_cues=[cue] if cue is not None else ())
+                       memory_cues=[cue] if cue is not None else (), previous=previous)

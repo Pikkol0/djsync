@@ -35,7 +35,9 @@ log = logging.getLogger(__name__)
 TRACK_DELETED = "track_deleted"        # son supprimé de la bibliothèque : à retirer d'export.pdb
 PLAYLIST_DELETED = "playlist_deleted"  # playlist supprimée ou renommée (ancien chemin) : à retirer
 TRACK_FIELDS = "track_fields"          # titre / artiste / BPM modifiés : à recopier
-KINDS = (TRACK_DELETED, PLAYLIST_DELETED, TRACK_FIELDS)
+TRACK_REBUILT = "track_rebuilt"        # 1.3.0-rc.6 (B27) : son de DJSync dont la ligne est à réécrire
+                                       # (analyse déplacée, champs mis au format de Rekordbox)
+KINDS = (TRACK_DELETED, PLAYLIST_DELETED, TRACK_FIELDS, TRACK_REBUILT)
 
 
 # --------------------------------------------------------------------------------- journal
@@ -120,6 +122,7 @@ class Target:
 class Plan:
     add_tracks: List[TrackMeta] = field(default_factory=list)
     upgrade_tracks: List[TrackMeta] = field(default_factory=list)       # analyse / pochette arrivée après coup
+    rebuild_tracks: List[TrackMeta] = field(default_factory=list)       # B27 : lignes de DJSync à réécrire
     update_tracks: List[Tuple[str, Optional[str], Optional[str], Optional[int]]] = field(default_factory=list)
     delete_tracks: List[str] = field(default_factory=list)
     add_playlists: List[Tuple[PlaylistPath, bool]] = field(default_factory=list)
@@ -136,7 +139,8 @@ class Plan:
 
     @property
     def empty(self) -> bool:
-        return not (self.add_tracks or self.upgrade_tracks or self.update_tracks or self.delete_tracks
+        return not (self.add_tracks or self.upgrade_tracks or self.rebuild_tracks or self.update_tracks
+                    or self.delete_tracks
                     or self.add_playlists or self.set_entries or self.delete_playlists or self.repair_index)
 
     def describe(self) -> str:
@@ -145,6 +149,7 @@ class Plan:
                  (self.changed_playlists, "playlist(s) with different content or order"),
                  (len(self.update_tracks), "track(s) with changed info"),
                  (len(self.upgrade_tracks), "track(s) without analysis"),
+                 (len(self.rebuild_tracks), "track(s) to rewrite"),
                  (len(self.delete_tracks), "deleted track(s) still present"),
                  (len(self.delete_playlists), "deleted or renamed playlist(s) still present"),
                  (len(self.repair_index), "index page(s) to repair")]
@@ -180,12 +185,15 @@ def plan(db: PdbDatabase, target: Target, marks: Sequence[Mark] = ()) -> Plan:
 
     # 2. sons : manquants, analyse arrivée après coup, infos modifiées (journal)
     fields_marked = {_key(m.path[0]) for m in marks if m.kind == TRACK_FIELDS}
+    rebuild_marked = {_key(m.path[0]) for m in marks if m.kind == TRACK_REBUILT}
     for k, meta in wanted_tracks.items():
         info = db.track_info(meta.path)
         if info is None:
             p.add_tracks.append(meta)
             continue
-        if not info["analyze_path"] and (meta.analyze_path or (meta.artwork_path and not info["artwork_id"])):
+        if k in rebuild_marked:
+            p.rebuild_tracks.append(meta)                  # réécrite en entier : analyse comprise
+        elif not info["analyze_path"] and (meta.analyze_path or (meta.artwork_path and not info["artwork_id"])):
             p.upgrade_tracks.append(meta)
         if k in fields_marked:
             title = meta.title if (meta.title or "") != (info["title"] or "") else None
@@ -194,7 +202,7 @@ def plan(db: PdbDatabase, target: Target, marks: Sequence[Mark] = ()) -> Plan:
             if title is not None or artist is not None or bpm is not None:
                 p.update_tracks.append((meta.path, title, artist, bpm))
     for m in marks:
-        if m.kind == TRACK_FIELDS:
+        if m.kind in (TRACK_FIELDS, TRACK_REBUILT):
             p.resolved.append(m)                           # traitée (recopiée, ou déjà identique / disparue)
 
     # 3. playlists : manquantes, puis contenu et ordre
@@ -238,6 +246,8 @@ def apply(db: PdbDatabase, p: Plan) -> None:
         db.delete_track(path)
     for meta in p.add_tracks + p.upgrade_tracks:
         db.add_track(meta)                                       # idempotent ; réécrit si analyse manquante
+    for meta in p.rebuild_tracks:
+        db.rebuild_track(meta)                                   # B27 : même id, ligne refaite
     for path, title, artist, bpm in p.update_tracks:
         db.update_track(path, title=title, artist=artist, bpmx100=bpm)
     for path, folder in p.add_playlists:
