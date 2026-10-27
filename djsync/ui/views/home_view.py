@@ -86,6 +86,11 @@ class HomeView(View):
             app.show_view("search")
             app.views["search"].search_for(text)
 
+    def open_space(self) -> None:
+        app = self.window()
+        app.show_view("settings")
+        app.views["settings"].show_space()
+
     def open_settings(self, section: str) -> None:
         app = self.window()
         app.show_view("settings")
@@ -235,7 +240,13 @@ class HomeView(View):
             bar.setRange(0, 1000)
             bar.setValue(int(used * 1000))
             bar.setFixedWidth(theme.px(200))
-            side.addWidget(label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim"))
+            free = label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim")
+            if s.connected:                                   # 1.3.1 (C27) : détail de l'espace
+                for w in (free, bar):
+                    w.setCursor(Qt.PointingHandCursor)
+                    w.setToolTip(t("home.space_tip"))
+                    w.mousePressEvent = lambda _e: self.open_space()
+            side.addWidget(free)
             side.addWidget(bar)
             side.addStretch(1)
             lay.addLayout(side)

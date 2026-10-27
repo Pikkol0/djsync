@@ -353,6 +353,12 @@ class SettingsView(View):
         card.addLayout(row)
         self.points_hint = label("", "faint", wrap=True)
         card.addWidget(self.points_hint)
+        # 1.3.1 (C27) : espace occupé (calculé à l'ouverture de la section)
+        from ..space_card import SpaceCard
+
+        self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"))
+        self.space = SpaceCard(self._space_box_layout, controller)
+        self.space_box = self._cards[-1][1]
         self._build_about(s)
         self.page.addStretch(1)
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
@@ -360,6 +366,7 @@ class SettingsView(View):
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
+        controller.on("drive", lambda: QTimer.singleShot(400, self._space_if_shown))   # 1.3.1 (C27)
         controller.on("drives", self._refresh_drives)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
@@ -527,6 +534,7 @@ class SettingsView(View):
             self.search.blockSignals(False)
         self._apply_filter()
         self.area.verticalScrollBar().setValue(0)
+        self._space_if_shown()
         if remember and self.ctrl.settings.settings_section != key:
             self.ctrl.settings.settings_section = key
             try:
@@ -565,6 +573,18 @@ class SettingsView(View):
         self.no_match.setText(t("settings.search_none", text=self.search.text()))
         self.no_match.setVisible(bool(words) and not shown)
 
+    def _space_if_shown(self) -> None:
+        """C27 : mesure lancée seulement quand la carte « Espace » est affichée."""
+        space = getattr(self, "space", None)
+        if space is not None and self.isVisible() and not self.space_box.isHidden():
+            space.compute()
+
+    def show_space(self) -> None:
+        """Lien « espace » de l'Accueil : section Bibliothèques, défilée jusqu'à la carte."""
+        self.show_section("libraries")
+        QTimer.singleShot(120, lambda: self.area.verticalScrollBar().setValue(
+            self.area.verticalScrollBar().maximum()))         # dernière carte de la section
+
     def visible_cards(self) -> list:
         return [box for _s, box in self._cards if not box.isHidden()]
 
@@ -581,6 +601,7 @@ class SettingsView(View):
 
     def on_show(self) -> None:
         self.ctrl.refresh_drives()
+        QTimer.singleShot(0, self._space_if_shown)
 
     # --------------------------------------------------------------- apparence
     def _language_changed(self, text: str) -> None:

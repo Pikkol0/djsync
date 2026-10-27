@@ -159,3 +159,224 @@ def test_extra_values_text():
     v = extra_values(x)
     assert v["rating"] == "★★★☆☆" and v["color__dot"] and "256" in v["bitrate"] and "44.1" in v["rate"]
     assert "8.4" in v["size"] and v["year"] == "2020" and v["path"] == "/Contents/a.m4a"
+
+
+# ------------------------------------------------------------------ C38 : genre et label dans export.pdb
+def _usb_with_genres(tmp_path):
+    from sqlcipher3 import dbapi2 as sqlcipher
+
+    from djsync.db._key import get_default_key
+
+    from .test_pdb_sync import make_usb
+
+    usb = make_usb(tmp_path)
+    conn = sqlcipher.connect(str(usb / "PIONEER" / "rekordbox" / "exportLibrary.db"))
+    conn.execute("PRAGMA key = '%s'" % get_default_key())
+    conn.execute("CREATE TABLE genre(genre_id integer primary key, name varchar)")
+    conn.execute("CREATE TABLE label(label_id integer primary key, name varchar)")
+    conn.commit()
+    conn.close()
+    return usb
+
+
+def test_genre_and_label_are_written_to_export_pdb(tmp_path):
+    from djsync.db.pdb import check
+    from djsync.db.pdb.format import T
+
+    from .test_pdb_sync import open_lib, pdb_of
+    from .test_usb_library import make_wav
+
+    usb = _usb_with_genres(tmp_path)
+    with open_lib(usb) as lib:
+        a = lib.add_track(make_wav(lib, "A", "a"), "a", "A", None, None, [1], meta={"genre": "House", "label": "Defected"})
+        b = lib.add_track(make_wav(lib, "B", "b"), "b", "B", None, None, [1], meta={"genre": "house"})
+        assert lib.pdb_state == "ok"
+    pdb = pdb_of(usb)
+    ia, ib = pdb.track_info(a.path), pdb.track_info(b.path)
+    assert (ia["genre"], ia["label"]) == ("House", "Defected") and ib["genre"] == "House"   # genre réutilisé
+    assert sum(1 for _ in pdb.file.iter_rows(T.GENRES)) == 1
+    lines = "\n".join(check.report(usb / "PIONEER" / "rekordbox" / "export.pdb"))
+    assert "Layout recognised" in lines and "PROBLEM" not in lines and "INDEX:" not in lines, lines
+    assert "genres" in lines and "rows 1" in lines.split("genres", 1)[1].splitlines()[0]
+
+
+def test_genre_edit_and_missing_genre_are_caught_up(tmp_path):
+    from sqlcipher3 import dbapi2 as sqlcipher
+
+    from djsync.db._key import get_default_key
+
+    from .test_pdb_sync import open_lib, pdb_of
+    from .test_usb_library import make_wav
+
+    usb = _usb_with_genres(tmp_path)
+    with open_lib(usb) as lib:
+        a = lib.add_track(make_wav(lib, "A", "a"), "a", "A", None, None, [1])
+        assert pdb_of(usb).track_info(a.path)["genre"] == ""
+        lib.edit_track_metadata(a.content_id, genre="Techno")
+        assert lib.pdb_state == "ok"
+        assert pdb_of(usb).track_info(a.path)["genre"] == "Techno"
+    # clé écrite avant la 1.3.1 : genre présent dans exportLibrary.db mais pas dans export.pdb
+    db = usb / "PIONEER" / "rekordbox" / "exportLibrary.db"
+    with open_lib(usb) as lib:
+        lib.edit_track_metadata(a.content_id, genre="")
+    conn = sqlcipher.connect(str(db))
+    conn.execute("PRAGMA key = '%s'" % get_default_key())
+    conn.execute("INSERT INTO genre (name) VALUES ('Disco')")
+    conn.execute("UPDATE content SET genre_id = (SELECT genre_id FROM genre WHERE name = 'Disco')")
+    conn.commit()
+    conn.close()
+    with open_lib(usb) as lib:
+        st = lib.pdb_status()
+        assert st.state == "stale" and st.changed_tracks == 1
+        lib.pdb_catch_up()
+        assert lib.pdb_status().state == "ok"
+    assert pdb_of(usb).track_info(a.path)["genre"] == "Disco"
+
+
+# ------------------------------------------------------------------ C28 : volet des réglages
+def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
+    from djsync.i18n import t
+    from djsync.ui.views.settings_view import SECTIONS
+
+    from .qt_util import close_window, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        app.resize(1400, 900)
+        app.show_view("settings")
+        view = app.views["settings"]
+        pump(app, 0.3)
+        assert view.sections.count() == len(SECTIONS)
+        seen = set()
+        for key, _icon in SECTIONS:
+            view.show_section(key)
+            cards = view.visible_cards()
+            assert cards, key                                    # chaque section a au moins une carte
+            seen.update(id(c) for c in cards)
+        assert len(seen) == len(view._cards)                     # chaque carte est dans une section
+        assert app.ctrl.settings.settings_section == "djsync"
+        view.show_section("analysis")
+        assert view.analyze_usb_var.isVisibleTo(view)
+        assert not view.update_var.isVisibleTo(view)
+        # recherche dans toutes les sections
+        view.search.setText("export.pdb")
+        assert view.pdb_var.isVisibleTo(view) and not view.no_match.isVisibleTo(view)
+        view.search.setText("zzzz introuvable")
+        assert not view.visible_cards() and view.no_match.isVisibleTo(view)
+        view.search.setText("")
+        assert view.analyze_usb_var.isVisibleTo(view)
+        # rapports d'erreur : section « Retours et confidentialité »
+        view.show_section("privacy")
+        assert view.report_menu.isVisibleTo(view)
+        # fenêtre étroite : liste déroulante au lieu du volet
+        app.resize(700, 700)
+        pump(app, 0.3)
+        assert view.section_menu.isVisibleTo(view) and not view.side.isVisibleTo(view)
+        view.section_menu.setCurrentIndex(0)
+        assert view._current_section == "general"
+        assert t("settings.section_privacy")
+        assert not app.errors
+    finally:
+        close_window(app)
+
+
+def test_home_pdb_chip_opens_the_libraries_section(tmp_path, monkeypatch):
+    from .qt_util import close_window, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        app.views["home"].open_settings("libraries")
+        pump(app, 0.2)
+        assert app._current == "settings" and app.views["settings"]._current_section == "libraries"
+        assert app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])
+    finally:
+        close_window(app)
+
+
+# ------------------------------------------------------------------ C27 : espace occupé
+def test_usb_usage_parts_and_safe_actions(tmp_path):
+    from datetime import datetime, timedelta
+
+    from djsync.core import space
+    from djsync.db import backups
+
+    root = tmp_path / "key"
+    (root / "Contents" / "A").mkdir(parents=True)
+    (root / "Contents" / "A" / "a.m4a").write_bytes(b"x" * 5000)
+    (root / "PIONEER" / "rekordbox").mkdir(parents=True)
+    (root / "PIONEER" / "rekordbox" / "exportLibrary.db").write_bytes(b"x" * 700)
+    (root / "PIONEER" / "USBANLZ" / "P001").mkdir(parents=True)
+    (root / "PIONEER" / "USBANLZ" / "P001" / "ANLZ0000.DAT").write_bytes(b"x" * 300)
+    data = root / ".djsync" / "data"
+    (data / "cache" / "grid").mkdir(parents=True)
+    (data / "cache" / "grid" / "g.npz").write_bytes(b"x" * 900)
+    (data / "settings.json").write_bytes(b"x" * 100)
+    (root / "DJSync.exe").write_bytes(b"x" * 2000)
+    bdir = root / "DJSync_Backups"
+    pts = backups.points_dir(bdir)
+    now = datetime(2026, 10, 27, 12, 0)
+    for i, kind in enumerate(["origin", "manual"] + ["auto"] * 7):
+        folder = pts / f"p{i:02d}-{kind}"
+        folder.mkdir(parents=True)
+        (folder / "exportLibrary.db").write_bytes(b"x" * 100)
+        backups._write_meta(folder, kind, now - timedelta(days=10 - i), "", [], (1, 1))
+    u = space.usb_usage(root, "Contents", data)
+    p = u.parts
+    assert list(p) == list(space.USB_PARTS)
+    assert p["music"] == 5000 and p["databases"] == 700 and p["analysis"] == 300
+    assert p["caches"] == 900 and p["app"] == 2100                     # cache compté à part
+    assert p["backups"] >= 900 and p["free"] == u.free
+    assert space.clear_caches(data) == 900 and not any((data / "cache").iterdir())
+    kinds = lambda: sorted(x.kind for x in backups.list_points(bdir))    # noqa: E731
+    assert kinds().count("auto") == 7
+    removed, freed = space.trim_points(bdir, 5)
+    assert removed == 2 and freed > 0
+    assert kinds() == ["auto"] * 5 + ["manual", "origin"]               # origine et manuel gardés
+
+
+def test_space_warnings_and_cache():
+    from djsync.core import space
+
+    u = space.Usage({"music": 50, "backups": 40, "free": 5}, total=100, free=5)
+    assert u.warnings() == ["low_free", "heavy_backups"]
+    c = space.UsageCache(seconds=60)
+    u.at = __import__("time").time()
+    c.put("k", u)
+    assert c.get("k") is u
+    c.drop("k")
+    assert c.get("k") is None
+
+
+def test_space_card_measures_when_shown_and_home_link(tmp_path, monkeypatch):
+    from djsync.core import space
+
+    from .qt_util import close_window, pump
+
+    app, usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        calls = []
+        real = space.usb_usage
+        monkeypatch.setattr(space, "usb_usage", lambda *a, **k: calls.append(a) or real(*a, **k))
+        app.resize(1300, 900)
+        app.show_view("settings")
+        view = app.views["settings"]
+        view.show_section("general")
+        pump(app, 0.3)
+        assert not calls                                         # pas mesuré tant que la carte est cachée
+        app.show_view("home")
+        app.views["home"].open_space()
+        assert pump(app, 8, lambda: view.space.usage is not None)
+        assert view._current_section == "libraries" and len(calls) == 1
+        assert view.space.usage.parts["music"] > 0
+        assert "music" in view.space.usage.folders
+        view.show_section("general")
+        view.show_section("libraries")
+        pump(app, 0.3)
+        assert len(calls) == 1                                   # résultat gardé quelques minutes
+        view.space.compute(force=True)
+        assert pump(app, 8, lambda: len(calls) == 2 and view.space.refresh_btn.isEnabled())
+        assert not app.errors
+    finally:
+        close_window(app)
