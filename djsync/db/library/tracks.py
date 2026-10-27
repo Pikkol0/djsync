@@ -117,6 +117,45 @@ class TracksMixin:
             (name, *extra_params)).fetchone()
         return row[0] if row else conn.execute(insert_sql, insert_params).lastrowid
 
+    def relink_track(self, content_id: int, new_file: Path) -> LibraryTrack:
+        """1.3.1 (C43) : le fichier d'un son a été déplacé sur la clé : la bibliothèque pointe vers
+        `new_file` (même son ; playlists, grille et cues gardés). Le chemin des fichiers d'analyse
+        (balise PPTH) suit ; export.pdb est réconcilié (ancienne piste retirée, nouvelle ajoutée)."""
+        from ...analysis.anlz import _write_atomic, read_path, retarget
+
+        root = self.drive.root.resolve()
+        target = Path(new_file).resolve()
+        if root not in target.parents or target.suffix.lower() not in FILE_TYPES or not target.is_file():
+            raise LibraryError("The file must be an audio file on this drive.")
+        rel = "/" + target.relative_to(root).as_posix()
+        with self._write() as conn:
+            row = conn.execute("SELECT path, analysisDataFilePath, COALESCE(informationUpdateCount,0) FROM content "
+                               "WHERE content_id = ?", (content_id,)).fetchone()
+            if row is None:
+                raise TrackNotFoundError(f"Track not found (id {content_id}).")
+            old, anlz, count = row
+            if conn.execute("SELECT 1 FROM content WHERE path = ? COLLATE NOCASE AND content_id != ?",
+                            (rel, content_id)).fetchone():
+                raise LibraryError("Another track of the library already uses this file.")
+            cols = {"path": rel, "fileName": target.name, "fileSize": target.stat().st_size,
+                    "informationUpdateCount": int(count) + 1}
+            cols = {k: v for k, v in cols.items() if not self._content_cols or k in self._content_cols}
+            conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
+                         (*cols.values(), content_id))
+            if old and old.casefold() != rel.casefold():
+                self._pdb_mark(TRACK_DELETED, old)
+        if anlz:
+            dat = self.absolute_path(anlz)
+            for ext in (".DAT", ".EXT", ".2EX"):
+                f = dat.with_suffix(ext)
+                try:
+                    data = f.read_bytes()
+                    if (read_path(data) or "").casefold() == (old or "").casefold():
+                        _write_atomic(f, retarget(data, rel))
+                except (OSError, ValueError, UnicodeDecodeError) as exc:
+                    log.info("Analysis path not updated (%s): %s", f, exc)
+        return self.get_track(content_id)
+
     def delete_track(self, content_id: int, delete_file: bool = True) -> bool:
         """Retire le son de la bibliothèque et de toutes les playlists.
 

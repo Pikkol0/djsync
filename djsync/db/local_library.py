@@ -1127,6 +1127,25 @@ class LocalRekordboxLibrary:
             raise
         return self.get_track(content_id)
 
+    def relink_track(self, content_id: int, new_file: Path) -> LibraryTrack:
+        """1.3.1 (C43) : le fichier a été déplacé : le son pointe vers `new_file` (comme « Relocaliser »
+        dans Rekordbox ; playlists, grille et cues gardés)."""
+        target = Path(new_file)
+        if target.suffix.lower() not in FILE_TYPES or not target.is_file():
+            raise LibraryError("The file must be an existing audio file.")
+        posix = target.resolve().as_posix()
+        existing = self._read("SELECT ID FROM djmdContent WHERE FolderPath = :p AND ID != :id "
+                              f"AND {_VISIBLE}", {"p": posix, "id": str(content_id)})
+        if existing:
+            raise LibraryError("Another track of the library already uses this file.")
+        with self._write():
+            c = self._content(content_id)
+            c.FolderPath = posix
+            c.FileNameL = target.name
+            c.FileSize = target.stat().st_size
+            c.updated_at = datetime.now()
+        return self.get_track(content_id)
+
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
         title = title.strip() if title is not None else None

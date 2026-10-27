@@ -40,6 +40,9 @@ class DuplicatesDialog(BaseDialog):
         self.cues_combo: Optional[QComboBox] = None          # 1.3.0 (C13) : de quelle version viennent les cues
         self._cue_counts: dict = {}
         self._cues_touched = False
+        from .diag_tabs import add_tabs
+
+        add_tabs(self, controller, "dup")                      # 1.3.1 (C41) : onglet « Doublons »
 
         head = hbox()
         head.addWidget(label(t("dup.title"), "h2"))
@@ -88,6 +91,7 @@ class DuplicatesDialog(BaseDialog):
         self.list.blockSignals(True)
         self.list.clear()
         self.count.setText(plural("dup.groups_one", "dup.groups_many", len(self.groups)))
+        self.ctrl.set_diag_count("dup", len(self.groups))
         for g in self.groups:
             k = best_keeper(g)
             title, artist = split_display(k.title, k.artist)

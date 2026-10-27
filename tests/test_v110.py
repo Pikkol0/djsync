@@ -115,32 +115,36 @@ def demo(tmp_path, monkeypatch):
 
 
 def test_diagnostic_from_home_card_replace_and_ignore(demo):
+    """1.3.1 (C41) : le bouton Diagnostic ouvre l'onglet « Fichiers introuvables » ; l'onglet « Mauvaise
+    qualité » garde le remplacement par une version retéléchargée et « Ignorer » (les doublons ont
+    leur propre onglet)."""
     from djsync.ui.diagnostic_dialog import ALT, DiagnosticDialog
     from djsync.ui.dialogs import ConfirmDialog
+    from djsync.ui.missing_dialog import MissingFilesDialog
 
     ctrl = demo.ctrl
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].connected)
     home.diagnose(home._summaries[0].drive, True)
+    assert pump(demo, 2, lambda: find(demo, MissingFilesDialog) is not None)
+    missing = find(demo, MissingFilesDialog)
+    assert pump(demo, 6, lambda: missing.count.text() == "No missing file")
+    missing.findChild(__import__("djsync.ui.diag_tabs", fromlist=["DiagTabs"]).DiagTabs)._go("quality")
     assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
+    assert find(demo, MissingFilesDialog) is None                        # un seul onglet ouvert
     dlg = find(demo, DiagnosticDialog)
     assert pump(demo, 6, lambda: not dlg._loading)
-    kinds = [(k, p.track.title if k != "dup" else len(p)) for k, p in dlg.items]
-    assert kinds == [("dup", 2), ("bitrate", "Umbrella")]          # le clip est dans le groupe de doublons
+    kinds = [(k, p.track.title) for k, p in dlg.items]
+    assert kinds == [("source", "One More Time (Clip Officiel)"), ("bitrate", "Umbrella")], kinds
     assert dlg.list.item(0).flags() == dlg.list.item(0).flags().__class__(0)   # en-tête de section
-
-    # ---- doublon : 2 versions + versions propres (la proposition « Official Video » est écartée)
-    assert pump(demo, 4, lambda: dlg._choice.button(ALT) is not None)
-    assert dlg._choice.button(ALT + 1) is None
-    assert dlg._choice.checkedId() == 0 and dlg.apply_btn.text() == "Keep this version"
-    dlg._choice.button(ALT).setChecked(True)
-    assert dlg.apply_btn.text() == "Download and replace" and not dlg.note.isHidden()
+    assert ctrl.diag_counts["quality"] == 2
 
     # ---- qualité : remplacer Umbrella par la version retéléchargée
-    dlg._select(1)
-    assert "MP3 128 kbps" in dlg.items[1][1].reason
+    dlg._select(next(i for i, (k, _p) in enumerate(dlg.items) if k == "bitrate"))
+    i = dlg.index
+    assert "MP3 128 kbps" in dlg.items[i][1].reason
     assert pump(demo, 4, lambda: dlg._choice.checkedId() == ALT)
-    umbrella = dlg.items[1][1].track
+    umbrella = dlg.items[i][1].track
     pls_before = {p.name for p in ctrl.playlists if umbrella.content_id in _ids(ctrl, p.playlist_id)}
     dlg._apply()
     assert pump(demo, 2, lambda: find(demo, ConfirmDialog) is not None)
@@ -156,9 +160,9 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     # ---- ignorer : retenu pour les diagnostics suivants
     dlg._select(0)
     dlg._ignore()
-    assert dlg.items == [] and ctrl.settings.diag_ignored[0].startswith("d:")
+    assert dlg.items == [] and ctrl.settings.diag_ignored[0].startswith("q:")
     dlg.close()
-    home._open_diagnostic()
+    demo.open_diagnostic("quality")
     assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
     dlg = find(demo, DiagnosticDialog)
     assert pump(demo, 6, lambda: not dlg._loading)

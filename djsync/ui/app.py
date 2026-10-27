@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
@@ -72,6 +72,9 @@ def qt_app() -> QApplication:
     return app  # type: ignore[return-value]
 
 
+DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog")   # 1.3.1 (C41)
+
+
 class DJSyncApp(QMainWindow):
     def __init__(self, settings: Optional[Settings] = None, controller: Optional[AppController] = None,
                  splash: Any = None) -> None:
@@ -99,6 +102,8 @@ class DJSyncApp(QMainWindow):
         # écouteurs de la FENÊTRE d'abord : ceux des vues (ajoutés ensuite) sont oubliés à chaque
         # reconstruction de l'interface (langue)
         self.ctrl.on("message", self._message)
+        self.ctrl.on("message_action", self._message_action)
+        self.ctrl.on("open_diagnostic", lambda tab: self.open_diagnostic(tab))
         self.ctrl.on("navigate", self.show_view)
         self.ctrl.on("drive", self._drive_changed)
         self.ctrl.on("drives", self._drive_changed)
@@ -190,6 +195,10 @@ class DJSyncApp(QMainWindow):
         self.status.setMaximumWidth(theme.px(520))
         tl.addWidget(self.toast_icon)
         tl.addWidget(self.status, 1)
+        self.toast_action = button("", lambda: self._toast_clicked(), kind="flat")   # 1.3.1 : lien d'un message
+        self.toast_action.hide()
+        self._toast_fn: Optional[Callable[[], None]] = None
+        tl.addWidget(self.toast_action)
         self.toast.hide()
         self.views = {}
         self.grid_editor: Any = None
@@ -564,6 +573,8 @@ class DJSyncApp(QMainWindow):
             page._leaving = True
             page.close()
         self._uni_return = self._current or "library"
+        for old in self._diag_pages():                  # 1.3.1 (C41) : onglet Uniformiser du Diagnostic
+            self._drop_diag_page(old)
         self.uniformize_page = UniformizePage(self.stack, self.ctrl, list(tracks), scope, on_close=self._uni_closed)
         self.stack.addWidget(self.uniformize_page)
         self._show_page(self.uniformize_page)
@@ -575,12 +586,71 @@ class DJSyncApp(QMainWindow):
             page.deleteLater()
         self.show_view(getattr(self, "_uni_return", None) or "library")
 
+    # ------------------------------------------------- 1.3.1 (C41/C43) : Diagnostic en onglets
+    def open_diagnostic(self, tab: str = "missing", from_page: Optional[QWidget] = None) -> None:
+        """Ouvre un onglet du Diagnostic. `from_page` : l'onglet quitté (fermé sans revenir à la vue
+        d'origine ; le bouton Retour du nouvel onglet y ramène)."""
+        if not self.ctrl.has_library:
+            self.ctrl.message("error", t("msg.no_drive"))
+            return
+
+        def go() -> None:
+            if tab == "uniformize":
+                from .uniformize_page import ScopeDialog
+
+                ScopeDialog(self, self.ctrl)
+                return
+            if tab == "dup":
+                from .duplicates_dialog import DuplicatesDialog as page_cls
+            elif tab == "quality":
+                from .diagnostic_dialog import DiagnosticDialog as page_cls
+            else:
+                from .missing_dialog import MissingFilesDialog as page_cls
+            page_cls(self, self.ctrl)
+
+        self.ctrl.diag_quick_counts()
+        if from_page is None or tab == "uniformize":
+            go()                      # Uniformiser : la page actuelle reste tant que la portée n'est pas choisie
+            return
+        self._drop_diag_page(from_page, then=go)
+
+    def _drop_diag_page(self, page: QWidget, then: Optional[Callable[[], None]] = None) -> None:
+        """Ferme une page du Diagnostic sans revenir à la vue d'origine (changement d'onglet)."""
+        if page is getattr(self, "uniformize_page", None):
+            def closed() -> None:                       # après la question « enregistrer ? » éventuelle
+                self.uniformize_page = None
+                self.stack.removeWidget(page)
+                page.deleteLater()
+                if then:
+                    then()
+            page._on_close = closed                     # type: ignore[attr-defined]
+            page.close()
+            return
+        self.__dict__.setdefault("_page_returns", {}).pop(id(page), None)
+        page._host = None                               # type: ignore[attr-defined]
+        try:
+            self.stack.removeWidget(page)
+        except RuntimeError:
+            pass
+        page.close()
+        if then:
+            then()
+
+    def _diag_pages(self) -> List[QWidget]:
+        from .diagnostic_dialog import DiagnosticDialog
+        from .duplicates_dialog import DuplicatesDialog
+        from .missing_dialog import MissingFilesDialog
+
+        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog)
+        return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
+
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages
     def open_dialog_page(self, page: QWidget) -> None:
         returns = self.__dict__.setdefault("_page_returns", {})
+        diag = type(page).__name__ in DIAG_PAGE_TYPES             # un seul onglet du Diagnostic à la fois
         for i in reversed(range(self.stack.count())):            # une seule page de chaque sorte
             old = self.stack.widget(i)
-            if old is not page and type(old) is type(page):
+            if old is not page and (type(old) is type(page) or (diag and old in self._diag_pages())):
                 returns.pop(id(old), None)
                 old._host = None                                  # type: ignore[attr-defined]
                 self.stack.removeWidget(old)
@@ -663,6 +733,8 @@ class DJSyncApp(QMainWindow):
 
     # ------------------------------------------------------------------- état
     def _message(self, kind: str, text: str) -> None:
+        self.toast_action.hide()
+        self._toast_fn = None
         self.status.setText(text)
         self.status.setProperty("role", "" if kind == "info" else status_role(kind))
         restyle(self.status)
@@ -673,6 +745,19 @@ class DJSyncApp(QMainWindow):
         self.toast.raise_()
         self._place_toast()
         self._status_timer.start(12000 if kind in ("error", "warn") else 5000)
+
+    def _message_action(self, text: str, fn: Callable[[], None]) -> None:
+        """Bouton dans la bulle du dernier message (ex. « Voir dans le Diagnostic »)."""
+        self._toast_fn = fn
+        self.toast_action.setText(text)
+        self.toast_action.show()
+        self._place_toast()
+
+    def _toast_clicked(self) -> None:
+        fn, self._toast_fn = self._toast_fn, None
+        self._hide_toast()
+        if fn:
+            fn()
 
     def _hide_toast(self) -> None:
         self.status.setText("")

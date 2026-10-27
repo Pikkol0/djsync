@@ -380,3 +380,149 @@ def test_space_card_measures_when_shown_and_home_link(tmp_path, monkeypatch):
         assert not app.errors
     finally:
         close_window(app)
+
+
+# ------------------------------------------------------------------ C41 / C43 : Diagnostic en onglets
+def test_missing_files_tab_replace_relink_remove(tmp_path, monkeypatch):
+    import shutil
+
+    from djsync.ui.diag_tabs import DiagTabs
+    from djsync.ui.missing_dialog import DOWNLOAD, RELINK, REMOVE, REPLACE, MissingFilesDialog
+
+    from .qt_util import close_window, find, pump
+
+    app, usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        lib = ctrl.library
+        by_title = {x.title: x for x in lib.list_tracks()}
+        clip, umbrella, vald = by_title["One More Time (Clip Officiel)"], by_title["Umbrella"], by_title["Désaccordé"]
+        lib.absolute_path(clip).unlink()                                     # supprimé
+        moved = usb / "Contents" / "Rangé" / lib.absolute_path(umbrella).name
+        moved.parent.mkdir(parents=True)
+        shutil.move(str(lib.absolute_path(umbrella)), str(moved))            # dossier déplacé
+        lib.absolute_path(vald).unlink()
+        pls_umbrella = set(lib.playlists_of([umbrella.content_id])[umbrella.content_id])
+
+        app.open_diagnostic("missing")
+        assert pump(app, 2, lambda: find(app, MissingFilesDialog) is not None)
+        dlg = find(app, MissingFilesDialog)
+        assert pump(app, 8, lambda: len(dlg.items) == 3)
+        assert ctrl.diag_counts["missing"] == 3
+        tabs = dlg.findChild(DiagTabs)
+        assert "(3)" in tabs.buttons["missing"].text()
+        items = {i.track.title: i for i in dlg.items}
+        assert [c.title for c in items[clip.title].candidates] == ["One More Time"]
+        assert items[umbrella.title].found == moved and not items[vald.title].candidates
+
+        # remplacer le clip par la version présente
+        dlg._select(dlg.items.index(items[clip.title]))
+        assert dlg._choice.checkedId() == REPLACE * 1000
+        dlg._apply()
+        assert pump(app, 6, lambda: len(dlg.items) == 2)
+        ids = {x.content_id for x in lib.list_tracks()}
+        assert clip.content_id not in ids and by_title["One More Time"].content_id in ids
+
+        # relier Umbrella à son fichier déplacé : même son, mêmes playlists
+        dlg._select(dlg.items.index(items[umbrella.title]))
+        assert dlg._choice.checkedId() == RELINK * 1000
+        dlg._apply()
+        assert pump(app, 6, lambda: len(dlg.items) == 1)
+        x = lib.get_track(umbrella.content_id)
+        assert lib.absolute_path(x) == moved and set(lib.playlists_of([x.content_id])[x.content_id]) == pls_umbrella
+        if x.analysis_path:
+            from djsync.analysis.anlz import read_path
+
+            assert read_path(lib.absolute_path(x.analysis_path).read_bytes()) == x.path
+
+        # retirer l'entrée (pas d'autre choix proposé par défaut que retélécharger / retirer)
+        assert dlg._choice.button(DOWNLOAD * 1000) is not None
+        dlg._choice.button(REMOVE * 1000).setChecked(True)
+        dlg._apply()
+        assert pump(app, 6, lambda: not dlg.items)
+        assert vald.content_id not in {x.content_id for x in lib.list_tracks()}
+        assert ctrl.diag_counts["missing"] == 0 and "(0)" in tabs.buttons["missing"].text()
+        assert not app.errors
+    finally:
+        close_window(app)
+
+
+def test_diagnostic_tabs_switch_between_tools(tmp_path, monkeypatch):
+    from djsync.ui.diag_tabs import DiagTabs
+    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+    from djsync.ui.missing_dialog import MissingFilesDialog
+
+    from .qt_util import close_window, find, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        app.show_view("library")
+        app.views["library"]._duplicates()                            # Outils ▸ Doublons : onglet Doublons
+        assert pump(app, 2, lambda: find(app, DuplicatesDialog) is not None)
+        dup = find(app, DuplicatesDialog)
+        tabs = dup.findChild(DiagTabs)
+        assert tabs.buttons["dup"].isChecked() and not tabs.buttons["missing"].isChecked()
+        assert pump(app, 6, lambda: ctrl.diag_counts.get("uniformize") is not None)   # comptes rapides
+        tabs._go("missing")
+        assert pump(app, 2, lambda: find(app, MissingFilesDialog) is not None and find(app, DuplicatesDialog) is None)
+        page = find(app, MissingFilesDialog)
+        page.findChild(DiagTabs)._go("quality")
+        assert pump(app, 2, lambda: find(app, DiagnosticDialog) is not None and find(app, MissingFilesDialog) is None)
+        q = find(app, DiagnosticDialog)
+        q.close()                                                       # Retour : vue d'origine
+        assert pump(app, 2, lambda: app._current == "library" and app.stack.currentWidget() is app.views["library"])
+        # Uniformiser : choix de la portée, puis page avec la même barre d'onglets
+        app.open_diagnostic("dup")
+        dup = find(app, DuplicatesDialog)
+        app.open_uniformize(ctrl.library.list_tracks()[:2], "test")
+        assert find(app, DuplicatesDialog) is None
+        uni = app.uniformize_page
+        assert uni.findChild(DiagTabs).buttons["uniformize"].isChecked()
+        uni.findChild(DiagTabs)._go("dup")
+        assert pump(app, 2, lambda: find(app, DuplicatesDialog) is not None and app.uniformize_page is None)
+        assert not app.errors
+    finally:
+        close_window(app)
+
+
+def test_relink_updates_export_pdb_and_playlists(tmp_path):
+    import shutil
+
+    from .test_pdb_sync import make_usb, open_lib, pdb_of
+    from .test_usb_library import make_wav
+
+    usb = make_usb(tmp_path)
+    with open_lib(usb) as lib:
+        a = lib.add_track(make_wav(lib, "A", "a"), "a", "A", None, None, [1, 2])
+        new = usb / "Contents" / "Moved" / "a.wav"
+        new.parent.mkdir(parents=True)
+        shutil.move(str(lib.absolute_path(a)), str(new))
+        x = lib.relink_track(a.content_id, new)
+        assert x.path == "/Contents/Moved/a.wav" and lib.pdb_state == "ok", lib.pdb_problem
+    pdb = pdb_of(usb)
+    assert pdb.has_track("/Contents/Moved/a.wav") and not pdb.has_track(a.path)
+    assert [p.rsplit("/", 1)[-1] for p in pdb.playlist_tracks(("Rap",))] == ["a.wav"]
+
+
+def test_missing_file_message_links_to_the_diagnostic(tmp_path, monkeypatch):
+    from djsync.ui.missing_dialog import MissingFilesDialog
+
+    from .qt_util import close_window, find, pump
+
+    app, usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        app.show()
+        ctrl._player_event("missing", str(usb / "Contents" / "x.m4a"))
+        assert app.toast_action.isVisibleTo(app) and app.toast_action.text() == "See in the Diagnostic"
+        app.toast_action.click()
+        assert pump(app, 2, lambda: find(app, MissingFilesDialog) is not None)
+        ctrl.message("info", "other")
+        assert not app.toast_action.isVisibleTo(app)
+    finally:
+        close_window(app)

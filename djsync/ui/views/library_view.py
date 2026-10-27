@@ -831,9 +831,7 @@ class LibraryView(View):
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:
             return
-        from ..duplicates_dialog import DuplicatesDialog
-
-        DuplicatesDialog(self, self.ctrl)
+        self.window().open_diagnostic("dup")             # 1.3.1 (C41) : onglet Doublons du Diagnostic
 
     def _tools_menu(self) -> None:
         sel = self._selected_tracks()

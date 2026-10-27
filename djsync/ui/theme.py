@@ -179,6 +179,10 @@ QPushButton[kind="nav"] {{ background: transparent; border: 0; border-radius: {r
               text-align: left; padding: {p(8)}px {p(10)}px; color: {DIM}; }}
 QPushButton[kind="nav"]:hover {{ color: {TEXT}; background: {ELEV}; }}
 QPushButton[kind="nav"]:checked {{ color: {TEXT}; background: {ACCENT_DIM}; font-weight: 600; }}
+QPushButton[kind="tab"] {{ background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+              padding: {p(6)}px {p(12)}px; color: {DIM}; }}
+QPushButton[kind="tab"]:hover {{ color: {TEXT}; }}
+QPushButton[kind="tab"]:checked {{ color: {TEXT}; border-bottom-color: {ACCENT}; font-weight: 600; }}
 QPushButton[kind="tile"] {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {r10}px;
               padding: {p(12)}px {p(14)}px; text-align: left; font-weight: 600; }}
 QPushButton[kind="tile"]:hover {{ border-color: {ACCENT}; background: {mix(SURFACE, ACCENT, 0.06)}; }}

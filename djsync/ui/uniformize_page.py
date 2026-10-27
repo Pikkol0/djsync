@@ -492,6 +492,9 @@ class UniformizePage(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
         body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
+        from .diag_tabs import DiagTabs
+
+        body.addWidget(DiagTabs(self, controller, "uniformize"))   # 1.3.1 (C41) : onglet du Diagnostic
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
         titles = vbox(spacing=0)

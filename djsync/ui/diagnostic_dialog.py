@@ -53,12 +53,15 @@ class DiagnosticDialog(BaseDialog):
         self.note: Optional[Any] = None
         self.meta_head: Optional[Any] = None
         self.meta_box: Optional[Any] = None
+        from .diag_tabs import add_tabs
+
+        add_tabs(self, controller, "quality")                  # 1.3.1 (C41) : onglet « Mauvaise qualité »
 
         head = hbox()
         drive = controller.drive
         name = (t("local.name") if controller.is_local else (getattr(drive, "label", "") or str(getattr(drive, "root", ""))))\
             if drive is not None else ""
-        head.addWidget(label(t("diag.title") + (f" — {name}" if name else ""), "h2"))
+        head.addWidget(label(t("diagtab.quality_title") + (f" — {name}" if name else ""), "h2"))
         head.addStretch(1)
         self.count = label(t("diag.running"), "dim")
         head.addWidget(self.count)
@@ -86,7 +89,7 @@ class DiagnosticDialog(BaseDialog):
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
-        controller.diagnose(self._loaded, self._progress)
+        controller.diagnose(self._loaded, self._progress, duplicates=False)
 
     # ------------------------------------------------------------------ chargement
     def _progress(self, i: int, n: int) -> None:
@@ -110,6 +113,8 @@ class DiagnosticDialog(BaseDialog):
         self.list.clear()
         n = len(self.items)
         self.count.setText(plural("diag.count_one", "diag.count_many", n) if n else t("diag.none_short"))
+        if not self._loading:
+            self.ctrl.set_diag_count("quality", n)
         current = None
         for idx, (kind, payload) in enumerate(self.items):
             if kind != current:

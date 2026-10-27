@@ -277,9 +277,7 @@ class HomeView(View):
         self.ctrl.connect(drive)
 
     def _open_diagnostic(self) -> None:
-        from ..diagnostic_dialog import DiagnosticDialog
-
-        DiagnosticDialog(self, self.ctrl)
+        self.window().open_diagnostic("missing")        # 1.3.1 (C41/C43) : Diagnostic en onglets
 
     def _analysis(self) -> None:
         self.ctrl._emit("show_unanalysed")
@@ -297,7 +295,5 @@ class HomeView(View):
         if not self.ctrl.has_library:
             self.ctrl.message("error", t("msg.no_drive"))
             return
-        from ..duplicates_dialog import DuplicatesDialog
-
-        DuplicatesDialog(self, self.ctrl)
+        self.window().open_diagnostic("dup")
 
