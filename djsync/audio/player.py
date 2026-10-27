@@ -33,7 +33,12 @@ FRAME_BYTES = 2 * CHANNELS                 # s16 stéréo
 _AHEAD = RATE * 2                          # trames décodées d'avance
 # 1.2.3 : réserve de la carte son. À 60 ms, ouvrir une fenêtre (interface occupée, le fil audio
 # Python attend) la vidait : macOS rejouait alors le dernier bloc (« rollback » entendu en préécoute).
-BUFFER_MS = 200
+# 1.3.0-rc.5 (C39) : miniaudio prend cette valeur comme taille d'UN paquet et en garde 3 d'avance par
+# défaut : 200 ms donnaient ~600 ms entre ce qui est envoyé et ce qu'on entend (son « en retard » sous
+# Windows, retour en arrière ou saut de cue entendus tard). Hors macOS : 2 paquets de 40 ms (~80 ms) ;
+# macOS garde 200 ms (testé sans souci). La position n'utilise plus ce chiffre : le retard réel est mesuré.
+BUFFER_MS = 200 if sys.platform == "darwin" else 40
+PERIODS = 0 if sys.platform == "darwin" else 2      # 0 = valeur de miniaudio (3)
 _NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 
 STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
@@ -185,6 +190,11 @@ class AudioPlayer:
         self._prev: Optional[tuple] = None         # avant un seek : (instant, trames, paquet, envoyées) de l'ancien flux
         self.latency_offset_ms = 0                 # réglage : retard supplémentaire (Bluetooth…), en ms
         self._paused = False
+        # 1.3.0-rc.5 (C39) : retard réel de la carte son, mesuré : avance maximale de ce qui a été
+        # demandé par la carte sur le temps écoulé depuis son premier appel (= ce qu'elle garde en réserve)
+        self._dev_t0: Optional[float] = None
+        self._dev_frames = 0
+        self._dev_lead = 0.0
 
     # ------------------------------------------------------------------ utilitaires
     def _emit(self, kind: str, payload: object = None) -> None:
@@ -231,6 +241,11 @@ class AudioPlayer:
 
     def _fill(self, n: int) -> bytes:
         silence = b"\0" * (n * FRAME_BYTES)
+        now = time.monotonic()
+        if self._dev_t0 is None:
+            self._dev_t0 = now
+        self._dev_frames += n
+        self._dev_lead = max(self._dev_lead, self._dev_frames / RATE - (now - self._dev_t0))
         with self._lock:
             stream = self._stream
             if stream is None or self._paused:
@@ -239,7 +254,7 @@ class AudioPlayer:
             data = data[: len(data) - len(data) % FRAME_BYTES]
             self._frames += len(data) // FRAME_BYTES
             if data:
-                self._cb_time, self._cb_frames, self._cb_period = time.monotonic(), self._frames, n / RATE
+                self._cb_time, self._cb_frames, self._cb_period = now, self._frames, n / RATE
         if not data:
             return silence
         if self._volume < 0.999:
@@ -257,7 +272,9 @@ class AudioPlayer:
 
             backends = [miniaudio.Backend.NULL] if os.environ.get("DJSYNC_AUDIO_NULL") else None
             device = miniaudio.PlaybackDevice(miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
-                                              buffersize_msec=BUFFER_MS, backends=backends, app_name="DJSync")
+                                              buffersize_msec=BUFFER_MS, callback_periods=PERIODS,
+                                              backends=backends, app_name="DJSync")
+            self._dev_t0, self._dev_frames, self._dev_lead = None, 0, 0.0
             pump = self._pump()
             next(pump)
             device.start(pump)
@@ -372,10 +389,19 @@ class AudioPlayer:
         if self.state != STOPPED:
             self._set_state(STOPPED)
 
-    def seek(self, seconds: float) -> None:
+    def seek(self, seconds: float, flush: bool = True) -> None:
         if self.state not in (PLAYING, PAUSED) or self.duration <= 0 or self._path is None:
             return
         seconds = max(0.0, min(seconds, max(0.0, self.duration - 0.5)))
+        if flush and self.state == PLAYING and self._device is not None:
+            # 1.3.0-rc.5 (C39) : la réserve de la carte son jouerait encore l'ancien endroit ; on la
+            # vide pour entendre le nouveau tout de suite (clic sur la forme d'onde, hot cue)
+            self._halt_device()
+            self._swap(self._open(seconds), int(seconds * RATE))
+            with self._lock:
+                self._prev = None
+            self._ensure_device()
+            return
         self._swap(self._open(seconds), int(seconds * RATE))
 
     def set_volume(self, volume: float) -> None:
@@ -398,7 +424,7 @@ class AudioPlayer:
             paused, prev = self._paused, self._prev
         if paused:
             return base / RATE
-        latency = max(0.0, BUFFER_MS / 1000.0 + self.latency_offset_ms / 1000.0)
+        latency = max(0.0, self.output_latency() + self.latency_offset_ms / 1000.0)
         now = time.monotonic()
         if cb_time is not None:
             elapsed = min(max(0.0, now - cb_time), max(period, 0.001) * 1.5)
@@ -411,6 +437,13 @@ class AudioPlayer:
             if old < p_sent / RATE:
                 return old
         return base / RATE
+
+    def output_latency(self) -> float:
+        """Retard (s) entre l'envoi à la carte son et ce qu'on entend : mesuré (rc.5), sinon la réserve
+        prévue (taille d'un paquet × nombre de paquets)."""
+        if self._dev_lead > 0.0:
+            return self._dev_lead
+        return BUFFER_MS / 1000.0 * (PERIODS or 3)
 
     def sent_position(self) -> float:
         """Position de ce qui a été ENVOYÉ à la carte son (en avance sur ce qu'on entend) : pour décider

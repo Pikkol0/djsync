@@ -277,14 +277,14 @@ def test_heard_position_is_smooth_and_never_ahead(monkeypatch):
     for _ in range(4):
         clock[0] += 0.01
         heard.append(p.position())
-    assert heard[0] == pytest.approx(2.0 - P.BUFFER_MS / 1000, abs=1e-6)   # retard de la carte son retiré
+    assert heard[0] == pytest.approx(2.0 - p.output_latency(), abs=1e-6)   # retard de la carte son retiré
     steps = [b - a for a, b in zip(heard, heard[1:])]
     assert all(s == pytest.approx(0.01, abs=1e-6) for s in steps)        # avance avec l'horloge, sans sauts
     clock[0] += 5.0                                                       # plus de paquet : s'arrête
-    assert p.position() <= 2.0 - P.BUFFER_MS / 1000 + 0.05 * 1.5 + 1e-6
+    assert p.position() <= 2.0 - p.output_latency() + 0.05 * 1.5 + 1e-6
     p.latency_offset_ms = 100                                             # réglage Bluetooth
     clock[0] = 100.0
-    assert p.position() == pytest.approx(2.0 - P.BUFFER_MS / 1000 - 0.1, abs=1e-6)
+    assert p.position() == pytest.approx(2.0 - p.output_latency() - 0.1, abs=1e-6)
     # après un seek : jamais avant le point demandé
     p._base, p._cb_frames, p._frames, p._cb_time = 10 * P.RATE, 10 * P.RATE + 2205, 10 * P.RATE + 2205, 100.0
     assert p.position() == pytest.approx(10.0)
@@ -297,7 +297,7 @@ def test_after_a_seek_the_end_of_the_old_audio_is_still_shown(monkeypatch):
     p.state = P.PLAYING
     clock = [50.0]
     monkeypatch.setattr(P.time, "monotonic", lambda: clock[0])
-    lat = P.BUFFER_MS / 1000
+    lat = p.output_latency()
     p._frames = p._cb_frames = 30 * P.RATE
     p._cb_time, p._cb_period = 50.0, 0.05
     before = p.position()                                           # ≈ 30 s - réserve
