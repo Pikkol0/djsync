@@ -193,8 +193,11 @@ class ImportReport:
 
 
 def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = (),
-                 progress: Optional[Any] = None, should_stop: Optional[Any] = None) -> ImportReport:
-    """Ajoute les fichiers à la bibliothèque (sans analyse : elle suit, comme après un téléchargement)."""
+                 progress: Optional[Any] = None, should_stop: Optional[Any] = None,
+                 player_format: str = "", ffmpeg: Optional[str] = None) -> ImportReport:
+    """Ajoute les fichiers à la bibliothèque (sans analyse : elle suit, comme après un téléchargement).
+    `player_format` ("wav" / "aiff", clé USB seulement) : FLAC enregistrés dans ce format (C26 sens C)."""
+    from ..core import players
     from ..core.duplicates import find_duplicate_groups
 
     files = list(files)
@@ -216,8 +219,14 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
                 check_audio(f)                                # illisible : refusé avant toute copie
                 info = read_info(f)
                 dest = destination(lib, info)
+                convert = not getattr(lib, "is_local", False) and players.needs(f, player_format)
+                if convert:
+                    dest = players.target_path(dest if dest != f else f, player_format)
                 fresh = not dest.exists()
-                target = place(f, dest)
+                if convert and fresh:
+                    target = players.convert(f, dest, player_format, ffmpeg)
+                else:
+                    target = dest if convert else place(f, dest)
                 copied = target if fresh and target.resolve() != f.resolve() else None
                 rel_key = _db_key(lib, target)
                 was = before.get(rel_key)

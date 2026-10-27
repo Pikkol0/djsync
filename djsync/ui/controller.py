@@ -722,6 +722,10 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
             self.service.set_soundcloud_auth(auth_options(self.settings.soundcloud_browser,
                                                           self.settings.soundcloud_token))
+        if hasattr(self.service, "set_youtube"):                          # 1.4.0 (C48)
+            from ..core.soundcloud import auth_options
+
+            self.service.set_youtube(self.settings.youtube_best, auth_options(self.settings.youtube_browser))
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:

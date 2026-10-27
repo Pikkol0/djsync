@@ -1,5 +1,6 @@
 """1.4.0 : sources de meilleure qualité (C10) et fichiers de l'ordinateur (C26)."""
 import shutil
+from pathlib import Path
 import subprocess
 
 import pytest
@@ -246,3 +247,180 @@ def test_result_row_marks_the_original_in_gold():
     r = result_row(_sc(original_available=True))
     assert r.values["source__color"] == theme.GOLD and "original" in r.values["source"]
     assert "source__color" not in result_row(_sc()).values
+
+
+# ------------------------------------------------------------------ C10.3 : dossier surveillé, liens d'achat
+def test_watched_folder_waits_for_stable_files_and_moves_them(tmp_path):
+    import os
+    import time
+
+    from djsync.core.watcher import DONE_DIR, FolderWatch
+
+    (tmp_path / "Bandcamp").mkdir()
+    w = _wav(tmp_path / "Bandcamp" / "Artist - Song.wav")
+    (tmp_path / "x.wav.crdownload").write_bytes(b"x" * 100)       # téléchargement en cours : ignoré
+    old = time.time() - 60
+    os.utime(w, (old, old))
+    fw = FolderWatch(tmp_path)
+    assert fw.stable_files() == []                                 # premier passage : on note la taille
+    assert fw.stable_files() == [w]                                # inchangé : prêt
+    moved = fw.take(w)
+    assert moved == tmp_path / DONE_DIR / "Bandcamp" / "Artist - Song.wav" and moved.exists() and not w.exists()
+    assert fw.stable_files() == [] and fw.stable_files() == []     # « DJSync importés » n'est jamais repris
+    w2 = _wav(tmp_path / "Bandcamp" / "Artist - Song.wav")         # même nom une 2e fois : suffixe
+    assert fw.take(w2).name == "Artist - Song (2).wav"
+    fresh = _wav(tmp_path / "new.wav")                             # trop récent : attend encore
+    fw.stable_files()
+    assert fresh not in fw.stable_files(now=os.stat(fresh).st_mtime + 1)
+
+
+def test_watch_tick_imports_into_the_imported_playlist(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from .qt_util import close_window, pump
+    from .test_v130rc3 import _demo_app
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        monkeypatch.setattr(ctrl.settings, "analyze_after_download_usb", False)
+        folder = tmp_path.parent / (tmp_path.name + "_watch")
+        folder.mkdir()
+        w = _wav(folder / "Peggy Gou - Nanana.wav")
+        old = time.time() - 60
+        os.utime(w, (old, old))
+        ctrl.settings.watch_folder = str(folder)
+        ctrl.settings.watch_playlist = True
+        ctrl.watch_tick()                                          # 1er passage : rien n'est pris
+        assert pump(app, 3, lambda: not ctrl._watch_busy)
+        ctrl.watch_tick()
+        names = lambda: {p.name for p in ctrl.library.list_playlists()}  # noqa: E731
+        assert pump(app, 10, lambda: "Imported" in names() and not ctrl._importing)
+        pl = next(p for p in ctrl.library.list_playlists() if p.name == "Imported")
+        tracks = ctrl.library.get_playlist_tracks(pl.playlist_id)
+        assert [x.title for x in tracks] == ["Nanana"]
+        assert not w.exists() and (folder / "DJSync importés" / w.name).exists()
+        assert not app.errors
+    finally:
+        close_window(app)
+
+
+def test_buy_links_clean_the_query():
+    from djsync.core.buy import links, query
+
+    assert query("Daft Punk", "Daft Punk - One More Time (Official Video)") == "Daft Punk One More Time"
+    assert query("", "Strobe [HD]") == "Strobe"
+    got = dict(links("Bicep", "Glue"))
+    assert set(got) == {"Beatport", "Bandcamp", "Traxsource", "Juno Download", "Qobuz"}
+    assert got["Beatport"] == "https://www.beatport.com/search?q=Bicep+Glue"
+
+
+def test_buy_entry_is_a_submenu_that_opens_the_store():
+    from PySide6.QtWidgets import QMenu
+
+    from djsync.ui.table import _fill_menu
+    from djsync.ui.views.common import buy_entry
+
+    opened = []
+
+    class Ctrl:
+        def _emit(self, ev, url):
+            opened.append((ev, url))
+
+    entry = buy_entry(Ctrl(), "Bicep", "Glue")
+    menu = QMenu()
+    _fill_menu(menu, [entry])
+    sub = menu.actions()[0].menu()
+    assert sub is not None and [a.text() for a in sub.actions()][0] == "Beatport"
+    sub.actions()[1].trigger()
+    assert opened == [("open_url", "https://bandcamp.com/search?q=Bicep+Glue&item_type=t")]
+
+
+# ------------------------------------------------------------------ C26 sens C : FLAC pour les platines
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg")
+def test_flac_converted_for_players_keeps_bits_and_caps_the_rate(tmp_path):
+    import mutagen
+
+    from djsync.core import players
+
+    src = _wav(tmp_path / "s.wav")
+    hi = tmp_path / "hi.flac"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(src), "-ar", "96000", "-sample_fmt", "s32",
+                    "-bits_per_raw_sample", "24", "-metadata", "title=Hi", str(hi)], check=True)
+    assert players.needs(hi, "aiff") and not players.needs(hi, "") and not players.needs(src, "wav")
+    out = players.convert(hi, players.target_path(hi, "aiff"), "aiff")
+    info = mutagen.File(str(out)).info
+    assert out.suffix == ".aiff" and info.bits_per_sample == 24 and info.sample_rate == 48000
+    assert hi.exists() and not list(tmp_path.glob("*.djsync-part*"))
+    wav = players.convert(hi, tmp_path / "w.wav", "wav")
+    assert mutagen.File(str(wav)).info.bits_per_sample == 24
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg")
+def test_import_saves_flac_as_wav_on_the_key(lib, tmp_path):  # noqa: F811
+    from djsync.core.importer import import_files
+
+    outside = tmp_path.parent / (tmp_path.name + "_flac")
+    outside.mkdir()
+    f = _flac(outside / "a.flac", "Strobe", "deadmau5")
+    rep = import_files(lib, [f], player_format="wav")
+    assert len(rep.added) == 1 and not rep.failed
+    t = rep.added[0]
+    assert t.path.endswith(".wav") and t.title == "Strobe" and f.exists()
+    assert not list(Path(lib.contents_root).rglob("*.flac"))
+    rep = import_files(lib, [f], player_format="wav")             # 2e fois : déjà là, pas de 2e fichier
+    assert rep.already and len(list(Path(lib.contents_root).rglob("*.wav"))) == 1
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg")
+def test_soundcloud_original_flac_saved_as_aiff_on_the_key(tmp_path, monkeypatch):
+    from djsync.models import DownloadedTrack
+
+    from .qt_util import close_window, pump
+    from .test_v130rc3 import _demo_app
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        monkeypatch.setattr(ctrl.settings, "analyze_after_download_usb", False)
+        monkeypatch.setattr(ctrl.settings, "fetch_metadata", False)
+        ctrl.settings.player_format = "aiff"
+
+        def fake_download(track, dest, on_progress=None, tag=True):
+            f = _flac(Path(dest) / "orig.flac", track.title, track.artist)
+            return DownloadedTrack(track=track, file_path=str(f), original=True)
+
+        monkeypatch.setattr(ctrl.service, "download", fake_download)
+        job = ctrl.enqueue([_sc("z1", original_available=True)], [])[0]
+        assert pump(app, 15, lambda: job.status in ("done", "error"))
+        assert job.status == "done" and job.file_path.endswith(".aiff") and job.original
+        assert not Path(job.file_path).with_suffix(".flac").exists()
+    finally:
+        close_window(app)
+
+
+# ------------------------------------------------------------------ C48 : meilleur flux YouTube (réglage)
+def test_youtube_best_stream_is_opt_in(tmp_path, monkeypatch):
+    from djsync.core import downloader as D
+    from djsync.models import TrackResult
+    from djsync.settings import Settings
+
+    assert Settings().youtube_best is False
+    seen = []
+    monkeypatch.setattr(D.Downloader, "_run", lambda self, tr, dest, base, extra, n: (seen.append(extra),
+                                                                                      (_wav(dest / f"{base}.wav"), "251"))[1])
+    monkeypatch.setattr(D, "finalize", lambda path, *a, **k: path)
+    monkeypatch.setattr(D, "tag_audio", lambda *a, **k: None)
+    d = D.Downloader()
+    yt = TrackResult(video_id="y" * 11, title="T", artist="A")
+    d.download(yt, tmp_path / "a")
+    assert seen[-1]["format"] == D._YT_NATIVE and "postprocessors" not in seen[-1]
+    d.youtube_best, d.youtube_auth = True, {"cookiesfrombrowser": ("firefox",)}
+    d.download(yt, tmp_path / "b")
+    assert seen[-1]["format"].startswith("141/") and seen[-1]["postprocessors"][0]["preferredquality"] == "256"
+    assert seen[-1]["cookiesfrombrowser"] == ("firefox",)
+    d.download(_sc("s9"), tmp_path / "c")                          # SoundCloud : réglage YouTube sans effet
+    assert "postprocessors" not in seen[-1] and "cookiesfrombrowser" not in seen[-1]

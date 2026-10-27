@@ -98,6 +98,10 @@ class DJSyncApp(QMainWindow):
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(self._hide_toast)
+        self._watch_timer = QTimer(self)                     # 1.4.0 (C10.3) : dossier surveillé
+        self._watch_timer.setInterval(8000)
+        self._watch_timer.timeout.connect(self.ctrl.watch_tick)
+        self._watch_timer.start()
 
         # écouteurs de la FENÊTRE d'abord : ceux des vues (ajoutés ensuite) sont oubliés à chaque
         # reconstruction de l'interface (langue)

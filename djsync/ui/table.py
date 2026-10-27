@@ -938,9 +938,22 @@ class TrackTable(QTableView):
 
 def popup_menu(widget: Any, entries: Sequence[MenuEntry], global_pos: Any) -> None:
     menu = QMenu(widget)
+    _fill_menu(menu, entries)
+    menu.exec(global_pos)
+
+
+def _fill_menu(menu: Any, entries: Sequence[MenuEntry]) -> None:
+    """(texte, action[, icône]) ; une liste à la place de l'action = sous-menu (1.4.0)."""
     for entry in entries:
         if entry is None:
             menu.addSeparator()
+        elif isinstance(entry[1], (list, tuple)):
+            sub = menu.addMenu(entry[0])
+            if len(entry) > 2 and entry[2]:
+                from .icons import qicon
+
+                sub.setIcon(qicon(entry[2], 16, theme.DIM))
+            _fill_menu(sub, entry[1])
         elif len(entry) > 2 and entry[2]:
             from .icons import qicon
 
@@ -948,4 +961,3 @@ def popup_menu(widget: Any, entries: Sequence[MenuEntry], global_pos: Any) -> No
             menu.addAction(qicon(entry[2], 16, theme.ERR if danger else theme.DIM), entry[0], entry[1])
         else:
             menu.addAction(entry[0], entry[1])
-    menu.exec(global_pos)

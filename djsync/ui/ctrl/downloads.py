@@ -82,6 +82,16 @@ class DownloadsMixin:
 
                 track = enrich(track)
             result = self.service.download(track, lib.default_download_dir(track.artist, track.album), on_progress=progress)
+            fmt = "" if getattr(lib, "is_local", False) else (self.settings.player_format or "")
+            from ...core import players
+
+            if players.needs(Path(result.file_path), fmt):     # C26 sens C : FLAC d'origine pour les platines
+                job.status = "converting"
+                self.dispatcher.post(self._job_changed, job)
+                flac = Path(result.file_path)
+                out = players.convert(flac, players.target_path(flac, fmt), fmt, self.settings.ffmpeg_location or None)
+                flac.unlink(missing_ok=True)
+                result = replace(result, file_path=str(out))
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
             meta = {"year": track.year, "release_date": track.release_date, "genre": track.genre,

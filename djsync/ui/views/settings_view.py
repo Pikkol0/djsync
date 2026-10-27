@@ -292,6 +292,16 @@ class SettingsView(View):
         card.addLayout(row)
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
+        row = hbox()                                          # 1.4.0 (C26 sens C)
+        row.addWidget(self._fixed(label(t("players.settings_flac"))))
+        self._player_formats = {"": t("players.keep"), "wav": t("players.wav"), "aiff": t("players.aiff")}
+        self.player_format = QComboBox()
+        self.player_format.addItems(list(self._player_formats.values()))
+        self.player_format.setCurrentText(self._player_formats.get(s.player_format, self._player_formats[""]))
+        self.player_format.setToolTip(t("players.settings_tip"))
+        row.addWidget(self.player_format)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- recherche
         self._section = "download"
@@ -315,6 +325,24 @@ class SettingsView(View):
         self.normalize_var.setChecked(s.normalize_volume)
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
         card.addWidget(self.normalize_var)
+        self.yt_best_var = QCheckBox(t("yt.settings_best"))          # 1.4.0 (C48), désactivé par défaut
+        self.yt_best_var.setChecked(s.youtube_best)
+        self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
+        card.addWidget(self.yt_best_var)
+        card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("yt.settings_account"))))
+        from ...core.soundcloud import BROWSERS as _YT_BROWSERS
+
+        self._yt_browsers = {"": t("yt.settings_no_account")}
+        self._yt_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in _YT_BROWSERS})
+        self.yt_browser = QComboBox()
+        self.yt_browser.addItems(list(self._yt_browsers.values()))
+        self.yt_browser.setCurrentText(self._yt_browsers.get(s.youtube_browser, self._yt_browsers[""]))
+        self.yt_browser.setToolTip(t("yt.settings_account_tip"))
+        row.addWidget(self.yt_browser)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
         card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"))
@@ -343,6 +371,20 @@ class SettingsView(View):
         self.sc_token.setToolTip(t("sc.settings_token_tip"))
         row.addWidget(self.sc_token, 1)
         card.addLayout(row)
+
+        # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
+        card = self._card(t("watch.settings_title"), "folder", t("watch.settings_hint"))
+        row = hbox()
+        self.watch_folder = QLineEdit(s.watch_folder)
+        self.watch_folder.setPlaceholderText(t("watch.settings_off"))
+        self.watch_folder.setReadOnly(True)
+        row.addWidget(self.watch_folder, 1)
+        row.addWidget(button(t("watch.settings_browse"), lambda: self._browse_into(self.watch_folder), icon="folder"))
+        row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), kind="flat"))
+        card.addLayout(row)
+        self.watch_playlist_var = QCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
+        self.watch_playlist_var.setChecked(s.watch_playlist)
+        card.addWidget(self.watch_playlist_var)
 
         # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement
         card = self._card(t("engine.title"), "refresh", t("engine.hint"))
@@ -835,6 +877,11 @@ class SettingsView(View):
         s.soundcloud_original = self.sc_original_var.isChecked()
         s.soundcloud_browser = next((k for k, v in self._sc_browsers.items() if v == self.sc_browser.currentText()), "")
         s.soundcloud_token = self.sc_token.text().strip()
+        s.youtube_best = self.yt_best_var.isChecked()
+        s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
+        s.watch_folder = self.watch_folder.text().strip()
+        s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
+        s.watch_playlist = self.watch_playlist_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()

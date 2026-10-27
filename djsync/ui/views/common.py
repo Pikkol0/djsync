@@ -133,6 +133,14 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
     return Row(track.video_id, values, ("dup",) if track.is_duplicate else (), track)
 
 
+def buy_entry(ctrl: Any, artist: str, title: str) -> Any:
+    """1.4.0 (C10.3) : sous-menu « Acheter (WAV / AIFF / FLAC) » vers les magasins, recherche déjà tapée."""
+    from ...core.buy import links
+
+    return (t("buy.menu"), [(name, lambda u=url: ctrl._emit("open_url", u)) for name, url in links(artist, title)],
+            "download")
+
+
 def ask_and_download(parent: Any, ctrl: Any, tracks: Sequence[TrackResult], new_name: str = "",
                      original: Optional[bool] = None) -> None:
     """Popup « playlists de destination » puis mise en file des téléchargements."""

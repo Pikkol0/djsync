@@ -295,7 +295,13 @@ class SearchView(View):
             return []
         if len(iids) == 1 and iids[0] in self._tracks and self._tracks[iids[0]].is_album:
             return [(t("search.open_album"), lambda: self._open_album(self._tracks[iids[0]]), "go")]
-        return [(t("action.listen"), self._preview, "play"), (t("dl.picker_title"), self._download, "download")]
+        entries = [(t("action.listen"), self._preview, "play"), (t("dl.picker_title"), self._download, "download")]
+        if len(iids) == 1 and iids[0] in self._tracks:                     # 1.4.0 (C10.3) : acheter en WAV
+            from .common import buy_entry
+
+            x = self._tracks[iids[0]]
+            entries += [None, buy_entry(self.ctrl, x.artist, x.title)]
+        return entries
 
     def refresh_duplicates(self) -> None:
         """Re-marque les doublons après un téléchargement ou un changement de clé."""

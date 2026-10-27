@@ -33,6 +33,9 @@ _FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 # accepte aussi le MP3 d'origine (une conversion MP3 -> AAC serait une perte inutile).
 _YT_NATIVE = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
 _ANY_NATIVE = "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=flac]/bestaudio[ext=wav]"
+# 1.4.0 (C48) : « meilleur flux YouTube » (réglage, désactivé par défaut). AAC 256 (itag 141, comptes
+# Premium) s'il existe, sinon Opus ~160 converti en AAC 256 ; le flux AAC ~128 natif en dernier recours.
+_YT_BEST = "141/bestaudio[acodec^=mp4a][abr>=200]/bestaudio[acodec=opus]/bestaudio[acodec^=mp4a]/bestaudio"
 _READABLE = (".m4a", ".mp3", ".flac", ".wav", ".aiff")  # lisibles par Rekordbox
 
 
@@ -53,6 +56,8 @@ class Downloader:
         self.audio_format = audio_format
         self.normalize = normalize
         self.soundcloud_auth: dict = {}       # 1.4.0 (C10.1) : options yt-dlp du compte SoundCloud
+        self.youtube_best = False             # 1.4.0 (C48) : meilleur flux YouTube (plus lourd)
+        self.youtube_auth: dict = {}          # cookies d'un navigateur connecté (YouTube Premium)
 
     def _ffmpeg_exe(self) -> Optional[str]:
         from ..analysis.decode import find_ffmpeg
@@ -84,6 +89,12 @@ class Downloader:
             try:
                 native = _YT_NATIVE if track.source in ("ytmusic", "youtube") else _ANY_NATIVE
                 extra: dict = {"format": native}
+                if track.source in ("ytmusic", "youtube"):
+                    extra.update(self.youtube_auth)
+                    if self.youtube_best:
+                        extra["format"] = _YT_BEST
+                        extra["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a",
+                                                    "preferredquality": "256"}]
                 if track.source == "soundcloud":
                     extra.update(self.soundcloud_auth)
                     if track.want_original:      # C10.1 : fichier d'origine d'abord, sinon le flux

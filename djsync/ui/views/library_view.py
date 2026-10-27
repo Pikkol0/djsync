@@ -978,6 +978,10 @@ class LibraryView(View):
                 entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
                                 "key"))
         entries.append((t("meta.complete_sel", n=len(tracks)), lambda: self._complete_metadata(tracks), "tag"))
+        if len(tracks) == 1:                                      # 1.4.0 (C10.3)
+            from .common import buy_entry
+
+            entries.append(buy_entry(self.ctrl, tracks[0].artist, tracks[0].title))
         entries += [None, (t("lib.delete") + "…", self._delete, "trash")]
         return entries
 

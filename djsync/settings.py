@@ -105,6 +105,11 @@ class Settings:
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
+    player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
+    youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
+    youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
+    watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
+    watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Importés »
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
     soundcloud_token: str = ""         # ou jeton « oauth_token » du compte
