@@ -69,6 +69,13 @@ def total_duration(seconds: int) -> str:
     return t("lib.duration_hm", h=h, m=m) if h else t("lib.duration_m", m=m)
 
 
+def _local_files(mime: Any) -> List[str]:
+    """Chemins des fichiers / dossiers glissés depuis l'explorateur (vide sinon)."""
+    if not mime.hasUrls():
+        return []
+    return [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+
+
 class NavTree(QTreeWidget):
     """Arbre de navigation ; accepte les titres glissés depuis le tableau (ajout à une playlist)."""
 
@@ -95,7 +102,7 @@ class NavTree(QTreeWidget):
         return p if p is not None and p.is_editable else None
 
     def dragEnterEvent(self, e: Any) -> None:    # noqa: N802
-        if e.mimeData().hasFormat(MIME_IDS):
+        if e.mimeData().hasFormat(MIME_IDS) or _local_files(e.mimeData()):
             e.acceptProposedAction()
         else:
             e.ignore()
@@ -121,6 +128,10 @@ class NavTree(QTreeWidget):
             return
         e.setDropAction(Qt.CopyAction)
         e.accept()
+        files = _local_files(e.mimeData())
+        if files and not e.mimeData().hasFormat(MIME_IDS):        # 1.4.0 (C26) : fichiers de l'ordinateur
+            self.view.import_paths(files, target)
+            return
         ids = [int(i) for i in bytes(e.mimeData().data(MIME_IDS)).decode().split(",") if i]
         self.view._drop_on(target, ids)
 
@@ -222,6 +233,9 @@ class LibraryView(View):
                   self.analyse_btn, self.analysis_bar):
             bar.addWidget(w)
         bar.addStretch(1)
+        self.import_btn = button(t("import_files.button"), self._import_files, icon="folder",
+                                 tooltip=t("import_files.tip"))              # 1.4.0 (C26)
+        bar.addWidget(self.import_btn)
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
         bar.addWidget(self.harm_btn)
@@ -262,6 +276,7 @@ class LibraryView(View):
         self.table.on_sort_changed = self._sort_changed
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
+        self.table.on_files_dropped = lambda paths: self.import_paths(paths)      # 1.4.0 (C26)
         from ..suggestions_panel import SuggestionsPanel
 
         content = hbox(spacing=theme.px(8))
@@ -281,9 +296,37 @@ class LibraryView(View):
                       if kind == "loaded" else None)
         controller.on("analysis", self._analysis_changed)
         controller.on("show_unanalysed", self.show_unanalysed)
+        controller.on("import_progress", self._import_progress)
         self._refresh_buttons()
         if controller.settings.suggestions_open:
             self.show_suggestions(True, remember=False)
+
+    # ------------------------------------------------------------- 1.4.0 (C26) : ajouter des fichiers
+    def _import_files(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        exts = " ".join(f"*{e}" for e in (".wav", ".aiff", ".aif", ".flac", ".mp3", ".m4a", ".aac"))
+        files, _f = QFileDialog.getOpenFileNames(self, t("import_files.button"), "",
+                                                 f"{t('import_files.filter')} ({exts})")
+        if files:
+            self.import_paths(files)
+
+    def import_paths(self, paths: List[str], playlist: Optional[PlaylistInfo] = None) -> None:
+        """Fichiers ou dossiers ajoutés à la bibliothèque ; dans la playlist visée (glissés sur elle) ou
+        dans la playlist ouverte si on peut y ajouter."""
+        target = playlist or (self.playlist if self.in_playlist and self.playlist is not None
+                              and self.playlist.is_editable else None)
+        self.ctrl.import_files(paths, [target.playlist_id] if target is not None else [])
+
+    def _import_progress(self, i: int, n: int) -> None:
+        if not self.winfo_exists():
+            return
+        if n:
+            self.sub_lbl.setText(t("import_files.progress", i=i, n=n))
+            self.import_btn.setEnabled(False)
+        else:
+            self.import_btn.setEnabled(True)
+            self._show_header()
 
     # ------------------------------------------------------------- 1.3.1 (C30) : suggestions
     def show_suggestions(self, on: bool, remember: bool = True) -> None:

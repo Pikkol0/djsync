@@ -287,6 +287,7 @@ class TrackTable(QTableView):
         self.menu_builder: Optional[Callable[[List[str]], List[MenuEntry]]] = None
         self.row_filter: Optional[Callable[[Row], bool]] = None
         self.on_delete: Optional[Callable[[], None]] = None
+        self.on_files_dropped: Optional[Callable[[List[str]], None]] = None   # 1.4.0 (C26)
 
         self._rows: Dict[str, Row] = {}
         self._order: List[str] = []
@@ -841,13 +842,23 @@ class TrackTable(QTableView):
         super().mouseMoveEvent(e)
 
     # glisser-déposer interne (réordonnancement)
+    def _external_files(self, e: Any) -> bool:
+        """1.4.0 (C26) : fichiers de l'ordinateur glissés sur le tableau (si la vue les accepte)."""
+        m = e.mimeData()
+        return (self.on_files_dropped is not None and e.source() is None and m.hasUrls()
+                and any(u.isLocalFile() for u in m.urls()))
+
     def dragEnterEvent(self, e: Any) -> None:    # noqa: N802
-        if e.source() is self and self.can_reorder and e.mimeData().hasFormat(MIME_IDS):
+        if (e.source() is self and self.can_reorder and e.mimeData().hasFormat(MIME_IDS)) or self._external_files(e):
             e.acceptProposedAction()
         else:
             e.ignore()
 
     def dragMoveEvent(self, e: Any) -> None:     # noqa: N802
+        if self._external_files(e):
+            e.setDropAction(Qt.CopyAction)
+            e.accept()
+            return
         if e.source() is self and self.can_reorder:
             e.acceptProposedAction()
             super().dragMoveEvent(e)
@@ -855,6 +866,11 @@ class TrackTable(QTableView):
             e.ignore()
 
     def dropEvent(self, e: Any) -> None:         # noqa: N802
+        if self._external_files(e):
+            e.setDropAction(Qt.CopyAction)
+            e.accept()
+            self.on_files_dropped([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
+            return
         if e.source() is not self or not self.can_reorder:
             e.ignore()
             return
