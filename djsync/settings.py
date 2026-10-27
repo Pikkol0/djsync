@@ -108,6 +108,7 @@ class Settings:
     player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
     youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
+    free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
     soulseek_enabled: bool = False     # 1.4.0 (C10.2) : désactivé par défaut
     soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
     soulseek_user: str = ""

@@ -56,7 +56,6 @@ class SearchView(View):
         self.mode.setToolTip(t("search.mode_hq_tip"))
         self.mode.setMinimumHeight(self.entry.sizeHint().height())
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        self.mode.setVisible(controller.slsk_ready)
         bar.addWidget(self.mode)
         self.root.addLayout(bar)
         info_row = hbox(spacing=theme.px(8))
@@ -86,7 +85,6 @@ class SearchView(View):
         self._refresh_filter_label()
         self._refresh_buttons()
         controller.on("slsk_search", self._slsk_search_for)
-        controller.on("settings_saved", lambda: self.mode.setVisible(self.ctrl.slsk_ready))
 
     # ------------------------------------------------- 1.4.0 (C10.2) : haute qualité (Soulseek)
     @property
@@ -101,28 +99,46 @@ class SearchView(View):
             self.run_search(force=True)
 
     def _slsk_search_for(self, query: str) -> None:
-        self.mode.setVisible(self.ctrl.slsk_ready)
-        if not self.ctrl.slsk_ready:
-            return
         self.ctrl._emit("navigate", "search")
         self.mode.setCurrentIndex(1)
         self.entry.setText(query)
         self.run_search(force=True)
 
     def _run_hq(self, query: str, token: int) -> None:
+        """Haute qualité : sources libres (Internet Archive, Audius) et, s'il est activé, Soulseek ; une
+        seule liste, chaque ligne dit d'où vient le son, sa qualité et sa licence (C45)."""
         from ..ctrl.soulseek import track_of
 
-        def show(results: List[Any], final: bool) -> None:
+        free: List[TrackResult] = []
+        slsk: List[TrackResult] = []
+        state = {"free": False, "slsk": not self.ctrl.slsk_ready}
+
+        def show() -> None:
             if token != self._token or not self.winfo_exists():
                 return
-            tracks = [track_of(r) for r in results]
-            n_ll = sum(1 for r in results if r.lossless)
-            summary = (t("slsk.results", n=len(tracks), lossless=n_ll) if final
-                       else t("slsk.searching_n", n=len(tracks)))
+            tracks = slsk + free
+            lossless = sum(1 for x in tracks if (x.slsk is not None and x.slsk.lossless)
+                           or x.quality in ("FLAC", "WAV", "AIFF"))
+            done = state["free"] and state["slsk"]
+            summary = (t("search.hq_results", n=len(tracks), lossless=lossless) if done
+                       else t("search.hq_running", n=len(tracks)))
             self._show_results(tracks, summary)
 
-        self.info.setText(t("slsk.searching"))
-        self.ctrl.slsk_search(query, lambda rs: show(rs, True), lambda rs: show(rs, False))
+        def got_free(rs: List[TrackResult]) -> None:
+            free[:] = rs
+            state["free"] = True
+            show()
+
+        def got_slsk(rs: List[Any], final: bool) -> None:
+            slsk[:] = [track_of(r) for r in rs]
+            if final:
+                state["slsk"] = True
+            show()
+
+        self.info.setText(t("search.hq_running", n=0))
+        self.ctrl.free_search(query, got_free)
+        if self.ctrl.slsk_ready:
+            self.ctrl.slsk_search(query, lambda rs: got_slsk(rs, True), lambda rs: got_slsk(rs, False))
 
     def on_show(self) -> None:
         self.entry.setFocus()
@@ -312,8 +328,10 @@ class SearchView(View):
         n = len(self._selected())
         self.dl_btn.setText(t("action.download_n", n=n) if n else t("action.download"))
         self.dl_btn.setEnabled(bool(n))
-        self.preview_btn.setEnabled(bool(self.table.selected_iids()) and not self.hq)
-        self.preview_btn.setToolTip(t("slsk.no_preview") if self.hq else "")
+        sel = [self._tracks.get(i) for i in self.table.selected_iids()]
+        slsk = bool(sel) and sel[0] is not None and sel[0].slsk is not None
+        self.preview_btn.setEnabled(bool(sel) and not slsk)
+        self.preview_btn.setToolTip(t("slsk.no_preview") if slsk else "")
 
     def _play(self, iid: str) -> None:
         target = self._tracks.get(iid)
@@ -321,7 +339,7 @@ class SearchView(View):
             self._open_album(target)
             return
         shown = [self._tracks[i] for i in self.table.displayed_iids() if i in self._tracks and not self._tracks[i].is_album]
-        if target is not None and target.slsk is not None:      # Soulseek : pas d'écoute avant téléchargement
+        if target is not None and target.slsk is not None:      # Soulseek : pas d'écoute avant téléchargement (C45 : les sources libres, si)
             self.ctrl.message("info", t("slsk.no_preview"))
             return
         if target is not None:

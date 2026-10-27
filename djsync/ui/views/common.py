@@ -129,6 +129,14 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
             values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
         values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
+    elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
+        from .. import theme
+
+        values["source"] = " · ".join(x for x in (track.source_label, track.quality, track.license) if x)
+        if track.quality in ("FLAC", "WAV", "AIFF"):
+            values["source__color"] = theme.GOLD
+        elif "320" in track.quality:
+            values["source__color"] = theme.SILVER
     elif track.original_available:             # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
         from .. import theme
 

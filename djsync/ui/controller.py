@@ -610,6 +610,19 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.dispatcher.submit(probe, ok, err, pool="net")
 
     # ---------------------------------------------------------------- recherche
+    def free_search(self, query: str, ok: Callback) -> None:
+        """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués."""
+        from ..core import freesources
+
+        sources = list(self.settings.free_sources or [])
+
+        def work() -> Any:
+            found = freesources.search_all(query, sources)
+            dup = getattr(self.service, "_duplicates", None)
+            return dup.annotate(found) if dup is not None else found
+
+        self.dispatcher.submit(work, ok, lambda exc: (log.info("Free sources: %s", exc), ok([])), pool="net")
+
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
         try:
             mode = SearchMode(self.settings.search_mode)

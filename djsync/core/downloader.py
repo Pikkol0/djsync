@@ -101,6 +101,9 @@ class Downloader:
                         extra["format"] = f"download/{native}"
                 path, fmt = self._run(track, dest, base, extra, notify)
                 original = fmt == "download"
+                # 1.4.0 (C45) : fichier sans perte d'une source libre (Internet Archive) : jamais transcodé
+                if track.source in ("archive", "audius") and path.suffix.lower() in (".flac", ".wav", ".aiff", ".aif"):
+                    original = True
                 if original and path.suffix.lower() not in _READABLE:
                     path = self._to_wav(path)
             except yt_dlp.utils.DownloadError as exc:

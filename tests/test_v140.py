@@ -564,3 +564,57 @@ def test_waveform_cached_between_frames_and_adaptive_rate(demo_grid, monkeypatch
     assert 7 <= fast <= 17
     ed.close()
 
+
+
+# ------------------------------------------------------------------ C45 (partie 2) : sources libres
+def _fake_get(url, params=None):
+    if url == "https://api.audius.co":
+        return {"data": ["https://node.audius.example"]}
+    if url.endswith("/v1/tracks/search"):
+        return {"data": [{"id": "Ab1", "title": "Glue (Free DL)", "duration": 268, "permalink": "/bicep/glue",
+                          "user": {"name": "Bicep", "handle": "bicep"}, "license": "", "downloadable": True,
+                          "artwork": {"480x480": "https://img/a.jpg"}},
+                         {"id": "X", "title": "Hidden", "is_streamable": False, "user": {}}]}
+    if "advancedsearch" in url:
+        return {"response": {"docs": [{"identifier": "netlabel-ep", "title": "Isles EP", "creator": ["Bicep"],
+                                       "licenseurl": "https://creativecommons.org/licenses/by-nc/4.0/"}]}}
+    if url.endswith("/metadata/netlabel-ep"):
+        return {"files": [
+            {"name": "01 Glue.flac", "format": "Flac", "title": "Glue", "length": "4:28"},
+            {"name": "01 Glue.mp3", "format": "VBR MP3", "title": "Glue", "length": "268.1"},
+            {"name": "02 Apricots.flac", "format": "Flac", "title": "Apricots"},
+            {"name": "cover.jpg", "format": "JPEG"}]}
+    raise AssertionError(url)
+
+
+def test_free_sources_search_with_licence_and_quality():
+    from djsync.core import freesources as F
+
+    res = F.search_all("bicep glue", ["archive", "audius"], get=_fake_get)
+    arch = [x for x in res if x.source == "archive"]
+    aud = [x for x in res if x.source == "audius"]
+    assert len(arch) == 1 and arch[0].quality == "FLAC" and arch[0].duration_seconds == 268
+    assert arch[0].license == "CC BY-NC 4.0" and arch[0].source_url.endswith("/netlabel-ep/01%20Glue.flac")
+    assert arch[0].source_label == "Internet Archive" and arch[0].album == "Isles EP"
+    assert len(aud) == 1 and aud[0].source_url == "https://audius.co/bicep/glue" and aud[0].quality == "MP3 320"
+    assert F.search_all("x", ["archive"], get=lambda *a, **k: (_ for _ in ()).throw(OSError("offline"))) == []
+
+    from djsync.ui.views.common import result_row
+    from djsync.ui import theme
+
+    row = result_row(arch[0])
+    assert row.values["source"] == "Internet Archive · FLAC · CC BY-NC 4.0" and row.values["source__color"] == theme.GOLD
+
+
+def test_lossless_from_a_free_source_is_never_transcoded(tmp_path, monkeypatch):
+    from djsync.core import downloader as D
+    from djsync.models import TrackResult
+
+    monkeypatch.setattr(D.Downloader, "_run", lambda self, tr, dest, base, extra, n: ((_wav(dest / f"{base}.wav")), "0"))
+    monkeypatch.setattr(D, "finalize", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no transcode")))
+    monkeypatch.setattr(D, "tag_audio", lambda *a, **k: None)
+    d = D.Downloader(audio_format="mp3", normalize=True)
+    tr = TrackResult(video_id="archive:x", title="T", artist="A", source="archive",
+                     source_url="https://archive.org/download/x/t.wav", quality="WAV")
+    res = d.download(tr, tmp_path)
+    assert res.original and res.file_path.endswith(".wav")
