@@ -428,9 +428,9 @@ class TrackTable(QTableView):
                 self.setColumnHidden(i, hide)
                 if hide:
                     continue
-                if col.stretch and overflow:
+                if col.stretch and overflow:          # titre à sa largeur normale, le tableau défile
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
-                    self.setColumnWidth(i, self._width(col))
+                    self.setColumnWidth(i, max(self._width(col), theme.px(col.width)))
                 elif col.stretch:
                     head.setSectionResizeMode(i, QHeaderView.Stretch)
                 else:

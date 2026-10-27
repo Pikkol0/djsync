@@ -59,6 +59,7 @@ class Summary:
     tracks_updated: int = 0                             # V1.1-A4 : analyse/pochette ajoutée à une piste existante
     keys_added: int = 0
     artworks_added: int = 0
+    names_added: int = 0                  # 1.3.1 (C38) : genres et labels
     skipped: List[str] = field(default_factory=list)   # éléments ignorés (piste absente d'export.pdb…)
 
 
@@ -80,7 +81,11 @@ class PdbDatabase:
         self._keys: Dict[str, int] = {}                     # nom exact (casefold) -> id
         self._key_codes: Dict[str, int] = {}                # code Camelot -> id (« Am » et « 8A » = même clé)
         self._artworks: Dict[str, int] = {}                 # chemin (casefold) -> id
-        self._max = {"track": 0, "artist": 0, "album": 0, "playlist": 0, "key": 0, "artwork": 0}
+        self._max = {"track": 0, "artist": 0, "album": 0, "playlist": 0, "key": 0, "artwork": 0,
+                     T.GENRES: 0, T.LABELS: 0}
+        # 1.3.1 (C38) : genres et labels, {table: {nom (casefold): id}} et {table: {id: nom}}
+        self._named: Dict[int, Dict[str, int]] = {T.GENRES: {}, T.LABELS: {}}
+        self._named_names: Dict[int, Dict[int, str]] = {T.GENRES: {}, T.LABELS: {}}
         self._template: Optional[rows.TrackTemplate] = None
         self._load()
 
@@ -120,6 +125,13 @@ class PdbDatabase:
                 r = rows.read_artwork(d, p * PAGE_SIZE + off)
                 self._artworks.setdefault(_key(r["path"]), r["id"])           # type: ignore[arg-type]
                 self._max["artwork"] = max(self._max["artwork"], r["id"])    # type: ignore[type-var]
+        for ttype in (T.GENRES, T.LABELS):
+            if ttype in f.tables:
+                for p, slot, off in f.iter_rows(ttype):
+                    r = rows.read_named(d, p * PAGE_SIZE + off)
+                    self._named[ttype].setdefault(_key(r["name"]), r["id"])     # type: ignore[arg-type]
+                    self._named_names[ttype][r["id"]] = r["name"]               # type: ignore[index]
+                    self._max[ttype] = max(self._max[ttype], r["id"])           # type: ignore[type-var]
         for p, slot, off in f.iter_rows(T.PLAYLIST_TREE):
             r = rows.read_tree(d, p * PAGE_SIZE + off)
             self._trees[r["id"]] = _Tree(r["id"], p, slot, off, r["parent"], r["sort"], r["folder"], r["name"])  # type: ignore[arg-type]
@@ -174,7 +186,8 @@ class PdbDatabase:
             return None
         return {"title": row["title"], "artist": self._artist_names.get(row["artist_id"], ""),  # type: ignore[arg-type]
                 "bpmx100": row["bpmx100"], "analyze_path": row["strings"]["analyze_path"],     # type: ignore[index]
-                "artwork_id": row["artwork_id"]}
+                "artwork_id": row["artwork_id"],
+                "genre": self.genre_name(row["genre_id"]), "label": self.label_name(row["label_id"])}  # type: ignore[arg-type]
 
     def playlist_tracks(self, path: PlaylistPath) -> Optional[List[Optional[str]]]:
         """1.3.0-rc.2 : chemins des pistes de la playlist, dans l'ordre (None pour une entrée qui pointe
@@ -283,6 +296,38 @@ class PdbDatabase:
         self.summary.artworks_added += 1
         return new_id
 
+    def _ensure_named(self, ttype: int, name: str) -> int:
+        """1.3.1 (C38) : id du genre / label (ajouté s'il manque). 0 si vide, table absente ou pleine
+        (la piste est quand même écrite, sans genre : jamais d'échec pour un détail)."""
+        name = (name or "").strip()
+        if not name or ttype not in self.file.tables:
+            return 0
+        found = self._named[ttype].get(_key(name))
+        if found:
+            return found
+        new_id = self._max[ttype] + 1
+        try:
+            self.file.insert_row(ttype, rows.build_named(new_id, name))
+        except PdbCapacityError as exc:
+            self.summary.skipped.append(f"{'genre' if ttype == T.GENRES else 'label'} \"{name}\" not added: {exc}")
+            return 0
+        self._max[ttype] = new_id
+        self._named[ttype][_key(name)] = new_id
+        self._named_names[ttype][new_id] = name
+        self.summary.names_added += 1
+        return new_id
+
+    @property
+    def stores_names(self) -> bool:
+        """Le fichier a des tables de genres et de labels (toujours le cas d'un export Rekordbox)."""
+        return T.GENRES in self.file.tables and T.LABELS in self.file.tables
+
+    def genre_name(self, genre_id: int) -> str:
+        return self._named_names[T.GENRES].get(genre_id, "")
+
+    def label_name(self, label_id: int) -> str:
+        return self._named_names[T.LABELS].get(label_id, "")
+
     def artwork_paths(self) -> List[str]:
         return sorted(self._artworks)
 
@@ -314,7 +359,8 @@ class PdbDatabase:
         key_id = self._ensure_key(meta.key)
         art_id = self._ensure_artwork(meta.artwork_path)
         return rows.build_track(meta, track_id, artist_id, album_id, self._shift(T.TRACKS), self._template,
-                                key_id=key_id, artwork_id=art_id)
+                                key_id=key_id, artwork_id=art_id, genre_id=self._ensure_named(T.GENRES, meta.genre),
+                                label_id=self._ensure_named(T.LABELS, meta.label))
 
     def _insert_track(self, meta: rows.TrackMeta, track_id: int) -> int:
         page, slot = self.file.insert_row(T.TRACKS, self._build_track(meta, track_id))
@@ -338,7 +384,7 @@ class PdbDatabase:
         self.summary.tracks_updated += 1
 
     def update_track(self, path: str, title: Optional[str] = None, artist: Optional[str] = None,
-                     bpmx100: Optional[int] = None) -> bool:
+                     bpmx100: Optional[int] = None, genre: Optional[str] = None, label: Optional[str] = None) -> bool:
         """Modifie titre / artiste / BPM d'une piste existante, MÊME id (playlists intactes), autres
         champs conservés à l'octet près. False si la piste est absente."""
         ref = self._tracks.get(_key(path))
@@ -348,7 +394,10 @@ class PdbDatabase:
         row = rows.read_track(self.file.data, self._pos(ref))
         strings = {"title": title} if title is not None else {}
         artist_id = self._ensure_artist(artist) if artist is not None else None
-        new = rows.patch_track(row, artist_id=artist_id, bpmx100=bpmx100, **strings)
+        genre_id = self._ensure_named(T.GENRES, genre) if genre is not None else None
+        label_id = self._ensure_named(T.LABELS, label) if label is not None else None
+        new = rows.patch_track(row, artist_id=artist_id, bpmx100=bpmx100, genre_id=genre_id, label_id=label_id,
+                               **strings)
         # V0.2.4 : sur place quand la ligne ne grandit pas (BPM, titre plus court…) : aucune place consommée
         page, slot = self.file.replace_row(T.TRACKS, ref.page, ref.slot, new)
         self._tracks[_key(path)] = _Ref(ref.id, page, slot, self.file.page(page).row_offset(slot))

@@ -104,10 +104,14 @@ class PdbMirrorMixin:
             file_size=int(row[6]), bitrate=int(row[7]), bit_depth=int(row[8]), sample_rate=int(row[9]),
             file_type=int(row[10]), date_added=added, comment=row[12], track_no=int(row[13]),
             disc_no=int(row[14]), year=int(row[15]), key=row[17] or "", artwork_path=_art.pdb_path(row[18] or ""),
-            analyze_path=row[19] or "", analyze_date=added if row[19] else "")
+            analyze_path=row[19] or "", analyze_date=added if row[19] else "",
+            genre=(row[20] if len(row) > 20 else "") or "", label=(row[21] if len(row) > 21 else "") or "")
 
     def _meta_sql(self) -> str:
-        return _meta_select(self._has_key, self._has_image)
+        cols = getattr(self, "_content_cols", None) or set()
+        return _meta_select(self._has_key, self._has_image,
+                            "genre" in self._tables and (not cols or "genre_id" in cols),
+                            "label" in self._tables and (not cols or "label_id" in cols))
 
     def _metas(self, conn: Any, content_ids: Sequence[int]) -> List[TrackMeta]:
         out: List[TrackMeta] = []

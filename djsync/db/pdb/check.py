@@ -20,7 +20,7 @@ from .format import PAGE_SIZE, PdbError, PdbFormatError, T
 NAMES = {T.TRACKS: "tracks", T.GENRES: "genres", T.ARTISTS: "artists", T.ALBUMS: "albums", T.LABELS: "labels",
          T.KEYS: "keys", T.COLORS: "colours", T.PLAYLIST_TREE: "playlist tree",
          T.PLAYLIST_ENTRIES: "playlist entries", T.ARTWORK: "artwork"}
-WRITABLE = (T.TRACKS, T.ARTISTS, T.ALBUMS, T.PLAYLIST_TREE, T.PLAYLIST_ENTRIES)
+WRITABLE = (T.TRACKS, T.GENRES, T.ARTISTS, T.ALBUMS, T.LABELS, T.PLAYLIST_TREE, T.PLAYLIST_ENTRIES)   # 1.3.1 : genres, labels
 
 
 def resolve_pdb(arg: str) -> Path:

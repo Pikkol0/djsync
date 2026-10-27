@@ -47,6 +47,8 @@ class TrackMeta:
     track_no: int = 0
     disc_no: int = 0
     year: int = 0
+    genre: str = ""           # 1.3.1 (C38) : genre et label (tables 1 et 4 d'export.pdb)
+    label: str = ""
     # ---- V1.1-A4 : analyse et pochette (vides = son non analysé, comme avant)
     key: str = ""             # nom de tonalité tel qu'écrit dans la table des tonalités (« Am », « 8A »…)
     artwork_path: str = ""    # « /PIONEER/Artwork/00001/a1.jpg »
@@ -76,6 +78,7 @@ def read_track(data, pos: int) -> Dict[str, object]:
         "id": u32(data, pos + 0x48), "artist_id": u32(data, pos + 0x44), "album_id": u32(data, pos + 0x40),
         "path": strings["file_path"], "title": strings["title"], "strings": strings,
         "artwork_id": u32(data, pos + 0x1C), "key_id": u32(data, pos + 0x20), "bpmx100": u32(data, pos + 0x38),
+        "genre_id": u32(data, pos + 0x3C), "label_id": u32(data, pos + 0x28),
         "fixed": bytes(data[pos: pos + TRACK_FIXED]),
     }
 
@@ -85,7 +88,8 @@ def make_template(row: Dict[str, object]) -> TrackTemplate:
 
 
 def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, index_shift: int,
-                template: Optional[TrackTemplate] = None, key_id: int = 0, artwork_id: int = 0) -> bytes:
+                template: Optional[TrackTemplate] = None, key_id: int = 0, artwork_id: int = 0,
+                genre_id: int = 0, label_id: int = 0) -> bytes:
     fx = bytearray(template.fixed if template else bytes(TRACK_FIXED))
     if not template:
         struct.pack_into("<I", fx, 0x04, DEFAULT_BITMASK)
@@ -95,11 +99,11 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     struct.pack_into("<I", fx, 0x08, meta.sample_rate)
     struct.pack_into("<I", fx, 0x0C, 0)                       # compositeur
     struct.pack_into("<I", fx, 0x10, meta.file_size)
-    struct.pack_into("<IIIII", fx, 0x1C, artwork_id, key_id, 0, 0, 0)  # pochette, tonalité, artiste orig., label, remixeur
+    struct.pack_into("<IIIII", fx, 0x1C, artwork_id, key_id, 0, label_id, 0)  # pochette, tonalité, artiste orig., label, remixeur
     struct.pack_into("<I", fx, 0x30, meta.bitrate)
     struct.pack_into("<I", fx, 0x34, meta.track_no)
     struct.pack_into("<I", fx, 0x38, meta.bpmx100)
-    struct.pack_into("<III", fx, 0x3C, 0, album_id, artist_id)  # genre, album, artiste
+    struct.pack_into("<III", fx, 0x3C, genre_id, album_id, artist_id)  # genre, album, artiste
     struct.pack_into("<I", fx, 0x48, track_id)
     struct.pack_into("<HHHH", fx, 0x4C, meta.disc_no, 0, meta.year, meta.bit_depth)
     struct.pack_into("<H", fx, 0x54, min(meta.length, 0xFFFF))
@@ -122,7 +126,8 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
 
 
 def patch_track(row: Dict[str, object], artist_id: Optional[int] = None, bpmx100: Optional[int] = None,
-                index_shift: Optional[int] = None, **strings: str) -> bytes:
+                index_shift: Optional[int] = None, genre_id: Optional[int] = None, label_id: Optional[int] = None,
+                **strings: str) -> bytes:
     """Reconstruit une ligne EXISTANTE en ne changeant que les champs donnés (V0.2.0 : édition de
     métadonnées, grille). Tous les autres octets fixes et chaînes de la ligne sont conservés tels quels :
     une piste exportée par Rekordbox garde ses couleurs, notes, genre, etc."""
@@ -131,6 +136,10 @@ def patch_track(row: Dict[str, object], artist_id: Optional[int] = None, bpmx100
         struct.pack_into("<I", fx, 0x44, artist_id)
     if bpmx100 is not None:
         struct.pack_into("<I", fx, 0x38, bpmx100)
+    if genre_id is not None:
+        struct.pack_into("<I", fx, 0x3C, genre_id)
+    if label_id is not None:
+        struct.pack_into("<I", fx, 0x28, label_id)
     if index_shift is not None:
         struct.pack_into("<H", fx, 0x02, index_shift & 0xFFFF)
     values = dict(row["strings"])                                         # type: ignore[arg-type]
@@ -186,6 +195,15 @@ def read_artwork(data, pos: int) -> Dict[str, object]:
     return {"id": u32(data, pos), "path": decode_string(data, pos + 4)}
 
 
+def build_named(row_id: int, name: str) -> bytes:
+    """1.3.1 (C38) : ligne des tables des genres (1) et des labels (4) : id, nom (comme les pochettes)."""
+    return pad4(struct.pack("<I", row_id) + encode_string(name))
+
+
+def read_named(data, pos: int) -> Dict[str, object]:
+    return {"id": u32(data, pos), "name": decode_string(data, pos + 4)}
+
+
 # ------------------------------------------------------------------------ playlists
 def build_tree(parent: int, sort_order: int, pl_id: int, is_folder: bool, name: str) -> bytes:
     return pad4(struct.pack("<IIIII", parent, 0, sort_order, pl_id, 1 if is_folder else 0) + encode_string(name))
@@ -226,7 +244,7 @@ def row_end(ttype: int, data, pos: int) -> int:
         end = pos + 12
     elif ttype == T.KEYS:
         end = pos + 8 + string_span(data, pos + 8)
-    elif ttype == T.ARTWORK:
+    elif ttype in (T.ARTWORK, T.GENRES, T.LABELS):
         end = pos + 4 + string_span(data, pos + 4)
     else:
         raise PdbFormatError(f"table {ttype} not supported")
