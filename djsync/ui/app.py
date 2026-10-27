@@ -617,6 +617,8 @@ class DJSyncApp(QMainWindow):
                 from .duplicates_dialog import DuplicatesDialog as page_cls
             elif tab == "quality":
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
+            elif tab == "improve":                          # 1.4.0 (C47)
+                from .improve_dialog import ImproveDialog as page_cls
             else:
                 from .missing_dialog import MissingFilesDialog as page_cls
             page_cls(self, self.ctrl)

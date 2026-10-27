@@ -186,3 +186,67 @@ def test_soulseek_needs_the_warning_accepted(demo):  # noqa: F811
     dlg = [w for w in demo.findChildren(ConfirmDialog) if w.isVisible()]
     dlg[-1]._ok()                                                       # accepté
     assert demo.ctrl.settings.soulseek_accepted and view.slsk_var.isChecked()
+
+
+# ------------------------------------------------------------------ C47 : améliorer ma bibliothèque
+def test_improve_ranks_and_picks_better_versions():
+    from djsync.core import improve as I
+    from djsync.core.quality import AudioInfo
+    from djsync.models import TrackResult
+
+    lib_track = SimpleNamespace(content_id=1, title="Glue", artist="Bicep", duration_seconds=268)
+    weak = I.Weak(lib_track, AudioInfo(codec="aac", bitrate=128, sample_rate=44100))
+    finds = [TrackResult(video_id="a", title="Glue", artist="Bicep", duration_seconds=268, source="audius", quality="MP3 320"),
+             TrackResult(video_id="b", title="Glue", artist="Bicep", duration_seconds=269, source="archive", quality="FLAC"),
+             TrackResult(video_id="c", title="Glue (Live)", artist="Bicep", duration_seconds=400, source="archive", quality="FLAC"),
+             TrackResult(video_id="d", title="Glue", artist="Bicep", duration_seconds=268, source="audius", quality="MP3 128")]
+    weak.finds = I.better_finds(weak, finds)
+    assert [f.video_id for f in weak.finds] == ["b", "a"]
+    assert weak.gain == "AAC 128 → FLAC" and I.sure(weak)
+    fake = AudioInfo(codec="flac", bitrate=900, sample_rate=44100, cutoff=16000)      # faux FLAC : faible
+    good = AudioInfo(codec="flac", bitrate=900, sample_rate=44100, cutoff=21800)
+    tracks = [SimpleNamespace(content_id=i) for i in (1, 2, 3)]
+    out = I.weak_tracks(tracks, {1: AudioInfo(codec="mp3", bitrate=320), 2: fake, 3: good})
+    assert [w.track.content_id for w in out] == [2]
+    assert [w.track.content_id for w in I.weak_tracks(tracks, {1: AudioInfo(codec="mp3", bitrate=320), 2: fake, 3: good},
+                                                       lossless_only=True)] == [2, 1]
+
+
+def test_improve_page_search_and_confirmed_replace(demo, monkeypatch):  # noqa: F811
+    from djsync.core import quality
+    from djsync.models import TrackResult
+    from djsync.ui.dialogs import ConfirmDialog
+
+    from .qt_util import pump
+
+    ctrl = demo.ctrl
+    monkeypatch.setattr(quality, "probe", lambda path: quality.AudioInfo(codec="aac", bitrate=128, sample_rate=44100))
+    lib_tracks = ctrl.library.list_tracks()
+
+    from djsync.core.quality import search_terms
+
+    def free_search(query, ok):
+        x = next(t for t in lib_tracks if " ".join(reversed(search_terms(t))).strip() == query)
+        ok([TrackResult(video_id=f"archive:{x.content_id}", title=x.title, artist=x.artist or "",
+                        duration_seconds=x.duration_seconds, source="archive", quality="FLAC")])
+
+    monkeypatch.setattr(ctrl, "free_search", free_search)
+    replaced = []
+    monkeypatch.setattr(ctrl, "replace_with_download", lambda tr, old: replaced.append((tr.video_id, old[0].content_id)) or 1)
+    demo.open_diagnostic("improve")
+    assert pump(demo, 6, lambda: getattr(demo, "_page", None) is not None or True)
+    from djsync.ui.improve_dialog import ImproveDialog
+
+    page = next(w for w in demo.findChildren(ImproveDialog))
+    assert pump(demo, 6, lambda: page.table.total == len(lib_tracks))
+    assert ctrl.diag_counts.get("improve") == len(lib_tracks)
+    page._search_all()
+    ok_ = pump(demo, 6, lambda: all(w.searched for w in page.weaks.values()))
+    assert ok_, [(w.track.title, w.searched, page._queue, page._searching) for w in page.weaks.values()]
+    gains = [w.gain for w in page.weaks.values()]
+    assert gains.count("AAC 128 → FLAC") == len(gains) - 1 and gains.count("") == 1   # le clip (autre durée) : rien
+    page._apply_sure()
+    dlg = [w for w in demo.findChildren(ConfirmDialog) if w.isVisible()]
+    assert dlg and not replaced                                     # rien sans confirmation
+    dlg[-1]._ok()
+    assert len(replaced) == len(lib_tracks) - 1 and page.table.total == 1

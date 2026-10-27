@@ -150,6 +150,8 @@ class SoulseekMixin:
             self.service.refresh_library()
             job.file_path, job.content_id = str(lib.absolute_path(added)), added.content_id
             job.original = result.lossless
+            if job.replace_ids:                                  # C47 : remplace une version faible
+                self._finish_replace(job, lib)
             job.status = "done"
             self._slsk_check_quality(job, result)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement

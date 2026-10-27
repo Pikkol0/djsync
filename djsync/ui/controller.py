@@ -48,6 +48,7 @@ from .ctrl.curation import CurationMixin
 from .ctrl.diagnostic import DiagnosticMixin
 from .ctrl.imports import ImportsMixin
 from .ctrl.soulseek import SoulseekMixin
+from .ctrl.improve import ImproveMixin
 from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
 from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
 from .runner import UiDispatcher
@@ -137,7 +138,7 @@ class MatchHandle:
 
 
 class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin, ToolsMixin,
-                    DiagnosticMixin, BackupsMixin, CurationMixin, ImportsMixin, SoulseekMixin):
+                    DiagnosticMixin, BackupsMixin, CurationMixin, ImportsMixin, SoulseekMixin, ImproveMixin):
     def __init__(
         self,
         settings: Settings,
