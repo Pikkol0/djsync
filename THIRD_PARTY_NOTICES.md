@@ -21,6 +21,7 @@ Their source code is available at the addresses below.
 | [miniaudio](https://github.com/irmen/pyminiaudio) | audio player | MIT |
 | [requests](https://requests.readthedocs.io/) | artwork, Spotify pages | Apache-2.0 |
 | [psutil](https://github.com/giampaolo/psutil) | "is Rekordbox open?" | BSD-3-Clause |
+| [rkbdb2xml](https://github.com/kuwa72/rkbdb2xml) (algorithm, re-implemented in `djsync/analysis/anlz.py`) | analysis folder names computed like Rekordbox | MIT |
 | [miniz](https://github.com/richgel999/miniz) (`packaging/launcher`) | single-file Windows launcher | MIT |
 | [Python](https://www.python.org/) (via PyInstaller) | runtime | PSF License |
 

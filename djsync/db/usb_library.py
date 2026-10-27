@@ -33,6 +33,7 @@ from .base import LibraryBackend
 from .library.base import LibraryBase
 from .library.common import *  # noqa: F401,F403 (FILE_TYPES, format_date_like, extract_video_id…)
 from .library.common import _Extras, _meta_select, _safe_name, _track_select  # noqa: F401
+from .library.anlz_migrate import AnlzMigrateMixin
 from .library.ingest import IngestMixin
 from .library.metadata import BeatGrid, MetadataMixin, PlaylistStats  # noqa: F401
 from .library.pdb_mirror import PdbMirrorMixin
@@ -40,6 +41,6 @@ from .library.playlists import PlaylistsMixin
 from .library.tracks import TracksMixin
 
 
-class RekordboxUsbLibrary(IngestMixin, MetadataMixin, TracksMixin, PlaylistsMixin, PdbMirrorMixin, LibraryBase,
+class RekordboxUsbLibrary(AnlzMigrateMixin, IngestMixin, MetadataMixin, TracksMixin, PlaylistsMixin, PdbMirrorMixin, LibraryBase,
                           LibraryBackend):
     """Bibliothèque d'une clé USB Rekordbox. Thread-safe (un verrou protège la connexion)."""

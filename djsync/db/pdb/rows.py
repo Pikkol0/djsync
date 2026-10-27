@@ -14,6 +14,7 @@ Les octets « inconnus » d'une nouvelle piste sont recopiés d'une piste exista
 from __future__ import annotations
 
 import struct
+import zlib
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -25,7 +26,8 @@ STR_NAMES = ("isrc", "texter", "unk2", "unk3", "unk4", "message", "kuvo_public",
              "analyze_date", "comment", "title", "unk8", "filename", "file_path")
 # Champs de chaîne que DJSync renseigne lui-même ; les autres viennent du modèle (ou restent vides).
 OWN_STRINGS = ("isrc", "date_added", "release_date", "analyze_path", "analyze_date", "comment",
-               "title", "filename", "file_path", "mix_name")
+               "title", "filename", "file_path", "mix_name", "unk2", "unk3", "unk4")
+M4A_FILE_TYPE = 4
 DEFAULT_BITMASK = 0x000C0700
 
 
@@ -84,6 +86,11 @@ def make_template(row: Dict[str, object]) -> TrackTemplate:
     return TrackTemplate(fixed=row["fixed"], strings=dict(row["strings"]))  # type: ignore[arg-type]
 
 
+def track_marker(path: str) -> int:
+    """Valeur de 0x14 propre à une piste (stable pour un même chemin), dans la plage de Rekordbox."""
+    return (zlib.crc32(path.casefold().encode("utf-8")) & 0x0FFFFFFF) or 1
+
+
 def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, index_shift: int,
                 template: Optional[TrackTemplate] = None, key_id: int = 0, artwork_id: int = 0) -> bytes:
     fx = bytearray(template.fixed if template else bytes(TRACK_FIXED))
@@ -95,8 +102,13 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     struct.pack_into("<I", fx, 0x08, meta.sample_rate)
     struct.pack_into("<I", fx, 0x0C, 0)                       # compositeur
     struct.pack_into("<I", fx, 0x10, meta.file_size)
+    # 1.3.0-rc.6 (B27) : comme Rekordbox (213 pistes d'un vrai export) : 0x14 propre à chaque piste
+    # (< 2^28 ; avant, recopié du modèle : la même valeur pour tous les sons de DJSync), 0x18 / 0x1A
+    # toujours 29758 / 1535 (avant : 0 sans piste modèle).
+    struct.pack_into("<I", fx, 0x14, track_marker(meta.path))
+    struct.pack_into("<HH", fx, 0x18, 29758, 1535)
     struct.pack_into("<IIIII", fx, 0x1C, artwork_id, key_id, 0, 0, 0)  # pochette, tonalité, artiste orig., label, remixeur
-    struct.pack_into("<I", fx, 0x30, meta.bitrate)
+    struct.pack_into("<I", fx, 0x30, 0 if meta.file_type == M4A_FILE_TYPE else meta.bitrate)  # B27 : Rekordbox, m4a
     struct.pack_into("<I", fx, 0x34, meta.track_no)
     struct.pack_into("<I", fx, 0x38, meta.bpmx100)
     struct.pack_into("<III", fx, 0x3C, 0, album_id, artist_id)  # genre, album, artiste
@@ -111,7 +123,10 @@ def build_track(meta: TrackMeta, track_id: int, artist_id: int, album_id: int, i
     defaults = {"unk3": "1", "kuvo_public": "ON", "autoload_hot_cues": "ON"}
     own = {"isrc": "", "date_added": meta.date_added[:10], "release_date": "", "analyze_path": meta.analyze_path,
            "analyze_date": meta.analyze_date[:10] if meta.analyze_path else "", "comment": meta.comment, "title": meta.title,
-           "filename": meta.file_name, "file_path": meta.path, "mix_name": ""}
+           "filename": meta.file_name, "file_path": meta.path, "mix_name": "",
+           # B27 : valeurs de Rekordbox pour un son jamais lu (vrai export : 197 / 196 / 157 pistes sur 213) ;
+           # ne plus les recopier du modèle (compteurs propres au son modèle).
+           "unk2": "", "unk3": "1", "unk4": ""}
     body = bytearray()
     for k, name in enumerate(STR_NAMES):
         text = own[name] if name in OWN_STRINGS else (template.strings.get(name, "") if template else defaults.get(name, ""))
