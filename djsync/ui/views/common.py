@@ -63,7 +63,8 @@ class View(QWidget):
         for w in self.findChildren(TrackTable):
             w.apply_metrics()
 
-    def remember_layout(self, table: TrackTable, key: str, default_hidden: Sequence[str] = ()) -> None:
+    def remember_layout(self, table: TrackTable, key: str, default_hidden: Sequence[str] = (),
+                        new_keys: Sequence[str] = ()) -> None:
         """1.2.1 (C05) : colonnes affichées et largeurs de ce tableau retenues dans les réglages."""
         def save() -> None:
             try:
@@ -71,7 +72,7 @@ class View(QWidget):
             except OSError:
                 pass
 
-        table.enable_layout(key, lambda: self.ctrl.settings.table_layouts, save, default_hidden)
+        table.enable_layout(key, lambda: self.ctrl.settings.table_layouts, save, default_hidden, new_keys)
 
     def focus_filter(self) -> None:
         entry = getattr(self, "filter", None) or getattr(self, "entry", None) or getattr(self, "url", None)

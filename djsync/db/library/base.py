@@ -37,6 +37,7 @@ class LibraryBase:
         self._batch_backed_up = False
         self._ref_tables: List[str] = []
         self._tables: set = set()
+        self._content_cols: set = set()
         self._has_key = False
         self.journal_mode = ""
         # ---- miroir export.pdb (V1.1-A3)
@@ -128,6 +129,7 @@ class LibraryBase:
                 if t in tables and any(c[1] == "content_id" for c in conn.execute(f'PRAGMA table_info("{t}")'))
             ]
             self._tables = set(tables)
+            self._content_cols = {c[1] for c in conn.execute('PRAGMA table_info("content")')}
             self._has_key = "key" in tables and any(
                 c[1] == "key_id" for c in conn.execute('PRAGMA table_info("key")'))
             self._has_image = "image" in tables and any(

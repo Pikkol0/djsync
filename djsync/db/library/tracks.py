@@ -10,14 +10,23 @@ class TracksMixin:
     def _track(row: Tuple[Any, ...]) -> LibraryTrack:
         cid, title, artist, album, length, path, bpmx100, ftype, comment, added, analysis, art = row[:12]
         key = row[12] if len(row) > 12 else None
+        x = list(row[13:23]) + [None] * max(0, 10 - len(row[13:23]))
+        genre, label, year, bitrate, rate, rating, color, plays, created, size = x
         return LibraryTrack(
             content_id=cid, title=title or "", artist=artist, album=album,
             duration_seconds=int(length), path=path or "", bpm=bpmx100 / 100.0, file_type=ftype,
             source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
             date_added=added, is_analysed=bool(analysis), artwork_path=art or None,
-            sequence=int(row[13]) if len(row) > 13 and row[13] is not None else 0,
+            sequence=int(row[23]) if len(row) > 23 and row[23] is not None else 0,
             key=key or None, analysis_path=analysis or None,
+            genre=genre or "", label=label or "", comment=comment or "", year=_int(year), bitrate=_int(bitrate),
+            sample_rate=_int(rate), rating=max(0, min(5, _int(rating))), color=_int(color), play_count=_int(plays),
+            created=str(created or "")[:10], file_size=_int(size),
         )
+
+    def _tsel(self, with_sequence: bool = False) -> str:
+        return _track_select(self._has_key, with_sequence, getattr(self, "_content_cols", None) or None,
+                             self._tables or None)
 
     def absolute_path(self, track_or_path: Union[LibraryTrack, str]) -> Path:
         """Chemin réel sur la clé d'un son (ou d'un chemin de la base, ex. "/Contents/…")."""
@@ -51,10 +60,10 @@ class TracksMixin:
         return out
 
     def list_tracks(self) -> List[LibraryTrack]:
-        return [self._track(r) for r in self._read(_track_select(self._has_key) + " ORDER BY c.content_id")]
+        return [self._track(r) for r in self._read(self._tsel() + " ORDER BY c.content_id")]
 
     def get_track(self, content_id: int) -> LibraryTrack:
-        rows = self._read(_track_select(self._has_key) + " WHERE c.content_id = ?", (content_id,))
+        rows = self._read(self._tsel() + " WHERE c.content_id = ?", (content_id,))
         if not rows:
             raise TrackNotFoundError(f"Track not found (id {content_id}).")
         return self._track(rows[0])
@@ -70,7 +79,7 @@ class TracksMixin:
             if not arg.startswith("http"):
                 return None
             sql = " WHERE c.djComment = ?"
-        rows = self._read(_track_select(self._has_key) + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
+        rows = self._read(self._tsel() + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
         return self._track(rows[0]) if rows else None
 
     def track_count(self) -> int:

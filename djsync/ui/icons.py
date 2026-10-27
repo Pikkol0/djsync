@@ -187,6 +187,13 @@ def _grid(p: _Pen) -> None:
         p.line(x, 4, x, 20, w=1.6 if x != 5 else 2.6)
 
 
+def _columns(p: _Pen) -> None:
+    """1.3.1 (C37) : bouton « Colonnes » de la Bibliothèque."""
+    p.rect(3, 5, 21, 19, r=2)
+    p.line(9, 5, 9, 19)
+    p.line(15, 5, 15, 19)
+
+
 def _arrow_right(p: _Pen) -> None:
     p.line(4, 12, 19, 12)
     p.line(13, 6, 19, 12, 13, 18)
@@ -336,7 +343,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
     "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
-    "diagnostic": _diagnostic, "chat": _chat,
+    "diagnostic": _diagnostic, "chat": _chat, "columns": _columns,
 }
 
 
