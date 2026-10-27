@@ -102,7 +102,7 @@ class TracksMixin:
         info = audio.info
         return {
             "fileType": ftype,
-            "length": int(round(getattr(info, "length", 0) or 0)),
+            "length": int(getattr(info, "length", 0) or 0),        # B27 : tronquée, comme Rekordbox
             "bitrate": int((getattr(info, "bitrate", 0) or 0) / 1000),
             "bitDepth": int(getattr(info, "bits_per_sample", 0) or 16),
             "samplingRate": int(getattr(info, "sample_rate", 0) or 0),
@@ -192,11 +192,11 @@ class TracksMixin:
     def _delete_analysis(self, anlz_path: str, track_path: str) -> None:
         """Supprime les fichiers ANLZ d'un son DJSync supprimé (seulement s'ils lui appartiennent :
         balise PPTH = chemin du son) ; la pochette est conservée (elle peut servir à l'album)."""
-        from ...analysis.anlz import read_path
+        from ...analysis.anlz import is_anlz_dat, read_path
 
         dat = (self.drive.root / anlz_path.lstrip("/")).resolve()
         root = (self.drive.root / "PIONEER" / "USBANLZ").resolve()
-        if root not in dat.parents or dat.name.upper() != "ANLZ0000.DAT":
+        if root not in dat.parents or not is_anlz_dat(dat.name):      # 1.3.0-rc.6 : ANLZ0001… aussi
             return
         try:
             if read_path(dat.read_bytes()).casefold() != track_path.casefold():

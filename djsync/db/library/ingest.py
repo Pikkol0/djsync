@@ -35,7 +35,8 @@ class IngestMixin:
         return Counter(rows).most_common(1)[0][0] if rows else None
 
     def _prepare_extras(self, file_path: Path, db_path: str, audio: Dict[str, int],
-                        analysis: bool = True, cover: bool = True, explicit: bool = False) -> _Extras:
+                        analysis: bool = True, cover: bool = True, explicit: bool = False,
+                        previous: Optional[str] = None) -> _Extras:
         """Analyse (BPM, grille, tonalité, ANLZ) + pochette, HORS transaction (plusieurs secondes).
         Ne lève jamais : un échec est noté dans `problems` et le son est ajouté sans ce détail."""
         ex = _Extras()
@@ -46,7 +47,8 @@ class IngestMixin:
                 ex.analysis = analyze_file(file_path, self.ffmpeg_location)
                 if not self.read_only:
                     ex.anlz_path = write_anlz(self.drive.root, db_path, ex.analysis, audio["fileType"],
-                                              audio["samplingRate"] or 44100, auto_cue=self.auto_cue)
+                                              audio["samplingRate"] or 44100, auto_cue=self.auto_cue,
+                                              previous=previous)
                     if self.auto_cue:
                         ex.cue_ms = ex.analysis.first_downbeat_ms
                     folder = self.drive.root / ex.anlz_path.lstrip("/")
@@ -331,7 +333,10 @@ class IngestMixin:
         if not file_path.is_file():
             raise LibraryError(f"File not found: {file_path}")
         ex = self._prepare_extras(file_path, db_path, {"fileType": int(ftype or 0), "samplingRate": int(rate or 44100)},
-                                  analysis=force or not anlz, cover=image_id is None, explicit=True)
+                                  analysis=force or not anlz, cover=image_id is None, explicit=True,
+                                  previous=anlz or None)
+        if anlz and ex.anlz_path and ex.anlz_path.casefold() != anlz.casefold():
+            ex.replaced = anlz          # 1.3.0-rc.6 : ancien emplacement, effacé une fois la base à jour
         self.last_problems = list(ex.problems)
         if ex.analysis is None and not ex.jpegs:
             return None
@@ -353,15 +358,23 @@ class IngestMixin:
                 ftype = conn.execute("SELECT fileType FROM content WHERE content_id = ?", (content_id,)).fetchone()
                 self._memory_cue(conn, content_id, ex, int(ftype[0] or 0) if ftype else 0)
                 self._stage_tracks(conn, [content_id])
+                if ex.replaced:                  # B27 : nouvel emplacement de l'analyse, ligne réécrite
+                    path = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
+                    if path and path[0]:
+                        self._pdb_mark(TRACK_REBUILT, path[0])
         except BaseException:
             self._discard([p for p in ex.written if "Artwork" in p.as_posix()])
             raise
+        if ex.replaced:
+            row = self._read("SELECT path FROM content WHERE content_id = ?", (content_id,))
+            if row and row[0][0]:
+                self._retire_analysis(ex.replaced, row[0][0])
 
     def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
                         key: Optional[str] = None) -> LibraryTrack:
         """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante (Rekordbox ou DJSync)
         au lieu de recalculer — grille corrigée à la main comprise. `files` = {".DAT": …, ".EXT": …}."""
-        from ...analysis.anlz import _write_atomic, choose_anlz_dir, retarget
+        from ...analysis.anlz import _write_atomic, choose_anlz_base, retarget
 
         row = self._read("SELECT path, analysisDataFilePath FROM content WHERE content_id = ?", (content_id,))
         if not row:
@@ -369,16 +382,16 @@ class IngestMixin:
         db_path, anlz = row[0]
         if anlz or ".DAT" not in files:
             return self.get_track(content_id)
-        rel_dir = choose_anlz_dir(self.drive.root, db_path)
-        folder = self.drive.root / rel_dir.lstrip("/")
+        base = choose_anlz_base(self.drive.root, db_path)        # 1.3.0-rc.6 : comme Rekordbox
+        stem = self.drive.root / base.lstrip("/")
         written = []
         try:
             for ext, data in files.items():
-                target = folder / f"ANLZ0000{ext}"
+                target = stem.with_name(stem.name + ext)
                 _write_atomic(target, retarget(data, db_path))
                 written.append(target)
             with self._write() as conn:
-                cols: Dict[str, Any] = {"analysisDataFilePath": f"{rel_dir}/ANLZ0000.DAT",
+                cols: Dict[str, Any] = {"analysisDataFilePath": f"{base}.DAT",
                                         "analysedBits": self._native_analysed_bits(conn)}
                 if bpm > 0:
                     cols["bpmx100"] = int(round(bpm * 100))
