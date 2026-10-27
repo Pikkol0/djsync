@@ -597,3 +597,52 @@ def test_suggestions_panel_follows_selection_and_adds_to_playlist(tmp_path, monk
         assert not app.errors
     finally:
         close_window(app)
+
+
+def test_duplicates_tab_shows_quality_best_and_clean_versions(tmp_path, monkeypatch):
+    from djsync.core.quality import AudioInfo
+    from djsync.models import Candidate, TrackResult
+    from djsync.ui.dialogs import ConfirmDialog
+    from djsync.ui.duplicates_dialog import ALT, DuplicatesDialog
+
+    from .qt_util import close_window, find, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        infos = {}
+
+        def quality(tracks, ok):
+            for i, x in enumerate(tracks):
+                infos[x.content_id] = AudioInfo("aac", 256 if i == 0 else 128, 44100)
+            ok({x.content_id: infos[x.content_id] for x in tracks})
+
+        monkeypatch.setattr(ctrl, "track_quality", quality)
+        clean = TrackResult(video_id="C" * 11, title="One More Time", artist="Daft Punk", duration_seconds=320,
+                            result_type="song")
+        monkeypatch.setattr(ctrl, "find_alternatives", lambda track, ok: ok([Candidate(clean, 95.0)]))
+        app.open_diagnostic("dup")
+        assert pump(app, 2, lambda: find(app, DuplicatesDialog) is not None)
+        dlg = find(app, DuplicatesDialog)
+        assert pump(app, 10, lambda: dlg.groups and dlg.current_group)
+        group = dlg.current_group
+        texts = [dlg._info_labels[x.content_id].text() for x in group]
+        assert any("256 kbps" in s for s in texts) and any("128 kbps" in s for s in texts)
+        best = dlg._best(group)
+        assert best is not None and dlg.keep_index() == group.index(best)          # meilleure qualité proposée
+        title_before = dlg.title_entry.text()
+        assert title_before                                                          # titre propre gardé
+        dlg._find_alternatives()
+        assert dlg._keep.button(ALT) is not None
+        dlg._keep.button(ALT).setChecked(True)
+        assert dlg.download_choice().track is clean
+        dlg._apply()
+        assert pump(app, 2, lambda: find(app, ConfirmDialog) is not None)
+        calls = []
+        monkeypatch.setattr(ctrl, "replace_with_download", lambda tr, old: calls.append((tr, list(old))) or object())
+        find(app, ConfirmDialog)._ok()
+        assert calls and calls[0][0] is clean and len(calls[0][1]) == len(group)
+        assert not app.errors
+    finally:
+        close_window(app)

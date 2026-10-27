@@ -1,6 +1,6 @@
 """DJSync - Gestionnaire de bibliothèque musicale pour clés USB Rekordbox."""
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 try:                       # écrit par le workflow de build : version exacte publiée (ex. « 1.2.0-rc.4 »)
     from ._build_version import VERSION as BUILD_VERSION

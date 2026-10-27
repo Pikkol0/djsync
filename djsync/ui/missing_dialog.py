@@ -212,7 +212,12 @@ class MissingFilesDialog(BaseDialog):
             return
         group = self._alt_group()
         for k, c in enumerate(found):
-            r = QRadioButton(f"   {c.track.title} — {c.track.artist}  ·  {format_duration(c.track.duration_seconds)}")
+            from . import levels
+
+            exp, _lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+            r = QRadioButton(f"   {c.track.title} — {c.track.artist}  ·  {format_duration(c.track.duration_seconds)}"
+                             f"  ·  {exp}")                                  # C42 : qualité attendue
+            r.setToolTip(t("dup.expected_tip"))
             group.addButton(r, ALT + k)
             r.toggled.connect(lambda _on: self._refresh_actions())
             box.addWidget(r)
