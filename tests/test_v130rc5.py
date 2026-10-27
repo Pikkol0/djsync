@@ -76,3 +76,33 @@ def test_loop_jump_keeps_the_reserve(tmp_path):
     p.seek(3.0, flush=False)                                       # retour au début d'une boucle
     assert p._device is device                                     # la fin de boucle déjà envoyée se joue
     p.close()
+
+
+# ------------------------------------------------------------------ B25 : formes d'onde comme Rekordbox
+def _heights(level, sr=44100, seconds=4.0):
+    from djsync.analysis.waveform import compute_waveforms
+
+    t = np.arange(int(sr * seconds)) / sr
+    x = (level * np.sin(2 * np.pi * 110 * t)).astype(np.float32)
+    wf = compute_waveforms(x, sr, seconds)
+    v = np.frombuffer(wf.color_detail, ">u2")
+    return (v >> 2) & 31, wf
+
+
+def test_waveform_height_follows_the_real_level():
+    loud, _ = _heights(0.95)
+    quiet, _ = _heights(0.4)
+    # Rekordbox : ≈ 16 pour un son à fond, ≈ 2-3 à -8 dB ; avant, DJSync étirait tout jusqu'à 31
+    assert 13 <= np.median(loud) <= 19
+    assert np.median(quiet) <= 4 and np.median(quiet) < np.median(loud)
+
+
+def test_waveform_is_one_point_later_like_rekordbox():
+    from djsync.analysis.waveform import DETAIL_RATE, compute_waveforms
+
+    sr = 44100
+    x = np.zeros(sr * 3, dtype=np.float32)
+    x[sr: sr + 200] = 0.95                                  # un coup à 1,000 s
+    wf = compute_waveforms(x, sr, 3.0)
+    h = (np.frombuffer(wf.color_detail, ">u2") >> 2) & 31
+    assert int(np.argmax(h)) == DETAIL_RATE + 1             # point 151 (6,7 ms plus tard), comme Rekordbox
