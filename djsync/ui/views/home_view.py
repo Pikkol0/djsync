@@ -165,6 +165,7 @@ class HomeView(View):
         top.addStretch(1)
         mid.addLayout(top)
         chips = hbox(spacing=theme.px(6))
+        stale_detail = None                         # 1.3.0-rc.3 (C36) : export.pdb pas à jour sur cette clé
         if s.tracks >= 0:
             chips.addWidget(chip(plural("lib.tracks_one", "lib.tracks_many", s.tracks)))
             chips.addWidget(chip(plural("home.playlists_one", "home.playlists_many", s.playlists)))
@@ -179,6 +180,7 @@ class HomeView(View):
             elif s.connected and s.pdb_state == "stale":
                 pdb = chip(t("home.pdb_stale"), "chip_warn")
                 pdb.setToolTip(t("home.pdb_stale_tip", detail=s.pdb_problem or "?"))
+                stale_detail = s.pdb_problem
             else:
                 pdb = chip(t("home.pdb_short_yes"))
                 pdb.setToolTip(t("home.pdb_yes"))
@@ -193,12 +195,21 @@ class HomeView(View):
                 chips.addWidget(fs)
         chips.addStretch(1)
         mid.addLayout(chips)
+        if stale_detail is not None:
+            detail = label(t("home.pdb_detail", detail=stale_detail or "?"), "dim")
+            detail.setWordWrap(True)
+            mid.addWidget(detail)
         actions = hbox()
         if s.connected:
             actions.addWidget(button(t("home.open_library"), lambda: self.ctrl._emit("navigate", "library"),
                                      kind="primary", icon="library"))
             if s.unanalysed > 0:
                 actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
+            if stale_detail is not None:
+                upd = button(t("home.pdb_update"), icon="refresh")
+                upd.setToolTip(t("home.pdb_update_tip"))
+                upd.clicked.connect(lambda _c=False, b=upd: self._update_pdb(b))
+                actions.addWidget(upd)
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
                                      icon=icon))
@@ -223,6 +234,20 @@ class HomeView(View):
             lay.addLayout(side)
         box.setToolTip(str(s.drive.db_dir) if s.is_local else str(s.drive.root))
         return box
+
+    def _update_pdb(self, btn: Any) -> None:
+        """1.3.0-rc.3 (C36) : « Mettre à jour export.pdb » depuis la carte de la clé."""
+        btn.setEnabled(False)
+        btn.setText(t("home.pdb_updating"))
+
+        def restore(_x: Any = None) -> None:
+            try:
+                btn.setEnabled(True)
+                btn.setText(t("home.pdb_update"))
+            except RuntimeError:                    # carte déjà redessinée
+                pass
+
+        self.ctrl.pdb_sync_now(ok=restore, failed=restore)
 
     # ------------------------------------------------------------------- outils
     def diagnose(self, drive: Any, connected: bool) -> None:

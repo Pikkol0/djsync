@@ -149,7 +149,7 @@ class Page:
         if self.is_index:
             raise PdbFormatError(f"page {self.index}: index page, no data")
         if self.flags not in (0x24, 0x34):
-            raise PdbFormatError(f"page {self.index} : drapeaux de page inconnus ({self.flags:#x})")
+            raise PdbFormatError(f"page {self.index}: unknown page flags ({self.flags:#x})")
         if n > MAX_ROWS or self.heap_end % 4:
             raise PdbFormatError(f"page {self.index}: inconsistent counters")
         if self.heap_end + self.free + index_size(n) != PAGE_SIZE:      # vrai sur les 40 pages d'un export réel

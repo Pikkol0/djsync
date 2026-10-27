@@ -4,16 +4,14 @@ Correctifs d'export.pdb (anciennes platines : CDJ-2000NXS2, XDJ-1000…) : **B13
 bibliothèque dans le dispositif est corrompue » après des ajouts sur une clé vide) et **P02**
 (export.pdb réconcilié avec exportLibrary.db). Les scénarios de `docs/TESTS-1.3.0.fr.md` restent à faire.
 
-À faire Rekordbox fermé pendant les écritures. Ne plus ouvrir la clé de test avec la 1.3.0-rc.1.
+À faire Rekordbox fermé pendant les écritures. Ne plus ouvrir une clé de test avec la 1.3.0-rc.1. (Les anciens K1–K2, réparation de la clé du test K2, sont retirés : la clé a été reformatée.)
 
-## K. Clé vide préparée par Rekordbox (B13)
+## N. Clé neuve préparée par Rekordbox (B13)
 | # | Étapes | Attendu |
 |---|---|---|
-| K1 | Clé du test K2 (celle que Rekordbox dit « corrompue ») : dans Rekordbox, répondre **Non** à « Voulez-vous la supprimer ? », fermer Rekordbox. Ouvrir la clé dans DJSync rc.2. | Le journal (`djsync.log`) indique « index page repaired » ; l'Accueil dit export.pdb à jour. |
-| K2 | Rouvrir la clé dans Rekordbox | Plus de message « corrompue ». La playlist « test » et ses 2 sons apparaissent dans **Device Library** et dans **OneLibrary**. |
-| K3 | Clé vidée puis préparée à nouveau par Rekordbox (aucun son). DJSync rc.2 : télécharger 2 sons dans une nouvelle playlist, éjecter. | Rekordbox : pas de message « corrompue » ; playlist et sons dans Device Library et OneLibrary ; dates d'ajout = date du jour ; tonalités en notation Rekordbox (Am, F#m…). |
-| K4 | `python -m djsync.db.pdb.check E:` (ou Retours ▸ Envoyer mes logs) | Aucune ligne `INDEX:`. |
-| K5 | Ancienne platine (CDJ-2000NXS2, XDJ-1000), clé de K3 | La playlist et les sons sont lus. |
+| N1 | Clé vidée (ou reformatée) puis préparée à nouveau par Rekordbox (aucun son). DJSync rc.2 : télécharger 2 sons dans une nouvelle playlist, éjecter. | Rekordbox : pas de message « corrompue » ; playlist et sons dans Device Library et OneLibrary ; dates d'ajout = date du jour ; tonalités en notation Rekordbox (Am, F#m…). |
+| N2 | `python -m djsync.db.pdb.check E:` (ou Retours ▸ Envoyer mes logs) | Aucune ligne `INDEX:`. |
+| N3 | Ancienne platine (CDJ-2000NXS2, XDJ-1000), clé de N1 | La playlist et les sons sont lus. |
 
 ## S. Réconciliation d'export.pdb (P02)
 | # | Étapes | Attendu |
@@ -26,5 +24,5 @@ bibliothèque dans le dispositif est corrompue » après des ajouts sur une clé
 | S6 | Clé avec des sons ajoutés par Rekordbox (inconnus de DJSync seulement si ancien export) | Rien n'est retiré de Device Library par DJSync. |
 
 ## R. Retour
-Envoyer les logs depuis l'app (Retours ▸ Envoyer mes logs, case « fichiers de la clé » cochée) après K2/K3,
+Envoyer les logs depuis l'app (Retours ▸ Envoyer mes logs, case « fichiers de la clé » cochée) après N1,
 avec une capture de Rekordbox si un message apparaît.

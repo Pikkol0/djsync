@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QToolButton,
+    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton,
     QWidget,
 )
 
@@ -113,6 +113,17 @@ class SettingsView(View):
         self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
         self.scroll_wave_var.setChecked(s.scrolling_wave)
         card.addWidget(self.scroll_wave_var)
+        row = hbox()                                                         # 1.3.0-rc.3 (C39)
+        row.addWidget(label(t("settings.audio_latency"), ""))
+        self.latency_box = QSpinBox()
+        self.latency_box.setRange(-200, 500)
+        self.latency_box.setSingleStep(10)
+        self.latency_box.setSuffix(" ms")
+        self.latency_box.setValue(s.audio_latency_ms)
+        self.latency_box.setToolTip(t("settings.audio_latency_tip"))
+        row.addWidget(self.latency_box)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- clé USB
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
@@ -190,9 +201,12 @@ class SettingsView(View):
 
         # ---- analyse
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
-        self.analyze_var = QCheckBox(t("settings.analyze_on_add"))
-        self.analyze_var.setChecked(s.analyze_on_add)
-        card.addWidget(self.analyze_var)
+        self.analyze_usb_var = QCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
+        self.analyze_usb_var.setChecked(s.analyze_after_download_usb)
+        card.addWidget(self.analyze_usb_var)
+        self.analyze_local_var = QCheckBox(t("settings.analyze_after_local"))
+        self.analyze_local_var.setChecked(s.analyze_after_download_local)
+        card.addWidget(self.analyze_local_var)
         self.cue_var = QCheckBox(t("settings.auto_cue"))
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
@@ -636,11 +650,13 @@ class SettingsView(View):
         s.backup_keep = int(self.keep.currentText())
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
-        s.analyze_on_add = self.analyze_var.isChecked()
+        s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
+        s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
+        s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
         s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
                                 "auto")

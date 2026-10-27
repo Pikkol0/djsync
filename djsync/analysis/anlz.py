@@ -17,7 +17,7 @@ import os
 import struct
 import zlib
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .waveform import Waveforms
 
@@ -290,6 +290,38 @@ def read_overview(dat: Optional[bytes] = None, ext: Optional[bytes] = None) -> L
         if "PWAV" in tags:
             return [((v & 0x1F) / 31.0, "#4A9EFF" if (v >> 5) < 4 else "#9CCBFF") for v in tags["PWAV"][0][1]]
     return []
+
+
+def read_band_detail(two_ex: bytes) -> Any:
+    """1.3.0-rc.3 (B21) : forme d'onde 3 bandes PWV7 du .2EX (150 colonnes/s, 3 octets : basses, médiums,
+    aigus, 0-127), en BandWave, pour l'éditeur de grille quand le fichier audio est introuvable. None si absente."""
+    import numpy as np
+
+    from .waveform import BandWave
+
+    tags = parse(two_ex)
+    if "PWV7" not in tags:
+        return None
+    b = tags["PWV7"][0][1]
+    n = len(b) // 3
+    if not n:
+        return None
+    a = np.frombuffer(b[: n * 3], dtype=np.uint8).reshape(n, 3)
+    return BandWave(rate=150, low=a[:, 0].copy(), mid=a[:, 1].copy(), high=a[:, 2].copy())
+
+
+def band_from_detail(detail: List[Tuple[float, str]]) -> Any:
+    """B21 : dernier recours (ni fichier audio ni .2EX) : la forme d'onde des fichiers d'analyse dessinée
+    dans les couleurs 3 bandes (basses pleine hauteur, médiums et aigus en retrait), pas en RGB."""
+    import numpy as np
+
+    from .waveform import BandWave
+
+    if not detail:
+        return None
+    h = np.array([d[0] for d in detail], dtype=np.float64) * 127.0
+    return BandWave(rate=150, low=h.astype(np.uint8), mid=(h * 0.75).astype(np.uint8),
+                    high=(h * 0.4).astype(np.uint8))
 
 
 def read_detail(ext: bytes) -> List[Tuple[float, str]]:

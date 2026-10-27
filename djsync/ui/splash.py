@@ -12,7 +12,7 @@ from typing import Any, Optional
 from .. import full_version
 from .palettes import DEFAULT_THEME, DIM, PALETTES, SURFACE, TEXT
 
-WIDTH, HEIGHT = 320, 190
+WIDTH, HEIGHT = 320, 200
 
 
 def native_splash_active() -> bool:
@@ -60,20 +60,25 @@ class Splash:
         p = QPainter(pm)
         p.setPen(QColor(DIM))
         p.drawRect(0, 0, WIDTH - 1, HEIGHT - 1)
-        logo = logo_pixmap(int(56 * ratio), _saved_accent(), SURFACE)
-        logo.setDevicePixelRatio(ratio)
-        p.drawPixmap((WIDTH - 56) // 2, 34, logo)
+        accent = _saved_accent()
+        logo = logo_pixmap(56, accent, SURFACE)        # déjà net en x2 ; 1.3.0-rc.3 : n'est plus dessiné deux fois trop grand
+        p.drawPixmap((WIDTH - 56) // 2, 30, logo)
         f = QFont(app.font())
         f.setPointSizeF(18)
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(TEXT))
-        p.drawText(0, 100, WIDTH, 34, Qt.AlignCenter, "DJSync")
+        p.drawText(0, 96, WIDTH, 34, Qt.AlignCenter, "DJSync")
         f.setPointSizeF(9)
         f.setBold(False)
         p.setFont(f)
         p.setPen(QColor(DIM))
-        p.drawText(0, 136, WIDTH, 20, Qt.AlignCenter, f"Loading…   v{full_version()}")
+        p.drawText(0, 132, WIDTH, 20, Qt.AlignCenter, "Loading…")
+        # 1.3.0-rc.3 (C31) : version exacte sur sa propre ligne, dans la couleur choisie, bien lisible
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(accent))
+        p.drawText(0, 154, WIDTH, 20, Qt.AlignCenter, f"v{full_version()}")
         p.end()
         self.widget: Optional[QSplashScreen] = QSplashScreen(pm, Qt.WindowStaysOnTopHint)
         self.widget.show()

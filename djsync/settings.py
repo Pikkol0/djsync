@@ -67,7 +67,10 @@ class Settings:
     pdb_sync: str = "auto"             # "auto" : met aussi à jour export.pdb s'il existe | "off"
     pdb_allow_growth: bool = True      # V1.0.0 : ajout de pages à export.pdb (validé, voir docs/export_pdb.md)
     # ---- V1.1-A4
-    analyze_on_add: bool = False       # V0.2.0 : désactivé par défaut (menu Analyse) ; True = à chaque ajout
+    analyze_on_add: bool = False       # V0.2.0 ; inutilisé depuis la 1.3.0-rc.3 (remplacé par les deux ci-dessous)
+    # 1.3.0-rc.3 (C32) : analyse automatique après chaque téléchargement, par la file en arrière-plan
+    analyze_after_download_usb: bool = True     # clé USB
+    analyze_after_download_local: bool = True   # bibliothèque Rekordbox de l'ordinateur
     key_notation: str = "auto"         # auto (celle de la clé) | camelot (« 8A ») | musical (« Am »)
     # ---- V0.2.0
     zoom_auto: bool = True             # inutilisé depuis la V0.3.0 (conservé pour les anciens réglages)
@@ -98,6 +101,8 @@ class Settings:
     genre_playlists: dict = field(default_factory=dict)   # {bibliothèque: config des playlists par genre}
     # ---- 1.2.3
     scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
+    audio_latency_ms: int = 0          # 1.3.0-rc.3 (C39) : retard de sortie en plus (Bluetooth…), pour les curseurs
+    grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
     settings_version: int = 0          # migrations des réglages enregistrés
@@ -131,9 +136,13 @@ class Settings:
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
         self.volume = max(0.0, min(1.0, float(self.volume)))
+        self.audio_latency_ms = max(-200, min(500, int(self.audio_latency_ms or 0)))
         if self.settings_version < 1:      # V1.0.0 : l'ajout de pages à export.pdb devient le défaut
             self.pdb_allow_growth = True   # (sans lui, une clé exportée par Rekordbox est pleine en ~15 sons)
             self.settings_version = 1
+        if self.settings_version < 2:      # 1.3.0-rc.3 (C32) : analyse après téléchargement activée pour tous
+            self.analyze_after_download_usb = self.analyze_after_download_local = True
+            self.settings_version = 2
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"

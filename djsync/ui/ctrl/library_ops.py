@@ -286,17 +286,34 @@ class LibraryOpsMixin:
         if lib is not None:
             self.dispatcher.submit(lib.pdb_status, ok, self._on_error, pool="db")
 
-    def pdb_sync_now(self, ok: Optional[Callback] = None) -> None:
+    def pdb_sync_now(self, ok: Optional[Callback] = None, failed: Optional[Callback] = None) -> None:
+        """Paramètres ▸ Synchroniser maintenant, et 1.3.0-rc.3 (C36) bouton de l'Accueil : réconciliation
+        complète d'export.pdb. L'Accueil est redessiné dans tous les cas (réussite, écart restant, échec)."""
+        lib = self.library
+
         def done(summary: Any) -> None:
-            self.message("ok", t("msg.pdb_synced", tracks=summary.tracks_added, playlists=summary.playlists_added))
+            if getattr(lib, "pdb_state", "ok") == "stale":
+                self.message("warn", t("msg.pdb_left", detail=getattr(lib, "pdb_problem", "") or "?"))
+            else:
+                self.message("ok", t("msg.pdb_up_to_date"))
             self._emit("library")
             if ok:
                 ok(summary)
-        lib = self.library
+
+        def error(exc: BaseException) -> None:
+            text = str(exc)
+            if "another program" in text or "Permission denied" in text:
+                self.message("warn", t("msg.pdb_locked"))
+            else:
+                self._on_error(exc)
+            self._emit("library")
+            if failed:
+                failed(exc)
+
         if lib is None:
             self.message("error", t("msg.no_drive"))
             return
-        self.dispatcher.submit(lib.pdb_catch_up, done, self._on_error, pool="db")
+        self.dispatcher.submit(lib.pdb_catch_up, done, error, pool="db")
 
     # ------------------------------------------------------------------ analyse (V0.2.0)
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
@@ -321,7 +338,7 @@ class LibraryOpsMixin:
 
     def analyze(self, content_ids: Sequence[int], force: bool = False,
                 on_progress: Optional[Callable[[int, int, Optional[LibraryTrack], str], None]] = None,
-                on_done: Optional[Callable[[Any], None]] = None) -> Optional[TaskHandle]:
+                on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False) -> Optional[TaskHandle]:
         """Met des sons dans la file d'analyse (BPM / grille / tonalité / formes d'onde) et la lance si
         elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés."""
         lib = self.library
@@ -337,7 +354,7 @@ class LibraryOpsMixin:
             q.on_progress.append(on_progress)
         added = q.add(content_ids, force)
         if q.running:
-            if added:
+            if added and not quiet:       # quiet : analyse après téléchargement (C32), pas de message par son
                 self.message("info", plural("msg.analysis_queued_one", "msg.analysis_queued_many", added))
             self._emit("analysis")
             return q
@@ -456,12 +473,21 @@ class LibraryOpsMixin:
                 detail = read_detail(ext.read_bytes()) if ext.is_file() else []
             except (OSError, ValueError):
                 detail = []
+            band = None                                # 1.3.0-rc.3 (B21) : 3 bandes de Rekordbox (.2EX)
+            two = grid.dat_path.with_suffix(".2EX")
+            try:
+                if two.is_file():
+                    from ...analysis.anlz import read_band_detail
+
+                    band = read_band_detail(two.read_bytes())
+            except (OSError, ValueError):
+                band = None
             try:                                       # 1.3.0 (C22) : hot cues, boucles et mémoires
                 cues = list(lib.track_cues(content_id))
             except Exception as exc:  # noqa: BLE001 - la grille reste éditable sans les cues
                 log.info("Cues not read for %s: %s", content_id, exc)
                 cues = []
-            return {"grid": grid, "detail": detail, "cues": cues}
+            return {"grid": grid, "detail": detail, "cues": cues, "band": band}
 
         self.dispatcher.submit(work, ok, err or self._on_error, pool="db")
 

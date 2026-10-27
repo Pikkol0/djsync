@@ -150,6 +150,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             ffmpeg_location=settings.ffmpeg_location or None,
         )
         self.player.set_volume(settings.volume)
+        self.player.latency_offset_ms = settings.audio_latency_ms      # 1.3.0-rc.3 (C39)
         self._apply_output()
 
         self.drive: Optional[UsbDrive] = None
@@ -242,7 +243,23 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return str(exc)
         return f"{type(exc).__name__}: {exc}"
 
+    def drive_gone(self) -> bool:
+        """1.3.0-rc.3 (B22) : la clé ouverte a disparu (retirée sans être éjectée, reformatée…)."""
+        if self.is_local or self.drive is None or self.library is None:
+            return False
+        root = getattr(self.drive, "root", None)
+        try:
+            return root is not None and not Path(root).exists()
+        except OSError:
+            return True
+
     def _on_error(self, exc: BaseException) -> None:
+        if self.drive_gone():                          # B22 : plus de « disk I/O error » brut
+            name = str(getattr(self.drive, "root", "") or self.drive)
+            log.info("Drive %s removed without eject (%s): library closed", name, exc)
+            self.message("warn", t("msg.drive_removed", drive=name))
+            self.disconnect(by_user=False)
+            return
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         self.message("error", self.error_text(exc))
         reporter = getattr(self, "error_reporter", None)
@@ -377,7 +394,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         def work() -> Any:
             if isinstance(drive, LocalRekordbox):
                 lib: Any = LocalRekordboxLibrary(
-                    drive, backup_keep=self.settings.backup_keep, analyze=self.settings.analyze_on_add, artwork=True,
+                    drive, backup_keep=self.settings.backup_keep, analyze=False, artwork=True,
                     ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
@@ -389,7 +406,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
                 pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
-                analyze=self.settings.analyze_on_add, artwork=True,
+                analyze=False, artwork=True,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
@@ -681,12 +698,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.service.set_ffmpeg_location(s.ffmpeg_location or None)
         self._apply_output()
         self.player.ffmpeg_location = s.ffmpeg_location or None
+        self.player.latency_offset_ms = s.audio_latency_ms
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep
             self.library.pdb_sync = s.pdb_sync
             self.library.pdb_allow_growth = s.pdb_allow_growth
-            self.library.analyze = s.analyze_on_add
+            self.library.analyze = False          # 1.3.0-rc.3 (C32) : analyse par la file, après le téléchargement
             self.library.artwork = True
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation

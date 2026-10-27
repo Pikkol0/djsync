@@ -13,9 +13,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
-def make_splash(path: Path, accent: str) -> None:
+def make_splash(path: Path, accent: str, version: str = "") -> None:
     """Image de l'écran de démarrage natif de l'exécutable (PyInstaller), même dessin que
-    djsync/ui/splash.py : logo, nom, « Loading… »."""
+    djsync/ui/splash.py : logo, nom, « Loading… » et, depuis la 1.3.0-rc.3 (C31), la version exacte
+    (écrite au moment du build par packaging/DJSync.spec)."""
     from PIL import Image, ImageDraw, ImageFont
 
     from djsync.ui.logo import logo_image
@@ -37,7 +38,10 @@ def make_splash(path: Path, accent: str) -> None:
                 continue
         return ImageFont.load_default()
 
-    for text, y, size, bold, color in (("DJSync", 112, 24, True, TEXT), ("Loading…", 152, 12, False, DIM)):
+    lines = [("DJSync", 106, 24, True, TEXT), ("Loading…", 146, 12, False, DIM)]
+    if version:
+        lines.append((f"v{version}", 170, 12, True, accent))
+    for text, y, size, bold, color in lines:
         f = font(size, bold)
         box = d.textbbox((0, 0), text, font=f)
         d.text(((w - (box[2] - box[0])) / 2 - box[0], y), text, font=f, fill=color)

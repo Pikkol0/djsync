@@ -253,10 +253,17 @@ class DiagnosticDialog(BaseDialog):
                 f"{x.bpm:.0f} BPM" if x.bpm else t("dup.not_analysed"), (x.date_added or "")[:10]]
         text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
         lay.addLayout(text, 1)
+        missing = self.ctrl.file_missing(x)                  # 1.3.0-rc.3 (B20)
+        if missing:
+            gone = chip(t("diag.file_missing"), "chip_warn")
+            gone.setToolTip(self.ctrl.missing_file_text(self.ctrl.library.absolute_path(x)))
+            lay.addWidget(gone)
         if x.camelot:
             lay.addWidget(CamelotPill(x.camelot))
         idx = group.index(x)
-        lay.addWidget(icon_button("play", lambda g=group, i=idx: self.ctrl.play_queue(g, i), t("action.listen")))
+        play = icon_button("play", lambda g=group, i=idx: self.ctrl.play_queue(g, i), t("action.listen"))
+        play.setEnabled(not missing)
+        lay.addWidget(play)
         return row
 
     def _alt_row(self, i: int, c: Candidate, checked: bool) -> QWidget:

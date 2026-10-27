@@ -163,6 +163,9 @@ class LibraryBase:
     # ------------------------------------------------------------ WAL / transactions
     def _checkpoint(self) -> None:
         """Fusionne le -wal dans le fichier principal et le vide."""
+        if not Path(self.db_path).exists():         # 1.3.0-rc.3 (B22) : clé retirée, rien à faire
+            log.info("WAL checkpoint skipped: %s is gone (drive removed?)", self.db_path)
+            return
         try:
             busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
             if busy:
