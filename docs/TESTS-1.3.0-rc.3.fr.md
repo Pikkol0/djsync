@@ -2,7 +2,7 @@
 
 Version au démarrage (**C31**), fenêtre du lanceur Windows (**C35**), analyse après téléchargement
 (**C32**), bouton « Mettre à jour export.pdb » sur l'Accueil (**C36**), affichage de la page Grille et cues (**B16**, **B17**), curseur de lecture précis (**C39**), sortie de boucle (**C40**), Uniformiser (**B18**, **B19**),
-forme d'onde sans fichier audio (**B21**), clé retirée (**B22**),
+forme d'onde sans fichier audio (**B21**), clé retirée (**B22**), fichier introuvable (**B20**),
 message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-rc.2.fr.md` et
 `docs/TESTS-1.3.0.fr.md` restent à faire s'ils ne sont pas cochés.
 
@@ -55,6 +55,14 @@ message d'export.pdb en anglais (**B14**). Les scénarios de `docs/TESTS-1.3.0-r
 | X1 | Grille et cues : mettre A en boucle de 4 temps, cliquer A, puis **Sortir de la boucle** (ou touche 0 / à). | Le bouton n'apparaît que pendant la boucle ; la lecture continue après la fin de la boucle sans coupure ni saut ; recliquer A relance la boucle. |
 | X2 | Bibliothèque de l'ordinateur : ouvrir Grille et cues sur un son dont le fichier n'existe plus (B.M.S (by my side)). | Forme d'onde en 3 bandes (bleu, orange, blanc), plus en rouge / vert / bleu. |
 | X3 | Clé ouverte dans DJSync : la retirer sans éjecter. | Message « La clé E:\ a été retirée sans être éjectée : DJSync l'a refermée… » ; plus de « disk I/O error ». La rebrancher : elle se rouvre normalement. |
+
+## F. Fichier introuvable (B20)
+| # | Étapes | Attendu |
+|---|---|---|
+| F1 | Bibliothèque de l'ordinateur : écouter un son dont le fichier n'existe plus (ex. B.M.S (by my side)). | Message en français « Fichier introuvable sur cet ordinateur : … déplacé ou supprimé de … » (plus de « drive unplugged? »). |
+| F2 | Même chose sur la clé, après avoir supprimé un fichier de `Contents` à la main. | « Fichier introuvable sur la clé E:\ : … ». |
+| F3 | Diagnostic ▸ Doublons (ou Trouver les doublons) sur un groupe avec une version sans fichier (Charger… [Om_gqUBQzlI]). | Pastille orange « fichier introuvable » (détail au survol), boutons d'écoute grisés. |
+| F4 | Grille et cues sur ce son. | Bandeau rouge « Fichier audio introuvable : lecture impossible… » ; Lecture ne fait rien ; grille et cues modifiables. |
 
 ## Y. Uniformiser (B18, B19)
 | # | Étapes | Attendu |

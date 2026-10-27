@@ -307,7 +307,7 @@ class AudioPlayer:
         """Charge puis lit. L'ouverture se fait en arrière-plan (état LOADING)."""
         path = Path(path)
         if not path.is_file():
-            self._emit("error", f"File not found: {path.name} (drive unplugged?)")
+            self._emit("missing", str(path))         # 1.3.0-rc.3 (B20) : message adapté par l'interface
             return
         self.stop(keep_meta=False)
         self._gen += 1

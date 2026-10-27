@@ -85,7 +85,7 @@ def test_a_newer_play_cancels_a_slow_previous_one(env):
 def test_errors_are_reported_not_raised(env, tmp_path):
     player, events, pump, make = env
     player.play(tmp_path / "absent.m4a", NowPlaying("x", "y", "z"))
-    assert events[-1][0] == "error" and "not found" in events[-1][1]
+    assert events[-1][0] == "missing" and events[-1][1].endswith("absent.m4a")    # 1.3.0-rc.3 (B20)
     bad = tmp_path / "bad.m4a"; bad.write_bytes(b"pas de l'audio")
     player.play(bad, NowPlaying("x", "y", str(bad)))
     assert pump(lambda: any(k == "error" for k, _ in events[1:]))

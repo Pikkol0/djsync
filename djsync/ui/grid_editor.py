@@ -165,6 +165,11 @@ class GridEditor(QWidget):
         head.addWidget(icon_button("plus", lambda: self.zoom(-1), t("grid.zoom_in")))
         self.body.addLayout(head)
 
+        # 1.3.0-rc.3 (B20) : son dont le fichier audio est introuvable
+        self.missing = label(t("grid.file_missing"), "err", wrap=True)
+        self.missing.setVisible(bool(controller.file_missing(track)))
+        self.missing.setProperty("role", "err")
+        self.body.addWidget(self.missing)
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setToolTip(t("grid.hint"))
@@ -767,6 +772,8 @@ class GridEditor(QWidget):
         return item is not None and item.kind == "library" and item.item.content_id == self.track.content_id
 
     def _play(self) -> None:
+        if not self.missing.isHidden():               # B20 : pas d'erreur à chaque clic, le bandeau le dit
+            return
         player = self.ctrl.player
         if self._is_playing_this() and player.state in (PLAYING, PAUSED):
             player.toggle_pause()

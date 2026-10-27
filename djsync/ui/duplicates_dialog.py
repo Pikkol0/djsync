@@ -246,13 +246,20 @@ class DuplicatesDialog(BaseDialog):
         audio = self._audio_chip(x)
         if audio is not None:
             lay.addWidget(audio)
+        missing = self.ctrl.file_missing(x)                   # 1.3.0-rc.3 (B20)
+        if missing:
+            gone = chip(t("diag.file_missing"), "chip_warn")
+            gone.setToolTip(self.ctrl.missing_file_text(self.ctrl.library.absolute_path(x)))
+            lay.addWidget(gone)
         if x.camelot:
             lay.addWidget(CamelotPill(x.camelot))
         # 1.2.1 (C12) : écouter le début (intro) ou le milieu de chaque version pour comparer
-        lay.addWidget(button(t("dup.listen_start"), lambda: self._listen(k, 0.0), icon="play",
-                             tooltip=t("dup.listen_start_tip")))
-        lay.addWidget(button(t("dup.listen_middle"), lambda: self._listen(k, 0.45), kind="flat",
-                             tooltip=t("dup.listen_middle_tip")))
+        start = button(t("dup.listen_start"), lambda: self._listen(k, 0.0), icon="play", tooltip=t("dup.listen_start_tip"))
+        middle = button(t("dup.listen_middle"), lambda: self._listen(k, 0.45), kind="flat",
+                        tooltip=t("dup.listen_middle_tip"))
+        for b in (start, middle):
+            b.setEnabled(not missing)
+            lay.addWidget(b)
         return row
 
     def _listen(self, k: int, at: float) -> None:

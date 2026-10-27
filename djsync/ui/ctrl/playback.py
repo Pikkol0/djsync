@@ -59,7 +59,31 @@ class PlaybackMixin:
                                       on_seek=lambda s: self.player.seek(s))
 
     # ----------------------------------------------------------------- évènements du lecteur
+    def missing_file_text(self, path: Any) -> str:
+        """1.3.0-rc.3 (B20) : fichier introuvable, dit selon la bibliothèque ouverte (recalculé à chaque fois)."""
+        from pathlib import Path
+
+        p = Path(str(path))
+        if getattr(self, "is_local", False):
+            return t("msg.file_missing_local", name=p.name, folder=str(p.parent))
+        drive = getattr(self, "drive", None)
+        root = str(getattr(drive, "root", "") or drive or p.anchor)
+        return t("msg.file_missing_drive", name=p.name, drive=root)
+
+    def file_missing(self, track: Any) -> bool:
+        """B20 : le fichier du son existe-t-il encore ? (False si on ne sait pas)"""
+        lib = getattr(self, "library", None)
+        if lib is None or track is None:
+            return False
+        try:
+            return not lib.absolute_path(track).is_file()
+        except Exception:  # noqa: BLE001
+            return False
+
     def _player_event(self, kind: str, payload: Any) -> None:
+        if kind == "missing":                           # B20
+            self.message("error", self.missing_file_text(payload))
+            return
         self._emit("player", kind, payload)
         if kind in ("state", "loaded"):
             self._update_now_playing()

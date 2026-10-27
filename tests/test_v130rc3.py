@@ -404,3 +404,46 @@ def test_search_results_are_two_line_cards_that_fit(demo, monkeypatch):  # noqa:
     demo.grab().save("/tmp/claude-0/-home-claude/7654d4ba-1bad-5978-9785-24ca386eb8d1/scratchpad/uni.png")
     page._leaving = True
     page.close()
+
+
+# ------------------------------------------------------------------ B20 : fichier introuvable
+def test_missing_file_message_depends_on_the_library(tmp_path):
+    from djsync.i18n import set_language, t
+    from djsync.ui.ctrl.playback import PlaybackMixin
+
+    class C(PlaybackMixin):
+        pass
+
+    c = C()
+    c.is_local, c.drive = True, None
+    msg = c.missing_file_text(tmp_path / "Music" / "set" / "B.M.S.mp4")
+    assert "B.M.S.mp4" in msg and "Music" in msg and "drive" not in msg.lower()
+    c.is_local, c.drive = False, SimpleNamespace(root="E:\\")
+    assert "E:\\" in c.missing_file_text("E:\\Contents\\a.m4a")
+    try:
+        set_language("fr")
+        c.is_local = True
+        assert "cet ordinateur" in c.missing_file_text(tmp_path / "x.mp4")
+    finally:
+        set_language("en")
+
+
+def test_player_reports_a_missing_file_without_hardcoded_text(tmp_path):
+    from djsync.audio import player as P
+
+    events = []
+    p = P.AudioPlayer(post=lambda f: f(), on_event=lambda k, v: events.append((k, v)))
+    p.play(tmp_path / "nope.m4a", P.NowPlaying("t", "a", str(tmp_path / "nope.m4a")))
+    assert events == [("missing", str(tmp_path / "nope.m4a"))]
+
+
+def test_grid_page_banner_when_the_file_is_missing(demo_grid, monkeypatch):  # noqa: F811
+    app = demo_grid
+    monkeypatch.setattr(type(app.ctrl), "file_missing", lambda self, track: True)
+    ed = _open_grid(app)
+    assert not ed.missing.isHidden()
+    called = []
+    monkeypatch.setattr(app.ctrl, "play_queue", lambda *a, **k: called.append(a))
+    ed._play()
+    assert called == []
+    ed.close()
