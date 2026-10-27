@@ -336,6 +336,8 @@ class DuplicatesDialog(BaseDialog):
         return winners[0] if top > 0 and len(winners) == 1 else None
 
     def _show_quality(self, group: List[LibraryTrack]) -> None:
+        from . import levels
+
         for x in group:
             lbl = self._info_labels.get(x.content_id)
             if lbl is not None:
@@ -346,6 +348,11 @@ class DuplicatesDialog(BaseDialog):
             if slot is None:
                 continue
             _drop_layout(slot)
+            q = self._quality.get(x.content_id)                # 1.4.0 (C10) : badge doré / argenté
+            if q is not None:
+                badge = levels.tier_chip(q.bitrate, q.lossless)
+                if badge is not None:
+                    slot.addWidget(badge)
             if best is not None and x is best:
                 c = chip(t("dup.best_quality"), "chip_good")
                 c.setToolTip(t("dup.best_quality_tip"))

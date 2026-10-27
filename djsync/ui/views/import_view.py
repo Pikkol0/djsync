@@ -324,6 +324,29 @@ class ImportView(View):
         self.info.setText(t("import.direct_info", source=source, name=resolved.name,
                             tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail)
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
+        if resolved.kind == UrlKind.SOUNDCLOUD:                         # 1.4.0 (C10.1)
+            self.ctrl.check_originals(resolved.tracks, self._originals_checked)
+
+    def _originals_checked(self, tracks: List[TrackResult]) -> None:
+        if self.mode != "direct" or not self.winfo_exists():
+            return
+        from dataclasses import replace
+
+        for tr in tracks:
+            old = self._tracks.get(tr.video_id)
+            if old is None:
+                continue
+            new = replace(old, original_available=tr.original_available)
+            self._tracks[tr.video_id] = new
+            row = self.dl_table.row(tr.video_id)
+            if row is not None:
+                row.data = new
+                fresh = result_row(new)
+                self.dl_table.update_values(tr.video_id, source=fresh.values["source"],
+                                            source__color=fresh.values.get("source__color"))
+        n = sum(1 for tr in tracks if tr.original_available)
+        if n:
+            self.info.setText(self.info.text() + "  ·  " + plural("sc.originals_one", "sc.originals_many", n))
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
         for tr in tracks:
@@ -409,6 +432,14 @@ class ImportView(View):
         entries: list = [(t("action.listen"), self._preview)]
         if self.mode == "spotify":
             entries.append((t("import.other_match"), self._cycle))
+        picked = [self._tracks[i] for i in iids if i in self._tracks] if self.mode == "direct" else []
+        if any(x.source == "soundcloud" for x in picked):                 # 1.4.0 (C10.1) : au choix
+            name = self.resolved.name if self.resolved and self.resolved.is_playlist else ""
+            if any(x.original_available for x in picked):
+                entries.append((t("sc.download_original"),
+                                lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=True)))
+            entries.append((t("sc.download_stream"),
+                            lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=False)))
         return entries
 
     def _library_changed(self) -> None:

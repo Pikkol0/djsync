@@ -316,6 +316,34 @@ class SettingsView(View):
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
         card.addWidget(self.normalize_var)
 
+        # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
+        card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"))
+        self.sc_original_var = QCheckBox(t("sc.settings_original"))
+        self.sc_original_var.setChecked(s.soundcloud_original)
+        self.sc_original_var.setToolTip(t("sc.settings_original_tip"))
+        card.addWidget(self.sc_original_var)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("sc.settings_account"))))
+        from ...core.soundcloud import BROWSERS
+
+        self._sc_browsers = {"": t("sc.settings_no_account")}
+        self._sc_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
+        self.sc_browser = QComboBox()
+        self.sc_browser.addItems(list(self._sc_browsers.values()))
+        self.sc_browser.setCurrentText(self._sc_browsers.get(s.soundcloud_browser, self._sc_browsers[""]))
+        self.sc_browser.setToolTip(t("sc.settings_browser_tip"))
+        row.addWidget(self.sc_browser)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("sc.settings_token"))))
+        self.sc_token = QLineEdit(s.soundcloud_token)
+        self.sc_token.setEchoMode(QLineEdit.Password)
+        self.sc_token.setPlaceholderText(t("sc.settings_token_ph"))
+        self.sc_token.setToolTip(t("sc.settings_token_tip"))
+        row.addWidget(self.sc_token, 1)
+        card.addLayout(row)
+
         # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement
         card = self._card(t("engine.title"), "refresh", t("engine.hint"))
         self.engine_state = label("", "dim", wrap=True)
@@ -804,6 +832,9 @@ class SettingsView(View):
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
+        s.soundcloud_original = self.sc_original_var.isChecked()
+        s.soundcloud_browser = next((k for k, v in self._sc_browsers.items() if v == self.sc_browser.currentText()), "")
+        s.soundcloud_token = self.sc_token.text().strip()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()

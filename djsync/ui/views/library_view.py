@@ -60,6 +60,11 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     }
     if color:
         out["color__dot"] = color
+    # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit)
+    lossless = x.file_type in (5, 11, 12) or Path(x.path).suffix.lower() in (".wav", ".flac", ".aiff", ".aif")
+    tier = "gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None)
+    if tier:
+        out["format__color"] = out["bitrate__color"] = theme.LEVELS[tier]
     return out
 
 

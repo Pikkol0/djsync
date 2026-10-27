@@ -52,6 +52,7 @@ class Downloader:
         self._fallback_bitrate = fallback_bitrate
         self.audio_format = audio_format
         self.normalize = normalize
+        self.soundcloud_auth: dict = {}       # 1.4.0 (C10.1) : options yt-dlp du compte SoundCloud
 
     def _ffmpeg_exe(self) -> Optional[str]:
         from ..analysis.decode import find_ffmpeg
@@ -73,20 +74,30 @@ class Downloader:
         base = sanitize_filename(f"{track.artist} - {track.title}")
         # Même nom, autre vidéo (ex. version Titre ET version clip) : on ne réutilise pas
         # le fichier d'une autre source, on suffixe avec l'identifiant YouTube.
-        if any((dest / f"{base}{ext}").exists() for ext in (".m4a", ".mp3", ".webm", ".mp4", ".opus")):
+        if any((dest / f"{base}{ext}").exists() for ext in (".m4a", ".mp3", ".webm", ".mp4", ".opus", ".wav",
+                                                            ".flac", ".aiff")):
             base = f"{base} [{track.video_id}]"
         notify = on_progress or (lambda _p: None)
 
+        original = False
         try:
             try:
                 native = _YT_NATIVE if track.source in ("ytmusic", "youtube") else _ANY_NATIVE
-                path = self._run(track, dest, base, {"format": native}, notify)
+                extra: dict = {"format": native}
+                if track.source == "soundcloud":
+                    extra.update(self.soundcloud_auth)
+                    if track.want_original:      # C10.1 : fichier d'origine d'abord, sinon le flux
+                        extra["format"] = f"download/{native}"
+                path, fmt = self._run(track, dest, base, extra, notify)
+                original = fmt == "download"
+                if original and path.suffix.lower() not in _READABLE:
+                    path = self._to_wav(path)
             except yt_dlp.utils.DownloadError as exc:
                 if "format is not available" not in str(exc).lower():
                     raise
                 log.warning("No native m4a stream for %s: falling back to converted AAC.", track.video_id)
                 notify(DownloadProgress("converting", 0.0, "No native AAC stream: converting to AAC…"))
-                path = self._run(
+                path, _fmt = self._run(
                     track, dest, base,
                     {
                         "format": "bestaudio/best",
@@ -102,7 +113,7 @@ class Downloader:
             notify(DownloadProgress("error", message=str(exc)))
             raise
 
-        if tag and (self.normalize or self.audio_format != "m4a"):
+        if tag and not original and (self.normalize or self.audio_format != "m4a"):
             notify(DownloadProgress("converting", 100.0, "Converting…"))
             try:
                 path = finalize(path, self._ffmpeg_exe(), self.audio_format, self.normalize)
@@ -112,11 +123,24 @@ class Downloader:
             notify(DownloadProgress("tagging", 100.0, "Writing tags…"))
             tag_audio(str(path), track)
         notify(DownloadProgress("done", 100.0))
-        log.info("Downloaded: %s", path)
-        return DownloadedTrack(track=track, file_path=str(path))
+        log.info("Downloaded: %s%s", path, " (original file)" if original else "")
+        return DownloadedTrack(track=track, file_path=str(path), original=original)
+
+    def _to_wav(self, path: Path) -> Path:
+        """Fichier d'origine dans un format que Rekordbox ne lit pas (ogg, opus…) : décodé en WAV, sans
+        nouvelle perte."""
+        import subprocess
+
+        exe = self._ffmpeg_exe()
+        if not exe:
+            raise RuntimeError(f"FFmpeg is needed to convert {path.suffix} to WAV.")
+        out = path.with_suffix(".wav")
+        subprocess.run([exe, "-loglevel", "error", "-y", "-i", str(path), str(out)], check=True)
+        path.unlink(missing_ok=True)
+        return out
 
     def _run(self, track: TrackResult, dest: Path, base: str, extra: dict,
-             notify: ProgressCallback) -> Path:
+             notify: ProgressCallback) -> "tuple[Path, str]":
         def hook(d: dict) -> None:
             if d["status"] == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -147,4 +171,4 @@ class Downloader:
             final = next((dest / f"{base}{ext}" for ext in _READABLE if (dest / f"{base}{ext}").exists()), None)
         if final is None:
             raise FileNotFoundError(f"Expected file not found in {dest}")
-        return final
+        return final, str((info or {}).get("format_id") or "")

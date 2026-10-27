@@ -717,6 +717,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
     def _apply_output(self) -> None:
         if hasattr(self.service, "set_output"):
             self.service.set_output(self.settings.audio_format, self.settings.normalize_volume)
+        if hasattr(self.service, "set_soundcloud_auth"):                  # 1.4.0 (C10.1)
+            from ..core.soundcloud import auth_options
+
+            self.service.set_soundcloud_auth(auth_options(self.settings.soundcloud_browser,
+                                                          self.settings.soundcloud_token))
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:

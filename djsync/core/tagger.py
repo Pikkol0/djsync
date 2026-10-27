@@ -109,6 +109,21 @@ def tag_mp3(file_path: str, track: TrackResult) -> None:
     tags.save(file_path, v2_version=3)
 
 
+def tag_flac(file_path: str, track: TrackResult) -> None:
+    """Tags Vorbis d'un FLAC (titre, artiste, album, année, genre, label, n° de piste, ISRC)."""
+    from mutagen.flac import FLAC
+
+    audio = FLAC(file_path)
+    values = {"title": track.title, "artist": track.artist, "album": track.album or "",
+              "date": str(track.year) if track.year else "", "genre": track.genre or "",
+              "organization": track.label or "", "tracknumber": str(track.track_no) if track.track_no else "",
+              "isrc": track.isrc or ""}
+    for k, v in values.items():
+        if v:
+            audio[k] = v
+    audio.save()
+
+
 def tag_audio(file_path: str, track: TrackResult) -> None:
     """Choisit le bon format de tags selon l'extension."""
     suffix = Path(file_path).suffix.lower()
@@ -116,5 +131,7 @@ def tag_audio(file_path: str, track: TrackResult) -> None:
         tag_m4a(file_path, track)
     elif suffix == ".mp3":
         tag_mp3(file_path, track)
+    elif suffix == ".flac":                       # 1.4.0 (C10.1) : fichier d'origine SoundCloud
+        tag_flac(file_path, track)
     else:
         log.warning("Format %s: tags not written.", suffix)
