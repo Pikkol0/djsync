@@ -526,3 +526,74 @@ def test_missing_file_message_links_to_the_diagnostic(tmp_path, monkeypatch):
         assert not app.toast_action.isVisibleTo(app)
     finally:
         close_window(app)
+
+
+# ------------------------------------------------------------------ C30 : suggestions
+def _lt(cid, key, bpm, title="t", genre=""):
+    from djsync.models import LibraryTrack
+
+    return LibraryTrack(cid, title or f"t{cid}", "a", None, 200, f"/Contents/{cid}.m4a", bpm, 4, None, "", True,
+                        key=key, genre=genre)
+
+
+def test_suggestion_scores_key_bpm_half_double():
+    from djsync.core.suggest import bpm_gap, key_relation, suggestions
+
+    assert key_relation("8A", "8A") == "same" and key_relation("8A", "9A") == "near"
+    assert key_relation("8A", "8B") == "relative" and key_relation("8A", "10A") == "none"
+    assert key_relation("8A", "10A", energy=True) == "far"
+    assert bpm_gap(140, 70) == (0.0, 2.0) and bpm_gap(124, 126)[0] == 1.6
+    ref = _lt(1, "Am", 124.0, genre="House")                       # 8A
+    pool = [ref, _lt(2, "Am", 124.0, "same"), _lt(3, "Em", 126.0, "near"), _lt(4, "C", 62.0, "relative half"),
+            _lt(5, "Am", 140.0, "too fast"), _lt(6, "F#m", 124.0, "clash"), _lt(7, "Am", 0.0, "no bpm"),
+            _lt(8, "Am", 124.0, "same genre", genre="house")]
+    got = suggestions(ref, pool)
+    assert [s.track.title for s in got] == ["same genre", "same", "relative half", "near"]
+    assert got[2].ratio == 2.0 and got[3].key_reason == "near"
+    assert "near" not in [s.track.title for s in suggestions(ref, pool, tolerance=1.0)]
+
+
+def test_suggestions_panel_follows_selection_and_adds_to_playlist(tmp_path, monkeypatch):
+    from .qt_util import close_window, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        ctrl = app.ctrl
+        assert pump(app, 6, lambda: ctrl.has_library)
+        app.resize(1500, 900)
+        app.show_view("library")
+        lib = app.views["library"]
+        assert pump(app, 5, lambda: lib.table.total > 0)
+        lib.sug_btn.click()
+        assert lib.suggestions.isVisible() and ctrl.settings.suggestions_open
+        ref = next(x for x in lib.all_tracks if x.title == "One More Time")
+        lib.table.select([str(ref.content_id)])
+        pump(app, 0.2)
+        panel = lib.suggestions
+        assert panel.ref.content_id == ref.content_id
+        titles = [s.track.title for s in panel.items]
+        assert titles and "One More Time" not in titles
+        assert all(abs(s.bpm_gap) <= 6 for s in panel.items)
+        assert panel.list.count() == len(panel.items)
+        panel.tol.setValue(1)
+        assert all(abs(s.bpm_gap) <= 1 for s in panel.items)
+        assert ctrl.settings.suggest_tolerance == 1
+        # playlist ouverte : « + » ajoute à la fin, « ✓ » si déjà dedans
+        club = next(k for k, p in lib._by_iid.items() if p.name == "Club")
+        lib._goto(club)
+        assert pump(app, 4, lambda: lib.in_playlist and lib.table.total == 3)
+        panel.tol.setValue(10)
+        new = next(s.track for s in panel.items if lib.table.row(str(s.track.content_id)) is None)
+        panel._add(new.content_id)
+        assert pump(app, 6, lambda: lib.table.row(str(new.content_id)) is not None)
+        # harmonic filter : BPM ± x %
+        lib.set_harmonic(ref)
+        n_all = lib.table.count
+        lib.harm_bpm.setCurrentIndex(1)
+        assert lib.table.count <= n_all
+        lib._clear_harmonic()
+        lib.show_suggestions(False)
+        assert not lib.suggestions.isVisible() and not ctrl.settings.suggestions_open
+        assert not app.errors
+    finally:
+        close_window(app)
