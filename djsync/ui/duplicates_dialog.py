@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QWidget,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..core.duplicates import best_keeper, split_display
 from ..i18n import plural, t
-from ..models import LibraryTrack, format_duration
+from ..models import SOURCE_LABELS, Candidate, LibraryTrack, format_duration
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog
 from .widgets import CamelotPill, button, chip, hbox, icon_button, label, panel, vbox
@@ -47,6 +48,8 @@ class DuplicatesDialog(BaseDialog):
         self.cues_combo: Optional[QComboBox] = None          # 1.3.0 (C13) : de quelle version viennent les cues
         self._cue_counts: dict = {}
         self._cues_touched = False
+        self._clean: dict = {}                               # rc.7 (C63) : versions propres trouvées par groupe
+        self.clean_box: Optional[Any] = None
 
         head = hbox()
         head.addWidget(label(t("dup.title"), "h2"))
@@ -178,6 +181,7 @@ class DuplicatesDialog(BaseDialog):
             elif item.layout() is not None:
                 _drop_layout(item.layout())
         self.title_entry = self.artist_entry = None
+        self.clean_box = None
         self.cues_combo = None
         self._cue_counts = {}
         self._cues_touched = False
@@ -243,8 +247,89 @@ class DuplicatesDialog(BaseDialog):
         form.addRow(t("track.artist"), self.artist_entry)
         self.detail_lay.addLayout(form)
         self.title_entry.setToolTip(t("dup.metadata_hint"))
+        # 1.3.0-rc.7 (C63) : remplacer toutes les versions par une version propre, ici aussi (avant : seulement
+        # dans le Diagnostic, avec une autre interface)
+        self.detail_lay.addSpacing(theme.px(8))
+        self.detail_lay.addWidget(label(t("diag.alt_title"), "h2"))
+        self.clean_box = vbox(spacing=theme.px(4))
+        self.detail_lay.addLayout(self.clean_box)
+        self._show_clean(group, keeper)
         self.detail_lay.addStretch(1)
         self._refresh_actions()
+
+    # ------------------------------------------------------------ version propre (C63)
+    def _show_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
+        key = tuple(sorted(x.content_id for x in group))
+        found = self._clean.get(key, "todo")
+        if found == "todo":
+            self.clean_box.addWidget(button(t("dup.clean_find"), lambda: self._find_clean(group, ref), kind="flat",
+                                            icon="search", tooltip=t("dup.clean_find_tip")), 0, Qt.AlignLeft)
+            return
+        if found is None:
+            self.clean_box.addWidget(label(t("diag.alt_searching"), "faint"))
+            return
+        if not found:
+            self.clean_box.addWidget(label(t("diag.alt_none"), "dim", wrap=True))
+            return
+        for c in found:
+            self.clean_box.addWidget(self._clean_row(c, group))
+        self.clean_box.addWidget(label(t("diag.replace_note"), "faint", wrap=True))
+
+    def _find_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
+        key = tuple(sorted(x.content_id for x in group))
+        self._clean[key] = None
+
+        def loaded(found: List[Candidate]) -> None:
+            self._clean[key] = list(found)
+            cur = self.current_group
+            if self.winfo_exists() and cur is not None and tuple(sorted(x.content_id for x in cur)) == key:
+                self._refresh_clean(group, ref)
+
+        self.ctrl.find_alternatives(ref, loaded)
+        self._refresh_clean(group, ref)
+
+    def _refresh_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
+        """Redessine seulement la partie « version propre » (le choix et le titre saisis restent)."""
+        box = getattr(self, "clean_box", None)
+        if box is None:
+            return
+        try:
+            while box.count():
+                item = box.takeAt(0)
+                if item.widget() is not None:
+                    item.widget().hide()
+                    item.widget().deleteLater()
+        except RuntimeError:                       # détail déjà redessiné (autre groupe)
+            return
+        self._show_clean(group, ref)
+
+    def _clean_row(self, c: Candidate, group: List[LibraryTrack]) -> QWidget:
+        row = panel(role="banner")
+        lay = hbox(row, margins=theme.px(6))
+        text = vbox(spacing=0)
+        name = label(c.track.title)
+        name.setStyleSheet("font-weight:600;")
+        text.addWidget(name)
+        kind = t("track.song") if c.track.is_song else t("track.video")
+        info = [c.track.artist, format_duration(c.track.duration_seconds), kind, t("diag.match", score=f"{c.score:.0f}")]
+        text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
+        lay.addLayout(text, 1)
+        lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))
+        lay.addWidget(icon_button("play", lambda tr=c.track: self.ctrl.preview(tr), t("action.listen")))
+        lay.addWidget(button(t("diag.apply_download"), lambda: self._replace_with(c, group), kind="flat", icon="download"))
+        return row
+
+    def _replace_with(self, c: Candidate, group: List[LibraryTrack]) -> None:
+        names = ", ".join(t("fmt.quoted", text=x.title) for x in group[:3])
+
+        def go() -> None:
+            if self.ctrl.replace_with_download(c.track, list(group)) is not None and self.winfo_exists():
+                self._skip()
+
+        ConfirmDialog(self, t("diag.replace_confirm_title"),
+                      t("diag.replace_confirm", names=names, new=c.track.title,
+                        source=SOURCE_LABELS.get(c.track.source, c.track.source)),
+                      go, confirm_text=t("diag.apply_download"), detail=t("diag.replace_detail"))
 
     def _fill_cues_combo(self) -> None:
         """Versions qui ont des hot cues ; par défaut : la version gardée si elle en a, sinon celle qui en
