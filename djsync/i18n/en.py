@@ -485,6 +485,16 @@ STRINGS = {
     "msg.cues_carried": "{n} hot cues carried over to the kept version.",
     "msg.cues_carried_lost": "{n} hot cues carried over to the kept version, {lost} beyond the new file.",
     # 1.3.0-rc.5 (C62, C63)
+    # 1.3.2 (C80) : même titre, son différent
+    "dup.apart_title": "Same title, different audio (never deleted):",
+    "dup.audio_different": "different audio",
+    "dup.edit_title": "Edit title",
+    "dup.edit_title_tip": "Change the title or artist of this track so it no longer looks like the others",
+    "dup.apart_exclude_tip": "Remember that this track is not a duplicate of these: it is no longer shown with them",
+    "dup.same_titles_head": "Same titles, different audio ({n})",
+    "dup.same_titles_tip": "Tracks with the same title but different audio: nothing to delete",
+    "dup.same_titles_title": "Same title, different audio",
+    "dup.same_titles_sub": "These tracks share a title but their audio is different: nothing is deleted here. Edit a title to tell them apart, or say they are not duplicates so they no longer show.",
     "dup.later": "Later",
     "dup.later_tip": "Skip this group for now (it comes back next time)",
     "dup.skip_tip": "None of these tracks is a duplicate of another: remembered, the group no longer comes back",

@@ -174,3 +174,54 @@ def test_analysis_page_lists_tracks_and_starts(demo, monkeypatch):  # noqa: F811
     assert not d.start_btn.isVisible() or d.start_btn.isHidden()
     d.close()
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ C80
+def _dup_page(demo, monkeypatch, refine):  # noqa: F811
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    monkeypatch.setattr(demo.ctrl, "refine_duplicate_group", lambda g, ok: None)    # vérification à la main
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    assert pump(demo, 4, lambda: len(dup.groups) == 1)
+    return dup
+
+
+def test_same_title_different_audio_stays_greyed_and_never_deleted(demo, monkeypatch):  # noqa: F811
+    dup = _dup_page(demo, monkeypatch, None)
+    group = list(dup.groups[0])
+    lib = demo.views["library"]
+    demo.show_view("library")
+    assert pump(demo, 4, lambda: lib.table.total > 2)
+    stranger = next(r.data for r in lib.table.all_rows()
+                    if r.data is not None and r.data.content_id not in {x.content_id for x in group})
+    dup.groups[0] = group + [stranger]                       # 3 sons au même titre, dont un son différent
+    dup._refined(dup.groups[0], [group])
+    assert [x.content_id for x in dup.groups[0]] == [x.content_id for x in group]
+    assert dup.apart[0] == [stranger]                        # gardé, grisé
+    dup._select(0)
+    deleted = []
+    monkeypatch.setattr(demo.ctrl, "resolve_duplicates", lambda keep, others, *a, **k: deleted.append(others))
+    from djsync.ui import duplicates_dialog as D
+
+    monkeypatch.setattr(D, "ConfirmDialog", lambda *a, **k: a[3]())
+    dup._apply()
+    assert deleted and stranger.content_id not in deleted[0]  # jamais supprimé par la fusion
+    assert demo.ctrl.diag_counts.get("dup") == 1
+    dup.close()
+    assert not demo.errors
+
+
+def test_group_without_real_duplicate_goes_to_the_same_titles_section(demo, monkeypatch):  # noqa: F811
+    dup = _dup_page(demo, monkeypatch, None)
+    group = dup.groups[0]
+    dup._refined(group, [])                                  # aucun son identique
+    assert dup.groups == [] and dup.same_titles == [group]
+    assert dup.list.count() == 2                             # titre de section + le groupe
+    assert not (dup.list.item(0).flags() & __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.ItemIsSelectable)
+    dup._select(1)
+    assert dup._same_index == 0 and not dup.apply_btn.isEnabled()
+    dup._set_apart(group[0], group[1:])                      # « pas un doublon » : la section se vide
+    assert dup.same_titles == [] and len(demo.ctrl.duplicate_ignores.entries) == 1
+    assert demo.ctrl.diag_counts.get("dup") == 0
+    dup.close()
+    assert not demo.errors

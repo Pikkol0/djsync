@@ -36,6 +36,10 @@ class DuplicatesDialog(BaseDialog):
         self.ctrl = controller
         self.groups: List[List[LibraryTrack]] = []
         self.verified: List[bool] = []                       # rc.5 (C63) : son du groupe vérifié
+        # 1.3.2 (C80) : sons au même titre mais au son différent : gardés à l'écran, grisés, jamais supprimés
+        self.apart: List[List[LibraryTrack]] = []            # par groupe : écartés par l'empreinte
+        self.same_titles: List[List[LibraryTrack]] = []     # groupes sans aucun vrai doublon
+        self._same_index = -1
         self._refining: Optional[List[LibraryTrack]] = None
         self._focus = set(focus_ids or [])
         self._keep_id = keep_id                              # version choisie dans le Diagnostic
@@ -130,14 +134,20 @@ class DuplicatesDialog(BaseDialog):
             subs = [sg for sg in subs if len(sg) > 1]
             shown = idx == self.index
             changed = [x.content_id for x in group] != [x.content_id for x in (subs[0] if subs else [])]
+            kept = {x.content_id for sg in subs for x in sg}
+            gone = [x for x in group if x.content_id not in kept]       # C80 : même titre, son différent
+            self._sync_apart()
             if subs:
-                self.groups[idx], self.verified[idx] = subs[0], True
+                self.groups[idx], self.verified[idx], self.apart[idx] = subs[0], True, gone
                 for sg in subs[1:]:
                     self.groups.append(sg)
                     self.verified.append(True)
+                    self.apart.append([])
             else:
                 self.groups.pop(idx)
                 self.verified.pop(idx)
+                self.apart.pop(idx)
+                self.same_titles.append(gone)
             self._fill_list()
             if not self._busy and (shown or not subs):
                 self._select(min(self.index if self.index != idx or subs else idx, len(self.groups) - 1)
@@ -162,6 +172,8 @@ class DuplicatesDialog(BaseDialog):
             return
         self.groups = groups
         self.verified = [False] * len(groups)
+        self.apart = [[] for _ in groups]
+        self.same_titles = []
         self._fill_list()
         start = next((i for i, g in enumerate(groups) if self._focus & {x.content_id for x in g}), 0)
         self._select(start if groups else -1)
@@ -178,6 +190,18 @@ class DuplicatesDialog(BaseDialog):
                 item.setToolTip(t("dup.unchecked"))
                 item.setForeground(QColor(theme.DIM))
             self.list.addItem(item)
+        if self.same_titles:                                   # 1.3.2 (C80) : section repliée en bas
+            head = QListWidgetItem(t("dup.same_titles_head", n=len(self.same_titles)))
+            head.setFlags(Qt.NoItemFlags)
+            head.setForeground(QColor(theme.DIM))
+            self.list.addItem(head)
+            for g in self.same_titles:
+                k = g[0]
+                title, artist = split_display(k.title, k.artist)
+                item = QListWidgetItem(f"{title}\n{artist or '—'}  ·  ≠ {len(g)}")
+                item.setForeground(QColor(theme.DIM))
+                item.setToolTip(t("dup.same_titles_tip"))
+                self.list.addItem(item)
         self._update_count()
         self.list.blockSignals(False)
 
@@ -201,7 +225,18 @@ class DuplicatesDialog(BaseDialog):
         self._keep_touched = False
         self.alt_box = None
 
+    def _sync_apart(self) -> None:
+        while len(self.apart) < len(self.groups):
+            self.apart.append([])
+        del self.apart[len(self.groups):]
+
     def _select(self, i: int) -> None:
+        self._same_index = -1
+        if i > len(self.groups) and self.same_titles:          # 1.3.2 (C80) : section « mêmes titres »
+            j = i - len(self.groups) - 1
+            if 0 <= j < len(self.same_titles):
+                self._show_same_titles(i, j)
+                return
         self.index = i
         if 0 <= i < self.list.count() and self.list.currentRow() != i:
             self.list.blockSignals(True)
@@ -221,6 +256,11 @@ class DuplicatesDialog(BaseDialog):
         self.detail_lay.addWidget(label(t("dup.choose"), "dim"))
         for k, x in enumerate(group):
             self.detail_lay.addWidget(self._version_row(k, x, x is keeper))
+        self._sync_apart()
+        if self.apart[i]:                                      # 1.3.2 (C80) : grisés, jamais supprimés
+            self.detail_lay.addWidget(label(t("dup.apart_title"), "dim"))
+            for x in self.apart[i]:
+                self.detail_lay.addWidget(self._apart_row(x, group))
         token = self.index
 
         def show_playlists(found: dict) -> None:           # 1.2.1 (C11)
@@ -517,6 +557,73 @@ class DuplicatesDialog(BaseDialog):
 
         QTimer.singleShot(100, seek_when_ready)
 
+    # ------------------------------------------------------------ 1.3.2 (C80) : même titre, son différent
+    def _apart_row(self, x: LibraryTrack, others: List[LibraryTrack]) -> QWidget:
+        row = panel(role="banner")
+        row.setEnabled(True)
+        lay = hbox(row, margins=theme.px(6))
+        text = vbox(spacing=0)
+        name = label(x.title, "dim")
+        text.addWidget(name)
+        text.addWidget(label(self._plain_info(x), "faint"))
+        lay.addLayout(text, 1)
+        lay.addWidget(chip(t("dup.audio_different")))
+        play = button(t("dup.listen_start"), lambda: self.ctrl.play_queue([x], 0), kind="flat", icon="play")
+        play.setEnabled(not self.ctrl.file_missing(x))
+        lay.addWidget(play)
+        lay.addWidget(button(t("dup.edit_title"), lambda: self._edit_title(x), kind="flat", icon="edit",
+                             tooltip=t("dup.edit_title_tip")))
+        lay.addWidget(button(t("dup.exclude"), lambda: self._set_apart(x, others), kind="flat", icon="close",
+                             tooltip=t("dup.apart_exclude_tip")))
+        return row
+
+    def _plain_info(self, x: LibraryTrack) -> str:
+        bits = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds),
+                f"{x.bpm:.0f} BPM" if x.bpm else "", (x.date_added or "")[:10]]
+        return "  ·  ".join(b for b in bits if b)
+
+    def _show_same_titles(self, row: int, j: int) -> None:
+        self.index = -1
+        self._same_index = j
+        if self.list.currentRow() != row:
+            self.list.blockSignals(True)
+            self.list.setCurrentRow(row)
+            self.list.blockSignals(False)
+        self._clear_detail()
+        group = self.same_titles[j]
+        self.detail_lay.addWidget(label(t("dup.same_titles_title"), "h2"))
+        self.detail_lay.addWidget(label(t("dup.same_titles_sub"), "dim", wrap=True))
+        for x in group:
+            self.detail_lay.addWidget(self._apart_row(x, [o for o in group if o is not x]))
+        self.detail_lay.addStretch(1)
+        self._refresh_actions()
+
+    def _edit_title(self, x: LibraryTrack) -> None:
+        from .track_info_dialog import TrackInfoDialog
+
+        TrackInfoDialog(self, self.ctrl, x)
+
+    def _set_apart(self, x: LibraryTrack, others: List[LibraryTrack]) -> None:
+        """« Ce n'est pas un doublon » sur un son grisé : retenu, il ne revient plus avec ces sons."""
+        if others:
+            self.ctrl.duplicate_ignores.add(x, others)
+        self.ctrl.message("info", t("dup.excluded_msg", title=x.title))
+        for lst in self.apart:
+            if x in lst:
+                lst.remove(x)
+        for g in list(self.same_titles):
+            if x in g:
+                g.remove(x)
+                if len(g) < 2:
+                    self.same_titles.remove(g)
+        j, i = self._same_index, self.index
+        self._fill_list()
+        if j >= 0:
+            self._select(len(self.groups) + 1 + min(j, len(self.same_titles) - 1) if self.same_titles
+                         else min(max(i, 0), len(self.groups) - 1))
+        else:
+            self._select(i)
+
     def keep_index(self) -> int:
         cid = self._keep.checkedId()
         return cid if 0 <= cid < ALT else 0
@@ -558,6 +665,8 @@ class DuplicatesDialog(BaseDialog):
             self.groups.pop(self.index)
             if self.index < len(self.verified):
                 self.verified.pop(self.index)
+            if self.index < len(self.apart):
+                self.apart.pop(self.index)
             idx = self.index
             self._fill_list()
             self._select(min(idx, len(self.groups) - 1))
@@ -597,6 +706,7 @@ class DuplicatesDialog(BaseDialog):
         if not self.winfo_exists() or self._busy:
             return
         self.groups, self.verified, self._refining = [], [], None
+        self.apart, self.same_titles = [], []
         self._fill_list()
         self._select(-1)
         self.count.setText(t("dup.searching"))

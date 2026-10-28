@@ -485,6 +485,16 @@ STRINGS = {
     "msg.cues_carried": "{n} hot cues reportés sur la version gardée.",
     "msg.cues_carried_lost": "{n} hot cues reportés sur la version gardée, {lost} hors du nouveau fichier.",
     # 1.3.0-rc.5 (C62, C63)
+    # 1.3.2 (C80) : même titre, son différent
+    "dup.apart_title": "Même titre, son différent (jamais supprimés) :",
+    "dup.audio_different": "son différent",
+    "dup.edit_title": "Modifier le titre",
+    "dup.edit_title_tip": "Changer le titre ou l'artiste de ce son pour qu'il ne ressemble plus aux autres",
+    "dup.apart_exclude_tip": "Retenir que ce son n'est pas un doublon de ceux-ci : il ne s'affiche plus avec eux",
+    "dup.same_titles_head": "Mêmes titres, sons différents ({n})",
+    "dup.same_titles_tip": "Des sons au même titre mais au son différent : rien à supprimer",
+    "dup.same_titles_title": "Même titre, son différent",
+    "dup.same_titles_sub": "Ces sons ont le même titre mais pas le même son : rien n'est supprimé ici. Modifiez un titre pour les distinguer, ou indiquez qu'ils ne sont pas des doublons pour ne plus les voir.",
     "dup.later": "Plus tard",
     "dup.later_tip": "Passer ce groupe pour l'instant (il reviendra la prochaine fois)",
     "dup.skip_tip": "Aucun de ces sons n'est le doublon d'un autre : retenu, le groupe ne revient plus",
