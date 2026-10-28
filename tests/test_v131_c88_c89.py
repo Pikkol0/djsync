@@ -147,6 +147,7 @@ def test_check_everything(tmp_path, monkeypatch):
         monkeypatch.setattr(ctrl, "engine_install", lambda *a: calls.append("INSTALL"))
         monkeypatch.setattr(ctrl, "pdb_status", lambda ok: ok(St()))
         monkeypatch.setattr(ctrl, "pdb_sync_now", lambda ok=None, failed=None: (calls.append("pdb"), ok and ok(None)))
+        monkeypatch.setattr(view.space, "compute", lambda force=False, done=None: done and done(None))
         view.check_all()
         assert pump(app, 5, lambda: "busy" not in view.check_states().values())
         st = view.check_states()
@@ -172,6 +173,38 @@ def test_check_everything(tmp_path, monkeypatch):
         assert view.check_states()["pdb"] == "ok" and calls.count("pdb") == 1
         assert view.check_states()["diag"] == "ok"
         assert view.engine_install_btn.isVisibleTo(view) or not view.engine_card.isVisibleTo(view)
+        assert not app.errors
+    finally:
+        close_window(app)
+
+
+# ------------------------------------------------------------------ C90
+def test_check_list_closes_and_folds_away_when_all_is_well(tmp_path, monkeypatch):
+    from .qt_util import close_window, pump
+
+    app, _usb = _demo_app(tmp_path, monkeypatch)
+    try:
+        app.show_view("settings")
+        view = app.views["settings"]
+        ctrl = app.ctrl
+        monkeypatch.setattr(ctrl, "app_update_check", lambda manual=False, force=False, result=None: result(None, None))
+        monkeypatch.setattr(ctrl, "engine_check", lambda done: done(None, "2025.1.1", None))
+        monkeypatch.setattr(view.space, "compute", lambda force=False, done=None: done and done(None))
+        view.check_all()
+        assert view.check_panel.isVisibleTo(view)
+        assert {"local", "space"} <= set(view.check_states())             # bibliothèque du PC et espace
+        view.check_close.click()                                          # ✕
+        assert not view.check_panel.isVisibleTo(view)
+        view._check_timer.setInterval(200)
+        view.check_all()
+        assert pump(app, 5, lambda: "busy" not in view.check_states().values())
+        if all(x in ("ok", "skip") for x in view.check_states().values()):
+            assert pump(app, 3, lambda: not view.check_panel.isVisibleTo(view))      # repliée seule
+        # un ↑ ou un ⚠ : la liste reste
+        view._check_row("engine", "update", "x", go="advanced")
+        view.check_panel.show()
+        pump(app, 0.5)
+        assert view.check_panel.isVisibleTo(view)
         assert not app.errors
     finally:
         close_window(app)

@@ -64,8 +64,9 @@ class SettingsView(View):
         self.sections.setObjectName("settingsSections")
         self.sections.setIconSize(QSize(theme.px(16), theme.px(16)))
         self.sections.setSpacing(theme.px(2))
-        self.sections.setStyleSheet(f"#settingsSections::item {{ padding: {theme.px(7)}px {theme.px(6)}px; "
-                                    f"border-radius: {theme.px(6)}px; }}")
+        self._sections_css = (f"#settingsSections::item {{ padding: {theme.px(7)}px {theme.px(6)}px; "
+                              f"border-radius: {theme.px(6)}px; }}")
+        self.sections.setStyleSheet(self._sections_css)
         for key, icon in SECTIONS:
             item = QListWidgetItem(qicon(icon, 16, theme.FAINT if key == "advanced" else theme.ACCENT),
                                    t(f"settings.section_{key}"))
@@ -99,8 +100,18 @@ class SettingsView(View):
         top.addWidget(self.check_all_btn)
         right.addLayout(top)
         self.check_panel = panel()
-        self.check_lay = vbox(self.check_panel, margins=theme.px(10), spacing=theme.px(4))
+        self.check_panel.setObjectName("checkPanel")
+        self.check_panel.setStyleSheet("#checkPanel QWidget { background: transparent; }")   # C90 : sans rayures
+        outer = hbox(self.check_panel, margins=theme.px(10), spacing=theme.px(6))
+        self.check_lay = vbox(spacing=theme.px(4))
+        outer.addLayout(self.check_lay, 1)
+        self.check_close = icon_button("close", self.check_panel.hide, t("checkall.close"))   # C90 : ✕
+        outer.addWidget(self.check_close, 0, Qt.AlignTop)
         self.check_panel.hide()
+        self._check_timer = QTimer(self)                     # C90 : repliée seule quand tout est ✓
+        self._check_timer.setSingleShot(True)
+        self._check_timer.setInterval(6000)
+        self._check_timer.timeout.connect(self._check_autohide)
         self._check_rows: Dict[str, Any] = {}
         right.addWidget(self.check_panel)
         area = QScrollArea()
@@ -273,15 +284,11 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
-        # ---- anciennes platines : export.pdb (1.3.1, C89 : Avancé)
-        self._section = "advanced"
+        # ---- anciennes platines : export.pdb (1.3.1, C90 : état et synchronisation dans Bibliothèques,
+        # les deux options techniques dans Avancé)
+        self._section = "libraries"
         card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"))
-        self.pdb_var = QCheckBox(t("settings.pdb_sync"))
-        self.pdb_var.setChecked(s.pdb_sync == "auto")
-        card.addWidget(self.pdb_var)
-        self.pdb_growth_var = QCheckBox(t("settings.pdb_growth"))
-        self.pdb_growth_var.setChecked(s.pdb_allow_growth)
-        card.addWidget(self.pdb_growth_var)
+        self.pdb_card = self._cards[-1][1]
         row = hbox()
         row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
         self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary", icon="refresh")
@@ -290,6 +297,14 @@ class SettingsView(View):
         card.addLayout(row)
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
+        self._section = "advanced"
+        card = self._card(t("settings.pdb_options"), "library", t("settings.pdb_hint"))
+        self.pdb_var = QCheckBox(t("settings.pdb_sync"))
+        self.pdb_var.setChecked(s.pdb_sync == "auto")
+        card.addWidget(self.pdb_var)
+        self.pdb_growth_var = QCheckBox(t("settings.pdb_growth"))
+        self.pdb_growth_var.setChecked(s.pdb_allow_growth)
+        card.addWidget(self.pdb_growth_var)
 
         # ---- recherche
         self._section = "download"
@@ -630,6 +645,9 @@ class SettingsView(View):
         if key not in dict(SECTIONS):
             return
         self._current_section = key
+        # C90 : « Avancé » reste gris même sélectionné
+        self.sections.setStyleSheet(self._sections_css + (f" #settingsSections::item:selected {{ color: {theme.DIM}; }}"
+                                                          if key == "advanced" else ""))
         keys = [k for k, _i in SECTIONS]
         for w, idx in ((self.sections, keys.index(key)), (self.section_menu, keys.index(key))):
             w.blockSignals(True)
@@ -889,7 +907,7 @@ class SettingsView(View):
         self._engine_show()
 
     # ------------------------------------------------- 1.3.1 (C89) : « Tout vérifier »
-    CHECKS = ("app", "engine", "ffmpeg", "drives", "pdb", "diag")
+    CHECKS = ("app", "engine", "ffmpeg", "drives", "pdb", "local", "diag", "space")
 
     def _check_row(self, key: str, state: str, text: str, go: str = "") -> None:
         """Une ligne d'état : ✓ à jour, ↑ mise à jour disponible, ⚠ problème, … en cours, – sans objet."""
@@ -921,6 +939,19 @@ class SettingsView(View):
         if go:
             row["link"].clicked.connect(lambda: self.show_section(go))
         row["link"].setVisible(bool(go))
+        self._check_settled()
+
+    def _check_settled(self) -> None:
+        """C90 : toutes les lignes ont répondu et tout est ✓ (ou sans objet) : repli après 6 s."""
+        states = [r["state"] for r in self._check_rows.values()]
+        if states and "busy" not in states and all(x in ("ok", "skip") for x in states):
+            self._check_timer.start()
+        else:
+            self._check_timer.stop()
+
+    def _check_autohide(self) -> None:
+        if all(r["state"] in ("ok", "skip") for r in self._check_rows.values()):
+            self.check_panel.hide()
 
     def _check_counts(self) -> None:
         row = self._check_rows.get("diag")
@@ -995,7 +1026,7 @@ class SettingsView(View):
                     stale = getattr(self.ctrl.library, "pdb_state", "ok") == "stale"
                     self._check_row("pdb", "warn" if stale else "ok",
                                     t("checkall.pdb_left") if stale else t("checkall.pdb_synced"),
-                                    go="advanced" if stale else "")
+                                    go="libraries" if stale else "")
                     self._pdb_refresh()
 
             def status(st: Any) -> None:
@@ -1004,20 +1035,47 @@ class SettingsView(View):
                 if st.state == "stale":
                     self._check_row("pdb", "busy", t("checkall.pdb_syncing"))
                     self.ctrl.pdb_sync_now(synced, lambda *_a: ok() and self._check_row(
-                        "pdb", "warn", t("checkall.pdb_left"), go="advanced"))
+                        "pdb", "warn", t("checkall.pdb_left"), go="libraries"))
                 elif st.state in ("ok", "off", "absent"):
                     self._check_row("pdb", "ok" if st.state == "ok" else "skip",
                                     t("checkall.pdb_ok") if st.state == "ok" else t(f"checkall.pdb_{st.state}"))
                 else:
-                    self._check_row("pdb", "warn", t("checkall.pdb_problem"), go="advanced")
+                    self._check_row("pdb", "warn", t("checkall.pdb_problem"), go="libraries")
                 self._pdb_show(st)
 
             self.ctrl.pdb_status(status)
+        # C90 : bibliothèque de l'ordinateur relue (Rekordbox a pu la modifier)
+        local = self.ctrl.library if self.ctrl.is_local else None
+        if local is None or not hasattr(local, "refresh"):
+            self._check_row("local", "skip", t("checkall.local_none"))
+        else:
+            def reread_done(_r: Any = None) -> None:
+                if ok():
+                    self._check_row("local", "ok", t("checkall.local_ok"))
+                self.ctrl._emit("library")
+
+            self.ctrl.dispatcher.submit(local.refresh, reread_done,
+                                        lambda _e: ok() and self._check_row("local", "warn", t("checkall.local_failed")),
+                                        pool="db")
         if lib is None:
             self._check_row("diag", "skip", t("checkall.pdb_none"))
         else:
             self.ctrl.diag_quick_counts()           # réponse : évènement « diag_counts » (_check_counts)
-        self._space_if_shown()
+
+        def space_done(usage: Any) -> None:         # C90 : espace remesuré même si sa carte est cachée
+            if not ok():
+                return
+            if usage is None:
+                self._check_row("space", "skip", t("checkall.pdb_none"))
+                return
+            from .common import human_size
+
+            low = usage.total and usage.free < usage.total * 0.1
+            self._check_row("space", "warn" if low else "ok",
+                            t("space.summary", free=human_size(usage.free), total=human_size(usage.total)),
+                            go="libraries" if low else "")
+
+        self.space.compute(force=True, done=space_done)
 
     # --------------------------------------------------------------- enregistrer
     # ------------------------------------------------- sauvegardes de la clé (V1.2.0)
