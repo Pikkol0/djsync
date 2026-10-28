@@ -76,3 +76,14 @@ Numérotation (27/10) : **thème en 3 lettres + n°**, propre à chaque version 
 | SUG-5 | Double-cliquer une suggestion. | Lecture du son (la liste des suggestions devient la file de lecture). |
 | SUG-6 | Filtre **Harmonique** : choisir « BPM ±6 % » dans le bandeau. | Ne restent que les sons de clé compatible et de BPM proche. |
 | SUG-7 | Fermer DJSync avec le panneau ouvert, le rouvrir. | Le panneau est rouvert, avec le même réglage de BPM. |
+
+## Ajouts du 28/10 : mémoires de boucle (C75), remerciements (C55), erreurs (C61), exe plus léger (C66)
+| # | Étapes | Attendu |
+|---|---|---|
+| GRI-1 | **Grille et cues** : bouton **Mémoire de boucle** ▸ « Boucle de 4 temps », au curseur. | Une mémoire « ⟳ 4  m:ss » apparaît dans la rangée des mémoires, calée sur le temps le plus proche. |
+| GRI-2 | Clic droit sur une mémoire simple ▸ « Boucle de 8 temps » ; puis ▸ « Retirer la boucle ». | Elle devient « ⟳ 8 … », puis redevient « ▼ … ». |
+| GRI-3 | Enregistrer, éjecter, ouvrir la clé dans Rekordbox (et sur platine si possible). | La mémoire de boucle est dans la liste des mémoires avec sa longueur ; l'appeler puis Reloop la joue en boucle. (La « boucle active » qui s'enclenche toute seule n'est pas encore gérée : à relever sur un son de Rekordbox.) |
+| RET-1 | Haut du README sur GitHub ; Paramètres ▸ DJSync ; onglet **Retours**. | Le remerciement à Tazyh, Vogue, Paf et Kuss, en anglais et en français dans le README, dans la langue de l'app ailleurs. |
+| CLE-5 | Rekordbox ouvert sur la clé : dans DJSync, faire une modification (renommer une playlist). | Si une erreur arrive, elle se termine par « 💡 Rekordbox est ouvert et utilise probablement ce fichier : fermez Rekordbox, puis réessayez. » |
+| CLE-6 | Lire une erreur longue. | La bulle d'erreur est large (jusqu'à ~70 % de la fenêtre), le texte entier se lit, **Copier** met le message dans le presse-papiers ; elle reste jusqu'à **Fermer** (×). Les messages d'info disparaissent seuls comme avant. |
+| DEM-1 | (Auteur) Build de la 1.3.1 : taille de DJSync.exe (::notice du build) et premier lancement depuis une clé. | Plus petit qu'en 1.3.0 (fichiers Qt inutiles retirés : OpenGL logiciel, QML, clavier virtuel, traductions autres que FR/EN…) ; l'autotest du build passe ; DJSync démarre et tout s'affiche. |

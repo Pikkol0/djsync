@@ -224,6 +224,8 @@ def test_new_accent_recolors_home_tools_without_restart(demo):  # noqa: F811
 
 
 # ------------------------------------------------------------------ B22 : clé retirée sans éjecter
+@__import__("pytest").mark.skipif(__import__("sys").platform == "win32",
+                                 reason="pulls the drive out by moving its folder: Windows refuses to move a folder with open files")
 def test_removed_drive_one_clear_message_then_reopens(demo, monkeypatch):  # noqa: F811
     import shutil
 

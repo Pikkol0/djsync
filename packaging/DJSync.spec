@@ -42,6 +42,37 @@ EXCLUDES = [
 
 a = Analysis(["../app.py"], pathex=[".."], binaries=binaries, datas=datas, hiddenimports=hidden,
              excludes=EXCLUDES)
+
+# 1.3.1 (C66): files Qt brings along that DJSync never loads (it draws with QtWidgets, without OpenGL,
+# QML or a virtual keyboard). Fewer and smaller files = smaller DJSync.exe and a faster first launch
+# from a USB stick (everything is unpacked once into .djsync). The self-test of the build checks the app.
+import os as _os
+import re as _re
+
+_DROP = _re.compile(
+    r"(^|[\\/])("
+    r"opengl32sw\.dll"                                   # software OpenGL (~20 MB), unused by widgets
+    r"|Qt6(Quick|Qml|QmlModels|QmlMeta|QmlWorkerScript|VirtualKeyboard|Pdf|Network|OpenGL|Svg)\w*\.(dll|so[.\d]*|dylib)"
+    r"|libQt6(Quick|Qml|QmlModels|QmlMeta|QmlWorkerScript|VirtualKeyboard|Pdf|Network|OpenGL|Svg)\w*\.so[.\d]*"
+    r")$|[\\/]plugins[\\/](qmltooling|virtualkeyboard|networkinformation|tls|generic)[\\/]"
+    r"|virtualkeyboard\w*\.(dll|so|dylib)$"
+    r"|[\\/]plugins[\\/]imageformats[\\/](?!q(ico|jpeg|gif)\b)", _re.I)
+_KEEP_TR = _re.compile(r"[\\/]translations[\\/]qtbase_(en|fr)\.qm$", _re.I)
+
+
+def _wanted(dest: str) -> bool:
+    d = dest.replace("\\", "/")
+    if "/translations/" in d and d.endswith(".qm"):
+        return bool(_KEEP_TR.search(d))                    # Qt's own texts: English and French only
+    return not _DROP.search(d)
+
+
+_before = len(a.binaries) + len(a.datas)
+_dropped = [x for x in a.binaries + a.datas if not _wanted(x[0])]
+a.binaries = [x for x in a.binaries if _wanted(x[0])]
+a.datas = [x for x in a.datas if _wanted(x[0])]
+_mb = sum(_os.path.getsize(x[1]) for x in _dropped if _os.path.isfile(x[1])) / 1e6
+print(f"C66: {len(_dropped)} unused file(s) left out ({_mb:.1f} MB) of {_before}")
 import sys
 
 pyz = PYZ(a.pure)

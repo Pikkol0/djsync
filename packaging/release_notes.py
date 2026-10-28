@@ -61,7 +61,15 @@ def main(tag: str) -> int:
         return 1
     changes = history_row(current) or "See the README version history."
     title = "Pre-release" if "-" in wanted else "Release"
-    print(f"**{title} {wanted}**\n\n## What's new\n{changes}\n\n{INSTALL}")
+    thanks = ""
+    try:                                         # 1.3.1 (C55) : remerciements, même texte que le README
+        sys.path.insert(0, str(ROOT))
+        from djsync.credits import thanks_text
+
+        thanks = f"\n\n🙏 {thanks_text('en')}"
+    except Exception:  # noqa: BLE001 - les notes partent quand même
+        pass
+    print(f"**{title} {wanted}**\n\n## What's new\n{changes}{thanks}\n\n{INSTALL}")
     return 0
 
 
