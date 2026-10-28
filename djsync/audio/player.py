@@ -330,6 +330,18 @@ class AudioPlayer:
         now = time.monotonic()
         if self._dev_t0 is None:
             self._dev_t0 = now
+        # 1.3.0-rc.8 (B33) : la carte son a-t-elle attendu ce paquet plus longtemps que sa réserve ?
+        # (thread audio privé de Python pendant que l'interface travaille : petit saut ou trou entendu)
+        t0, sent = getattr(self, "_ur_clock", (now, 0))
+        late = (now - t0) - sent / RATE
+        if late > 0.05 and self._stream is not None and not self._paused:
+            self._underruns = getattr(self, "_underruns", 0) + 1
+            if now - getattr(self, "_underrun_log", 0.0) > 2.0:
+                self._underrun_log = now
+                log.info("Audio late by %.0f ms (%d time(s) so far, buffer %d ms x %d)",
+                         late * 1000, self._underruns, BUFFER_MS, PERIODS or 3)
+            t0, sent = now, 0                                       # repartir de ce point
+        self._ur_clock = (t0, sent + n)
         self._dev_frames += n
         self._dev_lead = max(self._dev_lead, self._dev_frames / RATE - (now - self._dev_t0))
         with self._lock:
@@ -338,6 +350,10 @@ class AudioPlayer:
                 return silence
             data = stream.read(n * FRAME_BYTES)
             data = data[: len(data) - len(data) % FRAME_BYTES]
+            if len(data) < n * FRAME_BYTES and not getattr(stream, "done", False) \
+                    and now - getattr(self, "_short_log", 0.0) > 2.0:       # B33 : décodage en retard
+                self._short_log = now
+                log.info("Audio stream short: %d of %d frames", len(data) // FRAME_BYTES, n)
             self._frames += len(data) // FRAME_BYTES
             if data:
                 self._cb_time, self._cb_frames, self._cb_period = now, self._frames, n / RATE

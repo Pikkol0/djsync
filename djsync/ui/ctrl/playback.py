@@ -157,10 +157,13 @@ class PlaybackMixin:
                 alive = editor.winfo_exists()
             except RuntimeError:
                 alive = False
-            if alive:
+            if alive and editor.isVisible():
                 editor._play()
                 return
-            self.grid_editor = None
+            # 1.3.0-rc.8 (B31) : page cachée (autre onglet, autre son lancé) -> Lecture / Pause agissent
+            # sur le son en cours, plus sur celui de la page restée ouverte en arrière-plan
+            if not alive:
+                self.grid_editor = None
         state = self.player.state
         if state in (PLAYING, PAUSED):
             self.player.toggle_pause()

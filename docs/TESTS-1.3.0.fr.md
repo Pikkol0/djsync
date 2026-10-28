@@ -55,13 +55,6 @@ clé), Rekordbox fermé pendant les écritures. Si ce n'est pas déjà fait, pas
 | D5 | Diagnostic ▸ remplacer un son qui a des cues par un nouveau téléchargement | Après analyse du nouveau fichier, les cues sont recalés dessus (message si certains tombent hors du fichier). |
 | D6 | Facultatif, pour régler les seuils : `python tools/dup_audio_report.py E:` (depuis les sources) | Rapport des verdicts par groupe ; l'envoyer avec Retours ▸ Envoyer les logs ou par mail. |
 
-## P. Dépôt prêt pour la communication (C78)
-| # | Étapes | Attendu |
-|---|---|---|
-| P1 | Après la fusion : GitHub ▸ dépôt ▸ *Insights* ▸ *Community standards* | Tout est coché : description, README, code de conduite, contribution, licence, politique de sécurité, modèles d'issues, modèle de pull request. |
-| P2 | Onglet *Security* ▸ *Report a vulnerability* | Le formulaire de signalement privé s'ouvre (option activée dans Settings ▸ Code security). |
-| P3 | Ouvrir une pull request de test (sans la fusionner) | La description est pré-remplie par le modèle (quoi / pourquoi, tests, cases à cocher). |
-
 ## R. Retour
 Après les tests : **Retours ▸ Envoyer les logs** (fichiers de la bibliothèque joints), en précisant les
 numéros de scénario qui ne donnent pas le résultat attendu et le modèle de platine utilisé.
