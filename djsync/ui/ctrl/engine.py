@@ -21,7 +21,8 @@ class EngineMixin:
     _engine_busy = False
 
     # ------------------------------------------------- nouvelle version de DJSync (V1.2.0)
-    def app_update_check(self, manual: bool = False) -> None:
+    def app_update_check(self, manual: bool = False, force: bool = False,
+                         result: Optional[Callable[[Any, Optional[BaseException]], None]] = None) -> None:
         """Au démarrage (au plus une fois par jour, si activé) ou à la demande : évènement
         « app_update » (Update) si une version plus récente de DJSync est publiée. 1.2.0-rc.4 : la
         version complète de l'exécutable (« 1.2.0-rc.4 ») et le canal choisi dans les Réglages."""
@@ -31,7 +32,7 @@ class EngineMixin:
         from ...core import updates
 
         s = self.settings
-        if not manual and (not s.check_updates or time.time() - (s.last_update_check or 0) < 20 * 3600):
+        if not manual and not force and (not s.check_updates or time.time() - (s.last_update_check or 0) < 20 * 3600):
             return
         current = full_version()
         channel = {"stable": False, "test": True}.get(s.update_channel)
@@ -44,13 +45,17 @@ class EngineMixin:
                 pass
             self.available_update = update
             self._emit("app_update_state")
-            if update is not None:
+            if update is not None and result is None:      # « Tout vérifier » : ligne d'état, pas de fenêtre
                 self._emit("app_update", update, current)
             elif manual:
                 self.message("ok", t("update.none", version=current))
+            if result is not None:                  # 1.3.1 (C89) : « Tout vérifier », sans message
+                result(update, None)
 
         def failed(exc: BaseException) -> None:
             log.info("DJSync update check failed: %s", exc)
+            if result is not None:
+                result(None, exc)
             if manual:
                 from ..controller import is_offline_error
 

@@ -54,6 +54,41 @@ def targets(app_dir: Optional[Path] = None, frozen: Optional[bool] = None) -> Li
     return safe
 
 
+def mode() -> str:
+    """1.3.1 (C88) : « drive » (DJSync tourne depuis une clé Rekordbox), « computer » (programme
+    compilé sur l'ordinateur) ou « source » (lancé depuis le code : rien à désinstaller)."""
+    if not getattr(sys, "frozen", False):
+        return "source"
+    return "drive" if portable.own_drive_root() is not None else "computer"
+
+
+def computer_targets(data_dir: Optional[Path], keep_backups: bool = True,
+                     app_dir: Optional[Path] = None, frozen: Optional[bool] = None) -> List[Path]:
+    """1.3.1 (C88) : désinstallation depuis l'ordinateur. Le programme et son dossier .djsync
+    (`targets`), plus le dossier des réglages s'il est ailleurs (%APPDATA%\\DJSync, ~/.config/djsync) :
+    réglages, caches, journal, moteur, sauvegardes de master.db. Avec `keep_backups`, ce dossier
+    n'est pas supprimé en entier : tout sauf `Backups`."""
+    out = targets(app_dir, frozen)
+    data = Path(data_dir) if data_dir is not None else None
+    if data is None or not data.is_dir():
+        return out
+    if any(data == p or p in data.parents for p in out):
+        return out          # dans .djsync, qui part en entier (sauvegardes mises à l'abri avant, voir uninstall)
+    if any((data / name).exists() for name in PROTECTED):
+        log.warning("Settings folder not removed (contains music or the library): %s", data)
+        return out
+    if keep_backups and (data / "Backups").is_dir():
+        out += [p for p in sorted(data.iterdir()) if p.name != "Backups"]
+    else:
+        out.append(data)
+    return out
+
+
+def computer_backups_home() -> Path:
+    """Où mettre à l'abri les sauvegardes de master.db quand le dossier de DJSync part en entier."""
+    return Path.home() / "DJSync_Backups"
+
+
 def keep_computer_backups(data_dir: Optional[Path], backup_dir: Path) -> None:
     """Sauvegardes de la bibliothèque de l'ordinateur (master.db), rangées dans .djsync/data :
     déplacées dans DJSync_Backups/Ordinateur pour ne pas disparaître avec DJSync."""
