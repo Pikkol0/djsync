@@ -23,6 +23,12 @@ def _no_update_check(monkeypatch):
 # DJSYNC_SHARD / DJSYNC_SHARDS : la CI répartit les fichiers de test sur plusieurs machines (un fichier
 # reste entier sur une machine). DJSYNC_FAST_EXIT : à la fin, sortie immédiate avec le bon code, sans
 # laisser Qt et les fils audio se détruire (plantage aléatoire à la fermeture alors que tout est passé).
+def pytest_configure(config):
+    # C91 (1.3.1) : « slow » = gros tests d'interface, lancés quand une PR est prête et à la release,
+    # pas pendant le développement (workflow « Tests », -m "not slow").
+    config.addinivalue_line("markers", "slow: long UI test, skipped by the quick test run")
+
+
 def pytest_collection_modifyitems(config, items):
     shards = int(os.environ.get("DJSYNC_SHARDS", "1") or 1)
     if shards <= 1:
