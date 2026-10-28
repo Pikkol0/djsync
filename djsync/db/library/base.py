@@ -160,6 +160,22 @@ class LibraryBase:
             raise LibraryError("Library not connected: call connect().")
         return self._conn
 
+    def alive(self) -> Optional[bool]:
+        """1.3.0-rc.7 (B28) : la connexion à la base répond-elle encore ? None si la bibliothèque est
+        occupée (on ne bloque jamais la surveillance des clés), False si la base ne se lit plus (clé
+        retirée, même si elle a été rebranchée depuis : l'ancienne connexion ne sert plus à rien)."""
+        if self._conn is None or not self._lock.acquire(blocking=False):
+            return None
+        try:
+            self._conn.execute("PRAGMA schema_version").fetchone()
+            return True
+        except sqlcipher.Error as exc:
+            text = str(exc).lower()
+            return False if any(k in text for k in ("disk i/o", "unable to open", "not a database", "malformed")) \
+                else None
+        finally:
+            self._lock.release()
+
     # ------------------------------------------------------------ WAL / transactions
     def _checkpoint(self) -> None:
         """Fusionne le -wal dans le fichier principal et le vide."""

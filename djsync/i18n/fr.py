@@ -625,6 +625,7 @@ STRINGS = {
     "msg.pdb_full_track": "« {title} » n'apparaîtra pas sur les platines qui lisent export.pdb (fichier plein). "
                           "Autorisez l'ajout de pages dans Paramètres ▸ Anciennes platines, puis « Synchroniser maintenant ».",
     "msg.pdb_synced": "export.pdb synchronisé : {tracks} titre(s), {playlists} playlist(s) ajouté(s).",
+    "msg.drive_replugged": "La clé {drive} a été retirée puis rebranchée : DJSync l'a rouverte. Utilisez Éjecter avant de retirer une clé.",
     "msg.drive_removed": "La clé {drive} a été retirée sans être éjectée : DJSync l'a refermée. Rebranchez-la : DJSync la vérifiera et rattrapera export.pdb.",
     "msg.file_missing_drive": "Fichier introuvable sur la clé {drive} : {name} (clé retirée, ou fichier supprimé ?)",
     "msg.file_missing_local": "Fichier introuvable sur cet ordinateur : {name} — déplacé ou supprimé de {folder}.",

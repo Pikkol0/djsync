@@ -619,6 +619,7 @@ STRINGS = {
     "msg.pdb_full_track": "\"{title}\" will not appear on players reading export.pdb (file full). Allow adding "
                           "pages in Settings ▸ Older players, then click \"Synchronise now\".",
     "msg.pdb_synced": "export.pdb synchronised: {tracks} track(s), {playlists} playlist(s) added.",
+    "msg.drive_replugged": "The drive {drive} was unplugged and plugged back in: DJSync reopened it. Use Eject before unplugging a drive.",
     "msg.drive_removed": "The drive {drive} was removed without being ejected: DJSync closed it. Plug it back in: DJSync will check it and catch up export.pdb.",
     "msg.file_missing_drive": "File not found on the drive {drive}: {name} (drive removed, or file deleted?)",
     "msg.file_missing_local": "File not found on this computer: {name} — it was moved or deleted from {folder}.",
