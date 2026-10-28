@@ -42,6 +42,12 @@ PERIODS = 0 if sys.platform == "darwin" else 2      # 0 = valeur de miniaudio (3
 _NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 
 STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
+# 1.3.0-rc.7 (C39, LEC-2) : un saut pendant la lecture rouvrait la carte son ET relançait le décodage
+# (FFmpeg pour les m4a : un nouveau processus) : on entendait un trou avant le nouvel endroit. Le son
+# en cours est maintenant gardé décodé en mémoire (jusqu'à 12 min, ~10 Mo par minute) : un saut y est
+# immédiat ; et hors macOS la réserve de la carte son (~80 ms) est assez courte pour ne plus l'arrêter.
+MEMORY_MAX_S = 12 * 60
+SEEK_KEEPS_DEVICE = BUFFER_MS * max(PERIODS, 3) <= 120
 
 
 @dataclass(frozen=True)
@@ -55,6 +61,85 @@ class NowPlaying:
 
 def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+
+
+class _PcmCache:
+    """Son entier décodé en mémoire, en arrière-plan (même décodeur que la lecture)."""
+
+    def __init__(self, path: Path, ffmpeg: Optional[str]) -> None:
+        self.path, self.ffmpeg = path, ffmpeg
+        self.data = bytearray()
+        self.lock = threading.Lock()
+        self.complete = False              # tout le son est là
+        self._stop = False
+        threading.Thread(target=self._run, daemon=True, name="djsync-audio-cache").start()
+
+    def _add(self, chunk: bytes) -> bool:
+        with self.lock:
+            self.data += chunk
+            too_long = len(self.data) > MEMORY_MAX_S * RATE * FRAME_BYTES
+        return not (self._stop or too_long)
+
+    def _run(self) -> None:
+        try:
+            if self.path.suffix.lower() in _NATIVE:
+                import miniaudio
+
+                for chunk in miniaudio.stream_file(str(self.path), miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
+                                                   frames_to_read=16384):
+                    if not self._add(chunk.tobytes()):
+                        return
+            else:
+                if not self.ffmpeg:
+                    return
+                proc = subprocess.Popen([self.ffmpeg, "-v", "error", "-nostdin", "-i", str(self.path), "-map", "0:a:0",
+                                         "-vn", "-f", "s16le", "-acodec", "pcm_s16le", "-ar", str(RATE), "-ac",
+                                         str(CHANNELS), "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        stdin=subprocess.DEVNULL, creationflags=_no_window())
+                try:
+                    while True:
+                        data = proc.stdout.read(65536)
+                        if not data:
+                            break
+                        if not self._add(data):
+                            return
+                    if proc.wait() != 0:
+                        return
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+            self.complete = True
+        except Exception as exc:  # noqa: BLE001 - simple accélération : la lecture normale reste
+            log.info("Track not kept in memory (%s): %s", self.path.name, exc)
+
+    def stop(self) -> None:
+        self._stop = True
+
+
+class _MemStream:
+    """Lecture depuis le son décodé en mémoire (même interface que _Stream)."""
+
+    def __init__(self, cache: _PcmCache, start: float) -> None:
+        self.cache = cache
+        self.pos = int(start * RATE) * FRAME_BYTES
+        self.error: Optional[str] = None
+        self.done = True
+        self.buf = True                    # « il reste des données » tant que pos < fin
+        self.started = threading.Event()
+        self.started.set()
+
+    def read(self, nbytes: int) -> bytes:
+        with self.cache.lock:
+            out = bytes(self.cache.data[self.pos:self.pos + nbytes])
+        self.pos += len(out)
+        return out
+
+    @property
+    def exhausted(self) -> bool:
+        return self.pos >= len(self.cache.data)
+
+    def close(self) -> None:
+        pass
 
 
 class _Stream:
@@ -195,6 +280,7 @@ class AudioPlayer:
         self._dev_t0: Optional[float] = None
         self._dev_frames = 0
         self._dev_lead = 0.0
+        self._cache: Optional[_PcmCache] = None     # rc.7 (C39) : son en cours, décodé en mémoire
 
     # ------------------------------------------------------------------ utilitaires
     def _emit(self, kind: str, payload: object = None) -> None:
@@ -284,8 +370,11 @@ class AudioPlayer:
         self._device = device
         return True
 
-    def _open(self, start: float) -> _Stream:
+    def _open(self, start: float):
         assert self._path is not None
+        cache = self._cache
+        if cache is not None and cache.complete and cache.path == self._path:
+            return _MemStream(cache, start)            # rc.7 (C39) : saut immédiat
         return _Stream(self._path, start, self._ffmpeg())
 
     def _swap(self, stream: Optional[_Stream], frames: int = 0) -> None:
@@ -327,6 +416,9 @@ class AudioPlayer:
             self._emit("missing", str(path))         # 1.3.0-rc.3 (B20) : message adapté par l'interface
             return
         self.stop(keep_meta=False)
+        if self._cache is not None and self._cache.path != path:     # rc.7 : mémoire libérée
+            self._cache.stop()
+            self._cache = None
         self._gen += 1
         self.meta = meta
         self._path = path
@@ -342,6 +434,14 @@ class AudioPlayer:
         self._paused = False
         self._swap(stream)
         self.duration = duration
+        if self._cache is not None and self._cache.path == self._path and not self._cache._stop:
+            pass                                       # même son rejoué : déjà en mémoire (ou en cours)
+        elif 0 < duration <= MEMORY_MAX_S and self._path is not None:
+            if self._cache is not None:
+                self._cache.stop()
+            self._cache = _PcmCache(self._path, self._ffmpeg())
+        else:
+            self._cache = None
         self._emit("loaded", (meta, duration))
         self._set_state(PLAYING)
 
@@ -393,7 +493,7 @@ class AudioPlayer:
         if self.state not in (PLAYING, PAUSED) or self.duration <= 0 or self._path is None:
             return
         seconds = max(0.0, min(seconds, max(0.0, self.duration - 0.5)))
-        if flush and self.state == PLAYING and self._device is not None:
+        if flush and self.state == PLAYING and self._device is not None and not SEEK_KEEPS_DEVICE:
             # 1.3.0-rc.5 (C39) : la réserve de la carte son jouerait encore l'ancien endroit ; on la
             # vide pour entendre le nouveau tout de suite (clic sur la forme d'onde, hot cue)
             self._halt_device()
