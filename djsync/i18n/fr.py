@@ -364,6 +364,7 @@ STRINGS = {
     "analysis.state_analysed": "déjà analysé",
     "analysis.state_todo": "à analyser",
     "analysis.progress": "Analyse : {i} / {n} faits",
+    "analysis.analyse_one": "(Ré)analyser ce titre",
     "analysis.counting": "Comptage des titres…",
     "analysis.force": "Réanalyser aussi les titres déjà analysés par DJSync (grille remplacée)",
     "analysis.nothing": "Rien à analyser dans la sélection.",

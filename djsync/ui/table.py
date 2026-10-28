@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QByteArray, QMimeData, QModelIndex, QPoint, Qt
 from PySide6.QtCore import QRectF, QSize
-from PySide6.QtGui import QColor, QDrag, QPainter
+from PySide6.QtGui import QColor, QDrag, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QTableView, QWidget,
 )
@@ -24,7 +24,8 @@ from . import theme
 
 MIME_IDS = "application/x-djsync-ids"
 MenuEntry = Optional[Tuple[Any, ...]]      # (texte, action[, icône]) ; None = séparateur
-ICON_COLUMNS = {"dl": ("download", "action.download"), "grid": ("grid", "lib.edit_grid")}   # colonnes-icônes
+ICON_COLUMNS = {"dl": ("download", "action.download"), "grid": ("grid", "lib.edit_grid"),   # colonnes-boutons
+                "an": ("wave", "analysis.analyse_one")}                                    # 1.3.2 (C58)
 ALIGN = {"w": Qt.AlignLeft | Qt.AlignVCenter, "e": Qt.AlignRight | Qt.AlignVCenter, "center": Qt.AlignCenter}
 
 
@@ -233,6 +234,37 @@ class _ProgressDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class _ButtonDelegate(QStyledItemDelegate):
+    """1.3.2 (C58) : colonnes d'action (Télécharger, Grille et cues…) dessinées comme de vrais petits
+    boutons : fond léger, bordure, survol visible. Un clic agit sans sélectionner la ligne."""
+
+    def __init__(self, table: "TrackTable", key: str) -> None:
+        super().__init__(table)
+        self.table, self.key = table, key
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        opt = option
+        self.initStyleOption(opt, index)
+        icon = opt.icon
+        opt.icon, opt.text = QIcon(), ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        if icon.isNull():
+            return
+        size = theme.px(26)
+        r = opt.rect
+        box = QRectF(r.center().x() - size / 2 + 0.5, r.center().y() - size / 2 + 0.5, size, size)
+        hover = bool(opt.state & QStyle.State_MouseOver) and self.table._hover_cell == (index.row(), index.column())
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.45)))
+        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.ACCENT, 0.28 if hover else 0.10)))
+        painter.drawRoundedRect(box, theme.px(6), theme.px(6))
+        ico = theme.px(16)
+        icon.paint(painter, int(box.center().x() - ico / 2), int(box.center().y() - ico / 2), ico, ico)
+        painter.restore()
+
+
 class _KeyDelegate(QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
@@ -362,6 +394,9 @@ class TrackTable(QTableView):
                 self.setItemDelegateForColumn(i, _ProgressDelegate(self))
             if col.key == "title" and self.show_covers:
                 self.setItemDelegateForColumn(i, _CoverDelegate(self))
+            if col.key in ICON_COLUMNS:                              # 1.3.2 (C58) : vrais boutons
+                self.setItemDelegateForColumn(i, _ButtonDelegate(self, col.key))
+        self._hover_cell: Any = None
         self.setMouseTracking(True)
         self.setIconSize(QSize(theme.px(16), theme.px(16)))
         self.apply_metrics()
@@ -827,6 +862,14 @@ class TrackTable(QTableView):
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e: Any) -> None:    # noqa: N802
+        index = self.indexAt(e.position().toPoint())               # 1.3.2 (C58) : survol des boutons
+        cell = (index.row(), index.column()) if index.isValid() and self.columns[index.column()].key in ICON_COLUMNS \
+            and self._rows.get(self._shown[index.row()]) is not None \
+            and self._rows[self._shown[index.row()]].values.get(self.columns[index.column()].key) else None
+        if cell != self._hover_cell:
+            self._hover_cell = cell
+            self.viewport().setCursor(Qt.PointingHandCursor if cell else Qt.ArrowCursor)
+            self.viewport().update()
         if (self._press is not None and e.buttons() & Qt.LeftButton and (self.can_reorder or self.drag_out)
                 and (e.position().toPoint() - self._press).manhattanLength() >= QApplication.startDragDistance()):
             ids = self.selected_iids()

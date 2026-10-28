@@ -167,6 +167,7 @@ class LibraryView(View):
             Column("size", t("track.size"), 70, "e", sort=lambda r: r.data.file_size or None if r.data else None),
             Column("comment", t("track.comment"), 180),
             Column("path", t("track.path"), 240),
+            Column("grid", "", 40, "center", sortable=False, min_width=34),   # 1.3.2 (C58) : bouton Grille et cues
         ]
 
         self.root.setContentsMargins(0, 0, 0, 0)
@@ -252,13 +253,14 @@ class LibraryView(View):
         self.banner.hide()
         mv.addWidget(self.banner)
 
-        self.table = TrackTable(self, self.cols, reorderable=True)
+        self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid",))
         self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS,
                              new_keys=EXTRA_COLUMNS)
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
         self.table.on_double = self._play
+        self.table.on_cell_click = self._cell_click                 # 1.3.2 (C58) : bouton Grille et cues
         self.table.on_reordered = self._mark_dirty
         self.table.on_sort_changed = self._sort_changed
         self.table.menu_builder = self._menu
@@ -498,9 +500,15 @@ class LibraryView(View):
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
-             "source": source_from_url(x.source_url), **extra_values(x)},
+             "source": source_from_url(x.source_url), "grid": "1" if x.is_analysed else "", **extra_values(x)},
             (), x,
         )
+
+    def _cell_click(self, iid: str, key: str) -> None:
+        row = self.table.row(iid)
+        x = row.data if row is not None else None
+        if key == "grid" and x is not None and x.is_analysed:
+            self.ctrl._emit("open_grid", x)
 
     def _columns_menu(self) -> None:
         self.table.columns_menu(self.cols_btn.mapToGlobal(self.cols_btn.rect().bottomLeft()))

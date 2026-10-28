@@ -364,6 +364,7 @@ STRINGS = {
     "analysis.state_analysed": "already analysed",
     "analysis.state_todo": "to analyse",
     "analysis.progress": "Analysing: {i} / {n} done",
+    "analysis.analyse_one": "Analyse this track (again)",
     "analysis.counting": "Counting tracks…",
     "analysis.force": "Analyse again tracks already analysed by DJSync (beat grid replaced)",
     "analysis.nothing": "Nothing to analyse in the selection.",

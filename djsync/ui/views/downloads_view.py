@@ -102,9 +102,10 @@ class DownloadsView(View):
             Column("bpm", t("track.bpm"), 56, "e", priority=1,
                    sort=lambda r: r.data.bpm or None if r.data else None),
             Column("state", t("dl.state"), 130),
+            Column("an", "", 40, "center", sortable=False, min_width=34),      # 1.3.2 (C58) : Analyser ce son
             Column("grid", "", 40, "center", sortable=False, min_width=34),
         ]
-        self.an_table = TrackTable(self, an_cols, click_columns=("grid",))
+        self.an_table = TrackTable(self, an_cols, click_columns=("grid", "an"))
         self.remember_layout(self.an_table, "unanalysed")
         self.an_table.set_empty("check", t("lib.empty_todo_title"))
         self.an_table.on_select = lambda _i: self._refresh_analysis()
@@ -252,7 +253,7 @@ class DownloadsView(View):
         text, tags = self._state(x)
         return Row(str(x.content_id), {
             "key": x.camelot or "", "title": x.title, "artist": x.artist,
-            "bpm": f"{x.bpm:.0f}" if x.bpm else "—", "state": text, "grid": "1" if x.is_analysed else "",
+            "bpm": f"{x.bpm:.0f}" if x.bpm else "—", "state": text, "grid": "1" if x.is_analysed else "", "an": "1",
         }, tags, x)
 
     def _fill(self) -> None:
@@ -370,6 +371,8 @@ class DownloadsView(View):
         x = self._tracks.get(iid)
         if key == "grid" and x is not None and x.is_analysed:
             self._edit_grid(x)
+        elif key == "an" and x is not None:                       # 1.3.2 (C58) : (ré)analyser ce son
+            self.ctrl.analyze([x.content_id], force=x.is_analysed)
 
     def _play_track(self, iid: str) -> None:
         shown = [r.data for r in self.an_table.displayed_rows() if r.data is not None]
