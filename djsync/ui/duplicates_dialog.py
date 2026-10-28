@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QProgressBar,
-    QRadioButton, QWidget,
+    QLabel, QRadioButton, QWidget,
 )
 
 from ..core.duplicates import best_keeper, split_display
@@ -56,6 +56,9 @@ class DuplicatesDialog(BaseDialog):
         self.cues_combo: Optional[QComboBox] = None          # 1.3.0 (C13) : de quelle version viennent les cues
         self._cue_counts: dict = {}
         self._cues_touched = False
+        self._group_cues: dict = {}                           # 1.3.2 (C79) : {son: [cues]} du groupe affiché
+        self._cue_strips: dict = {}
+        self.cues_summary: Optional[QLabel] = None
         # 1.3.1 (C42) : qualité audio de chaque version (lue dans le fichier) et versions à retélécharger
         self._quality: dict = {}
         self._info_labels: dict = {}
@@ -242,6 +245,9 @@ class DuplicatesDialog(BaseDialog):
         self.cues_combo = None
         self._cue_counts = {}
         self._cues_touched = False
+        self._group_cues = {}
+        self._cue_strips = {}
+        self.cues_summary = None
         self._pl_labels = {}
         self._info_labels = {}
         self._best_slots = {}
@@ -311,15 +317,26 @@ class DuplicatesDialog(BaseDialog):
         cues_lay.addWidget(label(t("dup.cues_from"), "dim"))
         self.cues_combo = QComboBox()
         self.cues_combo.activated.connect(lambda _i: setattr(self, "_cues_touched", True))
+        self.cues_combo.currentIndexChanged.connect(lambda _i: self._show_cue_summary())     # C79
         cues_lay.addWidget(self.cues_combo, 1)
         self.cues_box.hide()
         self.detail_lay.addWidget(self.cues_box)
+        self.cues_summary = label("", "faint", wrap=True)     # 1.3.2 (C79) : ce que la fusion gardera
+        self.cues_summary.hide()
+        self.detail_lay.addWidget(self.cues_summary)
+
+        strips = self._cue_strips                             # C79 : une lecture lancée pour un détail redessiné
+                                                              # depuis (même groupe) ne doit pas l'écraser
 
         def show_cues(found: dict) -> None:
-            if not self.winfo_exists() or self.index != token:
+            if not self.winfo_exists() or self.index != token or strips is not self._cue_strips:
                 return
             self._cue_counts = {cid: sum(1 for c in cues if c.slot) for cid, cues in found.items()}
+            self._group_cues = dict(found)
+            for cid, strip in self._cue_strips.items():
+                strip.set_cues(found.get(cid) or [])
             self._fill_cues_combo()
+            self._show_cue_summary()
 
         self.ctrl.load_group_cues(group, show_cues)
 
@@ -367,6 +384,7 @@ class DuplicatesDialog(BaseDialog):
         with_cues = [x for x in group if self._cue_counts.get(x.content_id)]
         if not with_cues:
             self.cues_box.hide()
+            self._show_cue_summary()
             return
         keep = group[self.keep_index()]
         current = combo.currentData() if self._cues_touched else None
@@ -385,6 +403,38 @@ class DuplicatesDialog(BaseDialog):
             best = max(with_cues, key=lambda x: self._cue_counts[x.content_id])
             combo.setCurrentIndex(combo.findData(best.content_id))
         self.cues_box.show()
+
+    def _cue_source(self) -> Optional[LibraryTrack]:
+        """Version dont les cues seront gardées à la fusion (la version gardée par défaut)."""
+        group = self.current_group
+        if not group:
+            return None
+        src = self.cues_from()
+        return next((x for x in group if x.content_id == src), None) or group[self.keep_index()]
+
+    def _show_cue_summary(self) -> None:
+        """1.3.2 (C79) : la version source est mise en avant ; une ligne résume ce que la fusion donnera."""
+        src = self._cue_source()
+        for cid, strip in self._cue_strips.items():
+            strip.set_highlight(src is not None and cid == src.content_id)
+        lbl = self.cues_summary
+        if lbl is None:
+            return
+        if src is None or not self._group_cues:
+            lbl.hide()
+            return
+        from .cue_strip import cue_summary
+
+        hot, loops, mem = cue_summary(self._group_cues.get(src.content_id) or [])
+        lbl.setText(t("dup.cues_result", hot=hot, loops=loops, mem=mem) if hot or mem else t("dup.cues_result_none"))
+        lbl.show()
+
+    def _open_cues(self, x: LibraryTrack) -> None:
+        """1.3.2 (C79) : ouvrir Grille et cues de ce son, sans passer par le lecteur ; Retour = Doublons (B29)."""
+        if not x.is_analysed:
+            self.ctrl.message("info", t("grid.not_analysed"))
+            return
+        self.ctrl._emit("open_grid", x)
 
     def cues_from(self) -> Optional[int]:
         if self.cues_combo is None or not self.cues_box.isVisible():
@@ -430,6 +480,13 @@ class DuplicatesDialog(BaseDialog):
         self._info_labels[x.content_id] = info_lbl
         info_lbl.setText(self._info_text(x))
         text.addWidget(info_lbl)
+        from .cue_strip import CueStrip
+
+        strip = CueStrip(int((x.duration_seconds or 0) * 1000))   # 1.3.2 (C79) : où sont les cues
+        if x.content_id in self._group_cues:
+            strip.set_cues(self._group_cues[x.content_id])
+        self._cue_strips[x.content_id] = strip
+        text.addWidget(strip)
         pl = label("", "faint", wrap=True)
         self._pl_labels[x.content_id] = pl
         text.addWidget(pl)
@@ -451,7 +508,9 @@ class DuplicatesDialog(BaseDialog):
         start = button(t("dup.listen_start"), lambda: self._listen(k, 0.0), icon="play", tooltip=t("dup.listen_start_tip"))
         middle = button(t("dup.listen_middle"), lambda: self._listen(k, 0.45), kind="flat",
                         tooltip=t("dup.listen_middle_tip"))
-        for b in (start, middle):
+        cues = button(t("dup.open_cues"), lambda: self._open_cues(x), kind="flat", icon="grid",
+                      tooltip=t("dup.open_cues_tip"))           # 1.3.2 (C79) : sans passer par le lecteur
+        for b in (start, middle, cues):
             b.setEnabled(not missing)
             lay.addWidget(b)
         out = button(t("dup.exclude"), lambda: self._exclude(k), kind="flat", icon="close",
@@ -693,6 +752,7 @@ class DuplicatesDialog(BaseDialog):
         x = group[self.keep_index()]
         if not self._cues_touched:
             self._fill_cues_combo()
+        self._show_cue_summary()
         if self._auto_keep:                 # meilleure qualité choisie d'office : le titre le plus propre reste
             return
         title, artist = split_display(x.title, x.artist)

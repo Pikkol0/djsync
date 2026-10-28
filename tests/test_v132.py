@@ -299,3 +299,42 @@ def test_pending_merge_applied_before_closing(demo, monkeypatch):  # noqa: F811
     assert len(demo.ctrl.library.list_tracks()) == n - 1 and not demo.ctrl.pending_merges
     dup.close()
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ C79
+def test_duplicates_show_cue_preview_and_open_cues(demo, monkeypatch):  # noqa: F811
+    from djsync.analysis.cues import Cue
+
+    monkeypatch.setattr(demo.ctrl, "refine_duplicate_group", lambda g, ok: ok([g]))
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    assert pump(demo, 4, lambda: len(dup.groups) == 1 and all(dup.verified))
+    a, b = dup.groups[0][:2]
+    cues = [Cue(1, 4000, name="Drop"), Cue(2, 20000, 24000, 8), Cue(0, 30000)]
+    monkeypatch.setattr(demo.ctrl, "load_group_cues",
+                        lambda g, ok: ok({x.content_id: (cues if x.content_id == b.content_id else []) for x in g}))
+    dup._select(0)
+    assert pump(demo, 4, lambda: dup._cue_strips and all(s.loaded for s in dup._cue_strips.values()))
+    strip = dup._cue_strips[b.content_id]
+    assert [c.slot for c in strip.cues] == [1, 2, 0]
+    loop = strip.cues[1]
+    assert strip.marker_at(strip._x(22000)) is loop                    # la boucle est un segment
+    assert "8" in strip.describe(loop) and "0:20" in strip.describe(loop)
+    assert strip.marker_at(strip._x(4000)).name == "Drop"
+    assert not dup._cue_strips[a.content_id].cues
+    # par défaut la version qui a des cues est la source : résumé et mise en avant
+    assert dup.cues_from() == b.content_id or dup.keep_index() == dup.groups[0].index(b)
+    assert strip.highlight and "2" in dup.cues_summary.text() and "1" in dup.cues_summary.text()
+    strip.grab()                                                       # dessin sans erreur
+    # bouton « Cues » : Grille et cues du bon son, Retour = Doublons
+    opened = []
+    demo.ctrl.on("open_grid", lambda x: opened.append(x.content_id))
+    monkeypatch.setattr(type(b), "is_analysed", property(lambda self: True), raising=False)
+    dup._open_cues(b)
+    assert opened and opened[-1] == b.content_id
+    if demo.grid_editor is not None:
+        demo._go_back(demo._grid_return)
+    dup.close()
+    assert not demo.errors
+
