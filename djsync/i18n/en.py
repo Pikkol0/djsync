@@ -992,6 +992,8 @@ STRINGS = {
     "update.err_checksum": "The downloaded file failed the integrity check: it was not installed. Try again later.",
     "update.err_prepare": "The update could not be prepared next to DJSync (drive full or read-only?). Nothing was changed.",
     "update.err_asset": "This release has no file for this computer yet. Try again later.",
+    "about.thanks": "A huge thank you to {names} for sharing their resources and testing, and for helping make this project happen.",
+    "about.thanks_and": "and",
     "about.title": "DJSync",
     "about.hint": "Version, updates, license and credits.",
     "about.version": "Version {version}",

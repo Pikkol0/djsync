@@ -998,6 +998,8 @@ STRINGS = {
     "update.err_checksum": "Le fichier téléchargé n'a pas passé la vérification d'intégrité : il n'a pas été installé. Réessayez plus tard.",
     "update.err_prepare": "Impossible de préparer la mise à jour à côté de DJSync (clé pleine ou protégée en écriture ?). Rien n'a été modifié.",
     "update.err_asset": "Cette version n'a pas encore de fichier pour cet ordinateur. Réessayez plus tard.",
+    "about.thanks": "Un grand merci à {names} pour la mise à disposition de leurs ressources, leurs tests et leur aide pour mener ce projet à bien.",
+    "about.thanks_and": "et",
     "about.title": "DJSync",
     "about.hint": "Version, mises à jour, licence et remerciements.",
     "about.version": "Version {version}",
