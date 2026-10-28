@@ -114,7 +114,8 @@ def test_rc7_seek_while_playing_is_served_from_memory(env):
     device = player._device
     player.seek(3.0)
     assert isinstance(player._stream, P._MemStream)
-    assert player._stream.pos == int(3.0 * P.RATE) * P.FRAME_BYTES
+    start = int(3.0 * P.RATE) * P.FRAME_BYTES                # la carte son a pu déjà en lire un paquet
+    assert start <= player._stream.pos <= start + P.RATE * P.FRAME_BYTES
     if P.SEEK_KEEPS_DEVICE:
         assert player._device is device                  # carte son pas rouverte
     assert pump(lambda: player.position() >= 3.0)
