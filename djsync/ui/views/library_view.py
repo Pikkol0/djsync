@@ -31,6 +31,7 @@ from .common import focus_list, View
 
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
+ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlist
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -329,6 +330,7 @@ class LibraryView(View):
             return
         if not self.ctrl.has_library:
             self.playlists, self.all_tracks, self.stats, self._dirty = [], [], {}, False
+            self._orphans = None
             self._loaded_for = ""
             self._fill_nav()
             self.table.set_empty("usb", t("lib.no_drive_title"))
@@ -347,8 +349,9 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats = data["playlists"], data["tracks"], data.get("stats", {})
             if full:
                 self.current, self._dirty = ALL, False
-            if self.current not in (ALL, TODO) and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
+            if self.current not in (ALL, TODO, ORPH) and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
+            self._count_orphans()
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
             ref = self.suggestions.ref                           # C30 : infos à jour (analyse, BPM)
@@ -387,6 +390,8 @@ class LibraryView(View):
         item(None, ALL, t("lib.all_tracks"), icon="music", count=len(self.all_tracks))
         todo = self._unanalysed_count()
         item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
+        orph = getattr(self, "_orphans", None)
+        item(None, ORPH, t("lib.orphans"), icon="playlist", count="" if orph is None else len(orph))   # C56
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -458,6 +463,29 @@ class LibraryView(View):
         self.ctrl.add_to_playlists(ids, [target.playlist_id])
 
     # -------------------------------------------------------------------- tableau
+    def _count_orphans(self) -> None:
+        """1.3.2 (C56) : compte (hors du fil de l'interface) les sons qui ne sont dans aucune playlist."""
+        key = self._drive_key()
+
+        def ok(found: set) -> None:
+            if not self.winfo_exists() or key != self._drive_key():
+                return
+            self._orphans = set(found)
+            it = self._items.get(ORPH)
+            if it is not None:
+                try:
+                    it.setText(1, str(len(self._orphans)))
+                except RuntimeError:
+                    pass
+            if self.current == ORPH and not self._dirty:
+                self._fill_table()
+
+        self.ctrl.orphan_ids([x.content_id for x in self.all_tracks], ok)
+
+    def _orphan_tracks(self) -> List[LibraryTrack]:
+        orph = getattr(self, "_orphans", None) or set()
+        return [x for x in self.all_tracks if x.content_id in orph]
+
     def _unanalysed(self) -> List[LibraryTrack]:
         return [x for x in self.all_tracks if not x.is_analysed]
 
@@ -483,6 +511,10 @@ class LibraryView(View):
         if self.current == TODO:
             self.table.set_empty("check", t("lib.empty_todo_title"))
             self._apply_rows(self._unanalysed(), pos=False)
+            return
+        if self.current == ORPH:                                   # 1.3.2 (C56)
+            self.table.set_empty("check", t("lib.empty_orphans_title"))
+            self._apply_rows(self._orphan_tracks(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
@@ -524,6 +556,13 @@ class LibraryView(View):
             q = self.ctrl.analysis
             if q.running:
                 parts.append(t("lib.analysing", i=q.done, n=q.total) + (f"  ·  {q.current}" if q.current else ""))
+            self.sub_lbl.setText("  ·  ".join(parts))
+        elif self.current == ORPH:                                 # 1.3.2 (C56)
+            self.title_lbl.setText(t("lib.orphans"))
+            n = len(self._orphan_tracks())
+            parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
+            if n and not self.ctrl.is_local:
+                parts.append(t("lib.orphans_hint"))
             self.sub_lbl.setText("  ·  ".join(parts))
         elif self.current == ALL:
             st = self.stats.get(0)
@@ -956,7 +995,7 @@ class LibraryView(View):
     def _nav_context(self, pos: Any) -> None:
         it = self.nav.itemAt(pos)
         iid = it.data(0, Qt.UserRole) if it is not None else None
-        if not iid or iid in (ALL, TODO):
+        if not iid or iid in (ALL, TODO, ORPH):
             return
         self.nav.setCurrentItem(it)
         p = self._by_iid.get(iid)

@@ -160,6 +160,31 @@ class Settings:
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         return self
 
+    # 1.3.2 (C57) : « Rétablir les réglages par défaut ». Jamais touchés : ce qui n'est pas un réglage mais
+    # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).
+    KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
+                   "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
+                   "last_update_check", "active_drive", "welcome_done")
+    # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
+    KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
+
+    def reset_to_defaults(self, keep_choices: bool = True) -> dict:
+        """Remet les réglages aux valeurs d'origine ; renvoie l'ancien contenu (pour « Annuler »)."""
+        old = asdict(self)
+        fresh = type(self)()
+        keep = set(self.KEEP_ALWAYS) | (set(self.KEEP_CHOICES) if keep_choices else set())
+        for f in fields(self):
+            if f.name not in keep:
+                setattr(self, f.name, getattr(fresh, f.name))
+        self.normalize()
+        return old
+
+    def restore(self, values: dict) -> None:
+        for f in fields(self):
+            if f.name in values:
+                setattr(self, f.name, values[f.name])
+        self.normalize()
+
     def save(self, path: Optional[Path] = None) -> None:
         path = path or self.path()
         self.normalize()

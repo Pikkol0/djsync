@@ -59,10 +59,39 @@ class HomeView(View):
             tools.addWidget(b, 1)
         self.root.addLayout(tools)
         self.root.addStretch(1)
+        # 1.3.2 (C73) : version de DJSync, discrète, en bas ; cliquable vers Paramètres ▸ DJSync
+        foot = hbox()
+        foot.addStretch(1)
+        self.version_btn = button("", self._open_about, kind="flat", tooltip=t("home.version_tip"))
+        self.version_btn.setObjectName("home_version")
+        foot.addWidget(self.version_btn)
+        self.root.addLayout(foot)
+        self._show_version()
+        controller.on("app_update_state", self._show_version)
 
         controller.on("drives", self.refresh)
         controller.on("drive", self.refresh)
         controller.on("library", self.refresh)
+
+    def _show_version(self) -> None:
+        from ... import full_version
+
+        v = full_version()
+        text = t("home.version", version=v) + (f"  ·  {t('home.version_test')}" if "-" in v else "")
+        upd = getattr(self.ctrl, "available_update", None)
+        if upd is not None:
+            text += "  ·  " + t("home.version_new", version=upd.version)
+        try:
+            self.version_btn.setText(text)
+        except RuntimeError:                       # vue reconstruite
+            pass
+
+    def _open_about(self) -> None:
+        self.ctrl._emit("navigate", "settings")
+        app = self.window()
+        view = getattr(app, "views", {}).get("settings")
+        if view is not None and hasattr(view, "show_section"):
+            view.show_section("djsync")
 
     # ------------------------------------------------------------------ omnibar
     def focus_omnibar(self) -> None:

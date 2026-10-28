@@ -316,6 +316,24 @@ class LibraryOpsMixin:
         self.dispatcher.submit(lib.pdb_catch_up, done, error, pool="db")
 
     # ------------------------------------------------------------------ analyse (V0.2.0)
+    def orphan_ids(self, content_ids: Sequence[int], ok: Callable[[set], None]) -> None:
+        """1.3.2 (C56) : sons qui ne sont dans aucune playlist (les playlists intelligentes ne comptent pas)."""
+        lib = self.library
+        ids = [int(i) for i in content_ids]
+        if lib is None or not ids or not hasattr(lib, "playlists_of"):
+            ok(set())
+            return
+
+        def work() -> set:
+            out: set = set()
+            for k in range(0, len(ids), 800):
+                found = lib.playlists_of(ids[k:k + 800])
+                out |= {cid for cid in ids[k:k + 800] if not found.get(cid)}
+            return out
+
+        self.dispatcher.submit(work, ok, lambda exc: log.info("Tracks outside playlists not counted: %s", exc),
+                               pool="db")
+
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library
         if lib is None:

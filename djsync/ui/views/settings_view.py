@@ -48,6 +48,8 @@ class SettingsView(View):
         head = self.header(t("tab.settings"))
         self.saved = label("", "accent")
         head.addWidget(self.saved)
+        head.addWidget(button(t("settings.reset"), self._reset_defaults, kind="flat", icon="back",
+                              tooltip=t("settings.reset_tip")))           # 1.3.2 (C57)
         head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
         self.root.addLayout(head)
         # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
@@ -805,6 +807,49 @@ class SettingsView(View):
         folder = self.ctrl.log_folder()
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def _reset_defaults(self) -> None:
+        """1.3.2 (C57) : confirmation, copie du fichier, remise à zéro appliquée tout de suite, « Annuler »."""
+        from PySide6.QtWidgets import QCheckBox
+
+        from ..dialogs import ConfirmDialog
+
+        keep = QCheckBox(t("settings.reset_keep"))
+        keep.setChecked(True)
+
+        def go() -> None:
+            import shutil
+            import time as _time
+
+            s = self.ctrl.settings
+            try:                                   # copie de l'ancien fichier, à côté
+                path = s.path()
+                if path.is_file():
+                    shutil.copy2(path, path.with_name(f"settings-before-reset-{_time.strftime('%Y%m%d-%H%M%S')}.json"))
+            except OSError:
+                pass
+            old = s.reset_to_defaults(keep_choices=keep.isChecked())
+            s.save()
+            self.ctrl.apply_settings()
+            ctrl = self.ctrl
+
+            def undo() -> None:
+                ctrl.settings.restore(old)
+                ctrl.settings.save()
+                ctrl.apply_settings()
+                ctrl._emit("rebuild_ui")
+                ctrl.message("ok", t("settings.reset_undone"))
+
+            ctrl._emit("rebuild_ui")               # thème, zoom, langue, valeurs des Paramètres
+            ctrl.message("ok", t("settings.reset_done"))
+            ctrl._emit("message_action", t("action.undo"), undo)
+
+        dlg = ConfirmDialog(self.window(), t("settings.reset"), t("settings.reset_msg"), go,
+                            confirm_text=t("settings.reset_confirm"), detail=t("settings.reset_detail"))
+        try:
+            dlg.body.insertWidget(max(0, dlg.body.count() - 1), keep)
+        except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
+            pass
 
     def _save(self) -> None:
         s = self.ctrl.settings
