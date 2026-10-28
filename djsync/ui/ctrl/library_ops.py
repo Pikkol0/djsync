@@ -18,6 +18,7 @@ from ...models import LibraryTrack, PlaylistInfo
 
 Callback = Callable[[Any], None]
 log = logging.getLogger(__name__)
+FP_FAILURES_LOGGED = 5        # 1.3.0-rc.9 : « No fingerprint » détaillés au journal, ensuite comptés
 
 
 def pdb_warning(lib: Any, title: str = "") -> str:
@@ -603,7 +604,15 @@ class LibraryOpsMixin:
             return file_fingerprint(lib.absolute_path(track), self.settings.ffmpeg_location or None,
                                     settings_dir() / "cache" / "fp")
         except Exception as exc:  # noqa: BLE001 - illisible : le son reste dans son groupe, sans verdict
-            log.info("No fingerprint for %s: %s", track.title, exc)
+            # 1.3.0-rc.9 : les 5 premiers au journal, puis un compte tous les 100. Avant, une ligne par son
+            # (sons Apple Music, clé absente) : des centaines de lignes qui noyaient la fin du journal envoyé.
+            n = self.__dict__["_fp_failures"] = self.__dict__.get("_fp_failures", 0) + 1
+            if n <= FP_FAILURES_LOGGED:
+                log.info("No fingerprint for %s: %s", track.title, exc)
+                if n == FP_FAILURES_LOGGED:
+                    log.info("No fingerprint: further failures are only counted")
+            elif n % 100 == 0:
+                log.info("No fingerprint for %d sounds so far (latest: %s: %s)", n, track.title, exc)
             return None
 
     def load_group_cues(self, tracks: Sequence[LibraryTrack], ok: Callback) -> None:
