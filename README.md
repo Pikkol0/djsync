@@ -241,6 +241,12 @@ and attaches them to the release.
 - [ ] macOS on Intel Macs; Linux as a single AppImage file
 - [ ] Public release
 
+## Contributing
+
+Bug reports, deck tests, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md)
+(how to report, what never to attach, how to run the tests). Please follow the
+[code of conduct](CODE_OF_CONDUCT.md); security problems go through [SECURITY.md](SECURITY.md).
+
 ## Credits
 - [pyrekordbox](https://github.com/dylanljones/pyrekordbox) and the community documentation
   [Deep Symmetry / crate-digger](https://djl-analysis.deepsymmetry.org/) for the Rekordbox formats.
