@@ -597,7 +597,8 @@ class DJSyncApp(QMainWindow):
         returns[id(page)] = self._return_target("home", exclude=page)
         self.stack.addWidget(page)
         self._show_page(page)
-        QTimer.singleShot(400, lambda: self._log_stray_windows(type(page).__name__))
+        what = type(page).__name__
+        QTimer.singleShot(400, self, lambda: self._log_stray_windows(what))     # annulé si la fenêtre se ferme
 
     def _log_stray_windows(self, what: str) -> None:
         """1.3.0-rc.8 (B32) : journalise toute fenêtre visible autre que la fenêtre principale juste après

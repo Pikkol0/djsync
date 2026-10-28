@@ -125,6 +125,9 @@ def test_audio_callback_late_is_logged(monkeypatch, caplog):
     assert "Audio late" not in caplog.text
     clock[0] += 0.5                                            # le thread audio attend 500 ms de trop
     pl._fill(n)
+    assert "Audio late" not in caplog.text                     # rien n'est écrit depuis le thread audio
+    pl.state = P.STOPPED
+    pl.position()                                              # l'interface le note
     assert "Audio late by" in caplog.text
 
 
