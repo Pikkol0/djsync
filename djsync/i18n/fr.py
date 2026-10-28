@@ -377,7 +377,9 @@ STRINGS = {
     "cue.memories": "Mémoires",
     "cue.add_memory": "Mémoire au curseur",
     "cue.add_memory_tip": "Ajoute une mémoire au temps le plus proche du curseur",
-    "cue.memory_tip": "Clic : y aller · clic droit : supprimer",
+    "cue.memory_tip": "Clic : y aller · clic droit : boucle ou supprimer",
+    "cue.add_memory_loop": "Mémoire de boucle",
+    "cue.add_memory_loop_tip": "Ajoute une mémoire de boucle au curseur (longueur au choix, calée sur la grille). Les platines la montrent dans la liste des mémoires : l'appeler, puis Reloop.",
     "cue.go_memory": "Aller à cette mémoire",
     "cue.pad_empty_tip": "Pad {pad} vide : clic pour poser un cue au curseur",
     "cue.pad_set_tip": "Pad {pad} à {time} : clic pour écouter, clic droit pour les options",
@@ -830,6 +832,11 @@ STRINGS = {
     # ---- V1.0.0
     "msg.pdb_repaired": "Il manquait {tracks} son(s) et {playlists} playlist(s) dans export.pdb (Device Library, anciennes platines) : c'est réparé.",
     "msg.rekordbox_open_usb": "Rekordbox est ouvert : il garde sa propre copie de la Device Library de la clé et peut écraser les changements de DJSync. Fermez Rekordbox (ou éjectez-y la clé) pendant que DJSync ajoute des sons.",
+    "error.tip_rekordbox_open": "Rekordbox est ouvert et utilise probablement ce fichier : fermez Rekordbox, puis réessayez.",
+    "error.tip_file_busy": "Un autre programme (souvent Rekordbox) utilise probablement ce fichier : fermez-le, puis réessayez.",
+    "toast.copy": "Copier",
+    "toast.copied": "Message copié.",
+    "toast.close": "Fermer",
     "error.offline": "Pas de connexion Internet : la recherche, les téléchargements et les pochettes en ont besoin. Bibliothèques, playlists, lecture et analyse fonctionnent quand même.",
     # ---- V1.1.0
     "grid.wave_loading": "Calcul de la forme d'onde…",

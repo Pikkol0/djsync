@@ -426,6 +426,13 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        # 1.3.1 (C55) : remerciements
+        from ...credits import thanks_text
+        from ...i18n import get_language
+
+        thanks = label("🙏 " + thanks_text(get_language()), wrap=True)
+        thanks.setObjectName("about_thanks")
+        card.addWidget(thanks)
         # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
         self._section = "privacy"
         card = self._card(t("settings.section_privacy"), "info")

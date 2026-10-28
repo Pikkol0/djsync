@@ -244,6 +244,25 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return str(exc)
         return f"{type(exc).__name__}: {exc}"
 
+    _BUSY_WORDS = ("database is locked", "database table is locked", "readonly database", "disk image is malformed",
+                   "being used by another process", "winerror 32", "winerror 33", "permission denied",
+                   "access is denied", "winerror 5]", "errno 13", "rekordbox open", "rekordbox is open",
+                   "rekordbox is running")
+
+    def rekordbox_tip(self, exc: BaseException) -> str:
+        """1.3.1 (C61) : conseil ajouté sous une erreur qui ressemble à un fichier tenu par un autre programme
+        (souvent Rekordbox) : base verrouillée, fichier en cours d'utilisation, accès refusé."""
+        text = f"{type(exc).__name__} {exc}".lower()
+        if isinstance(exc, DatabaseLockedError) or any(k in text for k in self._BUSY_WORDS):
+            running = bool(getattr(self, "_rekordbox_was_running", False))
+            if not running:
+                try:
+                    running = bool(_local.rekordbox_running())
+                except Exception:  # noqa: BLE001 - simple conseil
+                    running = False
+            return "\n\n💡 " + t("error.tip_rekordbox_open" if running else "error.tip_file_busy")
+        return ""
+
     def drive_gone(self) -> bool:
         """1.3.0-rc.3 (B22) : la clé ouverte a disparu (retirée sans être éjectée, reformatée…)."""
         if self.is_local or self.drive is None or self.library is None:
@@ -283,7 +302,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             log.info("Error after the drive was removed, not shown: %s", exc)
             return
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
-        self.message("error", self.error_text(exc))
+        text = self.error_text(exc)
+        self.message("error", text if "rekordbox" in text.lower() else text + self.rekordbox_tip(exc))
         reporter = getattr(self, "error_reporter", None)
         if reporter is not None:
             reporter.report(exc, "shown to the user")

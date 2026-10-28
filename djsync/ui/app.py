@@ -200,6 +200,12 @@ class DJSyncApp(QMainWindow):
         self.toast_action.hide()
         self._toast_fn: Optional[Callable[[], None]] = None
         tl.addWidget(self.toast_action)
+        # 1.3.1 (C61) : une erreur reste affichée (bulle plus large, texte entier) : Copier et Fermer
+        self.toast_copy = button(t("toast.copy"), self._copy_toast, kind="flat")
+        self.toast_copy.hide()
+        tl.addWidget(self.toast_copy)
+        self.toast_close = icon_button("close", self._hide_toast, t("toast.close"))
+        tl.addWidget(self.toast_close)
         self.toast.hide()
         self.views = {}
         self.grid_editor: Any = None
@@ -746,6 +752,11 @@ class DJSyncApp(QMainWindow):
         self._toast_fn = None
         self.status.setText(text)
         self.status.setProperty("role", "" if kind == "info" else status_role(kind))
+        error = kind == "error"
+        width = self.stack.width() or theme.px(900)
+        self.status.setMaximumWidth(int(width * 0.7) if error else theme.px(520))   # C61 : ~70 % pour une erreur
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse if error else Qt.NoTextInteraction)
+        self.toast_copy.setVisible(error)
         restyle(self.status)
         icon, color = {"ok": ("check", theme.ACCENT), "warn": ("warn", theme.WARN),
                        "error": ("warn", theme.ERR)}.get(kind, ("info", theme.DIM))
@@ -753,7 +764,10 @@ class DJSyncApp(QMainWindow):
         self.toast.show()
         self.toast.raise_()
         self._place_toast()
-        self._status_timer.start(12000 if kind in ("error", "warn") else 5000)
+        if error:
+            self._status_timer.stop()                  # C61 : reste jusqu'à « Fermer »
+        else:
+            self._status_timer.start(12000 if kind == "warn" else 5000)
 
     def _message_action(self, text: str, fn: Callable[[], None]) -> None:
         """Bouton dans la bulle du dernier message (ex. « Voir dans le Diagnostic »)."""
@@ -767,6 +781,13 @@ class DJSyncApp(QMainWindow):
         self._hide_toast()
         if fn:
             fn()
+
+    def _copy_toast(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.clipboard().setText(self.status.text())
+        self.toast_copy.setText(t("toast.copied"))
+        QTimer.singleShot(1500, lambda: self.toast_copy.setText(t("toast.copy")))
 
     def _hide_toast(self) -> None:
         self.status.setText("")

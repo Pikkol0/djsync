@@ -16,6 +16,12 @@
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555">
 </p>
 
+<p align="center">
+  🙏 <b>Thanks / Merci</b><br>
+  A huge thank you to Tazyh, Vogue, Paf and Kuss for sharing their resources and testing, and for helping make this project happen.<br>
+  <i>Un grand merci à Tazyh, Vogue, Paf et Kuss pour la mise à disposition de leurs ressources, leurs tests et leur aide pour mener ce projet à bien.</i>
+</p>
+
 ---
 
 ## What DJSync does

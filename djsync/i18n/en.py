@@ -377,7 +377,9 @@ STRINGS = {
     "cue.memories": "Memories",
     "cue.add_memory": "Memory at cursor",
     "cue.add_memory_tip": "Adds a memory cue on the beat nearest the cursor",
-    "cue.memory_tip": "Click: go there · right-click: delete",
+    "cue.memory_tip": "Click: go there · right-click: loop or delete",
+    "cue.add_memory_loop": "Memory loop",
+    "cue.add_memory_loop_tip": "Adds a memory loop at the cursor (length to choose, on the grid). Players show it in the memory list; call it, then press Reloop.",
     "cue.go_memory": "Go to this memory",
     "cue.pad_empty_tip": "Pad {pad} empty: click to set a cue at the cursor",
     "cue.pad_set_tip": "Pad {pad} at {time}: click to listen, right-click for options",
@@ -824,6 +826,11 @@ STRINGS = {
     # ---- V1.0.0
     "msg.pdb_repaired": "export.pdb (Device Library, older players) was missing {tracks} track(s) and {playlists} playlist(s): repaired.",
     "msg.rekordbox_open_usb": "Rekordbox is open: it keeps its own copy of the drive's Device Library and may overwrite DJSync's changes. Close Rekordbox (or eject the drive in it) while DJSync adds tracks.",
+    "error.tip_rekordbox_open": "Rekordbox is open and is probably using this file: close Rekordbox, then try again.",
+    "error.tip_file_busy": "Another program (often Rekordbox) is probably using this file: close it, then try again.",
+    "toast.copy": "Copy",
+    "toast.copied": "Message copied.",
+    "toast.close": "Close",
     "error.offline": "No internet connection: search, downloads and artwork need it. Your libraries, playlists, player and analysis still work.",
     # ---- V1.1.0
     "grid.wave_loading": "Drawing the waveform…",
