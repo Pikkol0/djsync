@@ -10,14 +10,23 @@ class TracksMixin:
     def _track(row: Tuple[Any, ...]) -> LibraryTrack:
         cid, title, artist, album, length, path, bpmx100, ftype, comment, added, analysis, art = row[:12]
         key = row[12] if len(row) > 12 else None
+        x = list(row[13:23]) + [None] * max(0, 10 - len(row[13:23]))
+        genre, label, year, bitrate, rate, rating, color, plays, created, size = x
         return LibraryTrack(
             content_id=cid, title=title or "", artist=artist, album=album,
             duration_seconds=int(length), path=path or "", bpm=bpmx100 / 100.0, file_type=ftype,
             source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
             date_added=added, is_analysed=bool(analysis), artwork_path=art or None,
-            sequence=int(row[13]) if len(row) > 13 and row[13] is not None else 0,
+            sequence=int(row[23]) if len(row) > 23 and row[23] is not None else 0,
             key=key or None, analysis_path=analysis or None,
+            genre=genre or "", label=label or "", comment=comment or "", year=_int(year), bitrate=_int(bitrate),
+            sample_rate=_int(rate), rating=max(0, min(5, _int(rating))), color=_int(color), play_count=_int(plays),
+            created=str(created or "")[:10], file_size=_int(size),
         )
+
+    def _tsel(self, with_sequence: bool = False) -> str:
+        return _track_select(self._has_key, with_sequence, getattr(self, "_content_cols", None) or None,
+                             self._tables or None)
 
     def absolute_path(self, track_or_path: Union[LibraryTrack, str]) -> Path:
         """Chemin réel sur la clé d'un son (ou d'un chemin de la base, ex. "/Contents/…")."""
@@ -51,10 +60,10 @@ class TracksMixin:
         return out
 
     def list_tracks(self) -> List[LibraryTrack]:
-        return [self._track(r) for r in self._read(_track_select(self._has_key) + " ORDER BY c.content_id")]
+        return [self._track(r) for r in self._read(self._tsel() + " ORDER BY c.content_id")]
 
     def get_track(self, content_id: int) -> LibraryTrack:
-        rows = self._read(_track_select(self._has_key) + " WHERE c.content_id = ?", (content_id,))
+        rows = self._read(self._tsel() + " WHERE c.content_id = ?", (content_id,))
         if not rows:
             raise TrackNotFoundError(f"Track not found (id {content_id}).")
         return self._track(rows[0])
@@ -70,7 +79,7 @@ class TracksMixin:
             if not arg.startswith("http"):
                 return None
             sql = " WHERE c.djComment = ?"
-        rows = self._read(_track_select(self._has_key) + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
+        rows = self._read(self._tsel() + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
         return self._track(rows[0]) if rows else None
 
     def track_count(self) -> int:
@@ -107,6 +116,45 @@ class TracksMixin:
             f"SELECT {id_col} FROM {table} WHERE name = ? COLLATE NOCASE {extra_match} LIMIT 1",
             (name, *extra_params)).fetchone()
         return row[0] if row else conn.execute(insert_sql, insert_params).lastrowid
+
+    def relink_track(self, content_id: int, new_file: Path) -> LibraryTrack:
+        """1.3.1 (C43) : le fichier d'un son a été déplacé sur la clé : la bibliothèque pointe vers
+        `new_file` (même son ; playlists, grille et cues gardés). Le chemin des fichiers d'analyse
+        (balise PPTH) suit ; export.pdb est réconcilié (ancienne piste retirée, nouvelle ajoutée)."""
+        from ...analysis.anlz import _write_atomic, read_path, retarget
+
+        root = self.drive.root.resolve()
+        target = Path(new_file).resolve()
+        if root not in target.parents or target.suffix.lower() not in FILE_TYPES or not target.is_file():
+            raise LibraryError("The file must be an audio file on this drive.")
+        rel = "/" + target.relative_to(root).as_posix()
+        with self._write() as conn:
+            row = conn.execute("SELECT path, analysisDataFilePath, COALESCE(informationUpdateCount,0) FROM content "
+                               "WHERE content_id = ?", (content_id,)).fetchone()
+            if row is None:
+                raise TrackNotFoundError(f"Track not found (id {content_id}).")
+            old, anlz, count = row
+            if conn.execute("SELECT 1 FROM content WHERE path = ? COLLATE NOCASE AND content_id != ?",
+                            (rel, content_id)).fetchone():
+                raise LibraryError("Another track of the library already uses this file.")
+            cols = {"path": rel, "fileName": target.name, "fileSize": target.stat().st_size,
+                    "informationUpdateCount": int(count) + 1}
+            cols = {k: v for k, v in cols.items() if not self._content_cols or k in self._content_cols}
+            conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
+                         (*cols.values(), content_id))
+            if old and old.casefold() != rel.casefold():
+                self._pdb_mark(TRACK_DELETED, old)
+        if anlz:
+            dat = self.absolute_path(anlz)
+            for ext in (".DAT", ".EXT", ".2EX"):
+                f = dat.with_suffix(ext)
+                try:
+                    data = f.read_bytes()
+                    if (read_path(data) or "").casefold() == (old or "").casefold():
+                        _write_atomic(f, retarget(data, rel))
+                except (OSError, ValueError, UnicodeDecodeError) as exc:
+                    log.info("Analysis path not updated (%s): %s", f, exc)
+        return self.get_track(content_id)
 
     def delete_track(self, content_id: int, delete_file: bool = True) -> bool:
         """Retire le son de la bibliothèque et de toutes les playlists.

@@ -320,6 +320,18 @@ class LibraryTrack:
     sequence: int = 0                    # position dans la playlist (0 hors vue playlist)
     key: Optional[str] = None            # tonalité Rekordbox brute ("Am", "F#m"…), None si non analysé
     analysis_path: Optional[str] = None  # ".../ANLZ0000.DAT" (formes d'onde du lecteur, éditeur de grille)
+    # 1.3.1 (C37) : métadonnées affichables en colonnes dans la Bibliothèque
+    genre: str = ""
+    year: int = 0
+    label: str = ""
+    comment: str = ""                    # commentaire brut (djComment / Commnt)
+    bitrate: int = 0                     # kb/s
+    sample_rate: int = 0                 # Hz
+    rating: int = 0                      # 0 à 5 étoiles
+    color: int = 0                       # couleur Rekordbox 1..8 (0 = aucune)
+    play_count: int = 0
+    created: str = ""                    # date de création du fichier (AAAA-MM-JJ)
+    file_size: int = 0                   # octets
 
     @property
     def camelot(self) -> Optional[str]:

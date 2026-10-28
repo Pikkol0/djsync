@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QProgressBar, QSplitter, QTreeWidget, QTreeWidgetItem, QWidget,
+    QAbstractItemView, QComboBox, QHeaderView, QProgressBar, QSplitter, QTreeWidget, QTreeWidgetItem, QWidget,
 )
 
 from ...core.camelot import neighbors
@@ -36,6 +36,31 @@ _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 def _fmt(track: LibraryTrack) -> str:
     return _FORMATS.get(track.file_type) or Path(track.path).suffix.lstrip(".").upper()
+
+
+EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "rate", "rating", "color", "plays", "created", "size",
+                 "comment", "path")
+# Couleurs des sons Rekordbox (identifiants 1 à 8, même ordre dans exportLibrary.db et master.db)
+TRACK_COLORS = {1: "#F06EB4", 2: "#E5464A", 3: "#F08C2E", 4: "#E8D23C", 5: "#4CC38A", 6: "#3CC8D2",
+                7: "#3C78E6", 8: "#9A5BE0"}
+
+
+def extra_values(x: LibraryTrack) -> Dict[str, Any]:
+    """1.3.1 (C37) : valeurs affichées des colonnes de métadonnées."""
+    color = TRACK_COLORS.get(x.color)
+    out: Dict[str, Any] = {
+        "genre": x.genre, "year": str(x.year) if x.year else "", "label": x.label,
+        "bitrate": t("unit.kbps", n=x.bitrate) if x.bitrate else "",
+        "rate": t("unit.khz", n=f"{x.sample_rate / 1000:g}") if x.sample_rate else "",
+        "rating": "★" * x.rating + "☆" * (5 - x.rating) if x.rating else "",
+        "color": t(f"color.{x.color}") if color else "",
+        "plays": str(x.play_count) if x.play_count else "",
+        "created": x.created, "size": t("unit.mb", n=f"{x.file_size / 1e6:.1f}") if x.file_size else "",
+        "comment": x.comment, "path": x.path,
+    }
+    if color:
+        out["color__dot"] = color
+    return out
 
 
 def total_duration(seconds: int) -> str:
@@ -127,6 +152,20 @@ class LibraryView(View):
             Column("source", t("track.source"), 130, priority=5),
             Column("added", t("track.added"), 104, "center", priority=4,
                    sort=lambda r: r.data.date_added if r.data else ""),
+            # 1.3.1 (C37) : toutes les métadonnées, masquées par défaut (bouton « Colonnes »)
+            Column("genre", t("track.genre"), 110),
+            Column("year", t("track.year"), 52, "e", sort=lambda r: r.data.year or None if r.data else None),
+            Column("label", t("track.label"), 120),
+            Column("bitrate", t("track.bitrate"), 78, "e", sort=lambda r: r.data.bitrate or None if r.data else None),
+            Column("rate", t("track.sample_rate"), 78, "e",
+                   sort=lambda r: r.data.sample_rate or None if r.data else None),
+            Column("rating", t("track.rating"), 76, "center", sort=lambda r: r.data.rating or None if r.data else None),
+            Column("color", t("track.color"), 86, sort=lambda r: r.data.color or None if r.data else None),
+            Column("plays", t("track.plays"), 64, "e", sort=lambda r: r.data.play_count or None if r.data else None),
+            Column("created", t("track.created"), 96, "center", sort=lambda r: r.data.created or None if r.data else None),
+            Column("size", t("track.size"), 70, "e", sort=lambda r: r.data.file_size or None if r.data else None),
+            Column("comment", t("track.comment"), 180),
+            Column("path", t("track.path"), 240),
         ]
 
         self.root.setContentsMargins(0, 0, 0, 0)
@@ -186,6 +225,12 @@ class LibraryView(View):
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
         bar.addWidget(self.harm_btn)
+        self.sug_btn = button(t("sug.title"), lambda: self.show_suggestions(self.sug_btn.isChecked()),
+                              icon="playlist", tooltip=t("sug.tip"))           # 1.3.1 (C30)
+        self.sug_btn.setCheckable(True)
+        bar.addWidget(self.sug_btn)
+        self.cols_btn = button(t("table.columns"), self._columns_menu, icon="columns", tooltip=t("lib.columns_tip"))
+        bar.addWidget(self.cols_btn)
         self.tools_btn = icon_button("menu", self._tools_menu, t("lib.tools"))
         bar.addWidget(self.tools_btn)
         self.delete_btn = button("", self._delete, kind="danger", icon="trash", tooltip=t("lib.delete"))
@@ -197,21 +242,34 @@ class LibraryView(View):
         bl.addWidget(icon_label("key", 16, theme.ACCENT))
         self.banner_lbl = label("")
         bl.addWidget(self.banner_lbl, 1)
+        self.harm_bpm = QComboBox()                               # 1.3.1 (C30) : BPM ± x %
+        self.harm_bpm.addItems([t("lib.harmonic_bpm_any"), "BPM ±3 %", "BPM ±6 %", "BPM ±10 %"])
+        self.harm_bpm.setToolTip(t("lib.harmonic_bpm_tip"))
+        self.harm_bpm.currentIndexChanged.connect(lambda _i: self._apply_harmonic())
+        bl.addWidget(self.harm_bpm)
         bl.addWidget(icon_button("close", self._clear_harmonic, t("action.close"), size=14))
         self.banner.hide()
         mv.addWidget(self.banner)
 
         self.table = TrackTable(self, self.cols, reorderable=True)
-        self.remember_layout(self.table, "library", default_hidden=("album", "format"))
+        self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS,
+                             new_keys=EXTRA_COLUMNS)
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
-        self.table.on_select = lambda _i: self._refresh_buttons()
+        self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
         self.table.on_double = self._play
         self.table.on_reordered = self._mark_dirty
         self.table.on_sort_changed = self._sort_changed
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
-        mv.addWidget(self.table, 1)
+        from ..suggestions_panel import SuggestionsPanel
+
+        content = hbox(spacing=theme.px(8))
+        content.addWidget(self.table, 1)
+        self.suggestions = SuggestionsPanel(self, controller)
+        self.suggestions.hide()
+        content.addWidget(self.suggestions)
+        mv.addLayout(content, 1)
         split.addWidget(main)
         split.setStretchFactor(1, 1)
         split.setSizes([theme.px(220), theme.px(900)])
@@ -219,10 +277,42 @@ class LibraryView(View):
         controller.on("library", lambda: self.reload())
         controller.on("drive", lambda: self.reload(full=True))
         controller.on("queue", self._mark_playing)
-        controller.on("player", lambda kind, _p: self._mark_playing() if kind == "loaded" else None)
+        controller.on("player", lambda kind, _p: (self._mark_playing(), self._suggest_from_player())
+                      if kind == "loaded" else None)
         controller.on("analysis", self._analysis_changed)
         controller.on("show_unanalysed", self.show_unanalysed)
         self._refresh_buttons()
+        if controller.settings.suggestions_open:
+            self.show_suggestions(True, remember=False)
+
+    # ------------------------------------------------------------- 1.3.1 (C30) : suggestions
+    def show_suggestions(self, on: bool, remember: bool = True) -> None:
+        self.suggestions.setVisible(on)
+        self.sug_btn.setChecked(on)
+        if remember and self.ctrl.settings.suggestions_open != on:
+            self.ctrl.settings.suggestions_open = on
+            self.ctrl.save_settings_quiet()
+        if on:
+            sel = self._selected_tracks()[:1]
+            if sel:
+                self.suggestions.set_reference(sel[0])
+            else:
+                self._suggest_from_player()
+            self.suggestions.refresh()
+
+    def _suggest_from_selection(self) -> None:
+        if self.suggestions.isVisible():
+            sel = self._selected_tracks()
+            if len(sel) == 1:
+                self.suggestions.set_reference(sel[0])
+
+    def _suggest_from_player(self) -> None:
+        if not self.suggestions.isVisible():
+            return
+        cid = self.ctrl.current_library_id()
+        found = [x for x in self.all_tracks if x.content_id == cid]
+        if found:
+            self.suggestions.set_reference(found[0])
 
     # =============================================================== chargement
     def on_show(self) -> None:
@@ -261,6 +351,11 @@ class LibraryView(View):
                 self.current, self._dirty = ALL, False
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
+            ref = self.suggestions.ref                           # C30 : infos à jour (analyse, BPM)
+            if ref is not None:
+                self.suggestions.ref = next((x for x in self.all_tracks if x.content_id == ref.content_id), None)
+            if self.suggestions.isVisible():
+                self.suggestions.refresh()
             self._fill_nav()
             if self._dirty:
                 self._show_header()
@@ -375,9 +470,12 @@ class LibraryView(View):
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
-             "source": source_from_url(x.source_url)},
+             "source": source_from_url(x.source_url), **extra_values(x)},
             (), x,
         )
+
+    def _columns_menu(self) -> None:
+        self.table.columns_menu(self.cols_btn.mapToGlobal(self.cols_btn.rect().bottomLeft()))
 
     def _fill_table(self) -> None:
         self._show_header()
@@ -507,7 +605,16 @@ class LibraryView(View):
             self.banner.hide()
         else:
             keys = set(neighbors(base.camelot))
-            self.table.row_filter = lambda r: bool(r.data and r.data.camelot in keys)
+            tol = (0, 3, 6, 10)[max(0, self.harm_bpm.currentIndex())]
+            if tol and base.bpm:
+                from ...core.suggest import bpm_gap
+
+                def ok(r: Row) -> bool:
+                    gap = bpm_gap(base.bpm, r.data.bpm)[0] if r.data else None
+                    return bool(r.data and r.data.camelot in keys and gap is not None and abs(gap) <= tol)
+                self.table.row_filter = ok
+            else:
+                self.table.row_filter = lambda r: bool(r.data and r.data.camelot in keys)
             text = t("lib.harmonic_banner", code=base.camelot, title=base.title, keys=", ".join(neighbors(base.camelot)))
             if base.bpm:
                 text += "  ·  " + t("lib.harmonic_bpm", bpm=f"{base.bpm:.0f}")
@@ -786,9 +893,7 @@ class LibraryView(View):
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:
             return
-        from ..duplicates_dialog import DuplicatesDialog
-
-        DuplicatesDialog(self, self.ctrl)
+        self.window().open_diagnostic("dup")             # 1.3.1 (C41) : onglet Doublons du Diagnostic
 
     def _tools_menu(self) -> None:
         sel = self._selected_tracks()

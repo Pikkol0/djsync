@@ -11,8 +11,8 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton,
-    QWidget,
+    QAbstractButton, QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QWidget,
 )
 
 from ...db import UsbDrive
@@ -21,12 +21,17 @@ from ...settings import ZOOM_MAX, ZOOM_MIN, ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
-from ..widgets import button, hbox, icon_button, icon_label, label, panel, vbox
+from ..icons import qicon
+from ..widgets import button, hbox, icon_button, icon_label, label, line_edit, panel, vbox
 from .common import View
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
 KEY_NOTATIONS = ("auto", "camelot", "musical")
 SIDEBAR_MODES = ("auto", "on", "off")
+# 1.3.1 (C28) : volet des sections (clé, icône)
+SECTIONS = (("general", "settings"), ("libraries", "library"), ("download", "download"), ("analysis", "key"),
+            ("privacy", "info"), ("djsync", "refresh"), ("advanced", "menu"))     # 1.3.1 (C89) : Avancé
+NARROW_PX = 760          # en dessous (à 100 %), le volet devient une liste déroulante
 
 
 class SettingsView(View):
@@ -45,12 +50,80 @@ class SettingsView(View):
         head.addWidget(self.saved)
         head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
         self.root.addLayout(head)
+        # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
+        self._cards: list = []                 # [(section, carte)]
+        self._folds: Dict[Any, Any] = {}       # 1.3.1 (C89) : carte repliable -> [contenu, flèche, résumé, ouverte]
+        self._section = "general"
+        body = hbox(spacing=theme.px(12))
+        self.side = QWidget()
+        side = vbox(self.side, spacing=theme.px(6))
+        self._current_section = "general"
+        self.sections = QListWidget()
+        self.sections.setObjectName("settingsSections")
+        self.sections.setIconSize(QSize(theme.px(16), theme.px(16)))
+        self.sections.setSpacing(theme.px(2))
+        self._sections_css = (f"#settingsSections::item {{ padding: {theme.px(7)}px {theme.px(6)}px; "
+                              f"border-radius: {theme.px(6)}px; }}")
+        self.sections.setStyleSheet(self._sections_css)
+        for key, icon in SECTIONS:
+            item = QListWidgetItem(qicon(icon, 16, theme.FAINT if key == "advanced" else theme.ACCENT),
+                                   t(f"settings.section_{key}"))
+            item.setData(Qt.UserRole, key)
+            if key == "advanced":                   # C89 : réglages techniques, en dernier et en gris
+                from PySide6.QtGui import QBrush, QColor
+
+                item.setForeground(QBrush(QColor(theme.DIM)))
+                item.setToolTip(t("settings.section_advanced_tip"))
+            self.sections.addItem(item)
+        self.sections.currentItemChanged.connect(lambda cur, _old: cur and self.show_section(cur.data(Qt.UserRole)))
+        side.addWidget(self.sections, 1)
+        self.side.setFixedWidth(theme.px(230))
+        body.addWidget(self.side)
+        right = vbox(spacing=theme.px(6))
+        top = hbox(spacing=theme.px(8))
+        self.search = line_edit(t("settings.search"), "search")
+        self.search.setMaximumWidth(theme.px(320))
+        self.search.textChanged.connect(lambda _t: self._apply_filter())
+        top.addWidget(self.search)
+        self.section_menu = QComboBox()          # fenêtre étroite : le volet devient une liste déroulante
+        for key, icon in SECTIONS:
+            self.section_menu.addItem(qicon(icon, 16, theme.ACCENT), t(f"settings.section_{key}"), key)
+        self.section_menu.currentIndexChanged.connect(
+            lambda i: self.show_section(self.section_menu.itemData(i)) if i >= 0 else None)
+        self.section_menu.hide()
+        top.addWidget(self.section_menu)
+        top.addStretch(1)
+        self.check_all_btn = button(t("checkall.button"), self.check_all, icon="refresh",
+                                    tooltip=t("checkall.tip"))           # 1.3.1 (C89) : tout vérifier
+        top.addWidget(self.check_all_btn)
+        right.addLayout(top)
+        self.check_panel = panel()
+        self.check_panel.setObjectName("checkPanel")
+        self.check_panel.setStyleSheet("#checkPanel QWidget { background: transparent; }")   # C90 : sans rayures
+        outer = hbox(self.check_panel, margins=theme.px(10), spacing=theme.px(6))
+        self.check_lay = vbox(spacing=theme.px(4))
+        outer.addLayout(self.check_lay, 1)
+        self.check_close = icon_button("close", self.check_panel.hide, t("checkall.close"))   # C90 : ✕
+        outer.addWidget(self.check_close, 0, Qt.AlignTop)
+        self.check_panel.hide()
+        self._check_timer = QTimer(self)                     # C90 : repliée seule quand tout est ✓
+        self._check_timer.setSingleShot(True)
+        self._check_timer.setInterval(6000)
+        self._check_timer.timeout.connect(self._check_autohide)
+        self._check_rows: Dict[str, Any] = {}
+        right.addWidget(self.check_panel)
         area = QScrollArea()
         area.setWidgetResizable(True)
+        self.area = area
         page = QWidget()
         self.page = vbox(page, spacing=theme.px(10))
         area.setWidget(page)
-        self.root.addWidget(area, 1)
+        right.addWidget(area, 1)
+        self.no_match = label("", "dim", wrap=True)
+        self.no_match.hide()
+        self.page.addWidget(self.no_match)
+        body.addLayout(right, 1)
+        self.root.addLayout(body, 1)
 
         # ---- apparence
         card = self._card(t("settings.appearance"), "settings")
@@ -113,20 +186,9 @@ class SettingsView(View):
         self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
         self.scroll_wave_var.setChecked(s.scrolling_wave)
         card.addWidget(self.scroll_wave_var)
-        row = hbox()                                                         # 1.3.0-rc.3 (C39)
-        row.addWidget(label(t("settings.audio_latency"), ""))
-        self.latency_box = QSpinBox()
-        self.latency_box.setRange(-200, 2000)                                # 1.3.0-rc.4 : Bluetooth ~1 s
-        self.latency_box.setSingleStep(10)
-        self.latency_box.setSuffix(" ms")
-        self.latency_box.setValue(s.audio_latency_ms)
-        self.latency_box.setToolTip(t("settings.audio_latency_tip"))
-        row.addWidget(self.latency_box)
-        row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
-        row.addStretch(1)
-        card.addLayout(row)
 
         # ---- clé USB
+        self._section = "libraries"
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
         row = hbox()
         self.drive_menu = QComboBox()
@@ -143,15 +205,6 @@ class SettingsView(View):
         card.addLayout(row)
         self.drive_state = label("", "dim")
         card.addWidget(self.drive_state)
-        row = hbox()
-        row.addWidget(self._fixed(label(t("settings.forced_drive_short"))))
-        self.forced = QLineEdit(s.forced_drive)
-        self.forced.setPlaceholderText(t("settings.forced_placeholder"))
-        self.forced.setToolTip(t("settings.forced_drive"))
-        self.forced.setMaximumWidth(theme.px(120))
-        row.addWidget(self.forced)
-        row.addStretch(1)
-        card.addLayout(row)
 
         # ---- dossier de destination
         row = hbox()
@@ -188,8 +241,10 @@ class SettingsView(View):
         row.addWidget(self.local_btn)
         card.addLayout(row)
 
-        # ---- FFmpeg
-        card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"))
+        # ---- FFmpeg (1.3.1, C89 : Avancé, repliée quand tout va bien)
+        self._section = "advanced"
+        card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"), fold=True)
+        self.ffmpeg_card = self._cards[-1][1]
         row = hbox()
         self.ffmpeg = QLineEdit(s.ffmpeg_location)
         self.ffmpeg.setPlaceholderText(t("settings.ffmpeg_placeholder"))
@@ -201,6 +256,7 @@ class SettingsView(View):
         card.addWidget(self.ffmpeg_state)
 
         # ---- analyse
+        self._section = "analysis"
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
         self.analyze_usb_var = QCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
         self.analyze_usb_var.setChecked(s.analyze_after_download_usb)
@@ -226,14 +282,11 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
-        # ---- anciennes platines : export.pdb
+        # ---- anciennes platines : export.pdb (1.3.1, C90 : état et synchronisation dans Bibliothèques,
+        # les deux options techniques dans Avancé)
+        self._section = "libraries"
         card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"))
-        self.pdb_var = QCheckBox(t("settings.pdb_sync"))
-        self.pdb_var.setChecked(s.pdb_sync == "auto")
-        card.addWidget(self.pdb_var)
-        self.pdb_growth_var = QCheckBox(t("settings.pdb_growth"))
-        self.pdb_growth_var.setChecked(s.pdb_allow_growth)
-        card.addWidget(self.pdb_growth_var)
+        self.pdb_card = self._cards[-1][1]
         row = hbox()
         row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
         self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary", icon="refresh")
@@ -242,8 +295,17 @@ class SettingsView(View):
         card.addLayout(row)
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
+        self._section = "advanced"
+        card = self._card(t("settings.pdb_options"), "library", t("settings.pdb_hint"))
+        self.pdb_var = QCheckBox(t("settings.pdb_sync"))
+        self.pdb_var.setChecked(s.pdb_sync == "auto")
+        card.addWidget(self.pdb_var)
+        self.pdb_growth_var = QCheckBox(t("settings.pdb_growth"))
+        self.pdb_growth_var.setChecked(s.pdb_allow_growth)
+        card.addWidget(self.pdb_growth_var)
 
         # ---- recherche
+        self._section = "download"
         card = self._card(t("settings.downloads"), "download")
         self.views_var = QCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
@@ -265,8 +327,10 @@ class SettingsView(View):
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
         card.addWidget(self.normalize_var)
 
-        # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement
-        card = self._card(t("engine.title"), "refresh", t("engine.hint"))
+        # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement (C89 : Avancé, repliée)
+        self._section = "advanced"
+        card = self._card(t("engine.title"), "refresh", t("engine.hint"), fold=True)
+        self.engine_card = self._cards[-1][1]
         self.engine_state = label("", "dim", wrap=True)
         card.addWidget(self.engine_state)
         row = hbox()
@@ -282,6 +346,7 @@ class SettingsView(View):
         self._engine_release = None
 
         # ---- sauvegardes
+        self._section = "libraries"
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.backups_keep"))))
@@ -294,7 +359,6 @@ class SettingsView(View):
         row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
         self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
         row.addWidget(self.points_btn)
-        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
         row.addStretch(1)
         self.uninstall_btn = button(t("uninstall.open"), self._open_uninstall, kind="flat", icon="trash")
         self.uninstall_btn.setVisible(self.ctrl.can_uninstall())
@@ -302,12 +366,46 @@ class SettingsView(View):
         card.addLayout(row)
         self.points_hint = label("", "faint", wrap=True)
         card.addWidget(self.points_hint)
+        # 1.3.1 (C27) : espace occupé (calculé à l'ouverture de la section)
+        from ..space_card import SpaceCard
+
+        self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"))
+        self.space = SpaceCard(self._space_box_layout, controller)
+        self.space_box = self._cards[-1][1]
         self._build_about(s)
+        # ---- 1.3.1 (C89) : réglages techniques peu utilisés (Avancé)
+        self._section = "advanced"
+        card = self._card(t("settings.tech"), "menu", t("settings.tech_hint"))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.forced_drive_short"))))
+        self.forced = QLineEdit(s.forced_drive)
+        self.forced.setPlaceholderText(t("settings.forced_placeholder"))
+        self.forced.setToolTip(t("settings.forced_drive"))
+        self.forced.setMaximumWidth(theme.px(120))
+        row.addWidget(self.forced)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()                                                         # 1.3.0-rc.3 (C39)
+        row.addWidget(label(t("settings.audio_latency")))
+        self.latency_box = QSpinBox()
+        self.latency_box.setRange(-200, 2000)                                # 1.3.0-rc.4 : Bluetooth ~1 s
+        self.latency_box.setSingleStep(10)
+        self.latency_box.setSuffix(" ms")
+        self.latency_box.setValue(s.audio_latency_ms)
+        self.latency_box.setToolTip(t("settings.audio_latency_tip"))
+        row.addWidget(self.latency_box)
+        row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
+        row.addStretch(1)
+        card.addLayout(row)
         self.page.addStretch(1)
+        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self.show_section(start, remember=False)
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
+        controller.on("drive", lambda: QTimer.singleShot(400, self._space_if_shown))   # 1.3.1 (C27)
         controller.on("drives", self._refresh_drives)
+        controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
         self._ffmpeg_status()
@@ -319,6 +417,7 @@ class SettingsView(View):
         """1.2.0-rc.4 : mise à jour en un clic (C20) et « À propos » (C19)."""
         from ... import full_version
 
+        self._section = "djsync"
         card = self._card(t("about.title"), "refresh", t("about.hint"))
         row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
@@ -363,6 +462,27 @@ class SettingsView(View):
         row.addWidget(self.channel_menu)
         row.addStretch(1)
         card.addLayout(row)
+        row = hbox()                                    # 1.3.1 (C88) : désinstaller, toujours visible
+        self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="flat", icon="trash")
+        mode = self.ctrl.uninstall_mode()
+        self.app_uninstall_btn.setEnabled(mode != "source")
+        self.app_uninstall_btn.setToolTip(t("uninstall.app_source") if mode == "source"
+                                          else t("uninstall.app_tip_drive") if mode == "drive"
+                                          else t("uninstall.app_tip_computer"))
+        row.addWidget(self.app_uninstall_btn)
+        row.addStretch(1)
+        card.addLayout(row)
+        card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        # 1.3.1 (C55) : remerciements
+        from ...credits import thanks_text
+        from ...i18n import get_language
+
+        thanks = label("🙏 " + thanks_text(get_language()), wrap=True)
+        thanks.setObjectName("about_thanks")
+        card.addWidget(thanks)
+        # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
+        self._section = "privacy"
+        card = self._card(t("settings.section_privacy"), "info")
         row = hbox()                                   # 1.2.3 : rapports d'erreur
         row.addWidget(self._fixed(label(t("err_report.setting"))))
         self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
@@ -374,7 +494,11 @@ class SettingsView(View):
         row.addWidget(self.report_menu)
         row.addStretch(1)
         card.addLayout(row)
-        card.addWidget(label(t("about.credits"), "dim", wrap=True))
+        row = hbox()
+        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
+        row.addStretch(1)
+        card.addLayout(row)
+        self._section = "djsync"
         row = hbox()
         row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
                              kind="flat", icon="go"))
@@ -430,11 +554,20 @@ class SettingsView(View):
         text = path.read_text(encoding="utf-8", errors="replace") if path else t("about.missing", name=name)
         TextDialog(self, title, text)
 
-    def _card(self, title: str, icon: str = "", hint: str = "") -> Any:
-        """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ)."""
+    def _card(self, title: str, icon: str = "", hint: str = "", fold: bool = False) -> Any:
+        """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ).
+        1.3.1 (C89) : `fold` = repliable (flèche + une ligne d'état), repliée tant que tout va bien."""
         box = panel()
         lay = vbox(box, margins=theme.px(14), spacing=theme.px(8))
         head = hbox(spacing=theme.px(8))
+        arrow = None
+        if fold:
+            arrow = QToolButton()
+            arrow.setAutoRaise(True)
+            arrow.setArrowType(Qt.RightArrow)
+            arrow.setToolTip(t("settings.fold_tip"))
+            arrow.clicked.connect(lambda: self.set_folded(box, not self._folds[box][3]))
+            head.addWidget(arrow)
         if icon:
             head.addWidget(icon_label(icon, 18, theme.ACCENT))
         head.addWidget(label(title, "h2"))
@@ -442,10 +575,116 @@ class SettingsView(View):
             info = icon_label("info", 14, theme.FAINT)
             info.setToolTip(hint)
             head.addWidget(info)
+        summary = None
+        if fold:
+            summary = label("", "dim")
+            head.addWidget(summary, 1)
         head.addStretch(1)
         lay.addLayout(head)
         self.page.addWidget(box)
-        return lay
+        self._cards.append((self._section, box))
+        if not fold:
+            return lay
+        inner = QWidget()
+        inner_lay = vbox(inner, spacing=theme.px(8))
+        lay.addWidget(inner)
+        self._folds[box] = [inner, arrow, summary, False]
+        inner.hide()
+        return inner_lay
+
+    def set_folded(self, box: Any, opened: bool, summary: str = None) -> None:
+        """C89 : ouvre ou replie une carte repliable ; `summary` = ligne d'état à côté du titre."""
+        f = self._folds.get(box)
+        if f is None:
+            return
+        f[3] = bool(opened)
+        if summary is not None:
+            f[2].setText(summary)
+        f[0].setVisible(f[3] or bool(self.search.text().split()))
+        f[1].setArrowType(Qt.DownArrow if f[3] else Qt.RightArrow)
+        f[2].setVisible(not f[3])
+
+    # ------------------------------------------------------- 1.3.1 (C28) : sections et recherche
+    def show_section(self, key: str, remember: bool = True) -> None:
+        """Affiche les cartes d'une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »)."""
+        if key not in dict(SECTIONS):
+            return
+        self._current_section = key
+        # C90 : « Avancé » reste gris même sélectionné
+        self.sections.setStyleSheet(self._sections_css + (f" #settingsSections::item:selected {{ color: {theme.DIM}; }}"
+                                                          if key == "advanced" else ""))
+        keys = [k for k, _i in SECTIONS]
+        for w, idx in ((self.sections, keys.index(key)), (self.section_menu, keys.index(key))):
+            w.blockSignals(True)
+            w.setCurrentRow(idx) if w is self.sections else w.setCurrentIndex(idx)
+            w.blockSignals(False)
+        if self.search.text():
+            self.search.blockSignals(True)
+            self.search.clear()
+            self.search.blockSignals(False)
+        self._apply_filter()
+        self.area.verticalScrollBar().setValue(0)
+        self._space_if_shown()
+        if remember and self.ctrl.settings.settings_section != key:
+            self.ctrl.settings.settings_section = key
+            try:
+                self.ctrl.settings.save()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _card_text(box: QWidget) -> str:
+        parts = []
+        for w in box.findChildren(QWidget):
+            if isinstance(w, (QLabel, QAbstractButton)):
+                parts += [w.text(), w.toolTip()]
+            elif isinstance(w, QComboBox):
+                parts += [w.itemText(i) for i in range(w.count())] + [w.toolTip()]
+            elif isinstance(w, QLineEdit):
+                parts.append(w.placeholderText())
+        return " ".join(p for p in parts if p).casefold()
+
+    def _apply_filter(self) -> None:
+        """Sans recherche : cartes de la section choisie. Avec : cartes de toutes les sections qui
+        contiennent tous les mots cherchés (titre, libellés, cases, choix, info-bulles)."""
+        words = self.search.text().casefold().split()
+        shown = 0
+        for sec, box in self._cards:
+            visible = all(w in self._card_text(box) for w in words) if words else sec == self._current_section
+            box.setVisible(visible)
+            shown += visible
+            if box in self._folds:                     # C89 : une recherche montre aussi le contenu replié
+                self._folds[box][0].setVisible(self._folds[box][3] or bool(words))
+        self.sections.setEnabled(not words)
+        self.sections.blockSignals(True)
+        if words:
+            self.sections.clearSelection()                      # la recherche couvre toutes les sections
+        else:
+            self.sections.setCurrentRow([k for k, _i in SECTIONS].index(self._current_section))
+        self.sections.blockSignals(False)
+        self.no_match.setText(t("settings.search_none", text=self.search.text()))
+        self.no_match.setVisible(bool(words) and not shown)
+
+    def _space_if_shown(self) -> None:
+        """C27 : mesure lancée seulement quand la carte « Espace » est affichée."""
+        space = getattr(self, "space", None)
+        if space is not None and self.isVisible() and not self.space_box.isHidden():
+            space.compute()
+
+    def show_space(self) -> None:
+        """Lien « espace » de l'Accueil : section Bibliothèques, défilée jusqu'à la carte."""
+        self.show_section("libraries")
+        QTimer.singleShot(120, lambda: self.area.verticalScrollBar().setValue(
+            self.area.verticalScrollBar().maximum()))         # dernière carte de la section
+
+    def visible_cards(self) -> list:
+        return [box for _s, box in self._cards if not box.isHidden()]
+
+    def resizeEvent(self, e: Any) -> None:       # noqa: N802
+        super().resizeEvent(e)
+        narrow = self.width() < theme.px(NARROW_PX)
+        self.side.setVisible(not narrow)
+        self.section_menu.setVisible(narrow)
 
     @staticmethod
     def _fixed(w: Any) -> Any:
@@ -454,6 +693,7 @@ class SettingsView(View):
 
     def on_show(self) -> None:
         self.ctrl.refresh_drives()
+        QTimer.singleShot(0, self._space_if_shown)
 
     # --------------------------------------------------------------- apparence
     def _language_changed(self, text: str) -> None:
@@ -565,6 +805,9 @@ class SettingsView(View):
     def _ffmpeg_status(self) -> None:
         found, text = self.ctrl.ffmpeg_status(self.ffmpeg.text().strip())
         self.ffmpeg_state.setText(text)
+        if not found or not self._folds[self.ffmpeg_card][3]:      # C89 : ouverte d'office en cas de problème
+            self.set_folded(self.ffmpeg_card, not found or self._folds[self.ffmpeg_card][3],
+                            t("settings.ffmpeg_ok_short") if found else t("settings.ffmpeg_missing_short"))
         self.ffmpeg_state.setProperty("role", "dim" if found else "warn")
         self.ffmpeg_state.style().unpolish(self.ffmpeg_state)
         self.ffmpeg_state.style().polish(self.ffmpeg_state)
@@ -581,6 +824,9 @@ class SettingsView(View):
         text = t("engine.state", version=version, origin=t("engine.updated") if updated else t("engine.bundled"),
                  js=js_names.get(runtime, runtime))
         self.engine_state.setText(text + (f"\n{extra}" if extra else ""))
+        f = self._folds.get(getattr(self, "engine_card", None))
+        if f is not None:                                            # C89 : ligne d'état de la carte repliée
+            f[2].setText(t("engine.short", version=version))
         self.engine_back_btn.setEnabled(bool(engine.engine_dir().exists()))
 
     def _engine_check(self) -> None:
@@ -597,6 +843,7 @@ class SettingsView(View):
                 self._engine_release = release
                 self.engine_install_btn.setText(t("engine.install_version", version=release.version))
                 self.engine_install_btn.show()
+                self.set_folded(self.engine_card, True)              # C89 : une mise à jour se voit
                 self._engine_show(t("engine.available", version=release.version))
             else:
                 self.engine_install_btn.hide()
@@ -624,6 +871,177 @@ class SettingsView(View):
         self.engine_install_btn.hide()
         self._engine_show()
 
+    # ------------------------------------------------- 1.3.1 (C89) : « Tout vérifier »
+    CHECKS = ("app", "engine", "ffmpeg", "drives", "pdb", "local", "diag", "space")
+
+    def _check_row(self, key: str, state: str, text: str, go: str = "") -> None:
+        """Une ligne d'état : ✓ à jour, ↑ mise à jour disponible, ⚠ problème, … en cours, – sans objet."""
+        mark = {"ok": "✓", "update": "↑", "warn": "⚠", "busy": "…", "skip": "–"}.get(state, "•")
+        role = {"ok": "dim", "update": "accent", "warn": "warn", "busy": "faint", "skip": "faint"}.get(state, "dim")
+        row = self._check_rows.get(key)
+        if row is None:
+            w = QWidget()
+            lay = hbox(w, spacing=theme.px(8))
+            name = label(t(f"checkall.{key}"))
+            name.setFixedWidth(theme.px(170))
+            lay.addWidget(name)
+            val = label("", role, wrap=True)
+            lay.addWidget(val, 1)
+            link = button(t("checkall.open"), None, kind="flat")
+            link.hide()
+            lay.addWidget(link)
+            self.check_lay.addWidget(w)
+            row = self._check_rows[key] = {"val": val, "link": link, "state": state}
+        row["state"] = state
+        row["val"].setText(f"{mark}  {text}")
+        row["val"].setProperty("role", role)
+        row["val"].style().unpolish(row["val"])
+        row["val"].style().polish(row["val"])
+        try:
+            row["link"].clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        if go:
+            row["link"].clicked.connect(lambda: self.show_section(go))
+        row["link"].setVisible(bool(go))
+        self._check_settled()
+
+    def _check_settled(self) -> None:
+        """C90 : toutes les lignes ont répondu et tout est ✓ (ou sans objet) : repli après 6 s."""
+        states = [r["state"] for r in self._check_rows.values()]
+        if states and "busy" not in states and all(x in ("ok", "skip") for x in states):
+            self._check_timer.start()
+        else:
+            self._check_timer.stop()
+
+    def _check_autohide(self) -> None:
+        if all(r["state"] in ("ok", "skip") for r in self._check_rows.values()):
+            self.check_panel.hide()
+
+    def _check_counts(self) -> None:
+        row = self._check_rows.get("diag")
+        if row is None or row["state"] != "busy":
+            return
+        c = self.ctrl.diag_counts
+        missing, dup = c.get("missing") or 0, c.get("dup") or 0
+        self._check_row("diag", "warn" if missing else "ok", t("checkall.diag_n", missing=missing, dup=dup))
+
+    def check_states(self) -> Dict[str, str]:
+        return {k: r["state"] for k, r in self._check_rows.items()}
+
+    def check_all(self) -> None:
+        """Vérifie d'un coup, en arrière-plan : DJSync, le moteur de téléchargement, FFmpeg, les clés
+        branchées, export.pdb (rattrapé s'il n'est pas à jour, comme « Synchroniser maintenant »)
+        et les compteurs du Diagnostic. Rien n'est installé sans clic."""
+        from ... import full_version
+        from .common import alive
+
+        self.check_panel.show()
+        for key in self.CHECKS:
+            self._check_row(key, "busy", t("checkall.checking"))
+        ok = lambda: alive(self.check_panel)       # noqa: E731
+        current = full_version()
+
+        def app_done(update: Any, error: Any) -> None:
+            if not ok():
+                return
+            if error is not None:
+                self._check_row("app", "warn", t("checkall.app_failed"))
+            elif update is not None:
+                self._check_row("app", "update", t("checkall.app_update", version=update.version), go="djsync")
+            else:
+                self._check_row("app", "ok", t("checkall.app_ok", version=current))
+
+        self.ctrl.app_update_check(manual=False, force=True, result=app_done)
+
+        def engine_done(release: Any, cur: str, error: Any) -> None:
+            if not ok():
+                return
+            if error:
+                self._check_row("engine", "warn", t("checkall.engine_failed"), go="advanced")
+            elif release is not None and release.newer_than(cur):
+                self._engine_release = release
+                self.engine_install_btn.setText(t("engine.install_version", version=release.version))
+                self.engine_install_btn.show()
+                self.set_folded(self.engine_card, True)
+                self._check_row("engine", "update", t("checkall.engine_update", version=release.version), go="advanced")
+            else:
+                self._check_row("engine", "ok", t("checkall.engine_ok", version=cur or "?"))
+
+        self.ctrl.engine_check(engine_done)
+        self._ffmpeg_status()
+        found, _text = self.ctrl.ffmpeg_status(self.ffmpeg.text().strip())
+        self._check_row("ffmpeg", "ok" if found else "warn",
+                        t("settings.ffmpeg_ok_short") if found else t("settings.ffmpeg_missing_short"),
+                        go="" if found else "advanced")
+
+        def drives_done() -> None:
+            if ok():
+                n = len(self.ctrl.drives)
+                self._check_row("drives", "ok" if n else "skip", t("checkall.drives_n", n=n) if n
+                                else t("checkall.no_drive"))
+
+        self.ctrl.refresh_drives(then=drives_done)
+        lib = self.ctrl.library
+        if lib is None or self.ctrl.is_local:
+            self._check_row("pdb", "skip", t("checkall.pdb_none"))
+        else:
+            def synced(_s: Any = None) -> None:
+                if ok():
+                    stale = getattr(self.ctrl.library, "pdb_state", "ok") == "stale"
+                    self._check_row("pdb", "warn" if stale else "ok",
+                                    t("checkall.pdb_left") if stale else t("checkall.pdb_synced"),
+                                    go="libraries" if stale else "")
+                    self._pdb_refresh()
+
+            def status(st: Any) -> None:
+                if not ok():
+                    return
+                if st.state == "stale":
+                    self._check_row("pdb", "busy", t("checkall.pdb_syncing"))
+                    self.ctrl.pdb_sync_now(synced, lambda *_a: ok() and self._check_row(
+                        "pdb", "warn", t("checkall.pdb_left"), go="libraries"))
+                elif st.state in ("ok", "off", "absent"):
+                    self._check_row("pdb", "ok" if st.state == "ok" else "skip",
+                                    t("checkall.pdb_ok") if st.state == "ok" else t(f"checkall.pdb_{st.state}"))
+                else:
+                    self._check_row("pdb", "warn", t("checkall.pdb_problem"), go="libraries")
+                self._pdb_show(st)
+
+            self.ctrl.pdb_status(status)
+        # C90 : bibliothèque de l'ordinateur relue (Rekordbox a pu la modifier)
+        local = self.ctrl.library if self.ctrl.is_local else None
+        if local is None or not hasattr(local, "refresh"):
+            self._check_row("local", "skip", t("checkall.local_none"))
+        else:
+            def reread_done(_r: Any = None) -> None:
+                if ok():
+                    self._check_row("local", "ok", t("checkall.local_ok"))
+                self.ctrl._emit("library")
+
+            self.ctrl.dispatcher.submit(local.refresh, reread_done,
+                                        lambda _e: ok() and self._check_row("local", "warn", t("checkall.local_failed")),
+                                        pool="db")
+        if lib is None:
+            self._check_row("diag", "skip", t("checkall.pdb_none"))
+        else:
+            self.ctrl.diag_quick_counts()           # réponse : évènement « diag_counts » (_check_counts)
+
+        def space_done(usage: Any) -> None:         # C90 : espace remesuré même si sa carte est cachée
+            if not ok():
+                return
+            if usage is None:
+                self._check_row("space", "skip", t("checkall.pdb_none"))
+                return
+            from .common import human_size
+
+            low = usage.total and usage.free < usage.total * 0.1
+            self._check_row("space", "warn" if low else "ok",
+                            t("space.summary", free=human_size(usage.free), total=human_size(usage.total)),
+                            go="libraries" if low else "")
+
+        self.space.compute(force=True, done=space_done)
+
     # --------------------------------------------------------------- enregistrer
     # ------------------------------------------------- sauvegardes de la clé (V1.2.0)
     def _backups_state(self) -> None:
@@ -641,6 +1059,14 @@ class SettingsView(View):
         from ..backups_dialog import UninstallDialog
 
         UninstallDialog(self, self.ctrl)
+
+    def _open_app_uninstall(self) -> None:
+        """1.3.1 (C88) : Paramètres ▸ DJSync ▸ Désinstaller DJSync (clé ou ordinateur)."""
+        from ..backups_dialog import UninstallDialog
+
+        mode = self.ctrl.uninstall_mode()
+        if mode != "source":
+            UninstallDialog(self, self.ctrl, mode=mode)
 
     def _open_log(self) -> None:
         from PySide6.QtCore import QUrl

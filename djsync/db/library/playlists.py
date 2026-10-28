@@ -26,7 +26,7 @@ class PlaylistsMixin:
     def get_playlist_tracks(self, playlist_id: int) -> List[LibraryTrack]:
         self.get_playlist(playlist_id)
         rows = self._read(
-            _track_select(self._has_key, with_sequence=True)
+            self._tsel(with_sequence=True)
             + " JOIN playlist_content pc ON pc.content_id = c.content_id"
             + " WHERE pc.playlist_id = ? ORDER BY pc.sequenceNo, pc.rowid",
             (playlist_id,),

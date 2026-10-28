@@ -154,6 +154,10 @@ class FeedbackView(View):
         self._sending = False
         self.root.addLayout(self.header(t("tab.feedback")))
         self.root.addWidget(label(t("fb.intro"), "dim", wrap=True))
+        from ...credits import thanks_text            # 1.3.1 (C55)
+        from ...i18n import get_language
+
+        self.root.addWidget(label("🙏 " + thanks_text(get_language()), "faint", wrap=True))
 
         area = QScrollArea()
         area.setWidgetResizable(True)

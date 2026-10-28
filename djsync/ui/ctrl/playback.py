@@ -84,6 +84,7 @@ class PlaybackMixin:
     def _player_event(self, kind: str, payload: Any) -> None:
         if kind == "missing":                           # B20
             self.message("error", self.missing_file_text(payload))
+            self._emit("message_action", t("missing.see_in_diagnostic"), lambda: self._emit("open_diagnostic", "missing"))
             return
         self._emit("player", kind, payload)
         if kind in ("state", "loaded"):

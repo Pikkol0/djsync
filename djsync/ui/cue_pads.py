@@ -117,6 +117,9 @@ class CuePanel(QWidget):
         mem.addLayout(self.mem_row)
         mem.addStretch(1)
         mem.addWidget(button(t("cue.add_memory"), self.add_memory, icon="plus", tooltip=t("cue.add_memory_tip")))
+        # 1.3.1 (C75) : mémoire de boucle au curseur (longueur au choix, calée sur la grille)
+        mem.addWidget(button(t("cue.add_memory_loop"), self._memory_loop_menu, icon="plus",
+                             tooltip=t("cue.add_memory_loop_tip")))
         lay.addLayout(mem)
         self.refresh()
 
@@ -136,7 +139,7 @@ class CuePanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         for c in sorted((c for c in self.cues if not c.slot), key=lambda c: c.ms):
-            b = QPushButton(("⟳ " if c.is_loop else "▼ ") + fmt_ms(c.ms))
+            b = QPushButton((f"⟳ {c.loop_beats or '?'}  " if c.is_loop else "▼ ") + fmt_ms(c.ms))
             b.setFocusPolicy(Qt.NoFocus)
             b.setCursor(Qt.PointingHandCursor)
             b.setStyleSheet(f"QPushButton {{ color: {theme.ERR}; background: {theme.SURFACE}; border: 1px solid "
@@ -271,8 +274,38 @@ class CuePanel(QWidget):
     def _memory_menu(self, m: Cue, pos: Any) -> None:
         from .table import popup_menu
 
-        popup_menu(self, [(t("cue.go_memory"), lambda: self.ed.go_to(m.ms), "play"),
-                          (t("cue.delete"), lambda: self._delete_memory(m), "trash")], pos)
+        entries: List[Any] = [(t("cue.go_memory"), lambda: self.ed.go_to(m.ms), "play"), None]
+        for n in LOOP_CHOICES:                         # 1.3.1 (C75) : mémoire de boucle
+            entries.append((t("cue.loop_n", n=n), lambda n=n: self.set_memory_loop(m, n)))
+        if m.is_loop:
+            entries.append((t("cue.no_loop"), lambda: self.set_memory_loop(m, 0)))
+        entries += [None, (t("cue.delete"), lambda: self._delete_memory(m), "trash")]
+        popup_menu(self, entries, pos)
+
+    def set_memory_loop(self, m: Cue, n_beats: int) -> None:
+        """1.3.1 (C75) : une mémoire devient une boucle de `n_beats` temps (0 : redevient un point)."""
+        if n_beats <= 0:
+            m.loop_ms, m.loop_beats = None, 0
+        else:
+            m.loop_ms = loop_end_ms(self.ed.beats, m.ms, n_beats)
+            m.loop_beats = n_beats
+        self._changed()
+
+    def add_memory_loop(self, n_beats: int) -> None:
+        ms = self._position()
+        if any(not c.slot and c.ms == ms and c.is_loop for c in self.cues):
+            return
+        c = Cue(0, ms)
+        self.cues.append(c)
+        self.set_memory_loop(c, n_beats)
+
+    def _memory_loop_menu(self) -> None:
+        from PySide6.QtGui import QCursor
+
+        from .table import popup_menu
+
+        popup_menu(self, [(t("cue.loop_n", n=n), lambda n=n: self.add_memory_loop(n)) for n in LOOP_CHOICES],
+                   QCursor.pos())
 
     def _delete_memory(self, m: Cue) -> None:
         self.ed.cues = [c for c in self.cues if c is not m]

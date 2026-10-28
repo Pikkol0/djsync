@@ -123,7 +123,9 @@ class Plan:
     add_tracks: List[TrackMeta] = field(default_factory=list)
     upgrade_tracks: List[TrackMeta] = field(default_factory=list)       # analyse / pochette arrivée après coup
     rebuild_tracks: List[TrackMeta] = field(default_factory=list)       # B27 : lignes de DJSync à réécrire
-    update_tracks: List[Tuple[str, Optional[str], Optional[str], Optional[int]]] = field(default_factory=list)
+    # (chemin, titre, artiste, BPM×100, genre, label) ; None = inchangé (genre / label : 1.3.1, C38)
+    update_tracks: List[Tuple[str, Optional[str], Optional[str], Optional[int], Optional[str], Optional[str]]] = \
+        field(default_factory=list)
     delete_tracks: List[str] = field(default_factory=list)
     add_playlists: List[Tuple[PlaylistPath, bool]] = field(default_factory=list)
     set_entries: List[Tuple[PlaylistPath, List[str]]] = field(default_factory=list)
@@ -195,12 +197,18 @@ def plan(db: PdbDatabase, target: Target, marks: Sequence[Mark] = ()) -> Plan:
             p.rebuild_tracks.append(meta)                  # réécrite en entier : analyse comprise
         elif not info["analyze_path"] and (meta.analyze_path or (meta.artwork_path and not info["artwork_id"])):
             p.upgrade_tracks.append(meta)
-        if k in fields_marked:
+        marked = k in fields_marked
+        title = artist = bpm = None
+        if marked:
             title = meta.title if (meta.title or "") != (info["title"] or "") else None
             artist = meta.artist if (meta.artist or "").strip() != (info["artist"] or "").strip() else None
             bpm = meta.bpmx100 if meta.bpmx100 and meta.bpmx100 != info["bpmx100"] else None
-            if title is not None or artist is not None or bpm is not None:
-                p.update_tracks.append((meta.path, title, artist, bpm))
+        # 1.3.1 (C38) : genre et label recopiés s'ils manquent dans export.pdb (clés écrites avant la
+        # 1.3.1), ou modifiés dans DJSync (marque du journal).
+        genre = _name_change(meta.genre, info.get("genre"), marked) if db.stores_names else None
+        label = _name_change(meta.label, info.get("label"), marked) if db.stores_names else None
+        if any(v is not None for v in (title, artist, bpm, genre, label)):
+            p.update_tracks.append((meta.path, title, artist, bpm, genre, label))
     for m in marks:
         if m.kind in (TRACK_FIELDS, TRACK_REBUILT):
             p.resolved.append(m)                           # traitée (recopiée, ou déjà identique / disparue)
@@ -227,6 +235,16 @@ def plan(db: PdbDatabase, target: Target, marks: Sequence[Mark] = ()) -> Plan:
     return p
 
 
+def _name_change(wanted: Optional[str], current: Optional[object], marked: bool) -> Optional[str]:
+    """Nouveau genre / label à écrire, None si rien à faire. Sans marque : seulement s'il manque."""
+    wanted, have = (wanted or "").strip(), str(current or "").strip()
+    if wanted.casefold() == have.casefold():
+        return None
+    if not marked and (have or not wanted):
+        return None
+    return wanted
+
+
 def _dedup(paths: Sequence[str]) -> List[str]:
     seen, out = set(), []
     for x in paths:
@@ -248,8 +266,8 @@ def apply(db: PdbDatabase, p: Plan) -> None:
         db.add_track(meta)                                       # idempotent ; réécrit si analyse manquante
     for meta in p.rebuild_tracks:
         db.rebuild_track(meta)                                   # B27 : même id, ligne refaite
-    for path, title, artist, bpm in p.update_tracks:
-        db.update_track(path, title=title, artist=artist, bpmx100=bpm)
+    for path, title, artist, bpm, genre, label in p.update_tracks:
+        db.update_track(path, title=title, artist=artist, bpmx100=bpm, genre=genre, label=label)
     for path, folder in p.add_playlists:
         db.ensure_playlist(path, folder)
     for path, tracks in p.set_entries:

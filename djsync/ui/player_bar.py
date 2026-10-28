@@ -9,7 +9,7 @@ from typing import Any, List, Optional, Tuple
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QLabel, QSlider, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QSlider, QWidget
 
 from ..audio.covers import placeholder
 from ..audio.player import LOADING, PAUSED, PLAYING, STOPPED, NowPlaying
@@ -204,11 +204,21 @@ class PlayerBar(QWidget):
         row = hbox(spacing=theme.px(10))
         col.addLayout(row)
 
+        # 1.3.1 (C34) : trois zones, gauche et droite de MÊME largeur (taille souhaitée ignorée), pour que
+        # boutons et progression tombent au centre de la fenêtre quelle que soit sa largeur
+        def side() -> Tuple[QWidget, Any]:
+            w = QWidget()
+            w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            w.setMinimumWidth(theme.px(230))
+            return w, hbox(w, spacing=theme.px(10))
+        left_side, left_row = side()
+        right_side, right_row = side()
+
         # ---- gauche : pochette + titre + tonalité/BPM
         self.cover = QLabel()
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.cover.setScaledContents(True)
-        row.addWidget(self.cover)
+        left_row.addWidget(self.cover)
         text = vbox(spacing=theme.px(1))
         self.title = label(t("player.nothing"))
         self.title.setStyleSheet("font-weight:600;")
@@ -224,8 +234,9 @@ class PlayerBar(QWidget):
         text.addLayout(meta)
         left = QWidget()
         left.setLayout(text)
-        left.setMinimumWidth(theme.px(160))
-        row.addWidget(left, 3)
+        left.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        left_row.addWidget(left, 1)
+        row.addWidget(left_side, 1)
 
         # ---- centre : boutons + progression
         mid = vbox(spacing=theme.px(2))
@@ -238,7 +249,9 @@ class PlayerBar(QWidget):
         self.play_btn.setFixedSize(theme.px(34), theme.px(34))
         self.next_btn = icon_button("next", self.ctrl.play_next, t("player.next"))
         self.stop_btn = icon_button("stop", self.player.stop, t("player.stop"))
-        for b in (self.prev_btn, self.play_btn, self.next_btn, self.stop_btn):
+        pad = QWidget()                                    # C34 : contrepoids de Stop, Lecture pile au centre
+        pad.setFixedSize(self.stop_btn.sizeHint())
+        for b in (pad, self.prev_btn, self.play_btn, self.next_btn, self.stop_btn):
             buttons.addWidget(b)
         buttons.addStretch(1)
         mid.addLayout(buttons)
@@ -260,22 +273,31 @@ class PlayerBar(QWidget):
         prog.addWidget(self.wave, 1)
         prog.addWidget(self.total)
         mid.addLayout(prog)
-        row.addLayout(mid, 4)
+        mid_box = QWidget()
+        mid_box.setLayout(mid)
+        mid_box.setMaximumWidth(theme.px(860))             # progression lisible sur grand écran
+        mid_box.setMinimumWidth(theme.px(320))
+        row.addWidget(mid_box, 2)
 
         # ---- droite : outils du son en cours + volume
         self.grid_btn = icon_button("grid", self._edit_grid, t("player.edit_grid"))
         self.more_btn = icon_button("menu", self._track_menu, t("player.track_options"))
-        row.addWidget(self.grid_btn)
-        row.addWidget(self.more_btn)
+        right_row.addStretch(1)
+        right_row.addWidget(self.grid_btn)
+        right_row.addWidget(self.more_btn)
         vol = QLabel()
         vol.setPixmap(qicon("volume", 16, theme.DIM).pixmap(QSize(theme.px(16), theme.px(16))))
-        row.addWidget(vol)
+        right_row.addWidget(vol)
         self.volume = QSlider(Qt.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setFixedWidth(theme.px(90))
         self.volume.setValue(int(self.player.volume * 100))
         self.volume.valueChanged.connect(lambda v: self.player.set_volume(v / 100))
-        row.addWidget(self.volume)
+        right_row.addWidget(self.volume)
+        row.addWidget(right_side, 1)
+        m = max(theme.px(230), left_side.minimumSizeHint().width(), right_side.minimumSizeHint().width())
+        for w in (left_side, right_side):                  # même minimum des deux côtés : centre exact
+            w.setMinimumWidth(m)
 
         self._set_placeholder()
         controller.on("player", self._on_player)

@@ -476,7 +476,7 @@ class IngestMixin:
     def unanalysed_tracks(self) -> List[LibraryTrack]:
         """Sons ajoutés par DJSync (avant la V1.1-A4) sans analyse : candidats à `analyze_missing`."""
         return [self._track(r) for r in self._read(
-            _track_select(self._has_key) + " WHERE c.analysisDataFilePath IS NULL AND c.masterDbId IS NULL "
+            self._tsel() + " WHERE c.analysisDataFilePath IS NULL AND c.masterDbId IS NULL "
             "ORDER BY c.content_id")]
 
     def analyze_missing(self, on_progress: Optional[Callable[[int, int, LibraryTrack], None]] = None) -> Tuple[int, int]:

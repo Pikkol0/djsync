@@ -80,6 +80,7 @@ def test_settings_engine_offer_and_copy_menu(env, tmp_path):
         assert loaded.audio_format == "mp3" and loaded.normalize_volume
         # ---- vérification manuelle : nouvelle version proposée
         monkeypatch.setattr(engine, "latest", lambda fetch=None: engine.Release("2099.1.1", {}))
+        view.show_section("advanced")                                # 1.3.1 (C89) : carte du moteur dans Avancé
         view._engine_check()
         assert pump(app, 4, lambda: view.engine_install_btn.isVisible())
         assert "2099.1.1" in view.engine_install_btn.text()

@@ -161,7 +161,7 @@ class MetadataMixin:
                             artwork: Any = KEEP) -> LibraryTrack:
         """1.2.2 : modifie les infos d'un son (None = inchangé ; "" ou 0 = effacé). `artwork` : KEEP,
         None (retirer la pochette) ou les octets d'une image. Titre / artiste vont aussi dans
-        export.pdb ; album, année, genre et pochette dans exportLibrary.db seulement. Le fichier
+        export.pdb ; genre aussi (1.3.1, C38) ; album, année et pochette dans exportLibrary.db seulement. Le fichier
         audio n'est ni modifié ni renommé."""
         if self.read_only:
             raise ReadOnlyError("Library opened read-only.")
@@ -210,6 +210,10 @@ class MetadataMixin:
                         cols["informationUpdateCount"] = int(count) + 1
                         conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
                                      (*cols.values(), content_id))
+                    if "genre_id" in cols or "label_id" in cols:    # 1.3.1 (C38) : genre recopié dans export.pdb
+                        path = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
+                        if path and path[0]:
+                            self._pdb_mark(TRACK_FIELDS, path[0])
             except BaseException:
                 self._discard(written)
                 raise

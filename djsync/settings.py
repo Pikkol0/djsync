@@ -105,6 +105,9 @@ class Settings:
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
+    suggestions_open: bool = False     # 1.3.1 (C30) : panneau « Suggestions » de la Bibliothèque
+    suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
+    settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres
     settings_version: int = 0          # migrations des réglages enregistrés
 
     @classmethod

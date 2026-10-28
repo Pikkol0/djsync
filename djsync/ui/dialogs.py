@@ -416,10 +416,20 @@ class FiltersPopup(BaseDialog):
     MINUTES = (0, 6, 8, 10, 15, 20)
 
     def __init__(self, parent: Any, exclude_words: str, mode: str, on_apply: Callable[..., None],
-                 max_minutes: int = 0, hide_owned: bool = False) -> None:
+                 max_minutes: int = 0, hide_owned: bool = False, field: str = "",
+                 fields: Optional[Dict[str, str]] = None) -> None:
         super().__init__(parent, t("filters.title"), 420)
         self._on_apply = on_apply
         self.heading(t("filters.title"))
+        self._fields = fields or {}
+        self._field: Optional[QComboBox] = None
+        if self._fields:                              # 1.3.1 (C33) : « chercher dans » en tête du panneau
+            self.body.addWidget(label(t("search.field_label"), "dim"))
+            self._field = QComboBox()
+            self._field.setToolTip(t("search.field_tip"))
+            self._field.addItems(list(self._fields.values()))
+            self._field.setCurrentText(self._fields.get(field, next(iter(self._fields.values()))))
+            self.body.addWidget(self._field)
         self.body.addWidget(label(t("filters.exclude"), "dim"))
         self._words = QLineEdit(exclude_words)
         self._words.setPlaceholderText(t("filters.exclude_placeholder"))
@@ -450,8 +460,14 @@ class FiltersPopup(BaseDialog):
         value = next((k for k, v in self._labels.items() if v == text), SearchMode.ALL.value)
         minutes = next((k for k, v in self._minute_labels.items() if v == self._minutes.currentText()), 0)
         words = self._words.text().strip()
+        field = ""
+        if self._field is not None:
+            field = next((k for k, v in self._fields.items() if v == self._field.currentText()), "all")
         self.close()
-        self._on_apply(words, value, minutes, self._hide_owned.isChecked())
+        if self._fields:
+            self._on_apply(words, value, minutes, self._hide_owned.isChecked(), field)
+        else:
+            self._on_apply(words, value, minutes, self._hide_owned.isChecked())
 
 
 class MetadataDialog(BaseDialog):

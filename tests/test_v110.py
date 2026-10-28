@@ -115,37 +115,36 @@ def demo(tmp_path, monkeypatch):
 
 
 def test_diagnostic_from_home_card_replace_and_ignore(demo):
+    """1.3.1 (C41) : le bouton Diagnostic ouvre l'onglet « Fichiers introuvables » ; l'onglet « Mauvaise
+    qualité » garde le remplacement par une version retéléchargée et « Ignorer » (les doublons ont
+    leur propre onglet)."""
     from djsync.ui.diagnostic_dialog import ALT, DiagnosticDialog
     from djsync.ui.dialogs import ConfirmDialog
+    from djsync.ui.missing_dialog import MissingFilesDialog
 
     ctrl = demo.ctrl
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].connected)
     home.diagnose(home._summaries[0].drive, True)
+    assert pump(demo, 2, lambda: find(demo, MissingFilesDialog) is not None)
+    missing = find(demo, MissingFilesDialog)
+    assert pump(demo, 6, lambda: missing.count.text() == "No missing file")
+    missing.findChild(__import__("djsync.ui.diag_tabs", fromlist=["DiagTabs"]).DiagTabs)._go("quality")
     assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
+    assert find(demo, MissingFilesDialog) is None                        # un seul onglet ouvert
     dlg = find(demo, DiagnosticDialog)
     assert pump(demo, 6, lambda: not dlg._loading)
-    kinds = [(k, p.track.title if k != "dups" else len(p)) for k, p in dlg.items]
-    assert kinds == [("dups", 1), ("bitrate", "Umbrella")]         # le clip est dans le groupe de doublons
-    assert dlg.list.item(0).text() == "Duplicates (1 groups)"
-    # ---- rc.7 (C63) : doublons traités dans l'outil Doublons seulement (une ligne qui l'ouvre)
-    from djsync.ui.duplicates_dialog import DuplicatesDialog
-
-    assert not dlg.apply_btn.isEnabled() and not dlg.ignore_btn.isEnabled()
-    dlg._open_duplicates()
-    assert pump(demo, 4, lambda: find(demo, DuplicatesDialog) is not None)
-    dup = find(demo, DuplicatesDialog)
-    assert pump(demo, 6, lambda: len(dup.groups) == 1 and dup.index == 0)
-    # version propre depuis l'outil Doublons (avant : seulement dans le Diagnostic)
-    dup._find_clean(dup.groups[0], dup.groups[0][0])
-    assert pump(demo, 4, lambda: any(v for v in dup._clean.values()))
-    dup.close()
+    kinds = [(k, p.track.title) for k, p in dlg.items]
+    assert kinds == [("source", "One More Time (Clip Officiel)"), ("bitrate", "Umbrella")], kinds
+    assert dlg.list.item(0).flags() == dlg.list.item(0).flags().__class__(0)   # en-tête de section
+    assert ctrl.diag_counts["quality"] == 2
 
     # ---- qualité : remplacer Umbrella par la version retéléchargée
-    dlg._select(1)
-    assert "MP3 128 kbps" in dlg.items[1][1].reason
+    dlg._select(next(i for i, (k, _p) in enumerate(dlg.items) if k == "bitrate"))
+    i = dlg.index
+    assert "MP3 128 kbps" in dlg.items[i][1].reason
     assert pump(demo, 4, lambda: dlg._choice.checkedId() == ALT)
-    umbrella = dlg.items[1][1].track
+    umbrella = dlg.items[i][1].track
     pls_before = {p.name for p in ctrl.playlists if umbrella.content_id in _ids(ctrl, p.playlist_id)}
     dlg._apply()
     assert pump(demo, 2, lambda: find(demo, ConfirmDialog) is not None)
@@ -158,8 +157,16 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     assert umbrella.content_id not in {x.content_id for x in tracks}
     assert pls_before == {p.name for p in ctrl.playlists if job.content_id in _ids(ctrl, p.playlist_id)} == {"Classiques"}
 
-    # ---- ignorer un problème de qualité : retenu pour les diagnostics suivants
-    assert [k for k, _p in dlg.items] == ["dups"]
+    # ---- ignorer : retenu pour les diagnostics suivants
+    dlg._select(0)
+    dlg._ignore()
+    assert dlg.items == [] and ctrl.settings.diag_ignored[0].startswith("q:")
+    dlg.close()
+    demo.open_diagnostic("quality")
+    assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
+    dlg = find(demo, DiagnosticDialog)
+    assert pump(demo, 6, lambda: not dlg._loading)
+    assert dlg.items == [] and dlg.count.text() == "Nothing to fix"
     dlg.close()
     assert not demo.errors
 

@@ -41,12 +41,7 @@ class SearchView(View):
         # 1.2.1 (C08) : où chercher (Tout / Titre / Artiste / Album)
         self._field_labels = {"all": t("search.field_all"), "title": t("search.field_title"),
                               "artist": t("search.field_artist"), "album": t("search.field_album")}
-        self.field_menu = QComboBox()
-        self.field_menu.addItems(list(self._field_labels.values()))
-        self.field_menu.setCurrentText(self._field_labels.get(controller.settings.search_field, self._field_labels["all"]))
-        self.field_menu.setToolTip(t("search.field_tip"))
-        self.field_menu.currentTextChanged.connect(self._field_changed)
-        bar.addWidget(self.field_menu)
+        # 1.3.1 (C33) : le choix Tout / Titre / Artiste / Album passe dans le panneau des filtres
         self.entry = line_edit(t("search.placeholder"), "search", big=True)
         self.entry.returnPressed.connect(lambda: self.run_search(force=True))
         self.entry.textEdited.connect(lambda _t: self._debounce.start())
@@ -55,7 +50,6 @@ class SearchView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
-        self.field_menu.setMinimumHeight(self.entry.sizeHint().height())
         self.root.addLayout(bar)
         info_row = hbox(spacing=theme.px(8))
         self.back_btn = button(t("search.back_to_albums"), self._close_album, kind="flat", icon="back")
@@ -93,20 +87,29 @@ class SearchView(View):
         self.run_search(force=True)
 
     # --------------------------------------------------------------- filtres
-    def _field_changed(self, text: str) -> None:
+    def _active_filters(self) -> list:
+        """C33 : filtres actifs, écrits en petit sur le bouton (« Artiste · ≤ 10 min »)."""
         s = self.ctrl.settings
-        s.search_field = next((k for k, v in self._field_labels.items() if v == text), "all")
+        parts = []
+        if s.search_field != "all":
+            parts.append(self._field_labels.get(s.search_field, ""))
         try:
-            s.save()
-        except OSError:
-            pass
-        if self.entry.text().strip():
-            self.run_search(force=True)
+            mode = SearchMode(s.search_mode)
+        except ValueError:
+            mode = SearchMode.ALL
+        if mode != SearchMode.ALL:
+            parts.append(SEARCH_MODE_LABELS[mode])
+        if s.search_max_minutes:
+            parts.append(f"≤ {s.search_max_minutes} min")
+        if s.exclude_words.strip():
+            parts.append(t("search.without_short"))
+        if s.search_hide_owned:
+            parts.append(t("search.hiding_owned_short"))
+        return [p for p in parts if p]
 
     def _refresh_filter_label(self) -> None:
-        s = self.ctrl.settings
-        active = (bool(s.exclude_words.strip()) or s.search_mode != SearchMode.ALL.value or bool(s.search_max_minutes)
-                  or s.search_hide_owned)
+        active = self._active_filters()
+        self.filter_btn.setText(" · ".join(active) if active else t("search.filters_short"))
         self.filter_btn.setProperty("kind", "primary" if active else "")
         self.filter_btn.setIcon(qicon("filter", 16, theme.ON_ACCENT if active else theme.TEXT))
         restyle(self.filter_btn)
@@ -114,16 +117,18 @@ class SearchView(View):
     def _open_filters(self) -> None:
         s = self.ctrl.settings
 
-        def apply(words: str, mode: str, minutes: int = 0, hide_owned: bool = False) -> None:
+        def apply(words: str, mode: str, minutes: int = 0, hide_owned: bool = False, field: str = "") -> None:
             s.exclude_words, s.search_mode = words, mode
             s.search_max_minutes, s.search_hide_owned = minutes, hide_owned
+            if field:
+                s.search_field = field
             s.save()
             self._refresh_filter_label()
             if self.entry.text().strip():
                 self.run_search(force=True)
 
         FiltersPopup(self, s.exclude_words, s.search_mode, apply, max_minutes=s.search_max_minutes,
-                     hide_owned=s.search_hide_owned)
+                     hide_owned=s.search_hide_owned, field=s.search_field, fields=self._field_labels)
         self._refresh_filter_label()
 
     def _filter_summary(self) -> str:

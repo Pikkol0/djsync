@@ -200,7 +200,7 @@ class TrackBlock(QFrame):
         if st == "scanning":
             head.addWidget(chip(t("uni.st_scanning")))
         elif conf:
-            role = {"sure": "chip_ok", "rules": "chip", "doubtful": "chip_warn"}[conf]
+            role = {"sure": "chip_good", "rules": "chip", "doubtful": "chip_warn"}[conf]      # C29
             head.addWidget(chip({"sure": t("uni.conf_sure", score=self.prop.score), "rules": t("uni.conf_rules"),
                                  "doubtful": t("uni.conf_doubtful")}[conf], role))
         if st in ("validated", "ignored", "applied", "clean"):
@@ -499,6 +499,9 @@ class UniformizePage(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
         body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
+        from .diag_tabs import DiagTabs
+
+        body.addWidget(DiagTabs(self, controller, "uniformize"))   # 1.3.1 (C41) : onglet du Diagnostic
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
         titles = vbox(spacing=0)

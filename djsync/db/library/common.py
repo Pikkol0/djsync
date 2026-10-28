@@ -84,19 +84,24 @@ LEGACY_DB_NAMES = ("export.pdb", "exportExt.pdb")
 PdbOp = Callable[[PdbDatabase], None]
 PdbPath = Tuple[str, ...]
 
-def _meta_select(has_key: bool, has_image: bool) -> str:
+def _meta_select(has_key: bool, has_image: bool, has_genre: bool = False, has_label: bool = False) -> str:
     """SELECT des métadonnées utiles à export.pdb. Colonnes 0..16 comme en V1.1-A3, puis
-    17 = tonalité, 18 = chemin de la pochette, 19 = chemin d'analyse (V1.1-A4)."""
+    17 = tonalité, 18 = chemin de la pochette, 19 = chemin d'analyse (V1.1-A4), 20 = genre,
+    21 = label (1.3.1, C38)."""
     return (
         "SELECT c.content_id, COALESCE(c.title,''), COALESCE(a.name,''), COALESCE(al.name,''), COALESCE(c.length,0), "
         "COALESCE(c.bpmx100,0), COALESCE(c.fileSize,0), COALESCE(c.bitrate,0), COALESCE(c.bitDepth,16), "
         "COALESCE(c.samplingRate,44100), COALESCE(c.fileType,0), COALESCE(c.dateAdded,''), COALESCE(c.djComment,''), "
         "COALESCE(c.trackNo,0), COALESCE(c.discNo,0), COALESCE(c.releaseYear,0), c.path, "
         + ("COALESCE(k.name,'')" if has_key else "''") + ", "
-        + ("COALESCE(im.path,'')" if has_image else "''") + ", COALESCE(c.analysisDataFilePath,'') FROM content c "
+        + ("COALESCE(im.path,'')" if has_image else "''") + ", COALESCE(c.analysisDataFilePath,''), "
+        + ("COALESCE(g.name,'')" if has_genre else "''") + ", "
+        + ("COALESCE(lb.name,'')" if has_label else "''") + " FROM content c "
         "LEFT JOIN artist a ON a.artist_id = c.artist_id_artist LEFT JOIN album al ON al.album_id = c.album_id "
         + ("LEFT JOIN key k ON k.key_id = c.key_id " if has_key else "")
         + ("LEFT JOIN image im ON im.image_id = c.image_id " if has_image else "")
+        + ("LEFT JOIN genre g ON g.genre_id = c.genre_id " if has_genre else "")
+        + ("LEFT JOIN label lb ON lb.label_id = c.label_id " if has_label else "")
     )
 
 
@@ -165,20 +170,45 @@ class PdbStatus:
     pending_removals: int = 0        # sons / playlists supprimés ou renommés encore présents
 
 
-def _track_select(has_key: bool, with_sequence: bool = False) -> str:
-    """SELECT commun des sons. Colonnes : 0..11 comme avant, 12 = tonalité, 13 = position (playlist)."""
+# 1.3.1 (C37) : colonnes supplémentaires de content (index 13 à 23 du SELECT des sons)
+_EXTRA_COLS = ("releaseYear", "bitrate", "samplingRate", "rating", "color_id", "djPlayCount", "dateCreated", "fileSize")
+
+
+def _track_select(has_key: bool, with_sequence: bool = False, content_cols: Optional[set] = None,
+                  tables: Optional[set] = None) -> str:
+    """SELECT commun des sons. Colonnes : 0..11 comme avant, 12 = tonalité, 13 = genre, 14 = label,
+    15..22 = _EXTRA_COLS, 23 = position (playlist). `content_cols` / `tables` : colonnes de content et
+    tables présentes (None = toutes) ; une colonne absente donne NULL."""
+    def has(col: str) -> bool:
+        return content_cols is None or col in content_cols
+
+    genre = tables is None or "genre" in tables
+    lab = tables is None or "label" in tables
+    extras = [
+        "g.name" if genre and has("genre_id") else "NULL",
+        "lb.name" if lab and has("label_id") else "NULL",
+    ] + [f"c.{c}" if has(c) else "NULL" for c in _EXTRA_COLS]
     return (
         "SELECT c.content_id, c.title, COALESCE(a.name, ''), al.name, COALESCE(c.length, 0), c.path, "
         "COALESCE(c.bpmx100, 0), COALESCE(c.fileType, 0), c.djComment, "
         "COALESCE(c.dateAdded, ''), c.analysisDataFilePath, im.path, "
-        + ("k.name" if has_key else "NULL")
+        + ("k.name" if has_key else "NULL") + ", " + ", ".join(extras)
         + (", pc.sequenceNo" if with_sequence else "")
         + " FROM content c "
         "LEFT JOIN artist a  ON a.artist_id  = c.artist_id_artist "
         "LEFT JOIN album  al ON al.album_id  = c.album_id "
         "LEFT JOIN image  im ON im.image_id  = c.image_id "
         + ("LEFT JOIN key k ON k.key_id = c.key_id " if has_key else "")
+        + ("LEFT JOIN genre g ON g.genre_id = c.genre_id " if genre and has("genre_id") else "")
+        + ("LEFT JOIN label lb ON lb.label_id = c.label_id " if lab and has("label_id") else "")
     )
+
+
+def _int(v: Any) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def extract_video_id(url_or_id: str) -> Optional[str]:

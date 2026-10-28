@@ -179,20 +179,15 @@ def test_duplicates_page_lists_at_once_then_checks_audio_and_sets_aside(demo):  
     assert not demo.errors
 
 
-def test_diagnostic_merges_through_the_duplicates_tool(demo):  # noqa: F811
-    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+def test_duplicates_is_the_diagnostic_tab_for_merging(demo):  # noqa: F811
+    """1.3.1 : depuis C41 les doublons ont leur onglet du Diagnostic (l'outil Doublons lui-même) : la
+    fusion depuis le Diagnostic de la rc.5 (« Fusionner dans Doublons… ») n'a plus lieu d'être."""
     from djsync.ui.duplicates_dialog import DuplicatesDialog
-    from tests.qt_util import find, pump
+    from tests.qt_util import pump
 
-    diag = DiagnosticDialog(demo.views["home"], demo.ctrl)
-    # rc.7 (C63) : une seule ligne « Doublons », qui ouvre l'outil Doublons (plus de 2e interface)
-    assert pump(demo, 8, lambda: any(k == "dups" for k, _p in diag.items))
-    diag._select(next(i for i, (k, _p) in enumerate(diag.items) if k == "dups"))
-    groups = diag.current[1]
-    diag._open_duplicates()
-    assert pump(demo, 4, lambda: find(demo, DuplicatesDialog) is not None)
-    dup = find(demo, DuplicatesDialog)
-    assert pump(demo, 6, lambda: len(dup.groups) == len(groups))
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    assert pump(demo, 4, lambda: len(dup.groups) == 1)
+    assert pump(demo, 6, lambda: demo.ctrl.diag_counts.get("dup") == 1)
     dup.close()
     assert not demo.errors
 

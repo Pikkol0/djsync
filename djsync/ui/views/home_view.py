@@ -86,6 +86,16 @@ class HomeView(View):
             app.show_view("search")
             app.views["search"].search_for(text)
 
+    def open_space(self) -> None:
+        app = self.window()
+        app.show_view("settings")
+        app.views["settings"].show_space()
+
+    def open_settings(self, section: str) -> None:
+        app = self.window()
+        app.show_view("settings")
+        app.views["settings"].show_section(section)
+
     # ------------------------------------------------------------------- clés
     def on_show(self) -> None:
         self.refresh()
@@ -182,8 +192,10 @@ class HomeView(View):
                 pdb.setToolTip(t("home.pdb_stale_tip", detail=s.pdb_problem or "?"))
                 stale_detail = s.pdb_problem
             else:
-                pdb = chip(t("home.pdb_short_yes"))
+                pdb = chip(t("home.pdb_short_yes"), "chip_good")          # C29
                 pdb.setToolTip(t("home.pdb_yes"))
+            pdb.setCursor(Qt.PointingHandCursor)              # 1.3.1 (C28) : ouvre la section des réglages
+            pdb.mousePressEvent = lambda _e: self.open_settings("libraries")      # 1.3.1 (C90)
             chips.addWidget(pdb)
             if s.filesystem:
                 from ...db.usb import filesystem_compat
@@ -228,7 +240,13 @@ class HomeView(View):
             bar.setRange(0, 1000)
             bar.setValue(int(used * 1000))
             bar.setFixedWidth(theme.px(200))
-            side.addWidget(label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim"))
+            free = label(t("nav.free_space", free=human_size(s.free), total=human_size(s.total)), "dim")
+            if s.connected:                                   # 1.3.1 (C27) : détail de l'espace
+                for w in (free, bar):
+                    w.setCursor(Qt.PointingHandCursor)
+                    w.setToolTip(t("home.space_tip"))
+                    w.mousePressEvent = lambda _e: self.open_space()
+            side.addWidget(free)
             side.addWidget(bar)
             side.addStretch(1)
             lay.addLayout(side)
@@ -259,9 +277,7 @@ class HomeView(View):
         self.ctrl.connect(drive)
 
     def _open_diagnostic(self) -> None:
-        from ..diagnostic_dialog import DiagnosticDialog
-
-        DiagnosticDialog(self, self.ctrl)
+        self.window().open_diagnostic("missing")        # 1.3.1 (C41/C43) : Diagnostic en onglets
 
     def _analysis(self) -> None:
         self.ctrl._emit("show_unanalysed")
@@ -279,7 +295,5 @@ class HomeView(View):
         if not self.ctrl.has_library:
             self.ctrl.message("error", t("msg.no_drive"))
             return
-        from ..duplicates_dialog import DuplicatesDialog
-
-        DuplicatesDialog(self, self.ctrl)
+        self.window().open_diagnostic("dup")
 

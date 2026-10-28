@@ -260,7 +260,10 @@ class ImportView(View):
             match = f"{c.track.title} — {c.track.artist}{manual}"
             kind, score, dur = c.track.kind_label, f"{c.score:.0f}", c.track.duration_str
             status = STATUS_TEXT[m.status]
+        from .. import levels
+
         return {
+            "score__level": levels.match_score(c.score) if c is not None else "",     # C29
             "source": m.source.display, "match": match, "type": kind, "score": score,
             "duration": dur or (format_duration(m.source.duration_seconds) if m.source.duration_seconds else ""),
             "status": status,

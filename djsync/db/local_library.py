@@ -211,11 +211,30 @@ class OwnedRegistry:
 _TRACK_SQL = (
     "SELECT c.ID, c.Title, COALESCE(a.Name,''), al.Name, COALESCE(c.Length,0), c.FolderPath, COALESCE(c.BPM,0), "
     "COALESCE(c.FileType,0), c.Commnt, COALESCE(c.StockDate, c.DateCreated, ''), c.AnalysisDataPath, c.ImagePath, "
-    "k.ScaleName, c.UUID "
+    "k.ScaleName, c.UUID, g.Name, lb.Name, c.ReleaseYear, c.BitRate, c.SampleRate, c.Rating, c.ColorID, "
+    "c.DJPlayCount, c.DateCreated, c.FileSize "
     "FROM djmdContent c LEFT JOIN djmdArtist a ON a.ID = c.ArtistID LEFT JOIN djmdAlbum al ON al.ID = c.AlbumID "
-    "LEFT JOIN djmdKey k ON k.ID = c.KeyID "
+    "LEFT JOIN djmdKey k ON k.ID = c.KeyID LEFT JOIN djmdGenre g ON g.ID = c.GenreID "
+    "LEFT JOIN djmdLabel lb ON lb.ID = c.LabelID "
 )
 _VISIBLE = "COALESCE(c.rb_local_deleted,0) = 0"
+
+
+def _num(v: Any) -> int:
+    try:
+        return int(float(v or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extras(x: Sequence[Any], comment: Any) -> Dict[str, Any]:
+    """1.3.1 (C37) : métadonnées en colonnes (genre, label, année, débit…) ; master.db stocke
+    ColorID en texte et Rating sur 0..5 (Rekordbox 6/7)."""
+    x = list(x) + [None] * max(0, 10 - len(x))
+    genre, label, year, bitrate, rate, rating, color, plays, created, size = x[:10]
+    return dict(genre=genre or "", label=label or "", year=_num(year), bitrate=_num(bitrate), sample_rate=_num(rate),
+                rating=max(0, min(5, _num(rating))), color=_num(color), play_count=_num(plays),
+                created=str(created or "")[:10], comment=str(comment or ""))
 
 
 class LocalRekordboxLibrary:
@@ -466,6 +485,7 @@ class LocalRekordboxLibrary:
             source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
             date_added=str(added or "")[:10], is_analysed=bool(anlz), artwork_path=art or None,
             sequence=sequence, key=key or None, analysis_path=anlz or None,
+            **_extras(row[14:24], comment),
         )
 
     def absolute_path(self, track_or_path: Union[LibraryTrack, str]) -> Path:
@@ -1123,6 +1143,25 @@ class LocalRekordboxLibrary:
                 except OSError:
                     pass
             raise
+        return self.get_track(content_id)
+
+    def relink_track(self, content_id: int, new_file: Path) -> LibraryTrack:
+        """1.3.1 (C43) : le fichier a été déplacé : le son pointe vers `new_file` (comme « Relocaliser »
+        dans Rekordbox ; playlists, grille et cues gardés)."""
+        target = Path(new_file)
+        if target.suffix.lower() not in FILE_TYPES or not target.is_file():
+            raise LibraryError("The file must be an existing audio file.")
+        posix = target.resolve().as_posix()
+        existing = self._read("SELECT ID FROM djmdContent WHERE FolderPath = :p AND ID != :id "
+                              f"AND {_VISIBLE}", {"p": posix, "id": str(content_id)})
+        if existing:
+            raise LibraryError("Another track of the library already uses this file.")
+        with self._write():
+            c = self._content(content_id)
+            c.FolderPath = posix
+            c.FileNameL = target.name
+            c.FileSize = target.stat().st_size
+            c.updated_at = datetime.now()
         return self.get_track(content_id)
 
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,

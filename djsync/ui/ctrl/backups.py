@@ -37,6 +37,52 @@ class BackupsMixin:
         """DJSync (programme compilé) tourne depuis une clé Rekordbox."""
         return bool(getattr(sys, "frozen", False)) and portable.own_drive_root() is not None
 
+    @staticmethod
+    def uninstall_mode() -> str:
+        """1.3.1 (C88) : « drive », « computer » ou « source » (voir djsync.uninstall.mode)."""
+        from ... import uninstall
+
+        return uninstall.mode()
+
+    @staticmethod
+    def computer_uninstall_plan(keep_backups: bool = True) -> Any:
+        """1.3.1 (C88) : (fichiers et dossiers qui partiront, sauvegardes de master.db présentes ?)."""
+        from ... import uninstall
+        from ...settings import settings_dir
+
+        data = settings_dir()
+        has_backups = (data / "Backups").is_dir() and any((data / "Backups").iterdir())
+        return uninstall.computer_targets(data, keep_backups), has_backups
+
+    def uninstall_computer(self, delete_backups: bool) -> None:
+        """1.3.1 (C88) : désinstaller DJSync de l'ordinateur, puis quitter. La musique et les
+        bibliothèques Rekordbox ne sont jamais touchées ; les sauvegardes de master.db restent
+        (dans le dossier des réglages, ou mises à l'abri dans ~/DJSync_Backups) sauf demande."""
+        from ... import uninstall
+        from ...settings import settings_dir
+
+        if self.backups_busy():
+            self.message("warn", t("backups.busy"))
+            return
+        lib = self.library
+        self.player.stop()
+        self.library, self.drive = None, None
+        self.playlists = []
+        self.service.set_library(None)
+        self._emit("drive")
+        data = settings_dir()
+
+        def work() -> Any:
+            if lib is not None:
+                lib.close()
+            paths = uninstall.computer_targets(data, keep_backups=not delete_backups)
+            if not delete_backups and any(p == data or p in data.parents for p in paths):
+                uninstall.keep_computer_backups(data, uninstall.computer_backups_home())
+            uninstall.schedule_removal(paths)
+            return paths
+
+        self.dispatcher.submit(work, lambda _p: self._emit("quit"), self._on_error, pool="db")
+
     # ------------------------------------------------------------------ points
     def backup_points(self, ok: Callable[[List[Any]], None]) -> None:
         lib = self.library

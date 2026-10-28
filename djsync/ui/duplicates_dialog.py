@@ -17,12 +17,13 @@ from PySide6.QtWidgets import (
 
 from ..core.duplicates import best_keeper, split_display
 from ..i18n import plural, t
-from ..models import SOURCE_LABELS, Candidate, LibraryTrack, format_duration
+from ..models import SOURCE_LABELS, LibraryTrack, format_duration
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog
 from .widgets import CamelotPill, button, chip, hbox, icon_button, label, panel, vbox
 
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
+ALT = 100          # 1.3.1 (C42) : boutons des versions à retélécharger (100, 101…)
 
 
 class DuplicatesDialog(BaseDialog):
@@ -48,8 +49,17 @@ class DuplicatesDialog(BaseDialog):
         self.cues_combo: Optional[QComboBox] = None          # 1.3.0 (C13) : de quelle version viennent les cues
         self._cue_counts: dict = {}
         self._cues_touched = False
-        self._clean: dict = {}                               # rc.7 (C63) : versions propres trouvées par groupe
-        self.clean_box: Optional[Any] = None
+        # 1.3.1 (C42) : qualité audio de chaque version (lue dans le fichier) et versions à retélécharger
+        self._quality: dict = {}
+        self._info_labels: dict = {}
+        self._best_slots: dict = {}
+        self._keep_touched = False
+        self._auto_keep = False
+        self._alts: dict = {}               # index du groupe -> [Candidate] (None : recherche en cours)
+        self.alt_box: Optional[Any] = None
+        from .diag_tabs import add_tabs
+
+        add_tabs(self, controller, "dup")                      # 1.3.1 (C41) : onglet « Doublons »
 
         head = hbox()
         head.addWidget(label(t("dup.title"), "h2"))
@@ -139,6 +149,7 @@ class DuplicatesDialog(BaseDialog):
     def _update_count(self) -> None:
         todo = sum(1 for ok in self.verified if not ok)
         n = len(self.groups)
+        self.ctrl.set_diag_count("dup", n)                     # 1.3.1 (C41) : compteur de l'onglet
         if todo:
             self.count.setText(t("dup.audio_checking", i=n - todo, n=n))
         else:
@@ -181,11 +192,14 @@ class DuplicatesDialog(BaseDialog):
             elif item.layout() is not None:
                 _drop_layout(item.layout())
         self.title_entry = self.artist_entry = None
-        self.clean_box = None
         self.cues_combo = None
         self._cue_counts = {}
         self._cues_touched = False
         self._pl_labels = {}
+        self._info_labels = {}
+        self._best_slots = {}
+        self._keep_touched = False
+        self.alt_box = None
 
     def _select(self, i: int) -> None:
         self.index = i
@@ -237,6 +251,28 @@ class DuplicatesDialog(BaseDialog):
             self._fill_cues_combo()
 
         self.ctrl.load_group_cues(group, show_cues)
+
+        def show_quality(found: dict) -> None:              # 1.3.1 (C42)
+            self._quality.update(found)
+            if self.winfo_exists() and self.index == token:
+                self._show_quality(group)
+
+        todo = [x for x in group if x.content_id not in self._quality]
+        if todo:
+            self.ctrl.track_quality(todo, show_quality)
+        else:
+            self._show_quality(group)
+        # versions propres à retélécharger (réseau : seulement à la demande)
+        alt_head = hbox(spacing=theme.px(6))
+        self.alt_btn = button(t("dup.find_clean"), self._find_alternatives, kind="flat", icon="download",
+                              tooltip=t("dup.find_clean_tip"))
+        alt_head.addWidget(self.alt_btn)
+        alt_head.addStretch(1)
+        self.detail_lay.addLayout(alt_head)
+        self.alt_box = vbox(spacing=theme.px(4))
+        self.detail_lay.addLayout(self.alt_box)
+        if self.index in self._alts:
+            self._show_alternatives()
         self.detail_lay.addSpacing(theme.px(8))
         self.detail_lay.addWidget(label(t("dup.fix_metadata"), "h2"))
         title, artist = split_display(keeper.title, keeper.artist)
@@ -247,89 +283,8 @@ class DuplicatesDialog(BaseDialog):
         form.addRow(t("track.artist"), self.artist_entry)
         self.detail_lay.addLayout(form)
         self.title_entry.setToolTip(t("dup.metadata_hint"))
-        # 1.3.0-rc.7 (C63) : remplacer toutes les versions par une version propre, ici aussi (avant : seulement
-        # dans le Diagnostic, avec une autre interface)
-        self.detail_lay.addSpacing(theme.px(8))
-        self.detail_lay.addWidget(label(t("diag.alt_title"), "h2"))
-        self.clean_box = vbox(spacing=theme.px(4))
-        self.detail_lay.addLayout(self.clean_box)
-        self._show_clean(group, keeper)
         self.detail_lay.addStretch(1)
         self._refresh_actions()
-
-    # ------------------------------------------------------------ version propre (C63)
-    def _show_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
-        key = tuple(sorted(x.content_id for x in group))
-        found = self._clean.get(key, "todo")
-        if found == "todo":
-            self.clean_box.addWidget(button(t("dup.clean_find"), lambda: self._find_clean(group, ref), kind="flat",
-                                            icon="search", tooltip=t("dup.clean_find_tip")), 0, Qt.AlignLeft)
-            return
-        if found is None:
-            self.clean_box.addWidget(label(t("diag.alt_searching"), "faint"))
-            return
-        if not found:
-            self.clean_box.addWidget(label(t("diag.alt_none"), "dim", wrap=True))
-            return
-        for c in found:
-            self.clean_box.addWidget(self._clean_row(c, group))
-        self.clean_box.addWidget(label(t("diag.replace_note"), "faint", wrap=True))
-
-    def _find_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
-        key = tuple(sorted(x.content_id for x in group))
-        self._clean[key] = None
-
-        def loaded(found: List[Candidate]) -> None:
-            self._clean[key] = list(found)
-            cur = self.current_group
-            if self.winfo_exists() and cur is not None and tuple(sorted(x.content_id for x in cur)) == key:
-                self._refresh_clean(group, ref)
-
-        self.ctrl.find_alternatives(ref, loaded)
-        self._refresh_clean(group, ref)
-
-    def _refresh_clean(self, group: List[LibraryTrack], ref: LibraryTrack) -> None:
-        """Redessine seulement la partie « version propre » (le choix et le titre saisis restent)."""
-        box = getattr(self, "clean_box", None)
-        if box is None:
-            return
-        try:
-            while box.count():
-                item = box.takeAt(0)
-                if item.widget() is not None:
-                    item.widget().hide()
-                    item.widget().deleteLater()
-        except RuntimeError:                       # détail déjà redessiné (autre groupe)
-            return
-        self._show_clean(group, ref)
-
-    def _clean_row(self, c: Candidate, group: List[LibraryTrack]) -> QWidget:
-        row = panel(role="banner")
-        lay = hbox(row, margins=theme.px(6))
-        text = vbox(spacing=0)
-        name = label(c.track.title)
-        name.setStyleSheet("font-weight:600;")
-        text.addWidget(name)
-        kind = t("track.song") if c.track.is_song else t("track.video")
-        info = [c.track.artist, format_duration(c.track.duration_seconds), kind, t("diag.match", score=f"{c.score:.0f}")]
-        text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
-        lay.addLayout(text, 1)
-        lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))
-        lay.addWidget(icon_button("play", lambda tr=c.track: self.ctrl.preview(tr), t("action.listen")))
-        lay.addWidget(button(t("diag.apply_download"), lambda: self._replace_with(c, group), kind="flat", icon="download"))
-        return row
-
-    def _replace_with(self, c: Candidate, group: List[LibraryTrack]) -> None:
-        names = ", ".join(t("fmt.quoted", text=x.title) for x in group[:3])
-
-        def go() -> None:
-            if self.ctrl.replace_with_download(c.track, list(group)) is not None and self.winfo_exists():
-                self._skip()
-
-        ConfirmDialog(self, t("diag.replace_confirm_title"),
-                      t("diag.replace_confirm", names=names, new=c.track.title,
-                        source=SOURCE_LABELS.get(c.track.source, c.track.source)),
-                      go, confirm_text=t("diag.apply_download"), detail=t("diag.replace_detail"))
 
     def _fill_cues_combo(self) -> None:
         """Versions qui ont des hot cues ; par défaut : la version gardée si elle en a, sinon celle qui en
@@ -377,10 +332,13 @@ class DuplicatesDialog(BaseDialog):
             c = chip(t("dup.audio_unknown"))
             c.setToolTip(t("dup.audio_unknown_tip"))
             return c
+        from . import levels
+
+        pct = int(round(m.share * 100))
         if m.verdict == "same":
-            c = chip(t("dup.audio_same"), "chip_ok")
+            c = chip(t("dup.audio_same"), levels.CHIP_ROLE[levels.GOOD])          # C29 : vert, quel que soit l'accent
         else:
-            c = chip(t("dup.audio_variant", pct=int(round(m.share * 100))), "chip_warn")
+            c = chip(t("dup.audio_variant", pct=pct), levels.CHIP_ROLE[levels.similarity(pct)])
         c.setToolTip(t("dup.audio_tip", pct=int(round(m.share * 100)), shift=f"{m.shift_ms / 1000:+.2f}"))
         return c
 
@@ -396,13 +354,18 @@ class DuplicatesDialog(BaseDialog):
         name = label(x.title)
         name.setStyleSheet("font-weight:600;")
         text.addWidget(name)
-        info = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds), _FORMATS.get(x.file_type, ""),
-                f"{x.bpm:.0f} BPM" if x.bpm else t("dup.not_analysed"), (x.date_added or "")[:10]]
-        text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
+        info_lbl = label("", "dim")
+        info_lbl.setTextFormat(Qt.RichText)
+        self._info_labels[x.content_id] = info_lbl
+        info_lbl.setText(self._info_text(x))
+        text.addWidget(info_lbl)
         pl = label("", "faint", wrap=True)
         self._pl_labels[x.content_id] = pl
         text.addWidget(pl)
         lay.addLayout(text, 1)
+        best = hbox(spacing=0)                                # C42 : « meilleure qualité », une fois connue
+        self._best_slots[x.content_id] = best
+        lay.addLayout(best)
         audio = self._audio_chip(x)
         if audio is not None:
             lay.addWidget(audio)
@@ -425,6 +388,116 @@ class DuplicatesDialog(BaseDialog):
         lay.addWidget(out)
         return row
 
+    # ------------------------------------------------------------ 1.3.1 (C42) : qualité
+    def _info_text(self, x: LibraryTrack) -> str:
+        from html import escape
+
+        from . import levels
+
+        missing = self.ctrl.file_missing(x)
+        fmt, lvl = levels.audio_text(self._quality.get(x.content_id), x.file_type, missing)
+        info = [escape(x.artist or t("dup.no_artist")), format_duration(x.duration_seconds), levels.html(fmt, lvl),
+                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), (x.date_added or "")[:10]]
+        return "  ·  ".join(i for i in info if i)
+
+    def _best(self, group: List[LibraryTrack]) -> Optional[LibraryTrack]:
+        """Version de meilleure qualité audio (seulement si toutes sont connues et qu'une seule l'emporte)."""
+        from . import levels
+
+        if len(group) < 2 or any(y.content_id not in self._quality or self._quality[y.content_id] is None
+                                 for y in group):
+            return None
+        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].bitrate,
+                                                  self._quality[y.content_id].lossless) for y in group}
+        top = max(rank.values())
+        winners = [y for y in group if rank[y.content_id] == top]
+        return winners[0] if top > 0 and len(winners) == 1 else None
+
+    def _show_quality(self, group: List[LibraryTrack]) -> None:
+        for x in group:
+            lbl = self._info_labels.get(x.content_id)
+            if lbl is not None:
+                lbl.setText(self._info_text(x))
+        best = self._best(group)
+        for x in group:
+            slot = self._best_slots.get(x.content_id)
+            if slot is None:
+                continue
+            _drop_layout(slot)
+            if best is not None and x is best:
+                c = chip(t("dup.best_quality"), "chip_good")
+                c.setToolTip(t("dup.best_quality_tip"))
+                slot.addWidget(c)
+        # proposer par défaut de garder la meilleure qualité (le titre proposé reste le plus propre)
+        if best is not None and not self._keep_touched and self.keep_index() != group.index(best):
+            b = self._keep.button(group.index(best))
+            if b is not None:
+                self._auto_keep = True
+                b.setChecked(True)
+                self._auto_keep = False
+
+    # --------------------------------------------- versions propres à retélécharger
+    def _find_alternatives(self) -> None:
+        group = self.current_group
+        if group is None:
+            return
+        idx = self.index
+        if idx in self._alts:
+            self._show_alternatives()
+            return
+        self._alts[idx] = None
+        self._show_alternatives()
+
+        def done(found: List[Any]) -> None:
+            self._alts[idx] = found
+            if self.winfo_exists() and self.index == idx:
+                self._show_alternatives()
+
+        self.ctrl.find_alternatives(best_keeper(group), done)
+
+    def _show_alternatives(self) -> None:
+        box = self.alt_box
+        if box is None:
+            return
+        for b in list(self._keep.buttons()):
+            if self._keep.id(b) >= ALT:
+                self._keep.removeButton(b)
+        _drop_layout(box)
+        found = self._alts.get(self.index)
+        self.alt_btn.setEnabled(self.index not in self._alts)
+        if found is None:
+            box.addWidget(label(t("diag.alt_searching"), "faint"))
+            return
+        if not found:
+            box.addWidget(label(t("diag.alt_none"), "faint", wrap=True))
+            return
+        from html import escape
+
+        from . import levels
+
+        for i, c in enumerate(found):
+            row = panel(role="banner")
+            lay = hbox(row, margins=theme.px(6))
+            radio = QRadioButton()
+            self._keep.addButton(radio, ALT + i)
+            radio.toggled.connect(lambda on: self._keeper_changed() if on else None)
+            lay.addWidget(radio)
+            text = vbox(spacing=0)
+            name = label(c.track.title)
+            name.setStyleSheet("font-weight:600;")
+            text.addWidget(name)
+            exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+            kind = t("track.song") if c.track.is_song else t("track.video")
+            line = label("  ·  ".join([escape(c.track.artist or ""), format_duration(c.track.duration_seconds),
+                                       escape(kind), levels.html(exp, lvl)]), "dim")
+            line.setTextFormat(Qt.RichText)
+            line.setToolTip(t("dup.expected_tip"))
+            text.addWidget(line)
+            lay.addLayout(text, 1)
+            lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))
+            lay.addWidget(icon_button("play", lambda _c=False, tr=c.track: self.ctrl.preview(tr), t("action.listen")))
+            box.addWidget(row)
+
     def _listen(self, k: int, at: float) -> None:
         from PySide6.QtCore import QTimer
 
@@ -445,15 +518,27 @@ class DuplicatesDialog(BaseDialog):
         QTimer.singleShot(100, seek_when_ready)
 
     def keep_index(self) -> int:
-        return max(0, self._keep.checkedId())
+        cid = self._keep.checkedId()
+        return cid if 0 <= cid < ALT else 0
+
+    def download_choice(self) -> Optional[Any]:
+        """Version à retélécharger choisie (Candidate), sinon None."""
+        cid = self._keep.checkedId()
+        found = self._alts.get(self.index) or []
+        return found[cid - ALT] if cid >= ALT and 0 <= cid - ALT < len(found) else None
 
     def _keeper_changed(self) -> None:
-        if self.title_entry is None or not (0 <= self.index < len(self.groups)):
+        if not self._auto_keep:
+            self._keep_touched = True
+        self.apply_btn.setText(t("diag.apply_download") if self.download_choice() is not None else t("dup.apply"))
+        if self.title_entry is None or not (0 <= self.index < len(self.groups)) or self.download_choice() is not None:
             return
         group = self.groups[self.index]
         x = group[self.keep_index()]
         if not self._cues_touched:
             self._fill_cues_combo()
+        if self._auto_keep:                 # meilleure qualité choisie d'office : le titre le plus propre reste
+            return
         title, artist = split_display(x.title, x.artist)
         current = (self.title_entry.text().strip(), self.artist_entry.text().strip())
         if current[0] and not any(split_display(g.title, g.artist) == current for g in group):
@@ -523,6 +608,15 @@ class DuplicatesDialog(BaseDialog):
         if not (0 <= self.index < len(self.groups)) or self.title_entry is None:
             return
         group = self.groups[self.index]
+        clean = self.download_choice()
+        if clean is not None:                           # C42 : une version propre remplace tout le groupe
+            def replace() -> None:
+                if self.ctrl.replace_with_download(clean.track, group) is not None:
+                    self._skip()
+
+            ConfirmDialog(self, t("dup.confirm_title"), t("dup.replace_all_msg", n=len(group), title=clean.track.title),
+                          replace, confirm_text=t("diag.apply_download"), danger=True, detail=t("dup.confirm_detail"))
+            return
         keep = group[self.keep_index()]
         others = [x for x in group if x is not keep]
         title = self.title_entry.text().strip() or keep.title

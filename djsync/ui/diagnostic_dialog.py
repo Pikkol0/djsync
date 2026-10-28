@@ -53,12 +53,15 @@ class DiagnosticDialog(BaseDialog):
         self.note: Optional[Any] = None
         self.meta_head: Optional[Any] = None
         self.meta_box: Optional[Any] = None
+        from .diag_tabs import add_tabs
+
+        add_tabs(self, controller, "quality")                  # 1.3.1 (C41) : onglet « Mauvaise qualité »
 
         head = hbox()
         drive = controller.drive
         name = (t("local.name") if controller.is_local else (getattr(drive, "label", "") or str(getattr(drive, "root", ""))))\
             if drive is not None else ""
-        head.addWidget(label(t("diag.title") + (f" — {name}" if name else ""), "h2"))
+        head.addWidget(label(t("diagtab.quality_title") + (f" — {name}" if name else ""), "h2"))
         head.addStretch(1)
         self.count = label(t("diag.running"), "dim")
         head.addWidget(self.count)
@@ -86,7 +89,7 @@ class DiagnosticDialog(BaseDialog):
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
-        controller.diagnose(self._loaded, self._progress)
+        controller.diagnose(self._loaded, self._progress, duplicates=False)
 
     # ------------------------------------------------------------------ chargement
     def _progress(self, i: int, n: int) -> None:
@@ -114,6 +117,8 @@ class DiagnosticDialog(BaseDialog):
         self.list.clear()
         n = len(self.items)
         self.count.setText(plural("diag.count_one", "diag.count_many", n) if n else t("diag.none_short"))
+        if not self._loading:
+            self.ctrl.set_diag_count("quality", n)
         current = None
         for idx, (kind, payload) in enumerate(self.items):
             if kind == "dups":                        # rc.7 (C63) : une seule ligne pour tous les doublons
@@ -253,13 +258,22 @@ class DiagnosticDialog(BaseDialog):
         name = label(x.title)
         name.setStyleSheet("font-weight:600;")
         text.addWidget(name)
-        q = self._quality.get(x.content_id)
-        fmt = q.label if q is not None and q.label else _FORMATS.get(x.file_type, "")
-        info = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds), fmt,
-                f"{x.bpm:.0f} BPM" if x.bpm else t("dup.not_analysed"), (x.date_added or "")[:10]]
-        text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
-        lay.addLayout(text, 1)
+        from . import levels
+        from html import escape
+
         missing = self.ctrl.file_missing(x)                  # 1.3.0-rc.3 (B20)
+        q = self._quality.get(x.content_id)
+        fmt, lvl = levels.audio_text(q, x.file_type, missing)     # 1.3.1 (C42, C29)
+        info = [escape(x.artist or t("dup.no_artist")), format_duration(x.duration_seconds), levels.html(fmt, lvl),
+                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), (x.date_added or "")[:10]]
+        line = label("  ·  ".join(i for i in info if i), "dim")
+        line.setTextFormat(Qt.RichText)
+        text.addWidget(line)
+        lay.addLayout(text, 1)
+        if self._is_best(x, group):
+            best = chip(t("dup.best_quality"), "chip_good")
+            best.setToolTip(t("dup.best_quality_tip"))
+            lay.addWidget(best)
         if missing:
             gone = chip(t("diag.file_missing"), "chip_warn")
             gone.setToolTip(self.ctrl.missing_file_text(self.ctrl.library.absolute_path(x)))
@@ -284,14 +298,35 @@ class DiagnosticDialog(BaseDialog):
         name = label(c.track.title)
         name.setStyleSheet("font-weight:600;")
         text.addWidget(name)
+        from . import levels
+        from html import escape
+
         kind = t("track.song") if c.track.is_song else t("track.video")
-        info = [c.track.artist, format_duration(c.track.duration_seconds), kind,
-                t("diag.match", score=f"{c.score:.0f}")]
-        text.addWidget(label("  ·  ".join(i for i in info if i), "dim"))
+        exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+        info = [escape(c.track.artist or ""), format_duration(c.track.duration_seconds), escape(kind),
+                levels.html(t("diag.match", score=f"{c.score:.0f}"), levels.match_score(c.score)),
+                levels.html(exp, lvl)]
+        line = label("  ·  ".join(i for i in info if i), "dim")
+        line.setTextFormat(Qt.RichText)
+        line.setToolTip(t("dup.expected_tip"))
+        text.addWidget(line)
         lay.addLayout(text, 1)
         lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))
         lay.addWidget(icon_button("play", lambda tr=c.track: self.ctrl.preview(tr), t("action.listen")))
         return row
+
+    def _is_best(self, x: LibraryTrack, group: List[LibraryTrack]) -> bool:
+        """C42 : la version de meilleure qualité audio du groupe (seulement si toutes sont connues et
+        qu'elles diffèrent)."""
+        from . import levels
+
+        if len(group) < 2 or any(y.content_id not in self._quality for y in group):
+            return False
+        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].bitrate,
+                                                  self._quality[y.content_id].lossless) for y in group}
+        top = max(rank.values())
+        return top > 0 and rank[x.content_id] == top and len(set(rank.values())) > 1 \
+            and sum(1 for v in rank.values() if v == top) == 1
 
     def _quality_loaded(self, found: Dict[int, Any]) -> None:
         if not self.winfo_exists() or not found:
