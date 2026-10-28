@@ -47,6 +47,9 @@ def test_watch_notices_a_dead_connection_although_the_drive_is_back(demo, monkey
     msgs = []
     monkeypatch.setattr(ctrl, "message", lambda kind, text: msgs.append((kind, text)))
     lib = ctrl.library
+    # Windows : le chargement de départ peut encore tenir la bibliothèque ; alive() répond alors None
+    # (« occupée, on ne sait pas ») sans attendre. On attend une vraie réponse.
+    assert pump(demo, 6, lambda: lib.alive() is not None)
     assert lib.alive() is True                                # connexion saine
     monkeypatch.setattr(lib, "alive", lambda: False)          # retirée puis rebranchée entre deux contrôles
     ctrl._polling = False
