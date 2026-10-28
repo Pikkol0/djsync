@@ -1,5 +1,28 @@
 # Scénarios de test — DJSync 1.3.0
 
+## 1.3.0 stable : derniers correctifs (après la rc.9)
+- **B32** (Mac, plein écran : ouvrir Doublons ou le Diagnostic affichait le bureau) : cause trouvée grâce aux
+  journaux de la rc.9 : la pastille de tonalité de chaque version s'affichait un instant comme une fenêtre
+  avant d'être placée dans la page. Corrigé ; un test ouvre toutes les pages et échoue si une fenêtre
+  apparaît, même un instant (seule cette pastille était concernée).
+- **B33** (Mac : blanc d'environ 1/4 s en écoute à l'ouverture / fermeture de « Télécharger vers… ») : sur
+  Mac, ces fenêtres glissaient en « feuille » depuis la fenêtre principale ; l'animation retardait le son.
+  Elles s'ouvrent maintenant directement au-dessus, sans feuille.
+- **B35** : supprimer le pad dont la boucle tourne, ou lui retirer sa boucle, fait sortir de la boucle tout
+  de suite ; changer sa longueur fait suivre la boucle en cours.
+
+| # | Étapes | Attendu |
+|---|---|---|
+| F-1 | (Testeur Mac) DJSync **en plein écran** ▸ Accueil ▸ **Trouver les doublons**, puis le **Diagnostic**. | Plus de bureau : on reste dans DJSync. |
+| F-2 | (Testeur Mac) Recherche ▸ écouter un son ▸ **Télécharger** (choix de playlist), puis fermer le choix ; 2 ou 3 fois. | Plus de blanc dans le son ; la fenêtre s'ouvre sans glisser. |
+| F-3 | Grille et cues : pad A en boucle de 4 temps ▸ cliquer A (la boucle tourne) ▸ clic droit ▸ **Supprimer**. | La lecture sort de la boucle et continue, sans coupure. |
+| F-4 | Même chose, mais clic droit ▸ **Boucle de 8 temps**, puis **Pas de boucle**. | La boucle en cours passe à 8 temps, puis on en sort. |
+| F-5 | (Auteur, Windows) Confirmation (ex. Retour sans enregistrer dans Grille et cues), **Télécharger vers…** | Comme avant. |
+
+Dans le suivi : « 130 · F-1 ».
+
+## Scénarios de la 1.3.0 (rc.1)
+
 Hot cues et boucles sans Rekordbox, Uniformiser v2, doublons décidés par le son, report des hot cues.
 À faire sur une **copie** de la clé (ou après un point de restauration : Paramètres ▸ Sauvegardes de la
 clé), Rekordbox fermé pendant les écritures. Si ce n'est pas déjà fait, passer aussi

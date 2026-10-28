@@ -117,7 +117,12 @@ class CamelotPill(QLabel):
             self.setText(code)
             self.setStyleSheet(f"background:{color}; color:{theme.on_color(color)}; padding:0 {theme.px(5)}px;"
                                f"border-radius:{theme.px(3)}px; font-weight:600;")
-            self.show()
+            # 1.3.0 (B32) : jamais show() tant que la pastille n'est pas dans une page. Créée sans parent
+            # (Doublons, Diagnostic) puis placée dans sa ligne, elle était un instant une vraie fenêtre de
+            # 26x16 : sur Mac en plein écran, macOS lui créait un espace et affichait le bureau. Sans
+            # parent, elle s'affiche d'elle-même une fois placée dans un layout (pas cachée exprès).
+            if not self.isWindow():
+                self.show()
         else:
             self.setText("")
             self.hide()
