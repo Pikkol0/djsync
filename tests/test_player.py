@@ -99,3 +99,26 @@ def test_errors_are_reported_not_raised(env, tmp_path):
         assert pump(lambda: any(k == "error" and "FFmpeg" in str(p) for k, p in events[n:]))
     finally:
         shutil.which = old
+
+
+def test_rc7_seek_while_playing_is_served_from_memory(env):
+    """1.3.0-rc.7 (C39, LEC-2) : le son en cours est gardé décodé ; un saut ne relance ni FFmpeg ni la carte son."""
+    from djsync.audio import player as P
+
+    player, events, pump, make = env
+    f = make("b.m4a", 5, "-c:a", "aac", "-b:a", "128k")
+    player.play(f, NowPlaying("Titre", "Artiste", str(f)))
+    assert pump(lambda: player.state == PLAYING)
+    assert pump(lambda: player._cache is not None and player._cache.complete)
+    assert len(player._cache.data) == pytest.approx(5 * P.RATE * P.FRAME_BYTES, rel=0.02)
+    device = player._device
+    player.seek(3.0)
+    assert isinstance(player._stream, P._MemStream)
+    assert player._stream.pos == int(3.0 * P.RATE) * P.FRAME_BYTES
+    if P.SEEK_KEEPS_DEVICE:
+        assert player._device is device                  # carte son pas rouverte
+    assert pump(lambda: player.position() >= 3.0)
+    player.seek(1.0, flush=False)
+    assert pump(lambda: 1.0 <= player.position() < 2.5)
+    assert pump(lambda: player.state == STOPPED, timeout=8)   # fin du son depuis la mémoire
+    assert any(k == "ended" for k, _ in events)

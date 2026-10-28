@@ -282,6 +282,34 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.message("warn", t("msg.drive_removed", drive=name))
         self.disconnect(by_user=False)
 
+    _IO_WORDS = ("disk i/o", "unable to open database", "not ready", "input/output", "errno 5", "winerror 21",
+                 "winerror 1006", "winerror 1167", "device is not connected")
+
+    def _drive_replugged(self, cause: Any = None) -> None:
+        """1.3.0-rc.7 (B28) : la clé a été retirée puis rebranchée avant que la surveillance (4 s) le voie.
+        Son dossier est revenu, mais la connexion à la base est morte : on la referme et on rouvre la
+        clé toute seule, avec un seul message (avant : « disk I/O error » et proposition de rapport)."""
+        drive = self.drive
+        name = str(getattr(drive, "root", "") or drive)
+        self._replug_at = time.monotonic()
+        log.info("Drive %s unplugged and plugged back in (%s): reopening it", name, cause)
+        self._removed = (name, time.monotonic())        # erreurs des tâches d'avant : plus montrées
+        if self.analysis.running:
+            self.analysis.cancel()
+        self.disconnect(by_user=False)
+        self.message("info", t("msg.drive_replugged", drive=name))
+        if isinstance(drive, UsbDrive):
+            self.dispatcher.call_later(800, lambda: self.connect(drive) if self.library is None else None)
+
+    def _io_on_open_drive(self, exc: BaseException) -> bool:
+        """Erreur de lecture / écriture sur la clé ouverte, alors que la clé est bien là (B28)."""
+        if self.is_local or self.library is None or not isinstance(self.drive, UsbDrive):
+            return False
+        if time.monotonic() - getattr(self, "_replug_at", -1e9) < 30:
+            return False                               # déjà rouverte à l'instant : vraie panne, on la montre
+        text = f"{type(exc).__name__} {exc}".lower()
+        return any(k in text for k in self._IO_WORDS) and not self.drive_gone()
+
     def _after_removal(self, exc: BaseException) -> bool:
         """Erreur d'une tâche lancée avant le retrait de la clé (lecture, comptage, checkpoint…) ?"""
         removed = getattr(self, "_removed", None)
@@ -300,6 +328,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         if self._after_removal(exc):                   # rc.4 (B22) : suites du retrait, déjà annoncé
             log.info("Error after the drive was removed, not shown: %s", exc)
+            return
+        if self._io_on_open_drive(exc):                # rc.7 (B28) : retirée puis rebranchée
+            self._drive_replugged(exc)
             return
         log.warning("Error shown to the user: %s", exc, exc_info=exc)     # trace complète dans djsync.log
         text = self.error_text(exc)
@@ -605,14 +636,18 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         self._polling = True
         active = self.drive
+        lib = self.library
 
         def probe() -> Any:
-            return (find_usb_drives(), (active is None or active.db_path.is_file()), _local.rekordbox_running(),
-                    _unprepared())
+            still = active is None or active.db_path.is_file()
+            # rc.7 (B28) : clé là, mais base illisible = retirée puis rebranchée entre deux contrôles
+            alive = lib.alive() if still and lib is not None and isinstance(active, UsbDrive) and \
+                hasattr(lib, "alive") else None
+            return (find_usb_drives(), still, _local.rekordbox_running(), _unprepared(), alive)
 
         def ok(result: Any) -> None:
             self._polling = False
-            drives, still_there, rb_open, unprepared = result
+            drives, still_there, rb_open, unprepared, alive = result
             self._warn_rekordbox(rb_open)
             changed = [str(d.root) for d in drives] != [str(d.root) for d in self.drives]
             blank_changed = [(str(u.drive.root), u.kind) for u in unprepared] != \
@@ -623,7 +658,10 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 self._connect_failed.clear()
             if changed or blank_changed:
                 self._emit("drives")
-            if self.drive is not None and self.drive is active and not still_there:
+            if self.drive is not None and self.drive is active and self.library is lib and alive is False \
+                    and time.monotonic() - getattr(self, "_replug_at", -1e9) >= 30:
+                self._drive_replugged("database no longer readable")
+            elif self.drive is not None and self.drive is active and not still_there:
                 if self.drive_gone():                  # rc.4 (B22) : retirée sans être éjectée
                     self._drive_removed("drive no longer present")
                 else:
