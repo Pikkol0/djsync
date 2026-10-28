@@ -169,8 +169,9 @@ class SpaceCard:
         self._fill(usage, actions)
 
     def _fill(self, usage: Any, actions: Dict[str, Any]) -> None:
-        for w in self._rows:
-            w.setParent(None)
+        for w in self._rows:            # 1.3.1 : sans setParent(None), qui en faisait des fenêtres visibles
+            self.grid.removeWidget(w)
+            w.hide()
             w.deleteLater()
         self._rows = []
         if not usage:
