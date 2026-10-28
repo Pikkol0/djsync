@@ -338,3 +338,19 @@ def test_duplicates_show_cue_preview_and_open_cues(demo, monkeypatch):  # noqa: 
     dup.close()
     assert not demo.errors
 
+
+
+# ------------------------------------------------------------------ C88 + C70
+def test_uninstall_also_removes_the_shortcut(demo, monkeypatch, tmp_path):  # noqa: F811
+    from djsync.core import shortcut
+
+    lnk = tmp_path / "DJSync.lnk"
+    lnk.write_text("x")
+    monkeypatch.setattr(shortcut, "exists", lambda *a, **k: lnk.exists())
+    monkeypatch.setattr(shortcut, "location", lambda *a, **k: lnk)
+    paths, _b = demo.ctrl.computer_uninstall_plan()
+    assert lnk in paths                                   # affiché dans la liste de la fenêtre
+    removed = []
+    monkeypatch.setattr(shortcut, "remove", lambda *a, **k: removed.append(1) or True)
+    demo.ctrl._remove_shortcut()
+    assert removed == [1]
