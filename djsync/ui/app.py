@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
+    QApplication, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
 )
 
 from .. import i18n
@@ -60,6 +60,56 @@ _ROLE = {"info": "dim", "ok": "accent", "warn": "warn", "error": "err"}
 
 def status_role(kind: str) -> str:
     return _ROLE.get(kind, "dim")
+
+
+WINDOW_WATCH_S = 3.0            # 1.3.0-rc.9 (B32) : surveillance des fenêtres après l'ouverture d'une page
+WINDOW_WATCH_TICK_MS = 40
+_WINDOW_TYPES = {Qt.Window: "Window", Qt.Dialog: "Dialog", Qt.Sheet: "Sheet", Qt.Drawer: "Drawer",
+                 Qt.Popup: "Popup", Qt.Tool: "Tool", Qt.ToolTip: "ToolTip", Qt.SplashScreen: "SplashScreen",
+                 Qt.Desktop: "Desktop", Qt.SubWindow: "SubWindow", Qt.ForeignWindow: "ForeignWindow",
+                 Qt.CoverWindow: "CoverWindow", Qt.Widget: "Widget"}
+
+
+def window_type_name(flags: Any) -> str:
+    kind = Qt.WindowType(int(flags) & int(Qt.WindowType_Mask))
+    return _WINDOW_TYPES.get(kind, hex(int(kind)))
+
+
+def window_state_name(state: Any) -> str:
+    st = int(state.value if hasattr(state, "value") else state)
+    names = [n for flag, n in ((Qt.WindowMinimized, "minimized"), (Qt.WindowMaximized, "maximized"),
+                               (Qt.WindowFullScreen, "fullscreen"), (Qt.WindowActive, "active"))
+             if st & int(flag.value if hasattr(flag, "value") else flag)]
+    return "+".join(names) or "normal"
+
+
+def stray_windows(main: Any) -> list:
+    """1.3.0-rc.9 (B32) : fenêtres natives visibles autres que la fenêtre principale (les bulles d'aide
+    exclues). Passe par QGuiApplication.allWindows() : couvre aussi les fenêtres qui ne sont pas des QWidget."""
+    from PySide6.QtGui import QGuiApplication
+
+    own = main.windowHandle()
+    return [w for w in QGuiApplication.allWindows()
+            if w is not own and w.isVisible() and window_type_name(w.flags()) != "ToolTip"]
+
+
+def describe_window(win: Any) -> str:
+    """Type, classe du widget, titre, taille, parent et premiers textes : de quoi reconnaître la fenêtre."""
+    widget = next((w for w in QApplication.topLevelWidgets() if w.windowHandle() is win), None)
+    parts = [window_type_name(win.flags()), type(widget).__name__ if widget is not None else type(win).__name__]
+    if widget is not None and widget.objectName():
+        parts.append(f"name={widget.objectName()}")
+    if win.title():
+        parts.append(f"title={win.title()[:40]!r}")
+    parts.append(f"{win.width()}x{win.height()}")
+    if widget is not None:
+        parent = widget.parentWidget()
+        if parent is not None:
+            parts.append(f"parent={type(parent).__name__}")
+        texts = [lbl.text()[:30] for lbl in widget.findChildren(QLabel) if lbl.text()][:2]
+        if texts:
+            parts.append(f"texts={texts!r}")
+    return " ".join(parts)
 
 
 def qt_app() -> QApplication:
@@ -172,6 +222,9 @@ class DJSyncApp(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        if not getattr(self, "_app_state_watched", False):     # 1.3.0-rc.9 (B32)
+            self._app_state_watched = True
+            self._watch_app_state()
         splash, self._splash = self._splash, None
         if splash is not None:
             splash.close()
@@ -675,20 +728,78 @@ class DJSyncApp(QMainWindow):
         returns[id(page)] = self._return_target("home", exclude=page)
         self.stack.addWidget(page)
         self._show_page(page)
-        what = type(page).__name__
-        QTimer.singleShot(400, self, lambda: self._log_stray_windows(what))     # annulé si la fenêtre se ferme
+        self.watch_windows(type(page).__name__)
 
-    def _log_stray_windows(self, what: str) -> None:
-        """1.3.0-rc.8 (B32) : journalise toute fenêtre visible autre que la fenêtre principale juste après
-        l'ouverture d'une page (cause du retour au bureau en plein écran sur Mac)."""
+    # ------------------------------------------- 1.3.0-rc.9 (B32) : quelle fenêtre s'ouvre en trop ?
+    def watch_windows(self, what: str, seconds: float = WINDOW_WATCH_S) -> None:
+        """Pendant `seconds` après l'ouverture d'une page, regarde toutes les 40 ms les fenêtres visibles
+        autres que la fenêtre principale, et journalise chacune à son apparition et à sa disparition (avec
+        le délai en ms). L'enregistrement d'écran du testeur Mac (rc.8) montre une fenêtre ouverte puis
+        refermée en ~0,3 s, environ 0,4 s après l'ouverture de Doublons : en plein écran, macOS lui crée un
+        espace (écran noir) puis retombe sur le bureau. Le contrôle unique à 400 ms de la rc.8 la ratait.
+        Une surveillance limitée dans le temps plutôt qu'un filtre sur tous les événements Qt : celui-ci
+        chargerait le thread Python en permanence (et donc le son, B33)."""
+        from PySide6.QtCore import QElapsedTimer
+
+        old = getattr(self, "_win_watch", None)
+        if old is not None:
+            old[0].stop()
+        clock = QElapsedTimer()
+        clock.start()
+        timer = QTimer(self)
+        timer.setInterval(WINDOW_WATCH_TICK_MS)
+        seen: Dict[int, tuple] = {}
+        self._win_watch = (timer, what, clock)
+        self._win_watch_last = (what, clock)
+        timer.timeout.connect(lambda: self._watch_tick(timer, what, clock, seen, seconds))
+        timer.start()
+        self._watch_tick(timer, what, clock, seen, seconds)
+
+    def _watch_tick(self, timer: QTimer, what: str, clock: Any, seen: Dict[int, tuple], seconds: float) -> None:
+        ms = clock.elapsed()
         try:
-            stray = [w for w in QApplication.topLevelWidgets()
-                     if w is not self and w.isVisible() and not w.inherits("QSplashScreen")]
+            visible = {id(w): w for w in stray_windows(self)}
         except RuntimeError:
-            return
-        if stray:
-            log.info("Page %s: other visible windows: %s", what,
-                     ", ".join(f"{type(w).__name__}({int(w.windowFlags())})" for w in stray))
+            visible = {}
+        for key, w in visible.items():
+            if key not in seen:
+                seen[key] = (ms, describe_window(w))
+                log.info("Page %s: window shown after %d ms: %s", what, ms, seen[key][1])
+        for key in [k for k in seen if k not in visible and seen[k][0] >= 0]:
+            start, desc = seen[key]
+            log.info("Page %s: window gone after %d ms (visible %d ms): %s", what, ms, ms - start, desc)
+            seen[key] = (-1, desc)
+        if ms >= seconds * 1000:
+            timer.stop()
+            timer.deleteLater()
+            if getattr(self, "_win_watch", (None,))[0] is timer:
+                self._win_watch = None
+
+    def _watch_app_state(self) -> None:
+        """1.3.0-rc.9 (B32) : journalise quand DJSync passe au second plan, quelle fenêtre prend le focus,
+        et les entrées / sorties du plein écran (signaux de Qt : rien ne tourne entre deux)."""
+        from PySide6.QtGui import QGuiApplication
+
+        def since() -> str:
+            last = getattr(self, "_win_watch_last", None)
+            return f" ({last[1].elapsed()} ms after opening {last[0]})" if last is not None else ""
+
+        def state(st: Any) -> None:
+            name = {Qt.ApplicationActive: "active", Qt.ApplicationInactive: "inactive",
+                    Qt.ApplicationHidden: "hidden", Qt.ApplicationSuspended: "suspended"}.get(st, str(st))
+            log.info("App state: %s%s", name, since())
+
+        def focus(win: Any) -> None:
+            if win is None or win is self.windowHandle():
+                return
+            log.info("Focus to another window: %s%s", describe_window(win), since())
+
+        QGuiApplication.instance().applicationStateChanged.connect(state)
+        QGuiApplication.instance().focusWindowChanged.connect(focus)
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.windowStateChanged.connect(
+                lambda st: log.info("Main window state: %s%s", window_state_name(st), since()))
 
     def close_dialog_page(self, page: QWidget) -> None:
         back = self.__dict__.setdefault("_page_returns", {}).pop(id(page), None) or "home"

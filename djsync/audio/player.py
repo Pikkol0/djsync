@@ -39,6 +39,7 @@ _AHEAD = RATE * 2                          # trames décodées d'avance
 # macOS garde 200 ms (testé sans souci). La position n'utilise plus ce chiffre : le retard réel est mesuré.
 BUFFER_MS = 200 if sys.platform == "darwin" else 40
 PERIODS = 0 if sys.platform == "darwin" else 2      # 0 = valeur de miniaudio (3)
+UR_RESTART_S = 1.0          # 1.3.0-rc.9 (B33) : au-delà, un appel de la carte son est un redémarrage, pas un retard
 _NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 
 STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
@@ -332,14 +333,24 @@ class AudioPlayer:
             self._dev_t0 = now
         # 1.3.0-rc.8 (B33) : la carte son a-t-elle attendu ce paquet plus longtemps que sa réserve ?
         # (thread audio privé de Python pendant que l'interface travaille : petit saut ou trou entendu)
-        t0, sent = getattr(self, "_ur_clock", (now, 0))
-        late = (now - t0) - sent / RATE
-        if late > 0.05 and self._stream is not None and not self._paused:
-            self._underruns = getattr(self, "_underruns", 0) + 1
-            self._audio_note = ("Audio late by %.0f ms (%d time(s) so far, buffer %d ms x %d)",
-                                late * 1000, self._underruns, BUFFER_MS, PERIODS or 3)   # noté par l'interface
-            t0, sent = now, 0                                       # repartir de ce point
-        self._ur_clock = (t0, sent + n)
+        # 1.3.0-rc.9 (B33) : l'horloge repart de zéro quand la carte son a été arrêtée puis relancée
+        # (entre deux sons, après une pause longue) ou quand rien n'est joué : avant, l'arrêt comptait
+        # comme un retard (faux « Audio late by 145611 ms » dans les journaux du testeur Mac).
+        t0, sent, last = getattr(self, "_ur_clock", None) or (now, 0, now)
+        playing = self._stream is not None and not self._paused
+        if not playing or now - last > UR_RESTART_S:
+            t0, sent = now, 0
+        else:
+            late = (now - t0) - sent / RATE
+            if late > 0.05:
+                self._underruns = getattr(self, "_underruns", 0) + 1
+                worst = max(late, getattr(self, "_ur_worst", 0.0))
+                self._ur_worst = worst
+                self._audio_note = ("Audio late by %.0f ms (worst since last note %.0f ms, %d time(s) so far, "
+                                    "buffer %d ms x %d)", late * 1000, worst * 1000, self._underruns,
+                                    BUFFER_MS, PERIODS or 3)            # noté par l'interface
+                t0, sent = now, 0                                   # repartir de ce point
+        self._ur_clock = (t0, sent + n, now)
         self._dev_frames += n
         self._dev_lead = max(self._dev_lead, self._dev_frames / RATE - (now - self._dev_t0))
         with self._lock:
@@ -541,6 +552,7 @@ class AudioPlayer:
         now = time.monotonic()
         if now - getattr(self, "_audio_note_at", 0.0) > 2.0:
             self._audio_note_at = now
+            self._ur_worst = 0.0
             log.info(*note)
 
     def position(self) -> float:

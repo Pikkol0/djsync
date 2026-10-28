@@ -145,13 +145,13 @@ def test_opening_a_page_logs_any_other_visible_window(demo, caplog):  # noqa: F8
     dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
     pump(demo, 0.6)
     assert not dup.isWindow()
-    assert "other visible windows" not in caplog.text
+    assert "window shown" not in caplog.text
+    demo.watch_windows("Test", seconds=1.0)                     # 1.3.0-rc.9 : surveillance continue
     extra = QWidget()                                           # une fenêtre en trop : notée
     extra.show()
-    demo._log_stray_windows("Test")
+    assert pump(demo, 1, lambda: "window shown after" in caplog.text)
     extra.close()
     extra.deleteLater()
     pump(demo, 0.2)
-    assert "other visible windows" in caplog.text
     dup.close()
     assert not demo.errors

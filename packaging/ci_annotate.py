@@ -21,12 +21,41 @@ def _prop(text: str) -> str:
     return _escape(text).replace(":", "%3A").replace(",", "%2C")
 
 
-def main(path: str) -> int:
+def slowest(root: ET.Element, n: int = 30) -> None:
+    """C91 : durées par fichier et tests les plus lents, en annotation (lisible par l'API) et dans le
+    résumé du job (GITHUB_STEP_SUMMARY)."""
+    import os
+    from collections import defaultdict
+
+    cases = [(float(c.get("time") or 0), f"{c.get('classname', '')}::{c.get('name', '')}") for c in root.iter("testcase")]
+    if not cases:
+        return
+    files = defaultdict(float)
+    for t, name in cases:
+        files[name.split("::")[0]] += t
+    top = sorted(cases, reverse=True)[:n]
+    top_files = sorted(((t, f) for f, t in files.items()), reverse=True)[:20]
+    total = sum(t for t, _ in cases)
+    lines = [f"total {total:.0f} s for {len(cases)} tests"] + [f"{t:6.1f} s  {f}" for t, f in top_files]
+    print(f"::notice title=pytest slowest files::{_escape(chr(10).join(lines))}")
+    print(f"::notice title=pytest slowest tests::{_escape(chr(10).join(f'{t:6.1f} s  {name}' for t, name in top))}")
+    out = os.environ.get("GITHUB_STEP_SUMMARY")
+    if out:
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(f"### Test durations ({len(cases)} tests, {total:.0f} s)\n\n| s | file |\n|---:|---|\n")
+            f.writelines(f"| {t:.1f} | {name} |\n" for t, name in top_files)
+            f.write("\n| s | test |\n|---:|---|\n")
+            f.writelines(f"| {t:.1f} | {name} |\n" for t, name in top)
+
+
+def main(path: str, durations: bool = False) -> int:
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError) as exc:
         print(f"::error title=pytest::No test report ({exc})")
         return 1
+    if durations:
+        slowest(root)
     failures = []
     for case in root.iter("testcase"):
         for kind in ("failure", "error"):
@@ -47,4 +76,5 @@ def main(path: str) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "pytest.xml"))
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    sys.exit(main(args[0] if args else "pytest.xml", durations="--durations" in sys.argv))

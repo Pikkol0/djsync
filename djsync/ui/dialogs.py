@@ -77,7 +77,15 @@ class BaseDialog(QDialog):
         if self._host is not None:
             self._host.open_dialog_page(self)
             return self
-        if self.modal:
+        if self.modal and sys.platform == "darwin":
+            # 1.3.0 (B33) : open() (modale à la fenêtre) devient une FEUILLE sur macOS, qui glisse depuis la
+            # fenêtre : l'animation occupe le fil principal sans relâcher Python, et la carte son, qui
+            # appelle Python, attendait 120 à 170 ms (blanc dans le son en écoute, à l'ouverture et à la
+            # fermeture de « Télécharger vers… »). Modale à l'application et sans animation : la fenêtre
+            # outil (B05) s'affiche au-dessus, dans le même espace.
+            self.setWindowModality(Qt.ApplicationModal)
+            self.show()
+        elif self.modal:
             self.open()
         else:
             self.show()
