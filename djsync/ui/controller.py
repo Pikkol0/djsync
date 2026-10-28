@@ -374,7 +374,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
         def done(what: str) -> None:
             if announce and what:
-                self.message("ok", t("settings.shortcut_" + what))
+                self.message("ok", t("settings.shortcut_created") if what == "created" else t("settings.shortcut_removed"))
 
         def failed(exc: BaseException) -> None:
             log.info("Shortcut: %s", exc)
