@@ -465,14 +465,15 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         row = hbox()
-        row.addWidget(self._fixed(label(t("update.channel"))))
-        self._channel_labels = {"auto": t("update.channel_auto"), "stable": t("update.channel_stable"),
-                                "test": t("update.channel_test")}
-        self.channel_menu = QComboBox()
-        self.channel_menu.addItems(list(self._channel_labels.values()))
-        self.channel_menu.setCurrentText(self._channel_labels.get(s.update_channel, self._channel_labels["auto"]))
-        row.addWidget(self.channel_menu)
+        # 1.3.2 (C96) : une case au lieu du menu « Versions proposées » (auto / stables / stables et test),
+        # et le choix de la version à installer, plus ancienne comprise
+        from ..version_dialog import show_test_versions
+
+        self.show_rc_var = QCheckBox(t("update.show_rc"))
+        self.show_rc_var.setChecked(show_test_versions(s.update_channel, full_version()))
+        row.addWidget(self.show_rc_var)
         row.addStretch(1)
+        row.addWidget(button(t("update.pick"), self._pick_version, kind="flat", icon="menu"))
         card.addLayout(row)
         row = hbox()                                    # 1.3.1 (C88) : désinstaller, toujours visible
         self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="flat", icon="trash")
@@ -546,6 +547,11 @@ class SettingsView(View):
         from ..welcome import WelcomeDialog
 
         WelcomeDialog(self, self.ctrl)
+
+    def _pick_version(self) -> None:
+        from ..version_dialog import VersionDialog
+
+        VersionDialog(self, self.ctrl, on_channel=self.show_rc_var.setChecked)
 
     def _install_update(self) -> None:
         if self.ctrl.available_update is not None:
@@ -1175,8 +1181,7 @@ class SettingsView(View):
         s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
-        s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
-                                "auto")
+        s.update_channel = "test" if self.show_rc_var.isChecked() else "stable"      # C96
         s.error_reports = next((k for k, v in self._report_labels.items() if v == self.report_menu.currentText()), "ask")
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,

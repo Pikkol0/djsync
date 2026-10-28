@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QProgressBar,
-    QLabel, QRadioButton, QWidget,
+    QFrame, QLabel, QRadioButton, QScrollArea, QWidget,
 )
 
 from ..core.duplicates import best_keeper, split_display
@@ -95,7 +95,13 @@ class DuplicatesDialog(BaseDialog):
         self.detail_lay = vbox(self.detail, margins=theme.px(10), spacing=theme.px(6))
         self.detail_lay.addWidget(label(t("dup.searching"), "faint"))
         self.detail_lay.addStretch(1)
-        main.addWidget(self.detail, 1)
+        # 1.3.2 (B34) : le détail d'un groupe défile au lieu de tasser ses versions (beaucoup de versions,
+        # petite fenêtre, aperçu des cues C79) ; la barre d'actions reste visible en bas, hors de la zone.
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.NoFrame)
+        self.detail_scroll.setWidget(self.detail)
+        main.addWidget(self.detail_scroll, 1)
         self.body.addLayout(main, 1)
 
         bar = hbox()
@@ -272,6 +278,7 @@ class DuplicatesDialog(BaseDialog):
             self.list.setCurrentRow(i)
             self.list.blockSignals(False)
         self._clear_detail()
+        self.detail_scroll.verticalScrollBar().setValue(0)         # B34 : un nouveau groupe s'affiche en haut
         if not (0 <= i < len(self.groups)):
             self.detail_lay.addWidget(label(t("dup.none_title"), "h2"))
             self.detail_lay.addWidget(label(t("dup.none_sub"), "dim", wrap=True))

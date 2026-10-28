@@ -10,6 +10,17 @@ restent à faire s'ils ne sont pas cochés.
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
 
+## Ajouts du 28/10 (soir) : B34, C95, C96
+| # | Étapes | Attendu |
+|---|---|---|
+| DOU-11 | (**B34**) Doublons ▸ un groupe avec beaucoup de versions (ou la fenêtre réduite) | Le détail du groupe défile ; les lignes ne sont jamais tassées ; Fusionner / Plus tard / Fermer restent visibles en bas. Un autre groupe s'affiche en haut. |
+| DOU-12 | (**C95**) Doublons pendant la vérification (« Vérification du son… x / N ») ▸ cliquer l'Accueil (ou Grille et cues d'un son) ▸ revenir par Accueil ▸ **Trouver les doublons** | La même page revient, sur le même groupe ; la vérification a continué pendant ce temps (le compteur a avancé), elle ne repart pas de zéro. |
+| DOU-13 | Doublons ▸ **Fermer**, puis le rouvrir | Nouvelle recherche (normal) ; la vérification va vite pour les sons déjà vérifiés (empreintes en cache). |
+| MAJ-1 | (**C96**) Paramètres ▸ DJSync : case **Afficher les versions de test (rc)** et bouton **Choisir une version…** | La case remplace l'ancien menu « Versions proposées » ; elle est cochée sur une version de test. |
+| MAJ-2 | **Choisir une version…** | Liste des versions publiées pour ce système, la plus récente en haut, avec la date ; « installée » sur la tienne ; décocher la case retire les rc. **Nouveautés** ouvre la page de la version. |
+| MAJ-3 | Choisir une version **plus récente** ▸ **Mettre à jour vers …** | Même installation que la mise à jour habituelle (progression, Redémarrer). |
+| MAJ-4 | Choisir une version **plus ancienne** (ex. 1.2.4) ▸ **Revenir à la …** | Avertissement d'abord (réglages et bibliothèques gardés ; une version ancienne peut ne pas relire ce qu'une plus récente a écrit) ; après confirmation, installation puis redémarrage dans cette version. Revenir ensuite à la version de test par le même chemin. |
+
 ## A. Démarrage (C54, C68, C70, C73)
 | # | Étapes | Attendu |
 |---|---|---|
