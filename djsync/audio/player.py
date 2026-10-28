@@ -120,7 +120,7 @@ class _MemStream:
     """Lecture depuis le son décodé en mémoire (même interface que _Stream)."""
 
     def __init__(self, cache: _PcmCache, start: float) -> None:
-        self.cache = cache
+        self.cache, self.start = cache, start
         self.pos = int(start * RATE) * FRAME_BYTES
         self.error: Optional[str] = None
         self.done = True

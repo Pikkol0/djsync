@@ -62,8 +62,12 @@ def test_seek_while_playing_is_heard_at_once(tmp_path):
     assert p.output_latency() > 0
     old_device = p._device
     p.seek(12.0)
-    assert p._device is not None and p._device is not old_device    # réserve vidée : carte son relancée
-    assert p._prev is None                                         # plus d'ancien passage à afficher
+    from djsync.audio import player as P
+
+    if P.SEEK_KEEPS_DEVICE:                                        # rc.7 (C39) : réserve courte, carte gardée
+        assert p._device is old_device
+    else:                                                          # macOS : réserve vidée, carte relancée
+        assert p._device is not None and p._device is not old_device and p._prev is None
     time.sleep(0.3)
     assert 12.0 <= p.position() < 12.6                             # on entend le nouvel endroit
     p.close()
