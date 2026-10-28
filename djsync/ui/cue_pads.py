@@ -200,12 +200,24 @@ class CuePanel(QWidget):
         c = self.cue(slot)
         if c is None:
             return
+        playing = self._is_active_loop(c)
         if n_beats <= 0:
             c.loop_ms, c.loop_beats = None, 0
         else:
             c.loop_ms = loop_end_ms(self.ed.beats, c.ms, n_beats)
             c.loop_beats = n_beats
+        if playing:                                   # 1.3.0 (B35) : la boucle en cours suit le pad
+            if c.loop_ms:
+                self.ed.active_loop = (int(c.ms), int(c.loop_ms))
+                self.ed.draw()
+            else:
+                self.ed.exit_loop()
         self._changed()
+
+    def _is_active_loop(self, c: Cue) -> bool:
+        """1.3.0 (B35) : cette cue est-elle la boucle en train de tourner dans la page ?"""
+        loop = getattr(self.ed, "active_loop", None)
+        return bool(loop and c.loop_ms and loop == (int(c.ms), int(c.loop_ms)))
 
     def rename(self, slot: int) -> None:
         from .dialogs import TextInputDialog
@@ -241,6 +253,10 @@ class CuePanel(QWidget):
         self._changed()
 
     def delete(self, slot: int) -> None:
+        # 1.3.0 (B35) : supprimer le pad de la boucle en cours en sort aussitôt (sans coupure). Avant, le
+        # son continuait de boucler alors que la boucle orange avait disparu.
+        if any(c.slot == slot and self._is_active_loop(c) for c in self.cues):
+            self.ed.exit_loop()
         self.ed.cues = [c for c in self.cues if c.slot != slot]
         self._changed()
 
