@@ -346,6 +346,16 @@ class SettingsView(View):
         row.addWidget(self.keep)
         row.addStretch(1)
         card.addLayout(row)
+        row = hbox()                                       # 1.3.2 (C82) : délai pour annuler une fusion
+        row.addWidget(self._fixed(label(t("settings.merge_undo"))))
+        self.merge_undo = QComboBox()
+        for v in (5, 10, 30):
+            self.merge_undo.addItem(t("settings.seconds", n=v), v)
+        self.merge_undo.setCurrentIndex(max(0, self.merge_undo.findData(s.merge_undo_s)))
+        self.merge_undo.setToolTip(t("settings.merge_undo_tip"))
+        row.addWidget(self.merge_undo)
+        row.addStretch(1)
+        card.addLayout(row)
         row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
         self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
         row.addWidget(self.points_btn)
@@ -884,6 +894,7 @@ class SettingsView(View):
         s.fetch_views = self.views_var.isChecked()
         s.fetch_metadata = self.meta_var.isChecked()
         s.backup_keep = int(self.keep.currentText())
+        s.merge_undo_s = int(self.merge_undo.currentData() or 10)
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()

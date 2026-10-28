@@ -817,6 +817,8 @@ class DJSyncApp(QMainWindow):
         self.toast_action.setText(text)
         self.toast_action.show()
         self._place_toast()
+        if self._status_timer.isActive():                # 1.3.2 (C82) : le temps de cliquer (Annuler…)
+            self._status_timer.start(max(self._status_timer.remainingTime(), 11000))
 
     def _toast_clicked(self) -> None:
         fn, self._toast_fn = self._toast_fn, None

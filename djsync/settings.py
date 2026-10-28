@@ -85,6 +85,7 @@ class Settings:
     # ---- V0.5.0
     audio_format: str = "m4a"          # m4a (flux d'origine, sans perte) | mp3 (MP3 320, ré-encodé)
     normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
+    merge_undo_s: int = 10             # 1.3.2 (C82) : délai pour annuler une fusion de doublons (5, 10, 30 s)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
@@ -165,6 +166,8 @@ class Settings:
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
+        if self.merge_undo_s not in (5, 10, 30):
+            self.merge_undo_s = 10
         return self
 
     # 1.3.2 (C57) : « Rétablir les réglages par défaut ». Jamais touchés : ce qui n'est pas un réglage mais

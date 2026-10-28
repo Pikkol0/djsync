@@ -501,6 +501,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         self._connecting = True
         self._user_disconnected = False
+        self.flush_merges()                         # 1.3.2 (C82) : fusions en attente écrites avant de changer
         old = self.library
         if old is not None and self.analysis.running:
             self.analysis.cancel()
@@ -627,6 +628,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         own = portable.own_drive_root()
         same = own is not None and _same_path(own, drive.root)
+        self.flush_merges()                         # 1.3.2 (C82)
         lib = self.library
         if self.analysis.running:
             self.analysis.cancel()
@@ -866,6 +868,10 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     # ------------------------------------------------------------------- fermeture
     def shutdown(self) -> None:
+        try:
+            self.flush_merges()                     # 1.3.2 (C82) : rien de perdu à la fermeture
+        except Exception:  # noqa: BLE001
+            log.exception("Pending merges at shutdown")
         self.analysis.cancel()
         self.settings.volume = self.player.volume
         self.settings.save()

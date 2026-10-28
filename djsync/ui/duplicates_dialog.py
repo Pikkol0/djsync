@@ -42,6 +42,7 @@ class DuplicatesDialog(BaseDialog):
         self.same_titles: List[List[LibraryTrack]] = []     # groupes sans aucun vrai doublon
         self._same_index = -1
         self._priority: List[List[LibraryTrack]] = []       # 1.3.2 (C84) : groupes demandés en premier
+        self._pending: List[dict] = []                       # 1.3.2 (C82) : fusions en attente (Annuler)
         self._refining: Optional[List[LibraryTrack]] = None
         self._focus = set(focus_ids or [])
         self._keep_id = keep_id                              # version choisie dans le Diagnostic
@@ -101,6 +102,9 @@ class DuplicatesDialog(BaseDialog):
         bar.addWidget(button(t("dup.full_scan"), self._full_scan, kind="flat", icon="search",
                              tooltip=t("dup.full_scan_tip")))
         bar.addStretch(1)
+        self.undo_btn = button("", self._undo_last, kind="flat", icon="back")      # C82
+        self.undo_btn.hide()
+        bar.addWidget(self.undo_btn)
         self.later_btn = button(t("dup.later"), self._skip, kind="flat", tooltip=t("dup.later_tip"))
         self.skip_btn = button(t("dup.skip"), self._not_duplicates, icon="close", tooltip=t("dup.skip_tip"))
         self.apply_btn = button(t("dup.apply"), self._apply, kind="primary", icon="check")
@@ -778,31 +782,63 @@ class DuplicatesDialog(BaseDialog):
         artist = self.artist_entry.text().strip()
         new_title = title if title != keep.title else None
         new_artist = artist if artist != keep.artist else None
-        names = ", ".join(t("fmt.quoted", text=x.title) for x in others[:3])
-
-        def go() -> None:
-            self._busy = True
-            self._refresh_actions()
-
-            def done(_r: Any) -> None:
-                self._busy = False
-                if self.winfo_exists():
-                    self._skip()
-
-            def failed(_e: BaseException) -> None:
-                self._busy = False
-                if self.winfo_exists():
-                    self._refresh_actions()
-
-            self.ctrl.resolve_duplicates(keep.content_id, [x.content_id for x in others], new_title, new_artist,
-                                         ok=done, err=failed, cues_from=cues_from)
 
         cues_from = self.cues_from()
         if cues_from == keep.content_id:
             cues_from = None
+        # 1.3.2 (C82) : plus de fenêtre de confirmation. Le groupe quitte la liste tout de suite ; la
+        # fusion n'est écrite qu'après le délai choisi (10 s), « Annuler » remet tout comme avant.
+        pos = self.index
+        state = {"group": group, "apart": self.apart[pos] if pos < len(self.apart) else [], "pos": pos,
+                 "title": keep.title}
 
-        ConfirmDialog(self, t("dup.confirm_title"), t("dup.confirm_msg", n=len(others), names=names, keep=keep.title),
-                      go, confirm_text=t("dup.apply_short"), danger=True, detail=t("dup.confirm_detail"))
+        def failed(_e: BaseException) -> None:
+            if self.winfo_exists():
+                self._put_back(state)
+
+        delay = int(getattr(self.ctrl.settings, "merge_undo_s", 10) or 10)
+        state["token"] = self.ctrl.schedule_duplicates_merge(
+            keep.content_id, [x.content_id for x in others], new_title, new_artist, cues_from=cues_from,
+            delay_s=delay, ok=lambda _r: self._merge_done(state), err=failed)
+        self._pending.append(state)
+        self._skip()
+        self.ctrl.message("ok", t("dup.merge_pending", n=len(others), title=keep.title, s=delay))
+        self.ctrl._emit("message_action", t("dup.undo"), lambda: self._undo(state))
+        self._show_pending()
+
+    def _merge_done(self, state: dict) -> None:
+        if state in self._pending:
+            self._pending.remove(state)
+        if self.winfo_exists():
+            self._show_pending()
+
+    def _undo(self, state: dict) -> None:
+        if state not in self._pending or not self.ctrl.cancel_merge(state["token"]):
+            return
+        self._pending.remove(state)
+        self.ctrl.message("info", t("dup.merge_undone", title=state["title"]))
+        if self.winfo_exists():
+            self._put_back(state)
+            self._show_pending()
+
+    def _undo_last(self) -> None:
+        if self._pending:
+            self._undo(self._pending[-1])
+
+    def _put_back(self, state: dict) -> None:
+        pos = min(max(0, state["pos"]), len(self.groups))
+        self.groups.insert(pos, state["group"])
+        self.verified.insert(pos, True)
+        self._sync_apart()
+        self.apart.insert(pos, state["apart"])
+        del self.apart[len(self.groups):]
+        self._fill_list()
+        self._select(pos)
+
+    def _show_pending(self) -> None:
+        n = len(self._pending)
+        self.undo_btn.setText(t("dup.pending_btn", n=n))
+        self.undo_btn.setVisible(n > 0)
 
     @property
     def current_group(self) -> Optional[List[LibraryTrack]]:

@@ -200,13 +200,9 @@ def test_same_title_different_audio_stays_greyed_and_never_deleted(demo, monkeyp
     assert dup.apart[0] == [stranger]                        # gardé, grisé
     dup._select(0)
     deleted = []
-    monkeypatch.setattr(demo.ctrl, "resolve_duplicates", lambda keep, others, *a, **k: deleted.append(others))
-    from djsync.ui import duplicates_dialog as D
-
-    monkeypatch.setattr(D, "ConfirmDialog", lambda *a, **k: a[3]())
+    monkeypatch.setattr(demo.ctrl, "schedule_duplicates_merge", lambda keep, others, *a, **k: deleted.append(others) or 1)
     dup._apply()
     assert deleted and stranger.content_id not in deleted[0]  # jamais supprimé par la fusion
-    assert demo.ctrl.diag_counts.get("dup") == 1
     dup.close()
     assert not demo.errors
 
@@ -248,5 +244,58 @@ def test_progress_bar_and_verify_a_group_first(demo, monkeypatch):  # noqa: F811
     dup._refined(a, [a])
     dup._refined(b, [b])
     assert not dup.bar.isVisible()                            # tout vérifié : la barre disparaît
+    dup.close()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C82
+def _merge_page(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    monkeypatch.setattr(demo.ctrl, "refine_duplicate_group", lambda g, ok: ok([g]))
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    assert pump(demo, 4, lambda: len(dup.groups) == 1 and all(dup.verified))
+    return dup
+
+
+def test_merge_without_confirmation_and_undo_changes_nothing(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.dialogs import ConfirmDialog
+
+    demo.ctrl.settings.merge_undo_s = 5
+    written = []
+    monkeypatch.setattr(demo.ctrl, "resolve_duplicates", lambda *a, **k: written.append(a))
+    dup = _merge_page(demo, monkeypatch)
+    before = demo.ctrl.library.list_tracks()
+    dup._apply()
+    assert find(demo, ConfirmDialog) is None                  # plus de fenêtre
+    assert dup.groups == [] and dup.undo_btn.isVisible()      # le groupe quitte la liste tout de suite
+    assert len(demo.ctrl.pending_merges) == 1
+    dup._undo_last()                                          # Annuler
+    assert dup.groups and len(dup.groups[0]) == 2 and not demo.ctrl.pending_merges
+    pump(demo, 6)                                             # le délai passe : rien n'est écrit
+    assert written == [] and len(demo.ctrl.library.list_tracks()) == len(before)
+    dup.close()
+    assert not demo.errors
+
+
+def test_merge_is_written_after_the_delay(demo, monkeypatch):  # noqa: F811
+    demo.ctrl.settings.merge_undo_s = 5
+    dup = _merge_page(demo, monkeypatch)
+    n = len(demo.ctrl.library.list_tracks())
+    dup._apply()
+    assert len(demo.ctrl.library.list_tracks()) == n          # rien avant le délai
+    assert pump(demo, 10, lambda: len(demo.ctrl.library.list_tracks()) == n - 1 and not dup._pending)
+    assert not demo.ctrl.pending_merges and not dup.undo_btn.isVisible()
+    dup.close()
+    assert not demo.errors
+
+
+def test_pending_merge_applied_before_closing(demo, monkeypatch):  # noqa: F811
+    demo.ctrl.settings.merge_undo_s = 30
+    dup = _merge_page(demo, monkeypatch)
+    n = len(demo.ctrl.library.list_tracks())
+    dup._apply()
+    assert demo.ctrl.flush_merges() == 1                      # fermeture / changement de clé
+    assert len(demo.ctrl.library.list_tracks()) == n - 1 and not demo.ctrl.pending_merges
     dup.close()
     assert not demo.errors

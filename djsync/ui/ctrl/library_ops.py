@@ -669,12 +669,68 @@ class LibraryOpsMixin:
                         ok: Optional[Callback] = None) -> None:
         self._write(lambda lib: lib.update_track_metadata(content_id, title, artist), ok, t("msg.metadata_saved"))
 
-    def resolve_duplicates(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
-                           artist: Optional[str] = None, ok: Optional[Callback] = None,
-                           err: Optional[Callback] = None, cues_from: Optional[int] = None) -> None:
-        """Garde un son (titre/artiste éventuellement corrigés), supprime les autres de la clé."""
-        carried: Dict[str, int] = {}
+    # ------------------------------------------------------------ 1.3.2 (C82) : fusion différée, « Annuler »
+    def schedule_duplicates_merge(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
+                                  artist: Optional[str] = None, cues_from: Optional[int] = None,
+                                  delay_s: float = 10.0, ok: Optional[Callback] = None,
+                                  err: Optional[Callback] = None) -> int:
+        """La fusion ne s'écrit qu'après `delay_s` secondes : jusque-là rien ne change sur la clé et
+        `cancel_merge` l'annule. Fermeture, changement de clé, éjection : appliquée tout de suite."""
+        from PySide6.QtCore import QTimer
 
+        pending = self.__dict__.setdefault("pending_merges", {})
+        self._merge_seq = getattr(self, "_merge_seq", 0) + 1
+        token = self._merge_seq
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._run_pending_merge(token))
+        pending[token] = {"timer": timer, "lib": self.library,
+                          "args": (keep_id, list(remove_ids), title, artist, ok, err, cues_from)}
+        timer.start(int(max(0.0, delay_s) * 1000))
+        return token
+
+    def cancel_merge(self, token: int) -> bool:
+        job = self.__dict__.get("pending_merges", {}).pop(token, None)
+        if job is None:
+            return False
+        job["timer"].stop()
+        return True
+
+    def _run_pending_merge(self, token: int) -> None:
+        job = self.__dict__.get("pending_merges", {}).pop(token, None)
+        if job is None:
+            return
+        job["timer"].stop()
+        if job["lib"] is not self.library:                 # clé changée entre-temps : déjà appliquée ou perdue
+            return
+        self.resolve_duplicates(*job["args"][:4], ok=job["args"][4], err=job["args"][5], cues_from=job["args"][6])
+
+    def flush_merges(self) -> int:
+        """Applique tout de suite, dans ce fil, les fusions en attente (fermeture, changement de clé)."""
+        pending = self.__dict__.get("pending_merges", {})
+        n = 0
+        for token in list(pending):
+            job = pending.pop(token)
+            job["timer"].stop()
+            lib = job["lib"]
+            if lib is None or lib is not self.library:
+                log.warning("Pending duplicate merge dropped: the library changed")
+                continue
+            keep_id, remove_ids, title, artist, _ok, _err, cues_from = job["args"]
+            try:
+                self._merge_job(keep_id, remove_ids, title, artist, cues_from, {})(lib)
+                n += 1
+            except Exception as exc:  # noqa: BLE001 - on ferme quand même
+                log.warning("Pending duplicate merge failed: %s", exc)
+        if n:
+            try:
+                self.service.refresh_library()
+            except Exception:  # noqa: BLE001
+                pass
+        return n
+
+    def _merge_job(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str], artist: Optional[str],
+                   cues_from: Optional[int], carried: Dict[str, int]) -> Callable[[Any], Any]:
         def run(lib: RekordboxUsbLibrary) -> Any:
             moved = None
             if cues_from is not None and int(cues_from) != int(keep_id):
@@ -688,6 +744,14 @@ class LibraryOpsMixin:
                 lib.save_track_cues(keep_id, cues)
                 carried.update(n=len(cues), lost=lost)
             return result
+        return run
+
+    def resolve_duplicates(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
+                           artist: Optional[str] = None, ok: Optional[Callback] = None,
+                           err: Optional[Callback] = None, cues_from: Optional[int] = None) -> None:
+        """Garde un son (titre/artiste éventuellement corrigés), supprime les autres de la clé."""
+        carried: Dict[str, int] = {}
+        run = self._merge_job(keep_id, remove_ids, title, artist, cues_from, carried)
 
         def done(result: Any) -> None:
             removed, failures = result
