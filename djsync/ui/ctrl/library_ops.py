@@ -590,7 +590,10 @@ class LibraryOpsMixin:
             from ...core.duplicates import find_duplicate_groups
 
             self.duplicate_matches = {}
-            return find_duplicate_groups(lib.list_tracks(), ignored=ignored)
+            tracks = lib.list_tracks()
+            if progress is not None:                           # 1.3.2 (C84) : nombre de sons comparés
+                self.dispatcher.post(progress, 0, len(tracks))
+            return find_duplicate_groups(tracks, ignored=ignored)
 
         self.dispatcher.submit(work, ok, self._on_error, pool="match")
 

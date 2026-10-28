@@ -225,3 +225,28 @@ def test_group_without_real_duplicate_goes_to_the_same_titles_section(demo, monk
     assert demo.ctrl.diag_counts.get("dup") == 0
     dup.close()
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ C84
+def test_progress_bar_and_verify_a_group_first(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    asked = []
+    monkeypatch.setattr(demo.ctrl, "refine_duplicate_group", lambda g, ok: asked.append(g))
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    assert pump(demo, 4, lambda: len(dup.groups) == 1)
+    assert dup.bar.isVisible() and dup.bar.maximum() == 1 and dup.bar.value() == 0
+    g = dup.groups[0]
+    a, b, c = list(g), [g[0], g[0]], [g[1], g[0]]             # trois groupes en attente
+    dup.groups, dup.verified, dup.apart, dup._refining = [a, b, c], [False] * 3, [[], [], []], None
+    dup._select(0)
+    dup.verify_now(2)                                         # clic droit ▸ Vérifier ce groupe maintenant
+    assert asked[-1] == c                                     # passé devant le groupe affiché
+    dup._refined(c, [c])
+    assert asked[-1] == a                                     # puis le groupe affiché
+    assert dup.bar.maximum() == 3 and dup.bar.value() == 1
+    dup._refined(a, [a])
+    dup._refined(b, [b])
+    assert not dup.bar.isVisible()                            # tout vérifié : la barre disparaît
+    dup.close()
+    assert not demo.errors

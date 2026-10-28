@@ -12,7 +12,8 @@ from typing import Any, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QWidget,
+    QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QProgressBar,
+    QRadioButton, QWidget,
 )
 
 from ..core.duplicates import best_keeper, split_display
@@ -40,6 +41,7 @@ class DuplicatesDialog(BaseDialog):
         self.apart: List[List[LibraryTrack]] = []            # par groupe : écartés par l'empreinte
         self.same_titles: List[List[LibraryTrack]] = []     # groupes sans aucun vrai doublon
         self._same_index = -1
+        self._priority: List[List[LibraryTrack]] = []       # 1.3.2 (C84) : groupes demandés en premier
         self._refining: Optional[List[LibraryTrack]] = None
         self._focus = set(focus_ids or [])
         self._keep_id = keep_id                              # version choisie dans le Diagnostic
@@ -71,11 +73,19 @@ class DuplicatesDialog(BaseDialog):
         self.count = label(t("dup.searching"), "dim")
         head.addWidget(self.count)
         self.body.addLayout(head)
+        # 1.3.2 (C84) : fine barre d'avancement (recherche par titre, puis vérification par le son)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(theme.px(3))
+        self.bar.setRange(0, 0)
+        self.body.addWidget(self.bar)
 
         main = hbox(spacing=theme.px(10))
         self.list = QListWidget()
         self.list.setFixedWidth(theme.px(240))
         self.list.currentRowChanged.connect(self._select)
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)       # C84 : « Vérifier ce groupe maintenant »
+        self.list.customContextMenuRequested.connect(self._list_menu)
         main.addWidget(self.list)
         self.detail = panel()
         self.detail_lay = vbox(self.detail, margins=theme.px(10), spacing=theme.px(6))
@@ -107,7 +117,7 @@ class DuplicatesDialog(BaseDialog):
 
     def _progress(self, i: int, n: int) -> None:
         if self.winfo_exists() and not self.groups:
-            self.count.setText(t("dup.comparing", i=i, n=n))
+            self.count.setText(t("dup.title_search", n=n))
 
     # ------------------------------------------------------------------ rc.5 (C63) : son vérifié groupe par groupe
     def _refine_next(self) -> None:
@@ -117,7 +127,11 @@ class DuplicatesDialog(BaseDialog):
         if not todo:
             self._update_count()
             return
-        i = self.index if self.index in todo else todo[0]           # le groupe affiché d'abord
+        # C84 : d'abord les groupes demandés (clic droit, « Vérifier maintenant »), puis celui affiché
+        asked = [next((i for i in todo if self.groups[i] is g), -1) for g in self._priority]
+        asked = [i for i in asked if i >= 0]
+        i = asked[0] if asked else (self.index if self.index in todo else todo[0])
+        self._priority = [g for g in self._priority if g is not self.groups[i]]
         group = self.groups[i]
         self._refining = group
         self._update_count()
@@ -162,8 +176,12 @@ class DuplicatesDialog(BaseDialog):
         self.ctrl.set_diag_count("dup", n)                     # 1.3.1 (C41) : compteur de l'onglet
         if todo:
             self.count.setText(t("dup.audio_checking", i=n - todo, n=n))
+            self.bar.setRange(0, max(1, len(self.verified)))   # C84
+            self.bar.setValue(len(self.verified) - todo)
+            self.bar.show()
         else:
             self.count.setText(plural("dup.groups_one", "dup.groups_many", n))
+            self.bar.hide()
         self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
 
     # ------------------------------------------------------------------ liste
@@ -187,7 +205,8 @@ class DuplicatesDialog(BaseDialog):
             title, artist = split_display(k.title, k.artist)
             item = QListWidgetItem(f"{title}\n{artist or '—'}  ·  ×{len(g)}")
             if i < len(self.verified) and not self.verified[i]:
-                item.setToolTip(t("dup.unchecked"))
+                queued = any(g is p for p in self._priority) or g is self._refining
+                item.setToolTip(t("dup.unchecked_next") if queued else t("dup.unchecked"))
                 item.setForeground(QColor(theme.DIM))
             self.list.addItem(item)
         if self.same_titles:                                   # 1.3.2 (C80) : section repliée en bas
@@ -253,6 +272,14 @@ class DuplicatesDialog(BaseDialog):
         keeper = best_keeper(group)
         if self._keep_id is not None:
             keeper = next((x for x in group if x.content_id == self._keep_id), keeper)
+        if i < len(self.verified) and not self.verified[i]:          # C84
+            vrow = hbox(spacing=theme.px(6))
+            vrow.addWidget(label(t("dup.unchecked_detail"), "faint"))
+            vrow.addStretch(1)
+            if group is not self._refining:
+                vrow.addWidget(button(t("dup.verify_now"), lambda: self.verify_now(self.index), kind="flat",
+                                      icon="search"))
+            self.detail_lay.addLayout(vrow)
         self.detail_lay.addWidget(label(t("dup.choose"), "dim"))
         for k, x in enumerate(group):
             self.detail_lay.addWidget(self._version_row(k, x, x is keeper))
@@ -556,6 +583,24 @@ class DuplicatesDialog(BaseDialog):
                 QTimer.singleShot(100, lambda: seek_when_ready(tries + 1))
 
         QTimer.singleShot(100, seek_when_ready)
+
+    # ------------------------------------------------------------ 1.3.2 (C84) : vérifier un groupe en priorité
+    def _list_menu(self, pos: Any) -> None:
+        row = self.list.indexAt(pos).row()
+        if not (0 <= row < len(self.groups)) or self.verified[row]:
+            return
+        menu = QMenu(self)
+        menu.addAction(t("dup.verify_now"), lambda: self.verify_now(row))
+        menu.exec(self.list.viewport().mapToGlobal(pos))
+
+    def verify_now(self, i: int) -> None:
+        """Le groupe passe en tête de file : vérifié juste après celui en cours."""
+        if not (0 <= i < len(self.groups)) or self.verified[i]:
+            return
+        g = self.groups[i]
+        self._priority = [g] + [x for x in self._priority if x is not g]
+        self._fill_list()
+        self._refine_next()
 
     # ------------------------------------------------------------ 1.3.2 (C80) : même titre, son différent
     def _apart_row(self, x: LibraryTrack, others: List[LibraryTrack]) -> QWidget:
