@@ -282,6 +282,26 @@ class GridEditor(QWidget):
         # que la carte son a déjà en réserve (rc.5, C39)
         self.ctrl.player.seek(max(0.0, (ms - self._lead_ms) / 1000.0), flush=flush)
 
+    # 1.3.0-rc.8 (B31) : la page reste ouverte quand on change d'onglet (modifications gardées) ; le
+    # lecteur du bas ne la suit que lorsqu'elle est affichée (forme d'onde, bouton Lecture)
+    def showEvent(self, event: Any) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._tell_player(self)
+
+    def hideEvent(self, event: Any) -> None:  # noqa: N802
+        super().hideEvent(event)
+        self._tell_player(None)
+
+    def _tell_player(self, page: Any) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        if self._closed or QApplication.closingDown() or not self.window().isVisible() and page is None:
+            return                                   # fermeture de l'appli : le lecteur n'existe peut-être plus
+        try:
+            self.ctrl._emit("grid_page", page)
+        except RuntimeError:                         # lecteur déjà détruit
+            pass
+
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid
 
