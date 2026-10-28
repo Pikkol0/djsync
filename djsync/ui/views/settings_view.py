@@ -860,6 +860,7 @@ class SettingsView(View):
                 self._engine_release = release
                 self.engine_install_btn.setText(t("engine.install_version", version=release.version))
                 self.engine_install_btn.show()
+                self.set_folded(self.engine_card, True)              # C89 : une mise à jour se voit
                 self._engine_show(t("engine.available", version=release.version))
             else:
                 self.engine_install_btn.hide()
@@ -966,6 +967,7 @@ class SettingsView(View):
                 self._engine_release = release
                 self.engine_install_btn.setText(t("engine.install_version", version=release.version))
                 self.engine_install_btn.show()
+                self.set_folded(self.engine_card, True)
                 self._check_row("engine", "update", t("checkall.engine_update", version=release.version), go="advanced")
             else:
                 self._check_row("engine", "ok", t("checkall.engine_ok", version=cur or "?"))
