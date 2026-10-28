@@ -271,13 +271,21 @@ class GridEditor(QWidget):
     # lecteur du bas ne la suit que lorsqu'elle est affichée (forme d'onde, bouton Lecture)
     def showEvent(self, event: Any) -> None:  # noqa: N802
         super().showEvent(event)
-        if not self._closed:
-            self.ctrl._emit("grid_page", self)
+        self._tell_player(self)
 
     def hideEvent(self, event: Any) -> None:  # noqa: N802
         super().hideEvent(event)
-        if not self._closed:
-            self.ctrl._emit("grid_page", None)
+        self._tell_player(None)
+
+    def _tell_player(self, page: Any) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        if self._closed or QApplication.closingDown() or not self.window().isVisible() and page is None:
+            return                                   # fermeture de l'appli : le lecteur n'existe peut-être plus
+        try:
+            self.ctrl._emit("grid_page", page)
+        except RuntimeError:                         # lecteur déjà détruit
+            pass
 
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid

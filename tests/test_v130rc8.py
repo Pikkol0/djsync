@@ -150,6 +150,8 @@ def test_opening_a_page_logs_any_other_visible_window(demo, caplog):  # noqa: F8
     extra.show()
     demo._log_stray_windows("Test")
     extra.close()
+    extra.deleteLater()
+    pump(demo, 0.2)
     assert "other visible windows" in caplog.text
     dup.close()
     assert not demo.errors
