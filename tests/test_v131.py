@@ -280,15 +280,16 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
         close_window(app)
 
 
-def test_home_pdb_chip_opens_the_advanced_section(tmp_path, monkeypatch):
+def test_home_pdb_chip_opens_the_libraries_section(tmp_path, monkeypatch):
     from .qt_util import close_window, pump
 
     app, _usb = _demo_app(tmp_path, monkeypatch)
     try:
-        app.views["home"].open_settings("advanced")                  # 1.3.1 (C89) : export.pdb dans Avancé
+        app.views["home"].open_settings("libraries")                 # 1.3.1 (C90) : état d'export.pdb dans Bibliothèques
         pump(app, 0.2)
-        assert app._current == "settings" and app.views["settings"]._current_section == "advanced"
-        assert app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])
+        assert app._current == "settings" and app.views["settings"]._current_section == "libraries"
+        assert app.views["settings"].pdb_sync_btn.isVisibleTo(app.views["settings"])
+        assert not app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])    # options : Avancé
     finally:
         close_window(app)
 

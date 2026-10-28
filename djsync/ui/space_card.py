@@ -6,7 +6,7 @@ de la clé ; le résultat est gardé quelques minutes (`core.space.UsageCache`).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
@@ -109,10 +109,14 @@ class SpaceCard:
         except (AttributeError, OSError):
             return None
 
-    def compute(self, force: bool = False) -> None:
+    def compute(self, force: bool = False, done: Optional[Callable[[Any], None]] = None) -> None:
+        """Mesure en arrière-plan (résultat gardé quelques minutes). 1.3.1 (C90) : `done(usage ou None)`
+        une fois le résultat affiché (« Tout vérifier »)."""
         target = self._target()
         self.result.setText("")
         if target is None:
+            if done:
+                done(None)
             self.summary.setText(t("space.no_library"))
             self.bar.set_parts({})
             self._fill({}, {})
@@ -122,6 +126,8 @@ class SpaceCard:
         cached = self.cache.get(target["key"])
         if cached is not None:
             self._show(cached, target)
+            if done:
+                done(cached)
             return
         if self._pending == target["key"] and not force:
             return
@@ -142,12 +148,16 @@ class SpaceCard:
             self._pending = None
             self.cache.put(target["key"], usage)
             self._show(usage, target)
+            if done:
+                done(usage)
 
         def failed(_exc: Any) -> None:
             if token == self._token:
                 self._pending = None
                 self.refresh_btn.setEnabled(True)
                 self.summary.setText(t("space.failed"))
+            if done:
+                done(None)
 
         self.ctrl.dispatcher.submit(work, ok, failed, pool="tools")
 
