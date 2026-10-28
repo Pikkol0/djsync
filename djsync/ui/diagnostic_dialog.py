@@ -102,6 +102,10 @@ class DiagnosticDialog(BaseDialog):
         items += [(i.kind, i) for i in diagnosis.issues if i.kind == "source"]
         items += [(i.kind, i) for i in diagnosis.issues if i.kind == "bitrate"]
         self.items = [(k, p) for k, p in items if item_key(k, p) not in ignored]
+        # 1.3.0-rc.7 (C63) : un seul outil pour les doublons. Le Diagnostic ne les traite plus lui-même : une
+        # seule entrée, qui ouvre l'outil Doublons (son vérifié, hot cues, « pas un doublon », version propre).
+        dups = [p for k, p in self.items if k == "dup"]
+        self.items = ([("dups", dups)] if dups else []) + [(k, p) for k, p in self.items if k != "dup"]
         self._fill_list()
         self._select(0 if self.items else -1)
 
@@ -112,6 +116,15 @@ class DiagnosticDialog(BaseDialog):
         self.count.setText(plural("diag.count_one", "diag.count_many", n) if n else t("diag.none_short"))
         current = None
         for idx, (kind, payload) in enumerate(self.items):
+            if kind == "dups":                        # rc.7 (C63) : une seule ligne pour tous les doublons
+                item = QListWidgetItem(t("diag.dup_tool_row", n=len(payload)))
+                f = item.font()
+                f.setBold(True)
+                item.setFont(f)
+                item.setData(Qt.UserRole, idx)
+                self.list.addItem(item)
+                current = kind
+                continue
             if kind != current:
                 current = kind
                 total = sum(1 for k, _p in self.items if k == kind)
@@ -175,6 +188,14 @@ class DiagnosticDialog(BaseDialog):
             return
         kind, payload = cur
         lay = self.detail_lay
+        if kind == "dups":
+            lay.addWidget(label(plural("dup.groups_one", "dup.groups_many", len(payload)), "h2"))
+            lay.addWidget(label(t("diag.dup_tool_sub"), "dim", wrap=True))
+            lay.addWidget(button(t("diag.dup_tool_open"), self._open_duplicates, kind="primary", icon="check"),
+                          0, Qt.AlignLeft)
+            lay.addStretch(1)
+            self._refresh_actions()
+            return
         if kind == "dup":
             tracks: List[LibraryTrack] = list(payload)
             lay.addWidget(label(t("diag.dup_title", n=len(tracks)), "h2"))
@@ -311,8 +332,17 @@ class DiagnosticDialog(BaseDialog):
                     pass
         self._refresh_actions()
 
+    def _open_duplicates(self) -> None:
+        from .duplicates_dialog import DuplicatesDialog
+
+        DuplicatesDialog(self, self.ctrl)
+
     def _refresh_actions(self) -> None:
         cur = self.current
+        if cur is not None and cur[0] == "dups":               # rc.7 (C63) : tout se fait dans l'outil Doublons
+            self.apply_btn.setEnabled(False)
+            self.ignore_btn.setEnabled(False)
+            return
         ok = cur is not None and not self._busy and self._choice.checkedId() >= 0
         self.apply_btn.setEnabled(ok)
         self.ignore_btn.setEnabled(cur is not None and not self._busy)

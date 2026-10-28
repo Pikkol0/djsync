@@ -125,17 +125,21 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
     dlg = find(demo, DiagnosticDialog)
     assert pump(demo, 6, lambda: not dlg._loading)
-    kinds = [(k, p.track.title if k != "dup" else len(p)) for k, p in dlg.items]
-    assert kinds == [("dup", 2), ("bitrate", "Umbrella")]          # le clip est dans le groupe de doublons
-    assert dlg.list.item(0).flags() == dlg.list.item(0).flags().__class__(0)   # en-tête de section
+    kinds = [(k, p.track.title if k != "dups" else len(p)) for k, p in dlg.items]
+    assert kinds == [("dups", 1), ("bitrate", "Umbrella")]         # le clip est dans le groupe de doublons
+    assert dlg.list.item(0).text() == "Duplicates (1 groups)"
+    # ---- rc.7 (C63) : doublons traités dans l'outil Doublons seulement (une ligne qui l'ouvre)
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
 
-    # ---- doublon : 2 versions + versions propres (la proposition « Official Video » est écartée)
-    assert pump(demo, 4, lambda: dlg._choice.button(ALT) is not None)
-    assert dlg._choice.button(ALT + 1) is None
-    # rc.5 (C63) : garder une version = fusionner dans l'outil Doublons
-    assert dlg._choice.checkedId() == 0 and dlg.apply_btn.text() == "Merge in Duplicates…"
-    dlg._choice.button(ALT).setChecked(True)
-    assert dlg.apply_btn.text() == "Download and replace" and not dlg.note.isHidden()
+    assert not dlg.apply_btn.isEnabled() and not dlg.ignore_btn.isEnabled()
+    dlg._open_duplicates()
+    assert pump(demo, 4, lambda: find(demo, DuplicatesDialog) is not None)
+    dup = find(demo, DuplicatesDialog)
+    assert pump(demo, 6, lambda: len(dup.groups) == 1 and dup.index == 0)
+    # version propre depuis l'outil Doublons (avant : seulement dans le Diagnostic)
+    dup._find_clean(dup.groups[0], dup.groups[0][0])
+    assert pump(demo, 4, lambda: any(v for v in dup._clean.values()))
+    dup.close()
 
     # ---- qualité : remplacer Umbrella par la version retéléchargée
     dlg._select(1)
@@ -154,16 +158,8 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     assert umbrella.content_id not in {x.content_id for x in tracks}
     assert pls_before == {p.name for p in ctrl.playlists if job.content_id in _ids(ctrl, p.playlist_id)} == {"Classiques"}
 
-    # ---- ignorer : retenu pour les diagnostics suivants
-    dlg._select(0)
-    dlg._ignore()
-    assert dlg.items == [] and ctrl.settings.diag_ignored[0].startswith("d:")
-    dlg.close()
-    home._open_diagnostic()
-    assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
-    dlg = find(demo, DiagnosticDialog)
-    assert pump(demo, 6, lambda: not dlg._loading)
-    assert dlg.items == [] and dlg.count.text() == "Nothing to fix"
+    # ---- ignorer un problème de qualité : retenu pour les diagnostics suivants
+    assert [k for k, _p in dlg.items] == ["dups"]
     dlg.close()
     assert not demo.errors
 

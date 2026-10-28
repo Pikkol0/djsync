@@ -175,6 +175,8 @@ def test_unanalysed_then_analyse(local):
     assert local.analyze_tracks([t.content_id], force=True)[0] == 1          # son DJSync : réanalyse permise
 
 
+@pytest.mark.skipif(__import__("sys").platform == "win32",
+                    reason="simulates Rekordbox swapping master.db under an open connection: Windows refuses to delete an open file")
 def test_sees_rekordbox_changes_and_survives_a_replaced_master_db(local, tmp_path):
     """V1.2.0 (testeur Mac) : playlists créées dans Rekordbox invisibles, puis « database disk image is
     malformed ». DJSync ne doit pas rester sur une image figée de master.db, et doit rouvrir le fichier

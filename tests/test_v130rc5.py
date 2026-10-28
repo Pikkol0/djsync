@@ -62,8 +62,12 @@ def test_seek_while_playing_is_heard_at_once(tmp_path):
     assert p.output_latency() > 0
     old_device = p._device
     p.seek(12.0)
-    assert p._device is not None and p._device is not old_device    # réserve vidée : carte son relancée
-    assert p._prev is None                                         # plus d'ancien passage à afficher
+    from djsync.audio import player as P
+
+    if P.SEEK_KEEPS_DEVICE:                                        # rc.7 (C39) : réserve courte, carte gardée
+        assert p._device is old_device
+    else:                                                          # macOS : réserve vidée, carte relancée
+        assert p._device is not None and p._device is not old_device and p._prev is None
     time.sleep(0.3)
     assert 12.0 <= p.position() < 12.6                             # on entend le nouvel endroit
     p.close()
@@ -181,16 +185,14 @@ def test_diagnostic_merges_through_the_duplicates_tool(demo):  # noqa: F811
     from tests.qt_util import find, pump
 
     diag = DiagnosticDialog(demo.views["home"], demo.ctrl)
-    assert pump(demo, 8, lambda: any(k == "dup" for k, _p in diag.items))
-    diag._select(next(i for i, (k, _p) in enumerate(diag.items) if k == "dup"))
-    group = list(diag.current[1])
-    diag._choice.button(1).setChecked(True)                                 # garder la 2e version
-    assert diag.apply_btn.text() == "Merge in Duplicates…"
-    diag._apply()
+    # rc.7 (C63) : une seule ligne « Doublons », qui ouvre l'outil Doublons (plus de 2e interface)
+    assert pump(demo, 8, lambda: any(k == "dups" for k, _p in diag.items))
+    diag._select(next(i for i, (k, _p) in enumerate(diag.items) if k == "dups"))
+    groups = diag.current[1]
+    diag._open_duplicates()
     assert pump(demo, 4, lambda: find(demo, DuplicatesDialog) is not None)
     dup = find(demo, DuplicatesDialog)
-    assert pump(demo, 4, lambda: dup.current_group is not None)
-    assert dup.current_group[dup.keep_index()].content_id == group[1].content_id
+    assert pump(demo, 6, lambda: len(dup.groups) == len(groups))
     dup.close()
     assert not demo.errors
 
