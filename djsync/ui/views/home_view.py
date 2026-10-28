@@ -195,7 +195,7 @@ class HomeView(View):
                 pdb = chip(t("home.pdb_short_yes"), "chip_good")          # C29
                 pdb.setToolTip(t("home.pdb_yes"))
             pdb.setCursor(Qt.PointingHandCursor)              # 1.3.1 (C28) : ouvre la section des réglages
-            pdb.mousePressEvent = lambda _e: self.open_settings("libraries")
+            pdb.mousePressEvent = lambda _e: self.open_settings("advanced")      # 1.3.1 (C89)
             chips.addWidget(pdb)
             if s.filesystem:
                 from ...db.usb import filesystem_compat

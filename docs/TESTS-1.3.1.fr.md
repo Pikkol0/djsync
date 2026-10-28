@@ -87,3 +87,14 @@ Numérotation (27/10) : **thème en 3 lettres + n°**, propre à chaque version 
 | CLE-5 | Rekordbox ouvert sur la clé : dans DJSync, faire une modification (renommer une playlist). | Si une erreur arrive, elle se termine par « 💡 Rekordbox est ouvert et utilise probablement ce fichier : fermez Rekordbox, puis réessayez. » |
 | CLE-6 | Lire une erreur longue. | La bulle d'erreur est large (jusqu'à ~70 % de la fenêtre), le texte entier se lit, **Copier** met le message dans le presse-papiers ; elle reste jusqu'à **Fermer** (×). Les messages d'info disparaissent seuls comme avant. |
 | DEM-1 | (Auteur) Build de la 1.3.1 : taille de DJSync.exe (::notice du build) et premier lancement depuis une clé. | Plus petit qu'en 1.3.0 (fichiers Qt inutiles retirés : OpenGL logiciel, QML, clavier virtuel, traductions autres que FR/EN…) ; l'autotest du build passe ; DJSync démarre et tout s'affiche. |
+
+## Q. Désinstaller depuis l'app (C88), Paramètres rangés et « Tout vérifier » (C89)
+| # | Étapes | Attendu |
+|---|---|---|
+| PAR-6 | Paramètres : regarder le volet. | Nouvelle section **Avancé**, en dernier et en gris. Elle contient FFmpeg, Anciennes platines (export.pdb), Moteur de téléchargement et « Clé et son » (lettre de clé, décalage audio). Ces réglages ne sont plus dans Général, Bibliothèques ni Téléchargement. |
+| PAR-7 | Avancé : cartes FFmpeg et Moteur de téléchargement. | Repliées, avec une ligne d'état (« intégré et utilisable, rien à régler », « version … ») ; la flèche les déplie. Si FFmpeg est introuvable, la carte s'ouvre d'elle-même. Chercher « ffmpeg » montre son contenu. |
+| PAR-8 | Accueil : cliquer la pastille export.pdb. | Les Paramètres s'ouvrent sur la section Avancé. |
+| PAR-9 | Bouton **Tout vérifier** (en haut à droite des Paramètres), avec une clé ouverte. | Une liste d'états : DJSync, Moteur, FFmpeg, Clés, export.pdb, Diagnostic (✓ à jour, ↑ mise à jour disponible avec « Ouvrir », ⚠ problème). Aucune fenêtre ne s'ouvre et rien n'est installé ; seul export.pdb est mis à jour s'il ne l'était pas. |
+| PAR-10 | Paramètres ▸ DJSync. | Bouton **Désinstaller DJSync…** toujours présent (grisé seulement depuis le code source). |
+| PAR-11 | DJSync.exe copié dans un dossier de l'ordinateur (pas sur une clé) : **Désinstaller DJSync…** | La fenêtre liste ce qui part (DJSync.exe, `.djsync`, réglages, caches) et propose de supprimer aussi les sauvegardes de master.db. Après « Retirer et quitter », DJSync se ferme et ces fichiers disparaissent ; la musique et les bibliothèques Rekordbox sont intactes. |
+| PAR-12 | Depuis une clé : **Désinstaller DJSync…** | Même fenêtre qu'avant (« Retirer DJSync de cette clé ») ; le bouton de la carte Sauvegardes est toujours là. |

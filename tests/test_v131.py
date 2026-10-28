@@ -254,7 +254,7 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
             assert cards, key                                    # chaque section a au moins une carte
             seen.update(id(c) for c in cards)
         assert len(seen) == len(view._cards)                     # chaque carte est dans une section
-        assert app.ctrl.settings.settings_section == "djsync"
+        assert app.ctrl.settings.settings_section == "advanced"            # 1.3.1 (C89) : dernière section
         view.show_section("analysis")
         assert view.analyze_usb_var.isVisibleTo(view)
         assert not view.update_var.isVisibleTo(view)
@@ -280,14 +280,14 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
         close_window(app)
 
 
-def test_home_pdb_chip_opens_the_libraries_section(tmp_path, monkeypatch):
+def test_home_pdb_chip_opens_the_advanced_section(tmp_path, monkeypatch):
     from .qt_util import close_window, pump
 
     app, _usb = _demo_app(tmp_path, monkeypatch)
     try:
-        app.views["home"].open_settings("libraries")
+        app.views["home"].open_settings("advanced")                  # 1.3.1 (C89) : export.pdb dans Avancé
         pump(app, 0.2)
-        assert app._current == "settings" and app.views["settings"]._current_section == "libraries"
+        assert app._current == "settings" and app.views["settings"]._current_section == "advanced"
         assert app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])
     finally:
         close_window(app)
