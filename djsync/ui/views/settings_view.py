@@ -464,8 +464,31 @@ class SettingsView(View):
                              icon="info"))
         row.addStretch(1)
         card.addLayout(row)
+        # 1.3.2 (C70) : lancer DJSync depuis la recherche du système ; (C54) revoir l'accueil
+        from ...core import shortcut as _sc
+
+        self.shortcut_var = QCheckBox(t("settings.shortcut"))
+        self.shortcut_var.setChecked(bool(s.start_menu_shortcut))
+        self.shortcut_var.setEnabled(_sc.target() is not None)
+        self.shortcut_var.setToolTip(t("settings.shortcut_tip") if _sc.target() is not None else t("settings.shortcut_source"))
+        self.shortcut_var.toggled.connect(self._shortcut_toggled)
+        card.addWidget(self.shortcut_var)
+        row = hbox()
+        row.addWidget(button(t("settings.welcome_again"), self._welcome_again, kind="flat", icon="info"))
+        row.addStretch(1)
+        card.addLayout(row)
         self.ctrl.on("app_update_state", self._update_state)
         self._update_state()
+
+    def _shortcut_toggled(self, on: bool) -> None:
+        self.ctrl.settings.start_menu_shortcut = bool(on)
+        self.ctrl.settings.save()
+        self.ctrl.refresh_shortcut(announce=True)
+
+    def _welcome_again(self) -> None:
+        from ..welcome import WelcomeDialog
+
+        WelcomeDialog(self, self.ctrl)
 
     def _install_update(self) -> None:
         if self.ctrl.available_update is not None:

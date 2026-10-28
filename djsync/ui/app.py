@@ -136,6 +136,8 @@ class DJSyncApp(QMainWindow):
         self._drive_changed()
         self._splash = splash
         QTimer.singleShot(150, self.ctrl.startup)
+        if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
+            QTimer.singleShot(400, self._welcome)          # 1.3.2 (C54) : tout premier lancement
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:
@@ -740,6 +742,11 @@ class DJSyncApp(QMainWindow):
 
         ConfirmDialog(self, t("eject.own_title"), t("eject.own_msg", drive=drive.label or str(drive.root)),
                       self.close, confirm_text=t("eject.own_ok"))
+
+    def _welcome(self) -> None:
+        from .welcome import WelcomeDialog
+
+        WelcomeDialog(self, self.ctrl)
 
     def open_help(self) -> None:
         from .help_dialog import HelpDialog

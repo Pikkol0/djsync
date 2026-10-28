@@ -46,6 +46,7 @@ def clamp_zoom(value: object) -> int:
 
 @dataclass
 class Settings:
+    first_run = False               # 1.3.2 (C54) : attribut de classe, jamais enregistré (pas un champ)
     forced_drive: str = ""          # lettre/chemin imposé par l'utilisateur (prioritaire)
     active_drive: str = ""          # dernière clé utilisée
     contents_dir: str = "Contents"  # dossier de destination des sons, relatif à la racine de la clé
@@ -109,6 +110,9 @@ class Settings:
     suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
     settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres
     settings_version: int = 0          # migrations des réglages enregistrés
+    # ---- 1.3.2
+    welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
+    start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
 
     @classmethod
     def path(cls) -> Path:
@@ -121,6 +125,7 @@ class Settings:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
+            settings.first_run = True              # 1.3.2 (C54) : vrai premier lancement (pas une mise à jour)
             return settings
         except (OSError, json.JSONDecodeError) as exc:
             log.warning("Unreadable settings (%s): using defaults.", exc)
@@ -128,6 +133,8 @@ class Settings:
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
                 setattr(settings, f.name, raw[f.name])  # type incorrect : on garde la valeur par défaut
+        if "welcome_done" not in raw:                   # 1.3.2 (C54) : mise à jour d'une version d'avant
+            settings.welcome_done = True
         settings.normalize()
         return settings
 
@@ -164,7 +171,7 @@ class Settings:
     # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
-                   "last_update_check", "active_drive", "welcome_done")
+                   "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 

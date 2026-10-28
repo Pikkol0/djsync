@@ -38,10 +38,27 @@ def _scroll(inner: QWidget) -> QScrollArea:
 class HelpDialog(BaseDialog):
     modal = False
 
-    def __init__(self, parent: Any) -> None:
+    def __init__(self, parent: Any, start: bool = False) -> None:
         super().__init__(parent, t("help.title"), 720, 680)
         self.heading(t("help.title"), f"DJSync {full_version()}")
         tabs = QTabWidget()
+        self.tabs = tabs
+
+        first = QWidget()                                   # 1.3.2 (C68) : premiers pas + FAQ
+        lay = vbox(first, margins=theme.px(8), spacing=theme.px(4))
+        lay.addWidget(label(t("start.intro"), "dim", wrap=True))
+        for k in range(1, 7):
+            title = label(t(f"start.s{k}_title"))
+            title.setStyleSheet("font-weight:600;")
+            lay.addSpacing(theme.px(6))
+            lay.addWidget(title)
+            lay.addWidget(label(t(f"start.s{k}"), "dim", wrap=True))
+        lay.addSpacing(theme.px(10))
+        lay.addWidget(label(t("start.faq"), "h2"))
+        for k in range(1, 6):
+            lay.addWidget(label("• " + t(f"start.q{k}"), "dim", wrap=True))
+        lay.addStretch(1)
+        tabs.addTab(_scroll(first), t("start.tab"))
 
         sc = QWidget()
         grid = QGridLayout(sc)
@@ -66,6 +83,7 @@ class HelpDialog(BaseDialog):
         lay.addStretch(1)
         tabs.addTab(_scroll(guide), t("help.guide"))
 
+        tabs.setCurrentIndex(0 if start else 1)
         self.body.addWidget(tabs, 1)
         self.footer(t("action.close"), self.close, show_cancel=False, stretch=False)
         self.show_dialog()

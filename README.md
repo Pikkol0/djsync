@@ -148,6 +148,46 @@ yt-dlp is **never updated on its own**. When a download or a link import fails i
 checked, installed in the settings folder — the exe is not modified, no restart needed, failed downloads
 are retried). *Settings ▸ Download engine* checks / installs by hand and goes back to the previous version.
 
+## First steps / Premiers pas
+
+### English
+
+From an empty drive to the decks, in six steps.
+
+1. **Prepare the USB drive (once)** — Use a drive formatted in FAT32 (or exFAT for recent players). Until DJSync can prepare a blank drive itself, export one playlist to it once from Rekordbox: this creates the PIONEER folder that DJSync then fills. Plug it in: it shows on Home.
+2. **Find and download** — Type a title or an artist in Search (or paste a YouTube, SoundCloud or Spotify link on Home), listen, then press Download at the end of the line and choose the playlists.
+3. **Analyse** — Downloaded tracks are analysed in the background: BPM, beat grid, key and waveforms, like Rekordbox. Library ▸ Not analysed lists what is left.
+4. **Set your cues** — Library ▸ the Grid and cues button of a track: hot cues A–H, loops and memories, beat grid to adjust. Nothing is written before Save.
+5. **Check** — Home shows whether the drive is up to date for older players (export.pdb). Diagnostic finds duplicates, low-quality files and missing files.
+6. **Eject** — Always press Eject in DJSync before unplugging the drive: everything is written and checked. Then plug it into the decks.
+
+**Frequent questions**
+
+- *The player does not see my drive or my playlists* — check that the drive is FAT32 or exFAT and has a PIONEER folder (prepared once by Rekordbox); older players read export.pdb: Home tells you if it is up to date.
+- *“Rekordbox open”* — close Rekordbox while DJSync writes to the same library: both would change the same files.
+- *“File not found”* — the audio file was moved or deleted: Diagnostic ▸ Missing files to replace or download it again.
+- *Mac, first launch* — macOS blocks apps not signed by Apple once: System Settings ▸ Privacy & Security ▸ Open Anyway.
+- *Where are my settings?* — next to DJSync (hidden .djsync folder): they follow the drive from one computer to another and are kept across updates.
+
+### Français
+
+D'une clé vide aux platines, en six étapes.
+
+1. **Préparer la clé (une fois)** — Utilisez une clé formatée en FAT32 (ou exFAT pour les platines récentes). Tant que DJSync ne sait pas préparer une clé vierge lui-même, exportez-y une fois une playlist depuis Rekordbox : cela crée le dossier PIONEER que DJSync remplit ensuite. Branchez-la : elle apparaît sur l'Accueil.
+2. **Chercher et télécharger** — Tapez un titre ou un artiste dans Recherche (ou collez un lien YouTube, SoundCloud ou Spotify sur l'Accueil), écoutez, puis bouton Télécharger en bout de ligne et choix des playlists.
+3. **Analyser** — Les sons téléchargés sont analysés en arrière-plan : BPM, grille, tonalité et formes d'onde, comme Rekordbox. Bibliothèque ▸ Non analysés liste ce qui reste.
+4. **Poser ses cues** — Bibliothèque ▸ bouton Grille et cues d'un son : hot cues A à H, boucles et mémoires, grille à ajuster. Rien n'est écrit avant Enregistrer.
+5. **Vérifier** — L'Accueil dit si la clé est à jour pour les anciennes platines (export.pdb). Le Diagnostic trouve les doublons, les fichiers de mauvaise qualité et les fichiers introuvables.
+6. **Éjecter** — Appuyez toujours sur Éjecter dans DJSync avant de retirer la clé : tout est écrit et vérifié. Ensuite, branchez-la sur les platines.
+
+**Questions fréquentes**
+
+- *La platine ne voit pas ma clé ou mes playlists* — vérifiez que la clé est en FAT32 ou exFAT et qu'elle a un dossier PIONEER (préparée une fois par Rekordbox) ; les anciennes platines lisent export.pdb : l'Accueil dit s'il est à jour.
+- *« Rekordbox ouvert »* — fermez Rekordbox pendant que DJSync écrit dans la même bibliothèque : les deux modifieraient les mêmes fichiers.
+- *« Fichier introuvable »* — le fichier audio a été déplacé ou supprimé : Diagnostic ▸ Fichiers introuvables pour le remplacer ou le retélécharger.
+- *Mac, premier lancement* — macOS bloque une fois les applications non signées par Apple : Réglages Système ▸ Confidentialité et sécurité ▸ Ouvrir quand même.
+- *Où sont mes réglages ?* — à côté de DJSync (dossier caché .djsync) : ils suivent la clé d'un ordinateur à l'autre et sont gardés lors des mises à jour.
+
 ## Quick use
 
 | Shortcut | Action |
