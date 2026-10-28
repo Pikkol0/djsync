@@ -266,6 +266,8 @@ class DownloadsView(View):
         else:
             session = set(self.ctrl.analysis_results) | (set(q.ids) if q.running else set())
             tracks = [x for x in self._tracks.values() if not x.is_analysed or x.content_id in session]
+            queued = set(q.ids) if q.running else set()                  # 1.3.1 (B30) : la file en haut
+            tracks.sort(key=lambda x: 0 if x.content_id in queued else 1)
             self.an_table.set_empty("check" if self.ctrl.has_library else "usb",
                                     t("lib.empty_todo_title") if self.ctrl.has_library else t("lib.no_drive_title"))
         self.an_table.set_rows([self._an_row(x) for x in tracks], keep_selection=True)
@@ -275,6 +277,13 @@ class DownloadsView(View):
     def _analysis_changed(self) -> None:
         if not self.winfo_exists():
             return
+        # 1.3.1 (B30) : une analyse lancée ailleurs (Bibliothèque, page Analyser, Doublons) peut contenir
+        # des sons déjà analysés, donc absents de la liste : on les ajoute au lieu de ne rien montrer
+        q = self.ctrl.analysis
+        if q.running and not self.search.text().strip():
+            if any(str(cid) in self._tracks and self.an_table.row(str(cid)) is None for cid in tuple(q.ids)):
+                self._fill()
+                return
         for row in self.an_table.all_rows():
             if row.data is not None:
                 text, tags = self._state(row.data)

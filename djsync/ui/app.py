@@ -209,7 +209,7 @@ class DJSyncApp(QMainWindow):
         self.toast.hide()
         self.views = {}
         self.grid_editor: Any = None
-        self._grid_return: Optional[str] = None
+        self._grid_return: Any = None                     # nom d'onglet, ou page d'origine (B29)
         for key, _label, _icon, cls in TABS:
             view = cls(self.stack, self.ctrl, self.loader)
             self.stack.addWidget(view)
@@ -559,7 +559,7 @@ class DJSyncApp(QMainWindow):
                 return
             ed._on_close = None
             ed.close()
-        self._grid_return = self._current or "library"
+        self._grid_return = self._return_target("library")          # 1.3.1 (B29) : page d'origine
         self.grid_editor = GridEditor(self.stack, self.ctrl, track, on_close=self._grid_closed)
         self.stack.addWidget(self.grid_editor)
         self._show_page(self.grid_editor)
@@ -670,9 +670,23 @@ class DJSyncApp(QMainWindow):
                 old._host = None                                  # type: ignore[attr-defined]
                 self.stack.removeWidget(old)
                 old.close()
-        returns[id(page)] = self._current or "home"
+        returns[id(page)] = self._return_target("home", exclude=page)
         self.stack.addWidget(page)
         self._show_page(page)
+        what = type(page).__name__
+        QTimer.singleShot(400, self, lambda: self._log_stray_windows(what))     # annulé si la fenêtre se ferme
+
+    def _log_stray_windows(self, what: str) -> None:
+        """1.3.0-rc.8 (B32) : journalise toute fenêtre visible autre que la fenêtre principale juste après
+        l'ouverture d'une page (cause du retour au bureau en plein écran sur Mac)."""
+        try:
+            stray = [w for w in QApplication.topLevelWidgets()
+                     if w is not self and w.isVisible() and not w.inherits("QSplashScreen")]
+        except RuntimeError:
+            return
+        if stray:
+            log.info("Page %s: other visible windows: %s", what,
+                     ", ".join(f"{type(w).__name__}({int(w.windowFlags())})" for w in stray))
 
     def close_dialog_page(self, page: QWidget) -> None:
         back = self.__dict__.setdefault("_page_returns", {}).pop(id(page), None) or "home"
@@ -680,7 +694,28 @@ class DJSyncApp(QMainWindow):
             self.stack.removeWidget(page)
         except RuntimeError:
             pass
-        self.show_view(back)
+        self._go_back(back)
+
+    # 1.3.1 (B29) : Retour revient à la page d'où l'on vient, même si c'est une page ouverte par-dessus
+    # un onglet (Doublons, Diagnostic, Analyser…), dans l'état où on l'a laissée ; sinon à l'onglet.
+    def _return_target(self, default: str, exclude: Any = None) -> Any:
+        cur = self.stack.currentWidget()
+        if cur is not None and cur is not exclude and cur is not self.grid_editor \
+                and cur not in self.views.values() and self.stack.indexOf(cur) >= 0:
+            return cur
+        return self._current or default
+
+    def _go_back(self, target: Any) -> None:
+        if isinstance(target, QWidget):
+            try:
+                alive = self.stack.indexOf(target) >= 0
+            except RuntimeError:                                  # page détruite entre-temps
+                alive = False
+            if alive:
+                self._show_page(target)
+                return
+            target = self._current or "home"
+        self.show_view(target)
 
     def _show_page(self, page: QWidget) -> None:
         for b in self._nav.values():
@@ -692,7 +727,7 @@ class DJSyncApp(QMainWindow):
         ed, self.grid_editor = self.grid_editor, None
         if ed is not None:
             self.stack.removeWidget(ed)
-        self.show_view(self._grid_return or "library")
+        self._go_back(self._grid_return or "library")
 
     # ------------------------------------------------------------ questions (V0.5.0)
     def _engine_offer(self, release: Any, current: str) -> None:
