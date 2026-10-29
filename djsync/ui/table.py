@@ -417,10 +417,15 @@ class TrackTable(QTableView):
             hidden.add(col.key)
             need -= self._width(col)
         overflow = scroll and need > avail
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded if overflow else Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded if overflow or scroll else Qt.ScrollBarAlwaysOff)
         self._auto_hidden = hidden
         visible = [k for k in shown if k not in hidden]
         head = self.horizontalHeader()
+        # 1.3.1-rc.2 (B37) : dans un tableau aux colonnes choisies (Bibliothèque), le Titre n'est plus
+        # « étiré » : il absorbait tout glissé de bord, si bien que c'était la colonne voisine qui bougeait.
+        # Toutes les colonnes sont libres ; le Titre prend au départ la place restante (sauf largeur
+        # choisie) et c'est la dernière colonne affichée qui comble le reste.
+        head.setStretchLastSection(scroll)
         self._fitting = True
         try:
             for i, col in enumerate(self.columns):
@@ -428,7 +433,12 @@ class TrackTable(QTableView):
                 self.setColumnHidden(i, hide)
                 if hide:
                     continue
-                if col.stretch and overflow:          # titre à sa largeur normale, le tableau défile
+                if col.stretch and scroll and not overflow:
+                    head.setSectionResizeMode(i, QHeaderView.Interactive)
+                    rest = avail - sum(self._width(cols[k]) for k in visible if k != col.key)
+                    width = self._width(col) if col.key in self._user_widths else max(self._width(col), rest)
+                    self.setColumnWidth(i, width)
+                elif col.stretch and overflow:          # titre à sa largeur normale, le tableau défile
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
                     self.setColumnWidth(i, max(self._width(col), theme.px(col.width)))
                 elif col.stretch:
@@ -529,10 +539,20 @@ class TrackTable(QTableView):
         if self._fitting or self._layout_key is None or not 0 <= index < len(self.columns):
             return
         col = self.columns[index]
-        if col.stretch or new <= 0:
+        if new <= 0 or (col.stretch and not self.horizontalHeader().stretchLastSection()):
+            return
+        if index == self._last_visible_section():          # 1.3.1-rc.2 (B37) : elle comble le reste
             return
         self._user_widths[col.key] = int(round(new * 100 / max(1, theme.px(100))))
         self._store_layout()
+
+    def _last_visible_section(self) -> int:
+        head = self.horizontalHeader()
+        for visual in range(head.count() - 1, -1, -1):
+            logical = head.logicalIndex(visual)
+            if not head.isSectionHidden(logical):
+                return logical
+        return -1
 
     def _store_layout(self) -> None:
         if self._layout_key is None or self._layout_store is None:

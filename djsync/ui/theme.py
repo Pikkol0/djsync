@@ -217,6 +217,9 @@ QTreeWidget, QListWidget {{ padding: {p(4)}px; }}
 QHeaderView {{ background: transparent; }}
 QHeaderView::section {{ background: {SURFACE}; color: {FAINT}; border: 0; border-bottom: 1px solid {BORDER};
               padding: {p(6)}px {p(8)}px; font-weight: 600; font-size: {font_pt(-1):.1f}pt; }}
+/* 1.3.1-rc.2 (C99): a thin line between columns shows where to grab a border */
+QHeaderView::section:horizontal {{ border-right: 1px solid {BORDER}; }}
+QHeaderView::section:horizontal:hover {{ border-right: 1px solid {FAINT}; }}
 QHeaderView::section:hover {{ color: {TEXT}; }}
 QTableCornerButton::section {{ background: {SURFACE}; border: 0; }}
 

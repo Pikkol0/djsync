@@ -28,6 +28,35 @@ def _setup_logging() -> None:
     from .. import full_version
 
     logging.getLogger("djsync").info("DJSync %s starting (%s)", full_version(), sys.executable)
+    _setup_crash_trace()
+
+
+CRASH_FILE = "djsync-crash.log"
+CRASH_MAX_CHARS = 20_000
+
+
+def _setup_crash_trace() -> None:
+    """1.3.1-rc.2 (B38) : un plantage natif (Qt) tue le programme sans rien écrire dans le journal.
+    `faulthandler` écrit alors la pile de chaque thread dans djsync-crash.log ; au lancement suivant,
+    ce texte est recopié dans djsync.log (donc joint aux Retours) puis le fichier est vidé."""
+    import faulthandler
+
+    from ..settings import settings_dir
+
+    try:
+        path = settings_dir() / CRASH_FILE
+        if path.is_file() and path.stat().st_size:
+            text = path.read_text(encoding="utf-8", errors="replace")[-CRASH_MAX_CHARS:]
+            logging.getLogger("djsync").error("Previous run crashed (native crash trace):\n%s", text.rstrip())
+        stream = open(path, "w", encoding="utf-8")          # noqa: SIM115 - gardé ouvert toute la session
+    except OSError:
+        return
+    faulthandler.enable(stream, all_threads=True)
+    global _CRASH_STREAM
+    _CRASH_STREAM = stream
+
+
+_CRASH_STREAM = None
 
 
 def main() -> int:

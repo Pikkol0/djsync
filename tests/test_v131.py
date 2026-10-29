@@ -27,7 +27,7 @@ def test_audio_text_always_says_format_bitrate_and_rate():
     assert L.audio_text(AudioInfo("flac", 900, 48000), 5)[0] == "FLAC · lossless · 48 kHz"
     assert L.audio_text(None, 1) == ("MP3", "neutral")
     assert L.audio_text(AudioInfo("aac", 128, 44100), 4, missing=True) == ("?", "neutral")
-    assert "320" in L.expected_download("ytmusic", "mp3")[0]
+    assert "320" in L.expected_download("ytmusic", "mp3")[0] and L.expected_download("ytmusic", "mp3")[0].startswith("≈ 128")
 
 
 # ------------------------------------------------------------------ C34 : lecteur centré
