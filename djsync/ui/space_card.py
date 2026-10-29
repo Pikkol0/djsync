@@ -102,7 +102,8 @@ class SpaceCard:
             backup = Path(lib.backup_dir)
             if local:
                 return {"key": f"local:{lib.contents_root}", "local": True, "music": Path(lib.contents_root),
-                        "backup": backup, "data": data}
+                        "backup": backup, "data": data, "lib": lib,
+                        "share": Path(lib.share_dir), "db": Path(lib.db_path).parent}
             root = Path(lib.drive.root)
             return {"key": f"usb:{root}", "local": False, "root": root, "music": Path(lib.contents_root),
                     "backup": backup, "data": data}
@@ -137,9 +138,10 @@ class SpaceCard:
         self.summary.setText(t("space.computing"))
         self.refresh_btn.setEnabled(False)
 
-        def work() -> space.Usage:
+        def work(track_bytes: Optional[int] = None) -> space.Usage:
             if target["local"]:
-                return space.local_usage(target["music"], target["backup"], target["data"])
+                return space.local_usage(target["music"], target["backup"], target["data"], track_bytes,
+                                         target["share"], target["db"])
             return space.usb_usage(target["root"], target["music"], target["data"])
 
         def ok(usage: space.Usage) -> None:
@@ -159,7 +161,19 @@ class SpaceCard:
             if done:
                 done(None)
 
-        self.ctrl.dispatcher.submit(work, ok, failed, pool="tools")
+        if not target["local"]:
+            self.ctrl.dispatcher.submit(work, ok, failed, pool="tools")
+            return
+
+        # 1.3.1-rc.2 (C27) : ordinateur : taille des sons de la collection lue dans master.db (thread de la
+        # base), puis le reste mesuré sur le disque (thread des outils).
+        def sizes() -> int:
+            return sum(int(getattr(x, "file_size", 0) or 0) for x in target["lib"].list_tracks())
+
+        def measured(total: int) -> None:
+            self.ctrl.dispatcher.submit(lambda: work(total), ok, failed, pool="tools")
+
+        self.ctrl.dispatcher.submit(sizes, measured, failed, pool="db")
 
     # ---------------------------------------------------------------- affichage
     def _show(self, usage: space.Usage, target: Dict[str, Any]) -> None:

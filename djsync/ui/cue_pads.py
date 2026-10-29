@@ -139,7 +139,10 @@ class CuePanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         for c in sorted((c for c in self.cues if not c.slot), key=lambda c: c.ms):
-            b = QPushButton((f"⟳ {c.loop_beats or '?'}  " if c.is_loop else "▼ ") + fmt_ms(c.ms))
+            mark = f"⟳ {c.loop_beats or '?'}  " if c.is_loop else "▼ "
+            if c.is_active_loop:                       # 1.3.1-rc.2 (C75)
+                mark = f"⟳ {c.loop_beats or '?'} {t('cue.active_short')}  "
+            b = QPushButton(mark + fmt_ms(c.ms))
             b.setFocusPolicy(Qt.NoFocus)
             b.setCursor(Qt.PointingHandCursor)
             b.setStyleSheet(f"QPushButton {{ color: {theme.ERR}; background: {theme.SURFACE}; border: 1px solid "
@@ -279,33 +282,51 @@ class CuePanel(QWidget):
             entries.append((t("cue.loop_n", n=n), lambda n=n: self.set_memory_loop(m, n)))
         if m.is_loop:
             entries.append((t("cue.no_loop"), lambda: self.set_memory_loop(m, 0)))
+            entries += [None, (t("cue.active_off") if m.is_active_loop else t("cue.active_on"),
+                               lambda: self.set_active_loop(m, not m.is_active_loop))]
         entries += [None, (t("cue.delete"), lambda: self._delete_memory(m), "trash")]
         popup_menu(self, entries, pos)
 
     def set_memory_loop(self, m: Cue, n_beats: int) -> None:
         """1.3.1 (C75) : une mémoire devient une boucle de `n_beats` temps (0 : redevient un point)."""
         if n_beats <= 0:
-            m.loop_ms, m.loop_beats = None, 0
+            m.loop_ms, m.loop_beats, m.active = None, 0, False
         else:
             m.loop_ms = loop_end_ms(self.ed.beats, m.ms, n_beats)
             m.loop_beats = n_beats
         self._changed()
 
-    def add_memory_loop(self, n_beats: int) -> None:
+    def set_active_loop(self, m: Cue, on: bool) -> None:
+        """1.3.1-rc.2 (C75) : boucle active (une seule par son, comme Rekordbox) : arrivée sur son début,
+        la lecture boucle toute seule. Écrite dans master.db (ActiveLoop) et les fichiers d'analyse."""
+        if on and not m.is_loop:
+            return
+        for c in self.cues:
+            if not c.slot:
+                c.active = False
+        m.active = bool(on)
+        self._changed()
+
+    def add_memory_loop(self, n_beats: int, active: bool = False) -> None:
         ms = self._position()
         if any(not c.slot and c.ms == ms and c.is_loop for c in self.cues):
             return
         c = Cue(0, ms)
         self.cues.append(c)
         self.set_memory_loop(c, n_beats)
+        if active:
+            self.set_active_loop(c, True)
 
     def _memory_loop_menu(self) -> None:
         from PySide6.QtGui import QCursor
 
         from .table import popup_menu
 
-        popup_menu(self, [(t("cue.loop_n", n=n), lambda n=n: self.add_memory_loop(n)) for n in LOOP_CHOICES],
-                   QCursor.pos())
+        entries: List[Any] = [(t("cue.loop_n", n=n), lambda n=n: self.add_memory_loop(n)) for n in LOOP_CHOICES]
+        entries.append(None)                           # 1.3.1-rc.2 (C75) : boucle active
+        entries += [(t("cue.active_loop_n", n=n), lambda n=n: self.add_memory_loop(n, active=True))
+                    for n in LOOP_CHOICES]
+        popup_menu(self, entries, QCursor.pos())
 
     def _delete_memory(self, m: Cue) -> None:
         self.ed.cues = [c for c in self.cues if c is not m]

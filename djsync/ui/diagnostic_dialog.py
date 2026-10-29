@@ -308,7 +308,7 @@ class DiagnosticDialog(BaseDialog):
                 levels.html(exp, lvl)]
         line = label("  ·  ".join(i for i in info if i), "dim")
         line.setTextFormat(Qt.RichText)
-        line.setToolTip(t("dup.expected_tip"))
+        line.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "audio_format", "m4a")))
         text.addWidget(line)
         lay.addLayout(text, 1)
         lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt
+from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, QTimer
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import QComboBox, QListWidget, QListWidgetItem, QSizePolicy, QSpinBox, QWidget
 
@@ -21,6 +21,7 @@ from .table import MIME_IDS
 from .widgets import CamelotPill, hbox, icon_button, label, panel, vbox
 
 LIMIT = 20
+REFRESH_DELAY_MS = 60
 
 
 class _List(QListWidget):
@@ -86,6 +87,10 @@ class SuggestionsPanel(QWidget):
         lay.addWidget(label(t("sug.hint"), "faint", wrap=True))
         self.setMinimumWidth(theme.px(300))
         self.setMaximumWidth(theme.px(400))
+        self._pending = QTimer(self)
+        self._pending.setSingleShot(True)
+        self._pending.setInterval(REFRESH_DELAY_MS)
+        self._pending.timeout.connect(self.refresh)
 
     # ------------------------------------------------------------------ données
     def set_reference(self, track: Optional[Any]) -> None:
@@ -93,7 +98,7 @@ class SuggestionsPanel(QWidget):
                              and track.bpm == self.ref.bpm):
             return
         self.ref = track
-        self.refresh()
+        self._pending.start()          # 1.3.1-rc.2 (B38) : une seule mise à jour après des sélections rapides
 
     def _tol_changed(self, value: int) -> None:
         self.ctrl.settings.suggest_tolerance = int(value)
@@ -107,6 +112,7 @@ class SuggestionsPanel(QWidget):
     def refresh(self) -> None:
         if not self.isVisible() and not self.ref:
             return
+        self._pending.stop()
         self.list.clear()
         ref = self.ref
         if ref is None:
@@ -135,10 +141,14 @@ class SuggestionsPanel(QWidget):
         x = s.track
         w = QWidget()
         row = hbox(w, margins=theme.px(4), spacing=theme.px(6))
-        pill = CamelotPill(x.camelot)
+        pill = CamelotPill(x.camelot, w)
         pill.setFixedSize(theme.px(34), pill.fontMetrics().height() + theme.px(4))
         row.addWidget(pill, 0, Qt.AlignVCenter)
-        texts = vbox(spacing=0)
+        # 1.3.1-rc.2 (B38) : les textes dans un widget qui a un parent dès le départ. Une mise en page
+        # imbriquée sans parent (vbox() puis addLayout) était détruite après ses textes quand la liste se
+        # vidait : plantage natif de Qt (QWidgetItemV2::~QWidgetItemV2), surtout sur Mac.
+        box = QWidget(w)
+        texts = vbox(box, spacing=0)
         name = label(x.title, "")
         name.setToolTip(f"{x.title} — {x.artist or '—'}")
         texts.addWidget(name)
@@ -152,7 +162,7 @@ class SuggestionsPanel(QWidget):
         for lbl in (name, who, detail):
             lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)     # coupés, jamais de défilement
             texts.addWidget(lbl)
-        row.addLayout(texts, 1)
+        row.addWidget(box, 1)
         if self.view.in_playlist and self.view.playlist is not None and self.view.playlist.is_editable:
             if self.view.table.row(str(x.content_id)) is not None:
                 done = label("✓", "accent")

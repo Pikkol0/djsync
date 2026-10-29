@@ -217,7 +217,7 @@ class MissingFilesDialog(BaseDialog):
             exp, _lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
             r = QRadioButton(f"   {c.track.title} — {c.track.artist}  ·  {format_duration(c.track.duration_seconds)}"
                              f"  ·  {exp}")                                  # C42 : qualité attendue
-            r.setToolTip(t("dup.expected_tip"))
+            r.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "audio_format", "m4a")))
             group.addButton(r, ALT + k)
             r.toggled.connect(lambda _on: self._refresh_actions())
             box.addWidget(r)

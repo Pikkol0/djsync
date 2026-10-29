@@ -41,6 +41,11 @@ class Cue:
     name: str = ""
     color_code: int = 0             # 0 = couleur par défaut du pad
     rgb: Tuple[int, int, int] = (0, 0, 0)
+    active: bool = False            # 1.3.1-rc.2 (C75) : boucle active (mémoire de boucle qui s'enclenche seule)
+
+    @property
+    def is_active_loop(self) -> bool:
+        return self.active and self.is_loop and not self.slot
 
     @property
     def is_hot(self) -> bool:
@@ -63,13 +68,19 @@ class Cue:
         return LOOP_RGB if self.is_loop else DEFAULT_RGB.get(self.slot, (0x80, 0x80, 0x80))
 
 
+ACTIVE_LOOP_STATUS = 4
+
+
 def _order(cues: Sequence[Cue]) -> List[Cue]:
     return sorted(cues, key=lambda c: (-c.ms, not c.is_loop, c.slot))
 
 
 # ------------------------------------------------------------------------ écriture
 def pcpt(c: Cue, order_first: int = 0xFFFF, order_last: int = 0xFFFF) -> bytes:
-    body = struct.pack(">IIIHHBBHII", c.slot, 0, 0x00010000, order_first, order_last, 2 if c.is_loop else 1, 0,
+    # 1.3.1-rc.2 (C75) : statut 4 = boucle active (format ANLZ documenté par Deep Symmetry, à confirmer
+    # sur un son où Rekordbox a lui-même posé une boucle active) ; 0 pour tout le reste, comme Rekordbox.
+    status = ACTIVE_LOOP_STATUS if c.is_active_loop else 0
+    body = struct.pack(">IIIHHBBHII", c.slot, status, 0x00010000, order_first, order_last, 2 if c.is_loop else 1, 0,
                        1000, c.ms & 0xFFFFFFFF, (c.loop_ms if c.is_loop else NO_LOOP) & 0xFFFFFFFF) + b"\x00" * 16
     return b"PCPT" + struct.pack(">II", 28, 12 + len(body)) + body
 
@@ -179,10 +190,11 @@ def _read_pcob(raw: bytes) -> List[Cue]:
     i = lh
     while i + 12 <= len(raw) and raw[i:i + 4] == b"PCPT":
         ln = struct.unpack(">I", raw[i + 8:i + 12])[0]
-        slot = struct.unpack(">I", raw[i + 12:i + 16])[0]
+        slot, status = struct.unpack(">II", raw[i + 12:i + 20])
         kind = raw[i + 28]
         ms, loop = struct.unpack(">II", raw[i + 32:i + 40])
-        out.append(Cue(slot, ms, loop if kind == 2 and loop != NO_LOOP else None))
+        out.append(Cue(slot, ms, loop if kind == 2 and loop != NO_LOOP else None,
+                       active=status == ACTIVE_LOOP_STATUS and kind == 2))
         i += max(ln, 12)
     return out
 
@@ -222,6 +234,7 @@ def read_cues(dat: Optional[bytes], ext: Optional[bytes] = None) -> List[Cue]:
                 have_ext2[kind] = True
                 for c in _read_pco2(raw):
                     found[_key(c)] = c
+    active = set()
     for blob in (dat, ext):
         if not blob:
             continue
@@ -229,10 +242,14 @@ def read_cues(dat: Optional[bytes], ext: Optional[bytes] = None) -> List[Cue]:
             if code != "PCOB":
                 continue
             kind = struct.unpack(">I", raw[12:16])[0]
-            if have_ext2.get(kind):
-                continue
             for c in _read_pcob(raw):
-                found.setdefault(_key(c), c)
+                if c.active:                        # le drapeau n'existe que dans PCOB (C75)
+                    active.add(_key(c))
+                if not have_ext2.get(kind):
+                    found.setdefault(_key(c), c)
+    for k in active:
+        if k in found:
+            found[k].active = True
     hot = sorted((c for c in found.values() if c.slot), key=lambda c: c.slot)
     mem = sorted((c for c in found.values() if not c.slot), key=lambda c: (c.ms, c.is_loop))
     return hot + mem
@@ -293,7 +310,7 @@ def suggest_cues(beats: Sequence[Tuple[int, int, int]], existing: Sequence[Cue],
     return out
 
 
-__all__ = ["Cue", "SLOTS", "PALETTE", "read_cues", "write_cues", "pcob", "pco2", "loop_beats_for",
+__all__ = ["ACTIVE_LOOP_STATUS", "Cue", "SLOTS", "PALETTE", "read_cues", "write_cues", "pcob", "pco2", "loop_beats_for",
            "nearest_beat_ms", "loop_end_ms", "suggest_cues", "KIND_FOR_SLOT", "SLOT_FOR_KIND"]
 
 
