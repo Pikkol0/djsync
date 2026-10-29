@@ -142,7 +142,7 @@ def test_check_everything(tmp_path, monkeypatch):
             detail = ""
 
         monkeypatch.setattr(ctrl, "app_update_check",
-                            lambda manual=False, force=False, result=None: (calls.append("app"), result(None, None)))
+                            lambda manual=False, force=False, result=None: result and (calls.append("app"), result(None, None)))
         monkeypatch.setattr(ctrl, "engine_check", lambda done: (calls.append("engine"), done(Rel(), "2025.1.1", None)))
         monkeypatch.setattr(ctrl, "engine_install", lambda *a: calls.append("INSTALL"))
         monkeypatch.setattr(ctrl, "pdb_status", lambda ok: ok(St()))
@@ -187,7 +187,7 @@ def test_check_list_closes_and_folds_away_when_all_is_well(tmp_path, monkeypatch
         app.show_view("settings")
         view = app.views["settings"]
         ctrl = app.ctrl
-        monkeypatch.setattr(ctrl, "app_update_check", lambda manual=False, force=False, result=None: result(None, None))
+        monkeypatch.setattr(ctrl, "app_update_check", lambda manual=False, force=False, result=None: result and result(None, None))
         monkeypatch.setattr(ctrl, "engine_check", lambda done: done(None, "2025.1.1", None))
         monkeypatch.setattr(view.space, "compute", lambda force=False, done=None: done and done(None))
         view.check_all()
