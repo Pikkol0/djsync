@@ -77,3 +77,40 @@ def test_settings_have_buttons_not_a_slider(demo):  # noqa: F811
     assert pump(demo, 2, lambda: demo.ctrl.settings.zoom == 110)
     view._zoom_step(0)
     assert pump(demo, 2, lambda: demo.ctrl.settings.zoom == 100)
+
+
+# ------------------------------------------------------------------ C103
+def test_playlists_column_shows_where_each_track_is(demo):  # noqa: F811
+    from .qt_util import pump
+
+    demo.show_view("library")
+    lib = demo.views["library"]
+    assert pump(demo, 5, lambda: lib.table.total > 0)
+    table = lib.table
+    col = table.column_index("playlists")
+    assert not table.isColumnHidden(col)                        # affichée par défaut
+    assert pump(demo, 5, lambda: getattr(lib, "_member", None) is not None)
+    pump(demo, 0.3)
+    member = lib._member
+    club = next(p for p in lib.playlists if p.name == "Club")
+    inside = next(cid for cid, pids in member.items() if club.playlist_id in pids)
+    row = table.row(str(inside))
+    assert "Club" in row.values["playlists"] and "Club" in row.values["playlists__tip"]
+    outside = next((x.content_id for x in lib.all_tracks if not member.get(x.content_id)), None)
+    if outside is not None:
+        assert table.row(str(outside)).values["playlists"] == "—"
+    # la recherche trouve les sons par nom de playlist
+    table.set_filter("club")
+    assert str(inside) in [r.iid for r in table.all_rows()] or table.count >= 1
+    table.set_filter("")
+    # clic droit : ouvrir la playlist
+    table.select([str(inside)])
+    entries = [e for e in lib._menu([str(inside)]) if e]
+    opener = next(e for e in entries if "Club" in e[0])
+    opener[1]()
+    assert lib.in_playlist and lib.playlist.playlist_id == club.playlist_id
+    # ajouter un son à une playlist : la colonne suit
+    other = next(x for x in lib.all_tracks if club.playlist_id not in member.get(x.content_id, []))
+    demo.ctrl.add_to_playlists([other.content_id], [club.playlist_id])
+    assert pump(demo, 6, lambda: club.playlist_id in (getattr(lib, "_member", {}) or {}).get(other.content_id, []))
+    assert not demo.errors

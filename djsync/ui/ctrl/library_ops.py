@@ -319,21 +319,25 @@ class LibraryOpsMixin:
     # ------------------------------------------------------------------ analyse (V0.2.0)
     def orphan_ids(self, content_ids: Sequence[int], ok: Callable[[set], None]) -> None:
         """1.3.2 (C56) : sons qui ne sont dans aucune playlist (les playlists intelligentes ne comptent pas)."""
+        ids = [int(i) for i in content_ids]
+        self.playlist_membership(ids, lambda found: ok({cid for cid in ids if not found.get(cid)}))
+
+    def playlist_membership(self, content_ids: Sequence[int], ok: Callable[[Dict[int, List[int]]], None]) -> None:
+        """1.4.0 (C103) : playlists (identifiants) de chaque son, par lots de 800, hors du fil de l'interface."""
         lib = self.library
         ids = [int(i) for i in content_ids]
         if lib is None or not ids or not hasattr(lib, "playlists_of"):
-            ok(set())
+            ok({})
             return
 
-        def work() -> set:
-            out: set = set()
+        def work() -> Dict[int, List[int]]:
+            out: Dict[int, List[int]] = {}
             for k in range(0, len(ids), 800):
                 found = lib.playlists_of(ids[k:k + 800])
-                out |= {cid for cid in ids[k:k + 800] if not found.get(cid)}
+                out.update({int(cid): list(v) for cid, v in found.items() if v})
             return out
 
-        self.dispatcher.submit(work, ok, lambda exc: log.info("Tracks outside playlists not counted: %s", exc),
-                               pool="db")
+        self.dispatcher.submit(work, ok, lambda exc: log.info("Playlist membership not read: %s", exc), pool="db")
 
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library

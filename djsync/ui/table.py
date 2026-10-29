@@ -176,6 +176,8 @@ class _Model(QAbstractTableModel):
                     return QColor(color)
         if role == Qt.ToolTipRole and col.key in ICON_COLUMNS and row.values.get(col.key):
             return t(ICON_COLUMNS[col.key][1])
+        if role == Qt.ToolTipRole and row.values.get(col.key + "__tip"):    # 1.4.0 (C103) : bulle d'une cellule
+            return row.values[col.key + "__tip"]
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
