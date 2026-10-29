@@ -423,6 +423,22 @@ class TrackTable(QTableView):
         super().resizeEvent(e)
         self._fit_columns()
         self._place_empty()
+        # 1.3.1 (B37, Windows) : la zone visible peut ne prendre sa taille définitive qu'après cet événement
+        # (barres de défilement, fenêtre agrandie par le système) : on recalcule une fois de plus, juste
+        # après, sinon la place gagnée allait à la dernière colonne au lieu du Titre.
+        if not getattr(self, "_refit_pending", False):
+            from PySide6.QtCore import QTimer
+
+            self._refit_pending = True
+
+            def refit() -> None:
+                self._refit_pending = False
+                try:
+                    self._fit_columns()
+                except RuntimeError:                 # tableau déjà détruit
+                    pass
+
+            QTimer.singleShot(0, refit)
 
     def _width(self, col: Column) -> int:
         """Largeur d'une colonne fixe : celle choisie par l'utilisateur, sinon celle demandée au zoom
