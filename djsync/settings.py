@@ -46,6 +46,7 @@ def clamp_zoom(value: object) -> int:
 
 @dataclass
 class Settings:
+    first_run = False               # 1.3.2 (C54) : attribut de classe, jamais enregistré (pas un champ)
     forced_drive: str = ""          # lettre/chemin imposé par l'utilisateur (prioritaire)
     active_drive: str = ""          # dernière clé utilisée
     contents_dir: str = "Contents"  # dossier de destination des sons, relatif à la racine de la clé
@@ -84,6 +85,7 @@ class Settings:
     # ---- V0.5.0
     audio_format: str = "m4a"          # m4a (flux d'origine, sans perte) | mp3 (MP3 320, ré-encodé)
     normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
+    merge_undo_s: int = 10             # 1.3.2 (C82) : délai pour annuler une fusion de doublons (5, 10, 30 s)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
@@ -109,6 +111,9 @@ class Settings:
     suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
     settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres
     settings_version: int = 0          # migrations des réglages enregistrés
+    # ---- 1.3.2
+    welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
+    start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
 
     @classmethod
     def path(cls) -> Path:
@@ -121,6 +126,7 @@ class Settings:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
+            settings.first_run = True              # 1.3.2 (C54) : vrai premier lancement (pas une mise à jour)
             return settings
         except (OSError, json.JSONDecodeError) as exc:
             log.warning("Unreadable settings (%s): using defaults.", exc)
@@ -128,6 +134,8 @@ class Settings:
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
                 setattr(settings, f.name, raw[f.name])  # type incorrect : on garde la valeur par défaut
+        if "welcome_done" not in raw:                   # 1.3.2 (C54) : mise à jour d'une version d'avant
+            settings.welcome_done = True
         settings.normalize()
         return settings
 
@@ -158,7 +166,34 @@ class Settings:
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
+        if self.merge_undo_s not in (5, 10, 30):
+            self.merge_undo_s = 10
         return self
+
+    # 1.3.2 (C57) : « Rétablir les réglages par défaut ». Jamais touchés : ce qui n'est pas un réglage mais
+    # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).
+    KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
+                   "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
+                   "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut")
+    # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
+    KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
+
+    def reset_to_defaults(self, keep_choices: bool = True) -> dict:
+        """Remet les réglages aux valeurs d'origine ; renvoie l'ancien contenu (pour « Annuler »)."""
+        old = asdict(self)
+        fresh = type(self)()
+        keep = set(self.KEEP_ALWAYS) | (set(self.KEEP_CHOICES) if keep_choices else set())
+        for f in fields(self):
+            if f.name not in keep:
+                setattr(self, f.name, getattr(fresh, f.name))
+        self.normalize()
+        return old
+
+    def restore(self, values: dict) -> None:
+        for f in fields(self):
+            if f.name in values:
+                setattr(self, f.name, values[f.name])
+        self.normalize()
 
     def save(self, path: Optional[Path] = None) -> None:
         path = path or self.path()

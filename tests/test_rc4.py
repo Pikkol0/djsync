@@ -292,7 +292,7 @@ def test_settings_update_card_and_offer(env):
         view.update_install_btn.click()                       # depuis les sources : la page s'ouvre
         assert opened == ["https://example/rel"]
         # canal enregistré
-        view.channel_menu.setCurrentText(view._channel_labels["stable"])
+        view.show_rc_var.setChecked(False)                    # 1.3.2 (C96) : case au lieu du menu
         view._save()
         assert ctrl.settings.update_channel == "stable"
         # mise à jour prête : bouton « Redémarrer », proposition de redémarrer

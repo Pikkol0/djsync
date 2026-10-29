@@ -186,6 +186,8 @@ class DJSyncApp(QMainWindow):
         self._drive_changed()
         self._splash = splash
         QTimer.singleShot(150, self.ctrl.startup)
+        if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
+            QTimer.singleShot(400, self._welcome)          # 1.3.2 (C54) : tout premier lancement
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:
@@ -220,6 +222,9 @@ class DJSyncApp(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        from .foreground import ensure_front
+
+        ensure_front(self, QTimer.singleShot)                    # 1.3.2 (B36) : Windows, devant l'Explorateur
         if not getattr(self, "_app_state_watched", False):     # 1.3.0-rc.9 (B32)
             self._app_state_watched = True
             self._watch_app_state()
@@ -670,6 +675,9 @@ class DJSyncApp(QMainWindow):
                 return
             if tab == "dup":
                 from .duplicates_dialog import DuplicatesDialog as page_cls
+
+                if self.reopen_dialog_page(page_cls) is not None:      # 1.3.2 (C95) : reprise, pas de zéro
+                    return
             elif tab == "quality":
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
             else:
@@ -713,6 +721,18 @@ class DJSyncApp(QMainWindow):
         return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
 
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages
+    def reopen_dialog_page(self, page_cls: type) -> Optional[QWidget]:
+        """1.3.2 (C95) : une page de cette sorte encore ouverte (cachée derrière l'Accueil, la Bibliothèque,
+        Grille et cues…) revient au premier plan telle quelle, avec son travail en cours (la vérification
+        des doublons a continué en arrière-plan) ; None s'il n'y en a pas."""
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            if type(page) is page_cls and getattr(page, "_host", None) is self and page.winfo_exists():
+                self.__dict__.setdefault("_page_returns", {})[id(page)] = self._return_target("home", exclude=page)
+                self._show_page(page)
+                return page
+        return None
+
     def open_dialog_page(self, page: QWidget) -> None:
         returns = self.__dict__.setdefault("_page_returns", {})
         diag = type(page).__name__ in DIAG_PAGE_TYPES             # un seul onglet du Diagnostic à la fois
@@ -894,6 +914,11 @@ class DJSyncApp(QMainWindow):
         ConfirmDialog(self, t("eject.own_title"), t("eject.own_msg", drive=drive.label or str(drive.root)),
                       self.close, confirm_text=t("eject.own_ok"))
 
+    def _welcome(self) -> None:
+        from .welcome import WelcomeDialog
+
+        WelcomeDialog(self, self.ctrl)
+
     def open_help(self) -> None:
         from .help_dialog import HelpDialog
 
@@ -928,6 +953,8 @@ class DJSyncApp(QMainWindow):
         self.toast_action.setText(text)
         self.toast_action.show()
         self._place_toast()
+        if self._status_timer.isActive():                # 1.3.2 (C82) : le temps de cliquer (Annuler…)
+            self._status_timer.start(max(self._status_timer.remainingTime(), 11000))
 
     def _toast_clicked(self) -> None:
         fn, self._toast_fn = self._toast_fn, None

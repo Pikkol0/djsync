@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy, QSlider, QWidget
 
@@ -43,6 +43,11 @@ class ScrollingWave(QWidget):
         self.setFixedHeight(theme.px(SCROLL_H))
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._advance)
+        from .cursor import FrameMeter, Monotonic
+
+        self._mono = Monotonic()                 # 1.3.2 (C52) : jamais en arrière pendant la lecture
+        self._meter = FrameMeter("player")
+        self._cache: Any = None                  # (clé, première colonne, image) : forme d'onde en mémoire
 
     @property
     def has_data(self) -> bool:
@@ -50,56 +55,90 @@ class ScrollingWave(QWidget):
 
     def set_data(self, detail: List[Tuple[float, str]], beats: List[Tuple[int, int, int]]) -> None:
         self._detail, self._beats = detail, beats
+        self._cache = None
+        self._mono.reset()
         self.update()
 
     def set_running(self, running: bool) -> None:
         if running and self.isVisible() and self._detail:
             if not self._timer.isActive():
-                self._timer.start(33)                      # ~30 images/s pendant la lecture
+                self._timer.start(16)                      # 1.3.2 (C52) : ~60 images/s pendant la lecture
         else:
             self._timer.stop()
+            self._meter.stop()
+            self._mono.reset()
             self._advance()
 
     def _advance(self) -> None:
         try:
-            self._pos = float(self._position())
+            pos = float(self._position())
         except Exception:  # noqa: BLE001
             return
+        running = self._timer.isActive()
+        self._pos = self._mono(pos * 1000.0) / 1000.0 if running else pos
         self.update()
 
+    def _band_image(self, w: int, h: int) -> Any:
+        """1.3.2 (C52) : forme d'onde et repères des temps dessinés UNE fois dans une image trois fois plus
+        large que la vue, puis recopiée décalée à chaque image (avant : tout redessiné 30 fois par seconde,
+        saccades sur Mac). Refaite à la taille, au changement de son, ou quand la vue sort de l'image."""
+        from PySide6.QtGui import QPixmap
+
+        dpr = self.devicePixelRatioF()
+        span = SCROLL_SECONDS * self.RATE                    # colonnes visibles
+        start = self._pos * self.RATE - span / 2
+        key = (w, h, id(self._detail), id(self._beats), dpr)
+        c = self._cache
+        if c is not None and c[0] == key and c[1] <= start and start + span <= c[1] + 3 * span:
+            return c
+        first = start - span
+        pm = QPixmap(int(3 * w * dpr), int(h * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(QColor(theme.mix(theme.SURFACE, "#000000", 0.35)))
+        q = QPainter(pm)
+        per_px = span / w
+        mid = h / 2
+        n = len(self._detail)
+        for x in range(3 * w):
+            a = int(first + x * per_px)
+            b = int(first + (x + 1) * per_px)
+            if b <= 0 or a >= n:
+                continue
+            a, b = max(0, a), min(n, max(a + 1, b))
+            v, color = max(self._detail[a:b], key=lambda d: d[0])
+            half = max(1.0, v * (h / 2 - 2))
+            q.fillRect(x, int(mid - half), 1, max(1, int(2 * half)), QColor(color))
+        t0 = first / self.RATE
+        for n_beat, _tempo, ms in self._beats:
+            tx = (ms / 1000.0 - t0) / SCROLL_SECONDS * w
+            if 0 <= tx < 3 * w:
+                bar = n_beat == 1
+                col = QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5))
+                q.fillRect(int(tx), 0, 1, theme.px(7 if bar else 4), col)
+                q.fillRect(int(tx), h - theme.px(7 if bar else 4), 1, theme.px(7 if bar else 4), col)
+        q.end()
+        self._cache = (key, first, pm)
+        return self._cache
+
     def paintEvent(self, _e: Any) -> None:          # noqa: N802
+        import time
+
         w, h = self.width(), self.height()
         if w < 8:
             return
+        t0 = time.perf_counter()
         p = QPainter(self)
         p.fillRect(0, 0, w, h, QColor(theme.mix(theme.SURFACE, "#000000", 0.35)))
         if self._detail:
-            span = SCROLL_SECONDS * self.RATE                # colonnes visibles
-            start = self._pos * self.RATE - span / 2
-            per_px = span / w
-            mid = h / 2
-            n = len(self._detail)
-            for x in range(w):
-                a = int(start + x * per_px)
-                b = int(start + (x + 1) * per_px)
-                if b <= 0 or a >= n:
-                    continue
-                a, b = max(0, a), min(n, max(a + 1, b))
-                v, color = max(self._detail[a:b], key=lambda d: d[0])
-                half = max(1.0, v * (h / 2 - 2))
-                p.fillRect(x, int(mid - half), 1, max(1, int(2 * half)), QColor(color))
-            t0 = self._pos - SCROLL_SECONDS / 2
-            for n_beat, _tempo, ms in self._beats:
-                tx = (ms / 1000.0 - t0) / SCROLL_SECONDS * w
-                if 0 <= tx < w:
-                    bar = n_beat == 1
-                    p.fillRect(int(tx), 0, 1, theme.px(7 if bar else 4),
-                               QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
-                    p.fillRect(int(tx), h - theme.px(7 if bar else 4), 1, theme.px(7 if bar else 4),
-                               QColor("#FF4D4D" if bar else theme.mix(theme.TEXT, theme.SURFACE, 0.5)))
-        cx = w // 2
-        p.fillRect(cx - theme.px(1), 0, max(2, theme.px(2)), h, QColor(theme.ACCENT))
+            _key, first, pm = self._band_image(w, h)
+            start = self._pos * self.RATE - SCROLL_SECONDS * self.RATE / 2
+            p.drawPixmap(QPointF((first - start) * w / (SCROLL_SECONDS * self.RATE), 0), pm)
+        from .cursor import draw_cursor
+
+        draw_cursor(p, w / 2, 0, h)                          # 1.3.2 (C52)
         p.end()
+        if self._timer.isActive():
+            self._meter.frame((time.perf_counter() - t0) * 1000.0)
 
 
 class WaveformBar(QWidget):
@@ -144,7 +183,9 @@ class WaveformBar(QWidget):
             x = c * step
             half = max(1.0, v * (h / 2 - 1))
             p.fillRect(int(x), int(mid - half), step - 1, max(1, int(2 * half)), on if x < played else off)
-        p.fillRect(int(played), 0, max(1, theme.px(1)), h, QColor(theme.TEXT))
+        from .cursor import draw_cursor
+
+        draw_cursor(p, played, 0, h, glow=False)             # 1.3.2 (C52)
         p.end()
 
     def _seek(self, e: Any) -> None:
@@ -193,12 +234,8 @@ class PlayerBar(QWidget):
         self.scroll_wave = ScrollingWave(lambda: min(self.player.position(), self.player.duration or 1e9))
         self.scroll_wave.hide()
         col.addWidget(self.scroll_wave)
-        # 1.3.0-rc.3 (B17) : page « Grille et cues » ouverte : vue d'ensemble 3 bandes, navigable, à la place
-        from .grid_overview import GridOverview
-
-        self.grid_overview = GridOverview()
-        self.grid_overview.hide()
-        col.addWidget(self.grid_overview)
+        # 1.3.2 (C51) : la vue d'ensemble 3 bandes de la page « Grille et cues » est dans la page elle-même ;
+        # le lecteur garde sa forme d'onde habituelle (la forme défilante est masquée pendant la page)
         self._grid_editor: Any = None
         controller.on("grid_page", self._grid_page)
         row = hbox(spacing=theme.px(10))
@@ -515,8 +552,6 @@ class PlayerBar(QWidget):
     def _grid_page(self, editor: Any) -> None:
         """La page Grille et cues s'ouvre (editor) ou se ferme (None)."""
         self._grid_editor = editor
-        self.grid_overview.set_editor(editor)
-        self.grid_overview.setVisible(editor is not None)
         if editor is not None:
             self.scroll_wave.hide()
         else:
@@ -554,12 +589,15 @@ class PlayerBar(QWidget):
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
         self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
-        self.grid_overview.setFixedHeight(theme.px(SCROLL_H))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 
     # ---------------------------------------------------------------- timer
     def _tick(self) -> None:
+        # 1.3.2 (C52) : ~30 mises à jour par seconde pendant la lecture (curseur fluide), 4 au repos
+        want = 33 if self.player.state == PLAYING else 250
+        if self._timer.interval() != want:
+            self._timer.setInterval(want)
         self.player.poll()
         if self.player.state in (PLAYING, PAUSED) and self.player.duration > 0 and not self._dragging:
             pos = min(self.player.position(), self.player.duration)

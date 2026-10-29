@@ -13,6 +13,7 @@ V0.2.0 : découpé par sujet (ce fichier : évènements, clé USB, recherche, im
 from __future__ import annotations
 
 import logging
+import sys
 import shutil
 import tempfile
 import time
@@ -39,7 +40,7 @@ from ..i18n import get_language, t
 from ..models import (
     Candidate, DownloadJob, PlaylistInfo, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind,
 )
-from ..settings import Settings
+from ..settings import Settings, settings_dir
 from .ctrl.downloads import DownloadsMixin
 from .ctrl.engine import EngineMixin
 from .ctrl.tools import ToolsMixin
@@ -354,7 +355,47 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         return self._preview_dir
 
     # ------------------------------------------------------------------- clé USB
+    def refresh_shortcut(self, announce: bool = False) -> None:
+        """1.3.2 (C70) : pose / met à jour (lettre de la clé changée) ou retire le raccourci système."""
+        from ..core import shortcut
+
+        s = self.settings
+
+        def work() -> str:
+            if not s.start_menu_shortcut:
+                return "removed" if shortcut.remove() else ""
+            icon = None
+            if sys.platform.startswith("linux"):
+                icon = settings_dir() / "djsync-icon.png"
+                if not icon.is_file():
+                    icon = None
+            shortcut.create(icon=icon)
+            return "created"
+
+        def done(what: str) -> None:
+            if announce and what:
+                self.message("ok", t("settings.shortcut_created") if what == "created" else t("settings.shortcut_removed"))
+
+        def failed(exc: BaseException) -> None:
+            log.info("Shortcut: %s", exc)
+            if announce:
+                self.message("warn", t("settings.shortcut_failed", detail=str(exc)))
+
+        if sys.platform.startswith("linux") and s.start_menu_shortcut:   # icône du menu : le logo, en PNG
+            try:
+                from .logo import logo_pixmap
+                from . import theme as _theme
+
+                path = settings_dir() / "djsync-icon.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                logo_pixmap(256, _theme.ACCENT).save(str(path), "PNG")
+            except Exception as exc:  # noqa: BLE001 - sans icône, le raccourci marche quand même
+                log.info("Shortcut icon: %s", exc)
+        self.dispatcher.submit(work, done, failed, pool="db")
+
     def startup(self) -> None:
+        if self.settings.start_menu_shortcut:          # 1.3.2 (C70) : chemin remis à jour à chaque lancement
+            self.refresh_shortcut()
         self.refresh_drives(then=self._auto_connect)
         self.dispatcher.call_later(POLL_MS, self._poll)
         self.dispatcher.call_later(UPDATE_DELAY_MS, self.app_update_check)
@@ -460,6 +501,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         self._connecting = True
         self._user_disconnected = False
+        self.flush_merges()                         # 1.3.2 (C82) : fusions en attente écrites avant de changer
         old = self.library
         if old is not None and self.analysis.running:
             self.analysis.cancel()
@@ -586,6 +628,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return
         own = portable.own_drive_root()
         same = own is not None and _same_path(own, drive.root)
+        self.flush_merges()                         # 1.3.2 (C82)
         lib = self.library
         if self.analysis.running:
             self.analysis.cancel()
@@ -742,7 +785,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:
-            (err or self._on_error)(UrlImportError(t("error.url_unknown")))
+            from ..core.urlimport import source_names
+
+            (err or self._on_error)(UrlImportError(t("error.url_unknown", names=source_names())))  # 1.3.2 (C101)
             return
         def failed(exc: BaseException) -> None:
             (err or self._on_error)(exc)
@@ -825,6 +870,10 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     # ------------------------------------------------------------------- fermeture
     def shutdown(self) -> None:
+        try:
+            self.flush_merges()                     # 1.3.2 (C82) : rien de perdu à la fermeture
+        except Exception:  # noqa: BLE001
+            log.exception("Pending merges at shutdown")
         self.analysis.cancel()
         self.settings.volume = self.player.volume
         self.settings.save()

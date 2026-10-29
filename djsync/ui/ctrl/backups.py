@@ -50,9 +50,24 @@ class BackupsMixin:
         from ... import uninstall
         from ...settings import settings_dir
 
+        from ...core import shortcut
+
         data = settings_dir()
         has_backups = (data / "Backups").is_dir() and any((data / "Backups").iterdir())
-        return uninstall.computer_targets(data, keep_backups), has_backups
+        paths = uninstall.computer_targets(data, keep_backups)
+        if shortcut.exists():                               # 1.3.2 (C70) : le raccourci part aussi
+            paths.append(shortcut.location())
+        return paths, has_backups
+
+    @staticmethod
+    def _remove_shortcut() -> None:
+        """1.3.2 (C70/C88) : retire le raccourci menu Démarrer / Applications, s'il existe."""
+        from ...core import shortcut
+
+        try:
+            shortcut.remove()
+        except OSError as exc:
+            log.warning("Shortcut not removed: %s", exc)
 
     def uninstall_computer(self, delete_backups: bool) -> None:
         """1.3.1 (C88) : désinstaller DJSync de l'ordinateur, puis quitter. La musique et les
@@ -78,6 +93,7 @@ class BackupsMixin:
             paths = uninstall.computer_targets(data, keep_backups=not delete_backups)
             if not delete_backups and any(p == data or p in data.parents for p in paths):
                 uninstall.keep_computer_backups(data, uninstall.computer_backups_home())
+            self._remove_shortcut()
             uninstall.schedule_removal(paths)
             return paths
 
@@ -176,6 +192,7 @@ class BackupsMixin:
             else:
                 uninstall.keep_computer_backups(settings_dir(), backup_dir)
             paths = uninstall.targets()
+            self._remove_shortcut()
             uninstall.schedule_removal(paths)
             return paths
 

@@ -363,6 +363,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
         fail(L"Cannot start DJSync", GetLastError());
         return 1;
     }
+    /* 1.3.2 (B36) : Windows ne laisse passer au premier plan que le programme lancé par l'utilisateur ;
+       le lanceur transmet ce droit à DJSync, sinon sa fenêtre s'ouvre derrière l'Explorateur. */
+    AllowSetForegroundWindow(pi.dwProcessId);
     DWORD code = 0;
     wchar_t flag[8];
     if (GetEnvironmentVariableW(L"DJSYNC_SELFTEST", flag, 8)) {   /* CI : attendre le résultat de l'autotest */

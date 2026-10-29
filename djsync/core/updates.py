@@ -29,6 +29,7 @@ class Update:
     prerelease: bool
     asset: str = ""               # lien direct du fichier pour ce système ("" si absent)
     checksum: str = ""            # lien du fichier .sha256 correspondant ("" si absent)
+    date: str = ""                # 1.3.2 (C96) : date de publication (AAAA-MM-JJ)
 
 
 def parse_version(text: str) -> Optional[Tuple[int, int, int, int, int]]:
@@ -79,8 +80,37 @@ def check(current: str, fetch: Optional[Fetcher] = None,
             best = (v, rel)
     if best is None:
         return None
-    rel = best[1]
+    return _update_of(best[1])
+
+
+def _update_of(rel: dict) -> Update:
     wanted = asset_name()
     assets = {a.get("name"): a.get("browser_download_url", "") for a in rel.get("assets") or []}
     return Update(str(rel["tag_name"]).lstrip("v"), str(rel.get("html_url") or PAGE), bool(rel.get("prerelease")),
-                  assets.get(wanted, ""), assets.get(wanted + ".sha256", ""))
+                  assets.get(wanted, ""), assets.get(wanted + ".sha256", ""),
+                  str(rel.get("published_at") or "")[:10])
+
+
+def list_versions(fetch: Optional[Fetcher] = None, include_prerelease: bool = False) -> List[Update]:
+    """1.3.2 (C96) : toutes les versions installables sur ce système (fichier ET empreinte publiés), la
+    plus récente d'abord, plus anciennes comprises ; versions de test seulement si demandé. Réseau : hors
+    thread UI."""
+    releases: List[dict] = json.loads((fetch or _http_get)(API).decode("utf-8"))
+    out: List[Tuple[Tuple[int, ...], Update]] = []
+    for rel in releases:
+        if rel.get("draft") or (rel.get("prerelease") and not include_prerelease):
+            continue
+        v = parse_version(str(rel.get("tag_name") or ""))
+        if v is None:
+            continue
+        up = _update_of(rel)
+        if up.asset and up.checksum:
+            out.append((v, up))
+    out.sort(key=lambda x: x[0], reverse=True)
+    return [up for _v, up in out]
+
+
+def is_older(version: str, than: str) -> bool:
+    """1.3.2 (C96) : `version` est-elle plus ancienne que `than` (« 1.2.4 » avant « 1.3.0-rc.9 ») ?"""
+    a, b = parse_version(version), parse_version(than.split("-dev")[0])
+    return a is not None and b is not None and a < b

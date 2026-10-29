@@ -48,6 +48,8 @@ class SettingsView(View):
         head = self.header(t("tab.settings"))
         self.saved = label("", "accent")
         head.addWidget(self.saved)
+        head.addWidget(button(t("settings.reset"), self._reset_defaults, kind="flat", icon="back",
+                              tooltip=t("settings.reset_tip")))           # 1.3.2 (C57)
         head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
         self.root.addLayout(head)
         # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
@@ -356,6 +358,16 @@ class SettingsView(View):
         row.addWidget(self.keep)
         row.addStretch(1)
         card.addLayout(row)
+        row = hbox()                                       # 1.3.2 (C82) : délai pour annuler une fusion
+        row.addWidget(self._fixed(label(t("settings.merge_undo"))))
+        self.merge_undo = QComboBox()
+        for v in (5, 10, 30):
+            self.merge_undo.addItem(t("settings.seconds", n=v), v)
+        self.merge_undo.setCurrentIndex(max(0, self.merge_undo.findData(s.merge_undo_s)))
+        self.merge_undo.setToolTip(t("settings.merge_undo_tip"))
+        row.addWidget(self.merge_undo)
+        row.addStretch(1)
+        card.addLayout(row)
         row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
         self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
         row.addWidget(self.points_btn)
@@ -453,14 +465,15 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         row = hbox()
-        row.addWidget(self._fixed(label(t("update.channel"))))
-        self._channel_labels = {"auto": t("update.channel_auto"), "stable": t("update.channel_stable"),
-                                "test": t("update.channel_test")}
-        self.channel_menu = QComboBox()
-        self.channel_menu.addItems(list(self._channel_labels.values()))
-        self.channel_menu.setCurrentText(self._channel_labels.get(s.update_channel, self._channel_labels["auto"]))
-        row.addWidget(self.channel_menu)
+        # 1.3.2 (C96) : une case au lieu du menu « Versions proposées » (auto / stables / stables et test),
+        # et le choix de la version à installer, plus ancienne comprise
+        from ..version_dialog import show_test_versions
+
+        self.show_rc_var = QCheckBox(t("update.show_rc"))
+        self.show_rc_var.setChecked(show_test_versions(s.update_channel, full_version()))
+        row.addWidget(self.show_rc_var)
         row.addStretch(1)
+        row.addWidget(button(t("update.pick"), self._pick_version, kind="flat", icon="menu"))
         card.addLayout(row)
         row = hbox()                                    # 1.3.1 (C88) : désinstaller, toujours visible
         self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="flat", icon="trash")
@@ -509,8 +522,36 @@ class SettingsView(View):
                              icon="info"))
         row.addStretch(1)
         card.addLayout(row)
+        # 1.3.2 (C70) : lancer DJSync depuis la recherche du système ; (C54) revoir l'accueil
+        from ...core import shortcut as _sc
+
+        self.shortcut_var = QCheckBox(t("settings.shortcut"))
+        self.shortcut_var.setChecked(bool(s.start_menu_shortcut))
+        self.shortcut_var.setEnabled(_sc.target() is not None)
+        self.shortcut_var.setToolTip(t("settings.shortcut_tip") if _sc.target() is not None else t("settings.shortcut_source"))
+        self.shortcut_var.toggled.connect(self._shortcut_toggled)
+        card.addWidget(self.shortcut_var)
+        row = hbox()
+        row.addWidget(button(t("settings.welcome_again"), self._welcome_again, kind="flat", icon="info"))
+        row.addStretch(1)
+        card.addLayout(row)
         self.ctrl.on("app_update_state", self._update_state)
         self._update_state()
+
+    def _shortcut_toggled(self, on: bool) -> None:
+        self.ctrl.settings.start_menu_shortcut = bool(on)
+        self.ctrl.settings.save()
+        self.ctrl.refresh_shortcut(announce=True)
+
+    def _welcome_again(self) -> None:
+        from ..welcome import WelcomeDialog
+
+        WelcomeDialog(self, self.ctrl)
+
+    def _pick_version(self) -> None:
+        from ..version_dialog import VersionDialog
+
+        VersionDialog(self, self.ctrl, on_channel=self.show_rc_var.setChecked)
 
     def _install_update(self) -> None:
         if self.ctrl.available_update is not None:
@@ -1076,6 +1117,49 @@ class SettingsView(View):
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
+    def _reset_defaults(self) -> None:
+        """1.3.2 (C57) : confirmation, copie du fichier, remise à zéro appliquée tout de suite, « Annuler »."""
+        from PySide6.QtWidgets import QCheckBox
+
+        from ..dialogs import ConfirmDialog
+
+        keep = QCheckBox(t("settings.reset_keep"))
+        keep.setChecked(True)
+
+        def go() -> None:
+            import shutil
+            import time as _time
+
+            s = self.ctrl.settings
+            try:                                   # copie de l'ancien fichier, à côté
+                path = s.path()
+                if path.is_file():
+                    shutil.copy2(path, path.with_name(f"settings-before-reset-{_time.strftime('%Y%m%d-%H%M%S')}.json"))
+            except OSError:
+                pass
+            old = s.reset_to_defaults(keep_choices=keep.isChecked())
+            s.save()
+            self.ctrl.apply_settings()
+            ctrl = self.ctrl
+
+            def undo() -> None:
+                ctrl.settings.restore(old)
+                ctrl.settings.save()
+                ctrl.apply_settings()
+                ctrl._emit("rebuild_ui")
+                ctrl.message("ok", t("settings.reset_undone"))
+
+            ctrl._emit("rebuild_ui")               # thème, zoom, langue, valeurs des Paramètres
+            ctrl.message("ok", t("settings.reset_done"))
+            ctrl._emit("message_action", t("action.undo"), undo)
+
+        dlg = ConfirmDialog(self.window(), t("settings.reset"), t("settings.reset_msg"), go,
+                            confirm_text=t("settings.reset_confirm"), detail=t("settings.reset_detail"))
+        try:
+            dlg.body.insertWidget(max(0, dlg.body.count() - 1), keep)
+        except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
+            pass
+
     def _save(self) -> None:
         s = self.ctrl.settings
         forced = self.forced.text().strip()
@@ -1086,6 +1170,7 @@ class SettingsView(View):
         s.fetch_views = self.views_var.isChecked()
         s.fetch_metadata = self.meta_var.isChecked()
         s.backup_keep = int(self.keep.currentText())
+        s.merge_undo_s = int(self.merge_undo.currentData() or 10)
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
@@ -1096,8 +1181,7 @@ class SettingsView(View):
         s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
-        s.update_channel = next((k for k, v in self._channel_labels.items() if v == self.channel_menu.currentText()),
-                                "auto")
+        s.update_channel = "test" if self.show_rc_var.isChecked() else "stable"      # C96
         s.error_reports = next((k for k, v in self._report_labels.items() if v == self.report_menu.currentText()), "ask")
         s.key_notation = next((k for k, v in self._notation_labels.items() if v == self.notation.currentText()), "auto")
         local_changed = (self.local_db.text().strip(), self.local_music.text().strip()) != (s.local_db_dir,
