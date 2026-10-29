@@ -874,6 +874,10 @@ class GridEditor(QWidget):
             cur = min(33, max(cur + 4, int(cost * 1.5)))
         elif cost < 0.3 * cur:
             cur = max(best, cur - 2)
+        from ..core.machine import LIGHT_FRAME_MS, light_active
+
+        if light_active(self.ctrl.settings):            # 1.4.0 (C65) : mode léger, 30 images/s au plus
+            cur = max(cur, LIGHT_FRAME_MS)
         self._interval = cur
         return cur
 

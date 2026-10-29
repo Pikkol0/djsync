@@ -191,6 +191,23 @@ class SettingsView(View):
         self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
         self.scroll_wave_var.setChecked(s.scrolling_wave)
         card.addWidget(self.scroll_wave_var)
+        # 1.4.0 (C65) : mode léger pour les PC modestes
+        from ...core.machine import MODES, light_active, machine_info
+
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.light"))))
+        self._light_labels = {m: t(f"settings.light_{m}") for m in MODES}
+        self.light_menu = QComboBox()
+        self.light_menu.addItems(list(self._light_labels.values()))
+        self.light_menu.setCurrentText(self._light_labels.get(s.light_mode, self._light_labels["auto"]))
+        self.light_menu.setToolTip(t("settings.light_tip"))
+        row.addWidget(self.light_menu)
+        info = machine_info()
+        self.light_state = label(t("settings.light_state_on" if light_active(s, info) else "settings.light_state_off",
+                                   machine=info.describe()), "dim")
+        row.addWidget(self.light_state)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- clé USB
         self._section = "libraries"
@@ -1310,6 +1327,7 @@ class SettingsView(View):
         s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
         s.watch_playlist = self.watch_playlist_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
+        s.light_mode = next((k for k, v in self._light_labels.items() if v == self.light_menu.currentText()), "auto")
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
         s.update_channel = "test" if self.show_rc_var.isChecked() else "stable"      # C96

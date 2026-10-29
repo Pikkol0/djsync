@@ -190,3 +190,64 @@ def test_deezer_import_uses_the_spotify_matching_and_says_make_it_public(demo, m
     demo.ctrl.import_url("https://www.deezer.com/playlist/2", lambda *a: None, errs.append)
     assert pump(demo, 4, lambda: errs)
     assert str(errs[-1]) == t("error.deezer_private")
+
+
+# ------------------------------------------------------------------ C65 : mode léger
+def test_light_mode_choice_and_machine_detection(monkeypatch):
+    from djsync.core import machine as M
+    from djsync.settings import Settings
+
+    s = Settings()
+    assert s.light_mode == "auto"
+    weak, strong = M.MachineInfo(2, 8.0), M.MachineInfo(8, 4.0)
+    assert weak.modest and strong.modest                          # 2 cœurs, ou 4 Go : modeste
+    assert not M.MachineInfo(4, 8.0).modest and not M.MachineInfo(8, None).modest
+    assert M.light_active(s, weak) and not M.light_active(s, M.MachineInfo(8, 16.0))
+    s.light_mode = "off"
+    assert not M.light_active(s, weak) and not M.should_offer(s, weak)
+    s.light_mode = "on"
+    assert M.light_active(s, M.MachineInfo(16, 64.0))
+    s.light_mode, s.light_prompt_off = "auto", False
+    assert M.should_offer(s, weak)
+    s.light_prompt_off = True
+    assert not M.should_offer(s, weak)
+
+
+def test_light_mode_effects(demo_grid, monkeypatch):  # noqa: F811
+    from djsync.core import machine as M
+
+    from .qt_util import pump
+
+    app = demo_grid
+    monkeypatch.setattr(M, "_INFO", M.MachineInfo(2, 4.0))
+    ed = _open_grid(app)
+    ed.canvas.paint_ms = 1.0
+    assert min(ed._frame_interval() for _ in range(40)) >= M.LIGHT_FRAME_MS        # 30 images/s au plus
+    # analyse en arrière-plan : un son à la fois
+    from djsync.ui.ctrl.library_ops import AnalysisQueue
+
+    q = AnalysisQueue()
+    q.add([1, 2, 3, 4, 5, 6, 7], False)
+    assert q.take(1) == [1] and len(q.take()) == AnalysisQueue.BATCH
+    ed.close()
+    pump(app, 0.1)
+
+
+def test_light_mode_offer_at_start(demo, monkeypatch):  # noqa: F811
+    from PySide6.QtWidgets import QPushButton
+
+    from djsync.core import machine as M
+    from djsync.i18n import t
+
+    from .qt_util import pump
+
+    s = demo.ctrl.settings
+    btn = lambda dlg, key: next(b for b in dlg.findChildren(QPushButton) if b.text() == t(key))  # noqa: E731
+    dlg = demo.offer_light_mode(M.MachineInfo(2, 4.0))
+    assert pump(demo, 1, dlg.isVisible)
+    dlg.never_box.setChecked(True)
+    btn(dlg, "light.keep").click()
+    assert s.light_mode == "auto" and s.light_prompt_off
+    dlg = demo.offer_light_mode(M.MachineInfo(2, 4.0))
+    btn(dlg, "light.off").click()
+    assert s.light_mode == "off"

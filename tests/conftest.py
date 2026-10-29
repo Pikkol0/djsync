@@ -19,6 +19,15 @@ def _quality_register(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _strong_machine(monkeypatch):
+    """1.4.0 (C65) : les tests voient une machine « normale » (pas de mode léger ni de fenêtre au démarrage),
+    quelle que soit la machine de test ; les tests du mode léger simulent la leur."""
+    from djsync.core import machine
+
+    monkeypatch.setattr(machine, "_INFO", machine.MachineInfo(8, 16.0))
+
+
+@pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
     """Jamais de vraie requête « nouvelle version de DJSync ? » pendant les tests."""
     import djsync.core.updates as updates

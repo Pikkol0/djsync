@@ -238,6 +238,46 @@ class DJSyncApp(QMainWindow):
         from .splash import close_native
 
         close_native()
+        if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
+            self._light_checked = True
+            from ..core.machine import light_active, machine_info, should_offer
+
+            info = machine_info()
+            log.info("Machine: %s, light mode %s (%s)", info.describe(),
+                     "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
+            if should_offer(self.ctrl.settings, info):
+                QTimer.singleShot(1500, lambda: self.offer_light_mode(info))
+
+    def offer_light_mode(self, info: Any) -> Any:
+        """1.4.0 (C65) : une fois, sur un PC modeste : explique le mode léger (gardé ou désactivé)."""
+        from PySide6.QtWidgets import QCheckBox
+
+        from .dialogs import BaseDialog
+
+        s = self.ctrl.settings
+        dlg = BaseDialog(self, t("light.title"), 460)
+        dlg.heading(t("light.title"))
+        dlg.body.addWidget(label(t("light.text", machine=info.describe()), wrap=True))
+        never = QCheckBox(t("light.never"))
+        dlg.body.addWidget(never)
+
+        def done(mode: str) -> None:
+            s.light_mode = mode
+            s.light_prompt_off = never.isChecked() or mode == "off"
+            s.save()
+            dlg.close()
+
+        dlg.body.addStretch(1)
+        row = hbox(spacing=theme.px(6))
+        row.addStretch(1)
+        row.addWidget(button(t("light.off"), lambda: done("off")))
+        keep = button(t("light.keep"), lambda: done("auto"), kind="primary")
+        keep.setDefault(True)
+        row.addWidget(keep)
+        dlg.body.addLayout(row)
+        dlg.never_box = never
+        dlg.show_dialog()
+        return dlg
 
     # ------------------------------------------------------------------ construction
     def _build(self) -> None:

@@ -109,6 +109,8 @@ class Settings:
     # ---- V1.0.0
     player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
     youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
+    light_mode: str = "auto"           # 1.4.0 (C65) : mode léger auto | on | off
+    light_prompt_off: bool = False     # 1.4.0 (C65) : ne plus proposer le mode léger au démarrage
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité

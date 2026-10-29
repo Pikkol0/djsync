@@ -111,11 +111,13 @@ class AnalysisQueue(TaskHandle):
             self.total += len(new)
             return len(new)
 
-    def take(self) -> List[int]:
+    def take(self, size: Optional[int] = None) -> List[int]:
+        """Lot suivant (`size` : 1 en mode léger, C65)."""
+        n = size or self.BATCH
         with self._lock:
             if self.cancelled:
                 self.pending.clear()
-            batch, self.pending = self.pending[: self.BATCH], self.pending[self.BATCH:]
+            batch, self.pending = self.pending[:n], self.pending[n:]
             # 1.2.1 (C21) : ordre de traitement du lot en cours (forcés après les autres, comme `work`)
             self.batch = [i for i in batch if i not in self.forced] + [i for i in batch if i in self.forced]
             return batch
@@ -135,6 +137,21 @@ class AnalysisQueue(TaskHandle):
 
 
 class LibraryOpsMixin:
+    # ------------------------------------------------------------------ 1.4.0 (C65) : mode léger
+    def _light(self) -> bool:
+        from ...core.machine import light_active
+
+        return light_active(self.settings)
+
+    def _wait_while_playing(self, q: Any, step: float = 0.5) -> None:
+        """Mode léger : l'analyse en arrière-plan attend la fin de la lecture (le son reste fluide)."""
+        import time
+
+        from ...audio.player import PLAYING
+
+        while not q.cancelled and getattr(getattr(self, "player", None), "state", None) == PLAYING:
+            time.sleep(step)
+
     # ------------------------------------------------------------------ lecture
     def load_library(self, ok: Callback, err: Optional[Callback] = None) -> None:
         """ok({"playlists": [...], "tracks": [...], "stats": {playlist_id: PlaylistStats}})."""
@@ -394,7 +411,10 @@ class LibraryOpsMixin:
 
         def work() -> Any:
             while True:
-                batch = q.take()
+                light = self._light()
+                if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
+                    self._wait_while_playing(q)
+                batch = q.take(1 if light else None)
                 if not batch or q.cancelled:
                     break
                 normal = [i for i in batch if i not in q.forced]
