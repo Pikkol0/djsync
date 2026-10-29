@@ -9,6 +9,8 @@ liste toute la playlist (titre, durée, vignette, vues) sans résoudre chaque vi
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +21,31 @@ MAX_ENTRIES = 200
 
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com"}
 _SOUNDCLOUD_HOSTS = {"soundcloud.com", "m.soundcloud.com", "on.soundcloud.com", "snd.sc"}
+
+
+@dataclass(frozen=True)
+class Source:
+    """1.3.2 (C101) : une source acceptée par l'import par lien (affichée dans l'onglet Import)."""
+
+    key: str                  # clé de traduction : import.src_<key> (ce qui est lu)
+    name: str                 # nom du service (non traduit)
+    color: str                # point de couleur de la pastille (pas de logo de marque embarqué)
+    example: str              # exemple de lien
+    limit: int = 0            # nombre maximal de morceaux lus (0 : pas de limite propre)
+
+
+# Une seule source de vérité : `classify_url` ci-dessous reconnaît exactement ces services (test).
+SOURCES = (
+    Source("spotify", "Spotify", "#1DB954", "open.spotify.com/playlist/…", 100),
+    Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", MAX_ENTRIES),
+    Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", MAX_ENTRIES),
+    Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", MAX_ENTRIES),
+)
+
+
+def source_names() -> str:
+    """« Spotify, YouTube, YouTube Music, SoundCloud » (messages et champ de lien, C101)."""
+    return ", ".join(x.name for x in SOURCES)
 
 
 class UrlImportError(Exception):

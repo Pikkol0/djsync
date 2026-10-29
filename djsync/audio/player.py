@@ -448,6 +448,14 @@ class AudioPlayer:
         self._set_state(LOADING)
         threading.Thread(target=self._prepare, args=(self._gen, path, meta), daemon=True).start()
 
+    def announce(self, meta: NowPlaying) -> None:
+        """1.3.2 (C74) : le son choisi s'affiche TOUT DE SUITE dans le lecteur (titre, pochette, animation de
+        chargement) pendant qu'on le récupère (préécoute d'un résultat de recherche) ; `play` suivra."""
+        self.stop(keep_meta=False)
+        self._gen += 1
+        self.meta = meta
+        self._set_state(LOADING)
+
     def _start(self, gen: int, stream: _Stream, meta: NowPlaying, duration: float) -> None:
         if gen != self._gen or not self._ensure_device():
             stream.close()

@@ -214,6 +214,8 @@ class PlaybackMixin:
         self.message("info", t("player.fetching", title=track.title))
         cached = self._preview_files.get(track.video_id)
         index = self.queue_index
+        # 1.3.2 (C74) : affiché dans le lecteur tout de suite, avec l'animation de chargement
+        self.player.announce(NowPlaying(track.title, track.artist, "", cover_url=track.thumbnail_url))
 
         def work() -> str:
             if cached and Path(cached).is_file():
@@ -227,7 +229,9 @@ class PlaybackMixin:
             self.player.play(path, NowPlaying(track.title, track.artist, path, cover_url=track.thumbnail_url))
 
         def err(exc: BaseException) -> None:
-            self._on_error(exc)
+            if index == self.queue_index and self.player.state == "loading":
+                self.player.stop()                     # C74 : plus d'animation sans fin
+            self.message("error", t("player.preview_failed", title=track.title) + "  " + self.error_text(exc))
             self.engine_failure(str(exc))
 
         self.dispatcher.submit(work, ok, err, pool="net")

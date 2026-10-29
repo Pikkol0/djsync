@@ -50,7 +50,7 @@ class GridCanvas(QWidget):
         self._drag_x: Optional[float] = None
         self._drag_start = 0.0
 
-    paint_ms = 0.0                                  # 1.4.0 (C52) : durée moyenne d'un dessin (cadence adaptée)
+    paint_ms = 0.0                                  # 1.3.2 (C52) : durée moyenne d'un dessin (cadence adaptée)
 
     def paintEvent(self, _e: Any) -> None:          # noqa: N802
         import time
@@ -184,11 +184,15 @@ class GridEditor(QWidget):
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
         self.scroll.valueChanged.connect(self._scrolled)
-        self.scroll.hide()            # 1.4.0 (C51) : remplacée par la vue d'ensemble, qui navigue aussi
+        from .cursor import FrameMeter, Monotonic
+
+        self._mono = Monotonic()                    # 1.3.2 (C52)
+        self._meter = FrameMeter("beat grid")
+        self.scroll.hide()            # 1.3.2 (C51) : remplacée par la vue d'ensemble, qui navigue aussi
         self.body.addWidget(self.scroll)
         from .grid_overview import GridOverview
 
-        # 1.4.0 (C51) : vue d'ensemble du son ici, entre la forme d'onde zoomée et les hot cues (elle était
+        # 1.3.2 (C51) : vue d'ensemble du son ici, entre la forme d'onde zoomée et les hot cues (elle était
         # dans la barre du lecteur) : cliquer ou glisser déplace la vue et la lecture
         self.overview = GridOverview()
         self.overview.set_editor(self)
@@ -280,6 +284,7 @@ class GridEditor(QWidget):
     def _player_seek(self, ms: float, flush: bool = True) -> None:
         # flush=False pour le retour au début d'une boucle : décidé en avance, il doit passer après ce
         # que la carte son a déjà en réserve (rc.5, C39)
+        self._mono.reset()                         # 1.3.2 (C52) : saut voulu, la position peut reculer
         self.ctrl.player.seek(max(0.0, (ms - self._lead_ms) / 1000.0), flush=flush)
 
     # 1.3.0-rc.8 (B31) : la page reste ouverte quand on change d'onglet (modifications gardées) ; le
@@ -479,7 +484,7 @@ class GridEditor(QWidget):
                 p.setBrush(Qt.NoBrush)
         self._paint_cues(p, w, h)
         xc = self._x(self.cursor_ms)
-        if -10 <= xc <= w + 10:                   # 1.4.0 (C52) : trait rouge vif, net au centre
+        if -10 <= xc <= w + 10:                   # 1.3.2 (C52) : trait rouge vif, net au centre
             draw_cursor(p, xc, 0, h)
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 1, -theme.px(6), 0), Qt.AlignRight | Qt.AlignTop, time_text)
@@ -613,7 +618,7 @@ class GridEditor(QWidget):
         super().keyPressEvent(e)
 
     def _paint_bands_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
-        """1.4.0 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la
+        """1.3.2 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la
         vue, puis seulement recopiée, décalée, à chaque image de la lecture (avant, toute la forme d'onde
         était recalculée 60 fois par seconde : saccades sur un écran 4K). Refaite au zoom, à la taille,
         au changement de forme d'onde, ou quand la vue sort de l'image."""
@@ -856,7 +861,7 @@ class GridEditor(QWidget):
         QTimer.singleShot(100, seek_when_ready)
 
     def _frame_interval(self) -> int:
-        """1.4.0 (C52) : une image par rafraîchissement de l'écran (60, 120, 144 Hz…), ralentie (jusqu'à
+        """1.3.2 (C52) : une image par rafraîchissement de l'écran (60, 120, 144 Hz…), ralentie (jusqu'à
         30 images/s) si le PC met trop de temps à dessiner, puis réaccélérée quand il suit."""
         try:
             hz = float(self.screen().refreshRate() or 60.0)
@@ -875,13 +880,14 @@ class GridEditor(QWidget):
     def _tick(self) -> None:
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
-        interval = self._frame_interval() if playing else 60    # 1.4.0 (C52) : cadence de l'écran, adaptée
+        interval = self._frame_interval() if playing else 60    # 1.3.2 (C52) : cadence de l'écran, adaptée
         self.exit_btn.setVisible(self.active_loop is not None and playing)
         if self._timer.interval() != interval:
             self._timer.setInterval(interval)
         self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
-            self.cursor_ms = player.position() * 1000.0 + self._lead_ms
+            # 1.3.2 (C52, testeur Mac) : la position affichée ne recule jamais d'un petit pas pendant la lecture
+            self.cursor_ms = self._mono(player.position() * 1000.0 + self._lead_ms)
             # 1.3.0-rc.3 (C39) : la fin de boucle se décide sur ce qui est ENVOYÉ à la carte son (en avance
             # de sa réserve), pour que le retour au début s'entende pile à la fin de la boucle
             sent_ms = player.sent_position() * 1000.0 + self._lead_ms
@@ -905,6 +911,10 @@ class GridEditor(QWidget):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
             self.overview.update()
+            self._meter.frame(getattr(self.canvas, "paint_ms", 0.0))
+        else:
+            self._mono.reset()
+            self._meter.stop()
 
     # -------------------------------------------------------------- enregistrer
     def _save(self) -> None:

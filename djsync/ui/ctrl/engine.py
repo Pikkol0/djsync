@@ -69,6 +69,20 @@ class EngineMixin:
     update_ready: Any = None           # (Plan, chemin préparé, version) : il ne reste qu'à redémarrer
     _update_cancel = False
 
+    def app_versions(self, include_prerelease: bool, ok: Callable[[Any], None],
+                     failed: Optional[Callable[[BaseException], None]] = None) -> None:
+        """1.3.2 (C96) : versions publiées installables sur ce système (plus anciennes comprises), en
+        arrière-plan ; `ok(liste d'Update)`, la plus récente d'abord."""
+        from ...core import updates
+
+        def bad(exc: BaseException) -> None:
+            log.info("DJSync versions list failed: %s", exc)
+            if failed is not None:
+                failed(exc)
+
+        self.dispatcher.submit(lambda: updates.list_versions(include_prerelease=include_prerelease), ok, bad,
+                               pool="net")
+
     def can_self_update(self) -> bool:
         from ...core import selfupdate
 
