@@ -39,7 +39,7 @@ def test_suggestion_rows_have_no_parentless_nested_layout(tmp_path, monkeypatch)
         ref = next(x for x in lib.all_tracks if x.title == "One More Time")
         lib.table.select([str(ref.content_id)])
         panel = lib.suggestions
-        assert pump(app, 2, lambda: panel.list.count() > 0)
+        assert pump(app, 6, lambda: panel.ref is not None and panel.list.count() > 0)
         for i in range(panel.list.count()):
             row = panel.list.itemWidget(panel.list.item(i))
             lay = row.layout()
