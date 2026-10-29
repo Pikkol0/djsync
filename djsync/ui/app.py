@@ -579,6 +579,9 @@ class DJSyncApp(QMainWindow):
         self._shortcut("Ctrl+F", self._focus_filter)
         self._shortcut("Ctrl+,", lambda: self.show_view("settings"))
         self._shortcut("F1", self.open_help)
+        from .zoom import ZoomKeys
+
+        self.zoom_keys = ZoomKeys(self)                 # 1.4.0 (C102) : Ctrl/Cmd +, −, 0 et Ctrl/Cmd + molette
         self._shortcut("Ctrl+Right", self.ctrl.play_next)
         self._shortcut("Ctrl+Left", self.ctrl.play_previous)
         sc = QShortcut(QKeySequence(Qt.Key_Space), self)

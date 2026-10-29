@@ -7,17 +7,18 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 """
 from __future__ import annotations
 
+import sys
 from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractButton, QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QWidget,
+    QProgressBar, QScrollArea, QSpinBox, QToolButton, QWidget,
 )
 
 from ...db import UsbDrive
 from ...i18n import LANGUAGES, t
-from ...settings import ZOOM_MAX, ZOOM_MIN, ZOOM_STEP
+from ...settings import ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
@@ -39,10 +40,6 @@ class SettingsView(View):
         super().__init__(parent, controller, loader)
         self._drives: Dict[str, UsbDrive] = {}
         self._swatches: Dict[str, QToolButton] = {}
-        self._zoom_timer = QTimer(self)
-        self._zoom_timer.setSingleShot(True)
-        self._zoom_timer.setInterval(250)
-        self._zoom_timer.timeout.connect(self._apply_zoom)
         s = controller.settings
 
         head = self.header(t("tab.settings"))
@@ -164,20 +161,21 @@ class SettingsView(View):
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
 
+        # 1.4.0 (C102) : plus de curseur : − / + / 100 % et les raccourcis (Ctrl/Cmd +, −, 0, molette)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.zoom"))))
-        self.zoom = QSlider(Qt.Horizontal)
-        self.zoom.setRange(ZOOM_MIN // ZOOM_STEP, ZOOM_MAX // ZOOM_STEP)
-        self.zoom.setValue(s.zoom // ZOOM_STEP)
-        self.zoom.setFixedWidth(theme.px(220))
-        self.zoom.valueChanged.connect(self._zoom_moved)
-        row.addWidget(self.zoom)
+        row.addWidget(icon_button("minus", lambda: self._zoom_step(-1), t("settings.zoom_out")))
         self.zoom_val = label(f"{s.zoom} %", "accent")
+        self.zoom_val.setMinimumWidth(theme.px(52))
+        self.zoom_val.setAlignment(Qt.AlignCenter)
         row.addWidget(self.zoom_val)
-        row.addWidget(button(t("settings.zoom_reset"), lambda: self.zoom.setValue(100 // ZOOM_STEP), kind="flat",
-                             icon="refresh"))
+        row.addWidget(icon_button("plus", lambda: self._zoom_step(1), t("settings.zoom_in")))
+        row.addWidget(button(t("settings.zoom_reset"), lambda: self._zoom_step(0), kind="flat", icon="refresh"))
         row.addStretch(1)
         card.addLayout(row)
+        card.addWidget(label(t("settings.zoom_keys", mod="⌘" if sys.platform == "darwin" else "Ctrl"), "faint",
+                             wrap=True))
+        controller.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
@@ -853,12 +851,15 @@ class SettingsView(View):
             self.ctrl.settings.save()
             self.ctrl._emit("restyle")
 
-    def _zoom_moved(self, value: int) -> None:
-        self.zoom_val.setText(f"{value * ZOOM_STEP} %")
-        self._zoom_timer.start()
+    def _zoom_step(self, delta: int) -> None:
+        keys = getattr(self.window(), "zoom_keys", None)
+        if keys is not None:
+            keys.step(delta)
+            return
+        from ..zoom import clamp                      # page seule (tests) : appliqué tout de suite
 
-    def _apply_zoom(self) -> None:
-        z = self.zoom.value() * ZOOM_STEP
+        z = 100 if delta == 0 else clamp(self.ctrl.settings.zoom + delta * ZOOM_STEP)
+        self.zoom_val.setText(f"{z} %")
         if z != self.ctrl.settings.zoom:
             self.ctrl.settings.zoom = z
             self.ctrl.settings.save()
