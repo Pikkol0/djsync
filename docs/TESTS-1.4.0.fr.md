@@ -46,10 +46,7 @@ dans le suivi : « 140 · IMP-1 ».
 | DIA-4 | Clic droit sur un son sans version gratuite ▸ **Acheter**. | Liens vers les magasins. |
 
 ## GRI / LEC — Éditeur des cues et du BPM, lecture (C51, C52)
-| # | Étapes | Attendu |
-|---|---|---|
-| GRI-1 | Ouvrir Grille et cues. | Vue d'ensemble du son entre la forme d'onde zoomée et les hot cues ; plus de bande en bas au-dessus du lecteur ; clic ou glisser dedans déplace la vue. |
-| LEC-1 | Lancer la lecture dans Grille et cues (vue de 2 s) sur l'écran 4K à 200 %. | Défilement fluide, sans à-coups ; curseur rouge vif, net, bien visible ; la barre du lecteur avance aussi en continu. |
+Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TESTS-1.3.2.fr.md` § G (GRI-1, GRI-2, LEC-4).
 
 ## COU — Couleur (C50)
 | # | Étapes | Attendu |
