@@ -238,7 +238,15 @@ STRINGS = {
     "dl.error_detail": "Error: {detail}",
 
     # ---- import
-    "import.placeholder": "Spotify, YouTube or SoundCloud link",
+    "import.placeholder": "{names} link",
+    "import.sources": "Accepted sources:",
+    "import.src_spotify": "Track, album or public playlist (first {n} tracks). Each track is looked up on YouTube Music.",
+    "import.src_youtube": "Video or playlist ({n} at most).",
+    "import.src_ytmusic": "Track, album or playlist ({n} at most).",
+    "import.src_soundcloud": "Track or set ({n} at most).",
+    "import.src_example": "Example: {ex}",
+    "import.src_list": "Or “Paste a list…”: one “Artist - Title” line per track.",
+    "import.empty_sub": "Paste a {names} link, or a list of tracks.",
     "import.read_link": "Read link",
     "import.reading": "Reading…",
     "import.reading_link": "Reading the link…",
@@ -817,7 +825,7 @@ STRINGS = {
     "error.unsupported_format": "Unsupported or unreadable audio file. ({detail})",
     "error.drive_not_found": "Drive not found. ({detail})",
     "error.db_open": "The drive database could not be opened. ({detail})",
-    "error.url_unknown": "Unknown link: paste a Spotify, YouTube or SoundCloud link.",
+    "error.url_unknown": "Unknown link. Accepted sources: {names} (or “Paste a list…”).",
 
     # ---- themes (palette names)
     "theme.violet_light": "Light violet",

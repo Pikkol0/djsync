@@ -785,7 +785,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:
-            (err or self._on_error)(UrlImportError(t("error.url_unknown")))
+            from ..core.urlimport import source_names
+
+            (err or self._on_error)(UrlImportError(t("error.url_unknown", names=source_names())))  # 1.3.2 (C101)
             return
         def failed(exc: BaseException) -> None:
             (err or self._on_error)(exc)

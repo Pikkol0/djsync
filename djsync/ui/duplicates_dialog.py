@@ -87,6 +87,11 @@ class DuplicatesDialog(BaseDialog):
         main = hbox(spacing=theme.px(10))
         self.list = QListWidget()
         self.list.setFixedWidth(theme.px(240))
+        # 1.3.2 (C98) : groupe affiché bien visible, même quand la liste n'a pas le focus
+        self.list.setObjectName("dupGroups")
+        self.list.setStyleSheet(
+            f"QListWidget#dupGroups::item:selected, QListWidget#dupGroups::item:selected:!active {{"
+            f" background: {theme.ACCENT_DIM}; color: {theme.TEXT}; border-left: {theme.px(3)}px solid {theme.ACCENT}; }}")
         self.list.currentRowChanged.connect(self._select)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)       # C84 : « Vérifier ce groupe maintenant »
         self.list.customContextMenuRequested.connect(self._list_menu)
@@ -212,6 +217,7 @@ class DuplicatesDialog(BaseDialog):
 
     def _fill_list(self) -> None:
         self.list.blockSignals(True)
+        row, top = self.list.currentRow(), self.list.verticalScrollBar().value()     # 1.3.2 (C98)
         self.list.clear()
         for i, g in enumerate(self.groups):
             k = best_keeper(g)
@@ -235,6 +241,9 @@ class DuplicatesDialog(BaseDialog):
                 item.setToolTip(t("dup.same_titles_tip"))
                 self.list.addItem(item)
         self._update_count()
+        if 0 <= row < self.list.count():              # 1.3.2 (C98) : sélection et défilement gardés
+            self.list.setCurrentRow(row)
+            self.list.verticalScrollBar().setValue(top)
         self.list.blockSignals(False)
 
     def _clear_detail(self) -> None:
@@ -277,6 +286,8 @@ class DuplicatesDialog(BaseDialog):
             self.list.blockSignals(True)
             self.list.setCurrentRow(i)
             self.list.blockSignals(False)
+        if 0 <= i < self.list.count():                # 1.3.2 (C98) : la ligne courante toujours visible
+            self.list.scrollToItem(self.list.item(i))
         self._clear_detail()
         self.detail_scroll.verticalScrollBar().setValue(0)         # B34 : un nouveau groupe s'affiche en haut
         if not (0 <= i < len(self.groups)):

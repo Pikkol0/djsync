@@ -18,7 +18,7 @@ from ...models import (
 )
 from ..dialogs import BaseDialog
 from .. import theme
-from ..widgets import Column, Row, TrackTable, button, hbox, label, line_edit
+from ..widgets import Column, Row, TrackTable, button, chip, hbox, label, line_edit
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
@@ -65,7 +65,9 @@ class ImportView(View):
 
         self.root.addLayout(self.header(t("tab.import")))
         bar = hbox(spacing=theme.px(8))
-        self.url = line_edit(t("import.placeholder"), "import", big=True)
+        from ...core.urlimport import source_names
+
+        self.url = line_edit(t("import.placeholder", names=source_names()), "import", big=True)
         self.url.returnPressed.connect(self.analyse)
         bar.addWidget(self.url, 1)
         paste = button(t("action.paste"), self._paste_clipboard, icon="clipboard")
@@ -74,6 +76,7 @@ class ImportView(View):
             b.setMinimumHeight(self.url.sizeHint().height())
             bar.addWidget(b)
         self.root.addLayout(bar)
+        self.root.addLayout(self._sources_row())
 
         opts = hbox()
         self.info = label("", "dim")
@@ -109,7 +112,7 @@ class ImportView(View):
             self.root.addWidget(table, 1)
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
-        self.dl_table.set_empty("import", t("import.empty_title"))
+        self.dl_table.set_empty("import", t("import.empty_title"), t("import.empty_sub", names=source_names()))
 
         actions = hbox()
         self.preview_btn = button(t("action.listen"), self._preview, icon="play")
@@ -189,6 +192,30 @@ class ImportView(View):
             self.ctrl._on_error(exc)
 
         self.ctrl.import_url(url, ok, err)
+
+    def _sources_row(self) -> Any:
+        """1.3.2 (C101) : sources acceptées sous le champ de lien, une pastille par service (point de sa
+        couleur, sans logo) ; la bulle dit ce qui est lu, la limite et un exemple de lien."""
+        from PySide6.QtCore import Qt
+
+        from ...core.urlimport import SOURCES
+
+        row = hbox(spacing=theme.px(6))
+        head = label(t("import.sources"), "dim")
+        head.setToolTip(t("import.src_list"))
+        row.addWidget(head)
+        self.source_chips = []
+        for src in SOURCES:
+            c = chip("")
+            c.setTextFormat(Qt.RichText)
+            c.setText(f'<span style="color:{src.color}">●</span> {src.name}')
+            c.setToolTip(t(f"import.src_{src.key}", n=src.limit) + "\n" + t("import.src_example", ex=src.example))
+            row.addWidget(c)
+            self.source_chips.append(c)
+        tail = label(t("import.src_list"), "faint")
+        row.addWidget(tail)
+        row.addStretch(1)
+        return row
 
     def _paste_list(self) -> None:
         def run(text: str) -> None:

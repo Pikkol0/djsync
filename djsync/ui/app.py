@@ -222,6 +222,9 @@ class DJSyncApp(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        from .foreground import ensure_front
+
+        ensure_front(self, QTimer.singleShot)                    # 1.3.2 (B36) : Windows, devant l'Explorateur
         if not getattr(self, "_app_state_watched", False):     # 1.3.0-rc.9 (B32)
             self._app_state_watched = True
             self._watch_app_state()

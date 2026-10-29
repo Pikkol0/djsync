@@ -238,7 +238,15 @@ STRINGS = {
     "dl.error_detail": "Erreur : {detail}",
 
     # ---- import
-    "import.placeholder": "Lien Spotify, YouTube ou SoundCloud",
+    "import.placeholder": "Lien {names}",
+    "import.sources": "Sources acceptées :",
+    "import.src_spotify": "Titre, album ou playlist publique (les {n} premiers morceaux). Chaque morceau est cherché sur YouTube Music.",
+    "import.src_youtube": "Vidéo ou playlist ({n} au plus).",
+    "import.src_ytmusic": "Titre, album ou playlist ({n} au plus).",
+    "import.src_soundcloud": "Titre ou set ({n} au plus).",
+    "import.src_example": "Exemple : {ex}",
+    "import.src_list": "Ou « Coller une liste… » : une ligne « Artiste - Titre » par morceau.",
+    "import.empty_sub": "Collez un lien {names}, ou une liste de morceaux.",
     "import.read_link": "Lire le lien",
     "import.reading": "Lecture…",
     "import.reading_link": "Lecture du lien…",
@@ -823,7 +831,7 @@ STRINGS = {
     "error.unsupported_format": "Fichier audio non pris en charge ou illisible. ({detail})",
     "error.drive_not_found": "Clé introuvable. ({detail})",
     "error.db_open": "La base de la clé n'a pas pu être ouverte. ({detail})",
-    "error.url_unknown": "Lien non reconnu : collez un lien Spotify, YouTube ou SoundCloud.",
+    "error.url_unknown": "Lien non reconnu. Sources acceptées : {names} (ou « Coller une liste… »).",
 
     # ---- thèmes
     "theme.violet_light": "Violet clair",
