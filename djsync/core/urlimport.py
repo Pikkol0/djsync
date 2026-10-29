@@ -21,6 +21,7 @@ MAX_ENTRIES = 200
 
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com"}
 _SOUNDCLOUD_HOSTS = {"soundcloud.com", "m.soundcloud.com", "on.soundcloud.com", "snd.sc"}
+_DEEZER_SHORT = {"deezer.page.link", "dzr.page.link"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class Source:
 # Une seule source de vérité : `classify_url` ci-dessous reconnaît exactement ces services (test).
 SOURCES = (
     Source("spotify", "Spotify", "#1DB954", "open.spotify.com/playlist/…", 100),
+    Source("deezer", "Deezer", "#A238FF", "deezer.com/playlist/… · link.deezer.com/…", 1000),   # 1.4.0 (C86)
     Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", MAX_ENTRIES),
     Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", MAX_ENTRIES),
     Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", MAX_ENTRIES),
@@ -71,6 +73,8 @@ def classify_url(url: str) -> UrlKind:
         return UrlKind.YOUTUBE
     if host in _SOUNDCLOUD_HOSTS:
         return UrlKind.SOUNDCLOUD
+    if host == "deezer.com" or host.endswith(".deezer.com") or host in _DEEZER_SHORT:   # 1.4.0 (C86)
+        return UrlKind.DEEZER
     return UrlKind.UNKNOWN
 
 

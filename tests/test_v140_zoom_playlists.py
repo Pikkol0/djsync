@@ -114,3 +114,79 @@ def test_playlists_column_shows_where_each_track_is(demo):  # noqa: F811
     demo.ctrl.add_to_playlists([other.content_id], [club.playlist_id])
     assert pump(demo, 6, lambda: club.playlist_id in (getattr(lib, "_member", {}) or {}).get(other.content_id, []))
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ C86 : Deezer
+_DZ_PLAYLIST = {"id": 1, "title": "Warm-up Deezer", "nb_tracks": 3, "tracks": {"data": [
+    {"title": "One More Time", "duration": 320, "artist": {"name": "Daft Punk"}, "album": {"title": "Discovery"}},
+    {"title": "Umbrella", "duration": 275, "artist": {"name": "Rihanna"}, "album": {"title": "GGGB"}}],
+    "next": "https://api.deezer.com/playlist/1/tracks?index=2"}}
+_DZ_PAGE = {"data": [{"title": "Désaccordé", "duration": 200, "artist": {"name": "Vald"}, "album": {"title": "X"}}]}
+
+
+class _Resp:
+    def __init__(self, data, url=""):
+        self._data, self.url = data, url
+
+    def json(self):
+        return self._data
+
+
+class _Http:
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    def get(self, url, timeout=0, allow_redirects=True):
+        self.calls.append(url)
+        for key, value in self.routes.items():
+            if key in url:
+                return value if isinstance(value, _Resp) else _Resp(value, url)
+        return _Resp({"error": {"type": "DataException", "message": "no data", "code": 800}}, url)
+
+
+def test_deezer_links_recognised_and_listed_as_a_source():
+    from djsync.core.urlimport import SOURCES, classify_url
+    from djsync.models import UrlKind
+
+    for u in ("https://www.deezer.com/fr/playlist/908622995", "deezer.com/album/302127", "https://deezer.page.link/abc",
+              "https://link.deezer.com/s/30ABC", "https://www.deezer.com/track/3135556"):
+        assert classify_url(u) == UrlKind.DEEZER, u
+    assert "deezer" in {s.key for s in SOURCES}
+
+
+def test_deezer_playlist_read_with_pages_and_private_message():
+    from djsync.core import deezer as D
+
+    http = _Http({"/playlist/1/tracks": _DZ_PAGE, "api.deezer.com/playlist/1": _DZ_PLAYLIST})
+    pl = D.fetch_deezer("https://www.deezer.com/fr/playlist/1", session=http)
+    assert pl.name == "Warm-up Deezer" and [t.title for t in pl.tracks] == ["One More Time", "Umbrella", "Désaccordé"]
+    assert pl.tracks[0].artists == ("Daft Punk",) and pl.tracks[0].duration_seconds == 320 and not pl.truncated
+    # lien court suivi
+    short = _Http({"deezer.page.link": _Resp({}, "https://www.deezer.com/playlist/1"),
+                   "/playlist/1/tracks": _DZ_PAGE, "api.deezer.com/playlist/1": _DZ_PLAYLIST})
+    assert D.fetch_deezer("https://deezer.page.link/xyz", session=short).name == "Warm-up Deezer"
+    # privée ou introuvable
+    with pytest.raises(D.DeezerError) as e:
+        D.fetch_deezer("https://www.deezer.com/playlist/999", session=_Http({}))
+    assert e.value.private
+
+
+def test_deezer_import_uses_the_spotify_matching_and_says_make_it_public(demo, monkeypatch):  # noqa: F811
+    from djsync.core import deezer as D
+    from djsync.i18n import t
+
+    from .qt_util import pump
+
+    got, errs = [], []
+    monkeypatch.setattr(demo.ctrl.service, "fetch_deezer", lambda url: D.parse_deezer("playlist", _DZ_PLAYLIST))
+    demo.ctrl.import_url("https://www.deezer.com/playlist/1", lambda kind, data: got.append((kind, data)), errs.append)
+    assert pump(demo, 4, lambda: got or errs)
+    assert got and got[0][0] == "spotify" and got[0][1].name == "Warm-up Deezer"
+
+    def private(_url):
+        raise D.DeezerError("no data", private=True)
+
+    monkeypatch.setattr(demo.ctrl.service, "fetch_deezer", private)
+    demo.ctrl.import_url("https://www.deezer.com/playlist/2", lambda *a: None, errs.append)
+    assert pump(demo, 4, lambda: errs)
+    assert str(errs[-1]) == t("error.deezer_private")

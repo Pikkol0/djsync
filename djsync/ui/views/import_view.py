@@ -244,7 +244,10 @@ class ImportView(View):
         self.sp_table.set_rows([self._sp_row(i, m) for i, m in enumerate(self.matches)], reset_sort=True,
                                keep_selection=False)
         n = len(self.matches)
-        note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+        if "spotify" in (playlist.source_url or ""):
+            note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+        else:                                                       # 1.4.0 (C86) : Deezer
+            note = "  ·  " + t("import.list_truncated", n=len(playlist.tracks)) if playlist.truncated else ""
         self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=0) + note)
 
         def on_item(i: int, cands: List[Candidate]) -> None:

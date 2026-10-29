@@ -182,6 +182,7 @@ class UrlKind(str, Enum):
     SPOTIFY = "spotify"          # -> correspondance via YouTube Music
     YOUTUBE = "youtube"          # -> téléchargement direct (yt-dlp)
     SOUNDCLOUD = "soundcloud"    # -> téléchargement direct (yt-dlp)
+    DEEZER = "deezer"            # 1.4.0 (C86) -> comme Spotify : liste lue, puis correspondance YouTube Music
     UNKNOWN = "unknown"
 
 

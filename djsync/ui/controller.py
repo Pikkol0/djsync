@@ -798,6 +798,14 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         kind = self.service.classify_url(url)
         if kind == UrlKind.SPOTIFY:
             work: Callable[[], Any] = lambda: ("spotify", self.service.fetch_spotify(url))  # noqa: E731
+        elif kind == UrlKind.DEEZER:                                    # 1.4.0 (C86) : même suite que Spotify
+            def work() -> Any:
+                from ..core.deezer import DeezerError
+
+                try:
+                    return "spotify", self.service.fetch_deezer(url)
+                except DeezerError as exc:
+                    raise UrlImportError(t("error.deezer_private") if exc.private else str(exc)) from exc
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:

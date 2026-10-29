@@ -110,6 +110,12 @@ class MusicService:
         """Playlist / album / titre Spotify (réseau : hors thread UI)."""
         return fetch_spotify(url)
 
+    def fetch_deezer(self, url: str) -> SpotifyPlaylist:
+        """1.4.0 (C86) : playlist / album / titre Deezer public (réseau : hors thread UI)."""
+        from .deezer import fetch_deezer
+
+        return fetch_deezer(url)
+
     def resolve_direct(self, url: str) -> ResolvedUrl:
         """YouTube / SoundCloud : morceaux listés par yt-dlp, doublons marqués, SANS recherche."""
         resolved = resolve_direct(url)
