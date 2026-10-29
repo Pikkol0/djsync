@@ -131,22 +131,41 @@ class BackupsDialog(BaseDialog):
 
 
 class UninstallDialog(BaseDialog):
-    """Retirer DJSync de la clé qui le porte (programme, réglages, journal), musique conservée."""
+    """Retirer DJSync de la clé qui le porte (programme, réglages, journal), musique conservée.
+    1.3.1 (C88) : aussi depuis l'ordinateur (programme, réglages, caches, journal)."""
 
-    def __init__(self, parent: Any, controller: Any) -> None:
-        super().__init__(parent, t("uninstall.title"), 520)
+    def __init__(self, parent: Any, controller: Any, mode: str = "drive") -> None:
+        self.mode = mode
+        title = t("uninstall.title") if mode == "drive" else t("uninstall.computer_title")
+        super().__init__(parent, title, 560)
         self.ctrl = controller
-        self.heading(t("uninstall.title"), t("uninstall.sub"))
-        self.restore_var = QCheckBox(t("uninstall.restore_origin"))
-        self.body.addWidget(self.restore_var)
-        self.body.addWidget(label(t("uninstall.restore_origin_hint"), "faint", wrap=True))
-        self.backups_var = QCheckBox(t("uninstall.delete_backups"))
-        self.body.addWidget(self.backups_var)
-        self.body.addWidget(label(t("uninstall.keeps"), "dim", wrap=True))
+        self.restore_var = self.backups_var = None
+        if mode == "drive":
+            self.heading(t("uninstall.title"), t("uninstall.sub"))
+            self.restore_var = QCheckBox(t("uninstall.restore_origin"))
+            self.body.addWidget(self.restore_var)
+            self.body.addWidget(label(t("uninstall.restore_origin_hint"), "faint", wrap=True))
+            self.backups_var = QCheckBox(t("uninstall.delete_backups"))
+            self.body.addWidget(self.backups_var)
+            self.body.addWidget(label(t("uninstall.keeps"), "dim", wrap=True))
+        else:
+            self.heading(t("uninstall.computer_title"), t("uninstall.computer_sub"))
+            paths, has_backups = controller.computer_uninstall_plan(keep_backups=True)
+            self.body.addWidget(label(t("uninstall.computer_removed"), "dim"))
+            self.paths = label("\n".join(f"• {p}" for p in paths) or "—", "faint", wrap=True)
+            self.paths.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self.body.addWidget(self.paths)
+            if has_backups:
+                self.backups_var = QCheckBox(t("uninstall.computer_delete_backups"))
+                self.body.addWidget(self.backups_var)
+            self.body.addWidget(label(t("uninstall.computer_keeps"), "dim", wrap=True))
         self.footer(t("uninstall.ok"), self._go, danger=True)
         self.show_dialog()
 
     def _go(self) -> None:
-        restore, delete = self.restore_var.isChecked(), self.backups_var.isChecked()
+        delete = bool(self.backups_var is not None and self.backups_var.isChecked())
         self.close()
-        self.ctrl.uninstall(restore, delete)
+        if self.mode == "drive":
+            self.ctrl.uninstall(bool(self.restore_var.isChecked()), delete)
+        else:
+            self.ctrl.uninstall_computer(delete)

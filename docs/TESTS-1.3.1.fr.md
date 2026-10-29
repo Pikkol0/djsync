@@ -87,3 +87,26 @@ Numérotation (27/10) : **thème en 3 lettres + n°**, propre à chaque version 
 | CLE-5 | Rekordbox ouvert sur la clé : dans DJSync, faire une modification (renommer une playlist). | Si une erreur arrive, elle se termine par « 💡 Rekordbox est ouvert et utilise probablement ce fichier : fermez Rekordbox, puis réessayez. » |
 | CLE-6 | Lire une erreur longue. | La bulle d'erreur est large (jusqu'à ~70 % de la fenêtre), le texte entier se lit, **Copier** met le message dans le presse-papiers ; elle reste jusqu'à **Fermer** (×). Les messages d'info disparaissent seuls comme avant. |
 | DEM-1 | (Auteur) Build de la 1.3.1 : taille de DJSync.exe (::notice du build) et premier lancement depuis une clé. | Plus petit qu'en 1.3.0 (fichiers Qt inutiles retirés : OpenGL logiciel, QML, clavier virtuel, traductions autres que FR/EN…) ; l'autotest du build passe ; DJSync démarre et tout s'affiche. |
+
+## Q. Désinstaller depuis l'app (C88), Paramètres rangés et « Tout vérifier » (C89)
+| # | Étapes | Attendu |
+|---|---|---|
+| PAR-6 | Paramètres : regarder le volet. | Nouvelle section **Avancé**, en dernier et en gris (même sélectionnée). Elle contient FFmpeg, « export.pdb : options », Moteur de téléchargement et « Clé et son » (lettre de clé, décalage audio). Bibliothèques garde la carte Anciennes platines (état, Vérifier, Synchroniser maintenant). |
+| PAR-7 | Avancé : cartes FFmpeg et Moteur de téléchargement. | Repliées, avec une ligne d'état (« intégré et utilisable, rien à régler », « version … ») ; la flèche les déplie. Si FFmpeg est introuvable, la carte s'ouvre d'elle-même. Chercher « ffmpeg » montre son contenu. |
+| PAR-8 | Accueil : cliquer la pastille export.pdb. | Les Paramètres s'ouvrent sur Bibliothèques, carte Anciennes platines (export.pdb). |
+| PAR-9 | Bouton **Tout vérifier** (en haut à droite des Paramètres), avec une clé ouverte. | Une liste d'états : DJSync, Moteur, FFmpeg, Clés, export.pdb, Bibliothèque de l'ordinateur (relue), Diagnostic, Espace occupé (✓ à jour, ↑ mise à jour disponible avec « Ouvrir », ⚠ problème). Aucune fenêtre ne s'ouvre et rien n'est installé ; seul export.pdb est mis à jour s'il ne l'était pas. ✕ ferme la liste ; si tout est ✓, elle se replie seule après quelques secondes. |
+| PAR-10 | Paramètres ▸ DJSync. | Bouton **Désinstaller DJSync…** toujours présent (grisé seulement depuis le code source). |
+| PAR-11 | DJSync.exe copié dans un dossier de l'ordinateur (pas sur une clé) : **Désinstaller DJSync…** | La fenêtre liste ce qui part (DJSync.exe, `.djsync`, réglages, caches) et propose de supprimer aussi les sauvegardes de master.db. Après « Retirer et quitter », DJSync se ferme et ces fichiers disparaissent ; la musique et les bibliothèques Rekordbox sont intactes. |
+| PAR-12 | Depuis une clé : **Désinstaller DJSync…** | Même fenêtre qu'avant (« Retirer DJSync de cette clé ») ; le bouton de la carte Sauvegardes est toujours là. |
+
+## R2. 1.3.1-rc.2 : Suggestions sur Mac (B38), colonnes (B37, C99), boucle active (C75), qualité attendue (C42), espace de l'ordinateur (C27)
+| # | Étapes | Attendu |
+|---|---|---|
+| RC2-1 | (Mac) Bibliothèque ▸ **Suggestions** ouvert ; changer vite de son dans la Bibliothèque puis dans une playlist (flèches, clics), ajouter avec **+**. | Aucun plantage ; les suggestions suivent le son sélectionné. |
+| RC2-2 | Après un plantage éventuel : relancer DJSync, puis Retours ▸ envoyer. | Le journal joint commence par « Previous run crashed (native crash trace) » avec la pile du plantage. |
+| RC2-3 | Bibliothèque, colonnes par défaut : glisser vers la droite le bord droit de **Artiste**, puis du **Titre**. | C'est la colonne tirée qui s'élargit ; les autres gardent leur largeur, seule la dernière colonne rétrécit. Largeurs gardées après redimensionnement de la fenêtre et au redémarrage. |
+| RC2-4 | Regarder les en-têtes de colonnes (Bibliothèque, Recherche…). | Un trait fin sépare chaque en-tête, plus visible au survol : on voit où saisir le bord. |
+| RC2-5 | **Grille et cues** : bouton **Boucle (mémoire ou active)** ▸ « Boucle active de 4 temps » ; lancer la lecture un peu avant. | Mémoire « ⟳ 4 actif m:ss » ; en arrivant dessus, la lecture boucle toute seule ; **Sortir de la boucle** (ou 0) continue. Clic droit sur une autre mémoire de boucle ▸ « Boucle active » : elle devient la seule active. |
+| RC2-6 | Enregistrer (clé, puis bibliothèque de l'ordinateur) et ouvrir le son dans Rekordbox (et sur platine si possible). | La mémoire de boucle est dans la liste des mémoires ; la boucle active est marquée comme telle et s'enclenche seule sur platine. (Format de la boucle active à confirmer : noter ce que montre Rekordbox.) |
+| RC2-7 | Diagnostic ▸ Doublons ▸ **Chercher une version propre** (réglage MP3 puis m4a). | « ≈ 128 kbps (YouTube Music) · enregistré en MP3 320 » (la vraie qualité d'abord) ; en MP3, la bulle conseille le m4a. |
+| RC2-8 | Bibliothèque de l'ordinateur : Paramètres ▸ Bibliothèques ▸ **Espace occupé**. | Musique = taille de toute la collection Rekordbox ; Analyses et pochettes (dossier de partage de Rekordbox) ; Bases Rekordbox (master.db) ; Sauvegardes DJSync ; Caches ; Libre. |

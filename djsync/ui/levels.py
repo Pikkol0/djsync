@@ -100,11 +100,29 @@ def audio_text(info, file_type: int = 0, missing: bool = False):
 
 def expected_download(source: str, audio_format: str):
     """C42 : qualité attendue d'une version à retélécharger (YouTube Music / YouTube ≈ AAC 128 kbps,
-    SoundCloud ≈ 128 kbps) ; un MP3 320 réencodé n'en contient pas plus que sa source."""
-    src_kbps = 128
-    if audio_format == "mp3":
-        return f"MP3 320 (source ~{src_kbps} kbps)", audio_quality(src_kbps)
-    return f"m4a · ~{src_kbps} kbps", audio_quality(src_kbps)
+    SoundCloud ≈ 128 kbps) ; un MP3 320 réencodé n'en contient pas plus que sa source.
+    1.3.1-rc.2 (C42, DIA-9 KO) : la qualité réelle d'abord (« ≈ 128 kbps · YouTube Music »), le format
+    d'enregistrement ensuite ; « MP3 320 (source 128 kbps) » laissait croire à du 320."""
+    from ..i18n import t
+    from ..models import SOURCE_LABELS
+
+    src_kbps = SOURCE_KBPS
+    fmt = "MP3 320" if audio_format == "mp3" else "m4a"
+    text = t("dup.expected", kbps=src_kbps, source=SOURCE_LABELS.get(source, source or "?"), fmt=fmt)
+    return text, audio_quality(src_kbps)
+
+
+SOURCE_KBPS = 128
+
+
+def expected_tip(audio_format: str) -> str:
+    """Bulle d'aide de la qualité attendue ; en MP3, conseille le m4a (même son, fichier plus léger)."""
+    from ..i18n import t
+
+    tip = t("dup.expected_tip")
+    if audio_format == "mp3" and SOURCE_KBPS <= 160:
+        tip += "\n" + t("dup.expected_tip_mp3")
+    return tip
 
 
 def html(text: str, level: str) -> str:

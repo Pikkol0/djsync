@@ -27,7 +27,7 @@ def test_audio_text_always_says_format_bitrate_and_rate():
     assert L.audio_text(AudioInfo("flac", 900, 48000), 5)[0] == "FLAC · lossless · 48 kHz"
     assert L.audio_text(None, 1) == ("MP3", "neutral")
     assert L.audio_text(AudioInfo("aac", 128, 44100), 4, missing=True) == ("?", "neutral")
-    assert "320" in L.expected_download("ytmusic", "mp3")[0]
+    assert "320" in L.expected_download("ytmusic", "mp3")[0] and L.expected_download("ytmusic", "mp3")[0].startswith("≈ 128")
 
 
 # ------------------------------------------------------------------ C34 : lecteur centré
@@ -254,7 +254,7 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
             assert cards, key                                    # chaque section a au moins une carte
             seen.update(id(c) for c in cards)
         assert len(seen) == len(view._cards)                     # chaque carte est dans une section
-        assert app.ctrl.settings.settings_section == "djsync"
+        assert app.ctrl.settings.settings_section == "advanced"            # 1.3.1 (C89) : dernière section
         view.show_section("analysis")
         assert view.analyze_usb_var.isVisibleTo(view)
         assert not view.update_var.isVisibleTo(view)
@@ -285,10 +285,11 @@ def test_home_pdb_chip_opens_the_libraries_section(tmp_path, monkeypatch):
 
     app, _usb = _demo_app(tmp_path, monkeypatch)
     try:
-        app.views["home"].open_settings("libraries")
+        app.views["home"].open_settings("libraries")                 # 1.3.1 (C90) : état d'export.pdb dans Bibliothèques
         pump(app, 0.2)
         assert app._current == "settings" and app.views["settings"]._current_section == "libraries"
-        assert app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])
+        assert app.views["settings"].pdb_sync_btn.isVisibleTo(app.views["settings"])
+        assert not app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])    # options : Avancé
     finally:
         close_window(app)
 

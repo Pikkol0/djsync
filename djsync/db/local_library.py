@@ -1257,17 +1257,19 @@ class LocalRekordboxLibrary:
         """Cues du son tels que Rekordbox les montre : table djmdCue (Kind 0 mémoire, 1-3 A-C, 5-9 D-H)."""
         from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
 
-        rows = self._read("SELECT Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize FROM djmdCue "
-                          "WHERE ContentID = :id AND COALESCE(rb_local_deleted,0) = 0", {"id": str(content_id)})
+        rows = self._read("SELECT Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize, ActiveLoop "
+                          "FROM djmdCue WHERE ContentID = :id AND COALESCE(rb_local_deleted,0) = 0",
+                          {"id": str(content_id)})
         out: List[Any] = []
-        for kind, in_ms, out_ms, color, comment, loop_size in rows:
+        for kind, in_ms, out_ms, color, comment, loop_size, active in rows:
             slot = SLOT_FOR_KIND.get(int(kind or 0))
             if slot is None or in_ms is None or int(in_ms) < 0:
                 continue
             loop = int(out_ms) if out_ms is not None and int(out_ms) > int(in_ms) else None
             code = int(color or 0)
             out.append(Cue(slot, int(in_ms), loop, int(loop_size or 0) if loop else 0, comment or "",
-                           code if code in PALETTE else 0, PALETTE.get(code, (0, 0, 0))))
+                           code if code in PALETTE else 0, PALETTE.get(code, (0, 0, 0)),
+                           active=bool(int(active or 0)) and loop is not None and not slot))
         hot = sorted((c for c in out if c.slot), key=lambda c: c.slot)
         mem = sorted((c for c in out if not c.slot), key=lambda c: c.ms)
         return hot + mem
@@ -1310,7 +1312,8 @@ class LocalRekordboxLibrary:
                            InMpegFrame=0, InMpegAbs=0, OutMsec=int(loop) if loop else -1,
                            OutFrame=int(loop) * 150 // 1000 if loop else 0, OutMpegFrame=0, OutMpegAbs=0,
                            Kind=KIND_FOR_SLOT.get(int(c.slot), 0), Color=-1,
-                           ColorTableIndex=int(c.color_code) if c.slot else None, ActiveLoop=0,
+                           ColorTableIndex=int(c.color_code) if c.slot else None,
+                           ActiveLoop=1 if getattr(c, "is_active_loop", False) else 0,     # 1.3.1-rc.2 (C75)
                            Comment=c.name or None, BeatLoopSize=int(c.loop_beats) if loop else 0, CueMicrosec=0,
                            UUID=str(uuid4()))
                 db.add(models.DjmdCue.create(**cue, created_at=now, updated_at=now))
