@@ -52,3 +52,14 @@ Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TEST
 | # | Étapes | Attendu |
 |---|---|---|
 | COU-1 | Paramètres ▸ Apparence ▸ **Couleur**. | Un seul bouton (pastille + nom) ; un menu avec 12 couleurs ; choisir : appliqué partout tout de suite. Une ancienne couleur retirée (ex. Lavande) devient la plus proche. |
+
+## Ajouts du 29/10 : zoom (C102), colonne Playlists (C103), Deezer (C86), mode léger (C65)
+| # | Étapes | Attendu |
+|---|---|---|
+| COU-2 | N'importe où dans DJSync : **Ctrl +** (⌘ + sur Mac) trois fois, puis **Ctrl −**, puis **Ctrl 0**. Puis Ctrl + molette sur la Bibliothèque. | Badge « 110 % », « 120 % »… au centre ; l'interface grandit après une courte pause ; Ctrl 0 revient à 100 % ; la molette avec Ctrl zoome aussi. Paramètres ▸ Général : boutons − / + / 100 % et rappel des raccourcis, plus de curseur. |
+| COU-3 | Grille et cues : Ctrl + molette sur la forme d'onde. | C'est la forme d'onde qui zoome (comme avant), pas l'interface. |
+| BIB-1 | Bibliothèque : colonne **Playlists**. | Affichée par défaut : « Rap, Warm-up » ou « — » ; la bulle donne le chemin (« Soirées ▸ Club ») ; la recherche trouve les sons par nom de playlist. Clic droit sur un son ▸ « Ouvrir la playlist « … » ». Ajouter le son à une playlist : la colonne se met à jour. |
+| IMP-5 | Importer : coller un lien de playlist **Deezer publique** (puis un album, puis un lien court link.deezer.com). | Liste lue, correspondances YouTube Music comme pour Spotify, nom de la playlist proposé. Deezer figure dans « Sources acceptées ». |
+| IMP-6 | Importer : lien d'une playlist Deezer **privée**. | « Cette playlist Deezer est privée ou introuvable. Rends-la publique dans Deezer (… ▸ Rendre publique), puis réessaie. » |
+| LEC-2 | Paramètres ▸ Général ▸ **Mode léger** : Activé. Lire un son, ouvrir Grille et cues, lancer une analyse pendant la lecture. | Pas de forme d'onde défilante dans le lecteur ; lecture fluide à 30 images/s dans Grille et cues ; l'analyse attend la fin de la lecture. Le journal indique « Machine: … light mode on ». |
+| DEM-1 | (PC modeste, ou mode Auto sur un PC à 2 cœurs / 4 Go) Premier lancement. | Fenêtre « Mode léger activé » : Garder / Désactiver, « Ne plus me le rappeler ». |
