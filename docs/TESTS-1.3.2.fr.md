@@ -70,3 +70,14 @@ Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi :
 | DOU-8 | Fusionner, puis fermer DJSync (ou éjecter) avant la fin du délai. | La fusion est appliquée avant de fermer ; au relancement, le groupe n'existe plus. |
 | DOU-9 | Groupe dont une version a des hot cues, une boucle et des mémoires. | Sous chaque version, une fine barre : lettres en couleur, boucle en segment, mémoires en petit triangle ; au survol, position et longueur de boucle. La version dont on garde les cues est surlignée et une ligne dit « Après la fusion : … ». |
 | DOU-10 | Bouton **Cues** d'une version, puis **Retour**. | Grille et cues de ce son s'ouvre directement (sans passer par le lecteur) ; Retour revient aux Doublons sur le même groupe. |
+
+## G. Fin de la 1.3.2 : vue d'ensemble (C51), lecture fluide (C52), Windows (B36), Doublons (C98), Import (C101)
+| # | Étapes | Attendu |
+|---|---|---|
+| GRI-1 | Ouvrir **Grille et cues** sur un son analysé. | La vue d'ensemble du son est dans la page, entre la forme d'onde zoomée et les hot cues ; le lecteur du bas n'en a plus. Fond noir, forme d'onde posée en bas (bleu dessous, orange puis blanc par-dessus), étiquette carrée de la couleur de chaque hot cue avec sa lettre en haut, triangle rouge (orange pour une boucle) pour chaque mémoire en bas, zone affichée en grand juste cadrée. Clic ou glissé : la vue et la lecture suivent. |
+| GRI-2 | Lancer la lecture dans Grille et cues, curseur volant puis fixe. | Défilement fluide ; curseur rouge vif, plein, avec un léger halo ; jamais de petit retour en arrière. |
+| LEC-4 | (Mac surtout) Lecteur du bas : forme d'onde défilante pendant la lecture. | Défilement régulier (~60 images/s), sans retour en arrière ni artefact ; le journal contient toutes les 10 s « Playback frames (player): … fps ». |
+| DEM-7 | (Windows) Lancer DJSync.exe depuis l'Explorateur (double-clic), puis depuis le menu Démarrer et depuis une clé. | La fenêtre de DJSync s'ouvre devant l'Explorateur ; à défaut, son icône clignote dans la barre des tâches. |
+| DOU-14 | Doublons : choisir un groupe, puis « Vérifier ce groupe maintenant » ou fusionner un autre groupe. | Le groupe affiché est en surbrillance (fond d'accent et barre à gauche), même quand on clique ailleurs ; la sélection et la position de la liste restent après sa mise à jour. |
+| IMP-1 | Onglet **Importer**. | Sous le champ : « Sources acceptées : » et une pastille par source (Spotify, YouTube, YouTube Music, SoundCloud) ; la bulle dit ce qui est lu, la limite (100 / 200) et un exemple ; rappel « Coller une liste… ». Le champ et l'écran vide citent les mêmes sources. |
+| IMP-2 | Coller un lien d'un autre site (Deezer, Apple Music…) et **Lire le lien**. | Message : « Lien non reconnu. Sources acceptées : Spotify, YouTube, YouTube Music, SoundCloud (ou « Coller une liste… »). » |
