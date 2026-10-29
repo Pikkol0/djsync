@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 # Postes, dans l'ordre de la barre (« other » et « free » sont calculés)
 USB_PARTS = ("music", "analysis", "databases", "backups", "app", "caches", "other", "free")
-LOCAL_PARTS = ("music", "backups", "caches", "free")
+LOCAL_PARTS = ("music", "analysis", "databases", "backups", "caches", "free")   # 1.3.1-rc.2 (C27)
 LOW_FREE = 0.10              # alerte : moins de 10 % libre
 BACKUPS_HEAVY = 0.25         # alerte : les sauvegardes dépassent 25 % de l'espace occupé par DJSync et la musique
 CACHE_SECONDS = 300
@@ -132,14 +132,26 @@ def usb_usage(root: Path, contents_dir: str = "Contents", data_dir: Optional[Pat
     return Usage(parts, total, free, {k: v for k, v in folders.items() if v.exists()}, time.time())
 
 
-def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path) -> Usage:
-    """Bibliothèque de l'ordinateur : sons téléchargés par DJSync, sauvegardes de master.db, caches."""
+def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path, track_bytes: Optional[int] = None,
+                share_dir: Optional[Path] = None, db_dir: Optional[Path] = None) -> Usage:
+    """Bibliothèque de l'ordinateur, comme Rekordbox la voit (1.3.1-rc.2, C27 : avant, seulement le dossier
+    de téléchargement de DJSync, presque vide quand la musique est rangée ailleurs) :
+      * Musique : taille des fichiers des sons de la collection (`track_bytes`, lue dans master.db) ;
+        à défaut, le dossier de téléchargement de DJSync ;
+      * Analyses et pochettes : dossier de partage de Rekordbox (PIONEER/share) ;
+      * Bases Rekordbox : master.db et ses fichiers (-wal, -shm, sauvegardes de Rekordbox) ;
+      * Sauvegardes DJSync, Caches, Libre (disque de la musique)."""
     cache = Path(data_dir) / "cache"
-    parts = {"music": _sizes([Path(music_dir)]), "backups": _sizes([Path(backup_dir)]), "caches": _sizes([cache])}
+    music = int(track_bytes) if track_bytes is not None else _sizes([Path(music_dir)])
+    dbs = sorted(Path(db_dir).glob("master*")) if db_dir is not None and Path(db_dir).is_dir() else []
+    parts = {"music": music, "analysis": _sizes([Path(share_dir)]) if share_dir is not None else 0,
+             "databases": _sizes(dbs), "backups": _sizes([Path(backup_dir)]), "caches": _sizes([cache])}
     total, free = _disk(Path(music_dir))
     parts["free"] = free
-    folders = {"music": Path(music_dir), "backups": Path(backup_dir), "caches": cache}
-    return Usage(parts, total, free, {k: v for k, v in folders.items() if v.exists()}, time.time())
+    folders = {"music": Path(music_dir), "analysis": Path(share_dir) if share_dir is not None else None,
+               "databases": Path(db_dir) if db_dir is not None else None, "backups": Path(backup_dir),
+               "caches": cache}
+    return Usage(parts, total, free, {k: v for k, v in folders.items() if v is not None and v.exists()}, time.time())
 
 
 def _on(root: Path, p: Path) -> bool:

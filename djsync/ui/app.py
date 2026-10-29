@@ -782,13 +782,20 @@ class DJSyncApp(QMainWindow):
             last = getattr(self, "_win_watch_last", None)
             return f" ({last[1].elapsed()} ms after opening {last[0]})" if last is not None else ""
 
+        def watching() -> bool:
+            # 1.3.1-rc.2 (B38) : lignes « App state » / « Focus » seulement pendant les 3 s qui suivent
+            # l'ouverture d'une page (ce qui sert pour B32) : sinon elles remplissaient le journal.
+            last = getattr(self, "_win_watch_last", None)
+            return last is not None and last[1].elapsed() <= WINDOW_WATCH_S * 1000
+
         def state(st: Any) -> None:
             name = {Qt.ApplicationActive: "active", Qt.ApplicationInactive: "inactive",
                     Qt.ApplicationHidden: "hidden", Qt.ApplicationSuspended: "suspended"}.get(st, str(st))
-            log.info("App state: %s%s", name, since())
+            if watching():
+                log.info("App state: %s%s", name, since())
 
         def focus(win: Any) -> None:
-            if win is None or win is self.windowHandle():
+            if win is None or win is self.windowHandle() or not watching():
                 return
             log.info("Focus to another window: %s%s", describe_window(win), since())
 

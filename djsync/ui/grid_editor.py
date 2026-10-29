@@ -545,13 +545,14 @@ class GridEditor(QWidget):
 
     def cues_dirty(self) -> bool:
         def sig(cs: List[Cue]) -> List[Any]:
-            return sorted((c.slot, c.ms, c.loop_ms if c.is_loop else None, c.loop_beats, c.name, c.color_code)
-                          for c in cs)
+            return sorted((c.slot, c.ms, c.loop_ms if c.is_loop else None, c.loop_beats, c.name, c.color_code,
+                           c.is_active_loop) for c in cs)
         return sig(self.cues) != sig(self.original_cues)
 
     def go_to(self, ms: float) -> None:
         """Curseur sur ce point (vue recentrée) ; en lecture, la lecture y saute."""
         self.active_loop = None
+        self._prev_sent_ms = None                  # saut : on ne « passe » pas sur une boucle active (C75)
         self.cursor_ms = float(ms)
         span = self.view_s * 1000.0
         if self.fixed_cursor:
@@ -825,6 +826,14 @@ class GridEditor(QWidget):
             # 1.3.0-rc.3 (C39) : la fin de boucle se décide sur ce qui est ENVOYÉ à la carte son (en avance
             # de sa réserve), pour que le retour au début s'entende pile à la fin de la boucle
             sent_ms = player.sent_position() * 1000.0 + self._lead_ms
+            prev = getattr(self, "_prev_sent_ms", None)
+            self._prev_sent_ms = sent_ms
+            if not self.active_loop and prev is not None:
+                # 1.3.1-rc.2 (C75) : boucle active : en passant sur son début, la lecture boucle toute seule
+                # (comme sur platine) ; « Sortir de la boucle » (Exit) la quitte, comme une boucle de pad.
+                auto = next((c for c in self.cues if c.is_active_loop and prev < c.ms <= sent_ms), None)
+                if auto is not None:
+                    self.active_loop = (int(auto.ms), int(auto.loop_ms))
             if self.active_loop and sent_ms >= self.active_loop[1]:
                 over = sent_ms - self.active_loop[1]
                 length = max(1.0, self.active_loop[1] - self.active_loop[0])
