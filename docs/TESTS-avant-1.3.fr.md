@@ -1,13 +1,35 @@
-# Tests de non-régression — fonctions des versions 1.0.0 à 1.2.4
+# Tests de non-régression — fonctions d'avant la 1.3.0 (0.x à 1.2.4)
 
 Ajoutés le 29/10/2026 : avant les rc de la 1.3.0, les tests n'étaient pas suivis un par un. Ces scénarios
-vérifient que les fonctions arrivées entre la 1.0.0 et la 1.2.4 marchent toujours. **À faire sur la dernière
+vérifient que les fonctions arrivées avant la 1.3.0 (0.x, puis 1.0.0 à 1.2.4) marchent toujours. **À faire sur la dernière
 version publiée** (pas sur l'ancienne version). Mêmes numéros que dans le suivi (« 100 · DEM-1 » = `100-DEM-1`) ;
 « Ancienne réf. » renvoie aux anciens fichiers `docs/TESTS-1.2.*.fr.md` et `docs/TESTING.fr.md`.
 
 Ne sont pas repris ici les points déjà couverts par un test plus récent du suivi (mise à jour depuis l'app,
 Uniformiser, Doublons et Diagnostic, colonnes, forme d'onde défilante, touches multimédia, clé vierge, NTFS / exFAT).
 
+
+## Non-régression 0.x : fondations, avant la 1.0.0 (bibliothèque de l'ordinateur, moteur, portable)
+
+| # | Titre | Étapes | Attendu | Fiche | Qui | Ancienne réf. |
+|---|---|---|---|---|---|---|
+| 010-IMP-1 | Importer une playlist YouTube et un lien SoundCloud | Importer un lien ▸ coller le lien d'une playlist YouTube (ou YouTube Music) publique, puis celui d'un son ou d'une playlist SoundCloud. | Les sons sont listés et se téléchargent ; la source (YouTube, SoundCloud) est gardée ; le nom de la playlist est proposé. | — | Auteur | 0.1.x |
+| 020-BIB-1 | Glisser des sons sur une playlist, réordonner en glissant | Bibliothèque : sélectionner 3 sons et les glisser sur une playlist de l'arbre ; dans une playlist, glisser un son pour changer sa place. | Les 3 sons sont ajoutés à la playlist (sans doublon) ; le son glissé prend sa nouvelle place, gardée après réouverture. | — | Auteur | 0.2.0 |
+| 022-DEM-1 | La fenêtre s'ouvre toujours dans l'écran | Agrandir la fenêtre, fermer DJSync, le relancer ; puis la réduire, la déplacer en partie hors de l'écran (ou sur un 2e écran qu'on débranche), fermer et relancer. | Rouverte agrandie dans le 1er cas ; dans le 2e, entièrement visible dans l'écran, jamais coupée ni hors de vue. | — | Auteur | 0.2.2 |
+| 024-LEC-1 | Menu du son en cours dans le lecteur | Lire un son, clic droit (ou menu) sur le titre dans le lecteur : Modifier les infos, Analyser à nouveau, sons compatibles, Afficher dans la bibliothèque. | Chaque entrée fonctionne ; « Afficher dans la bibliothèque » sélectionne le son dans sa liste. | — | Auteur | 0.2.4 |
+| 024-CLE-1 | export.pdb tient après beaucoup de modifications | Sur la clé : Modifier les infos de 20 sons à la suite (ou en enregistrer 20 dans Uniformiser) ; regarder l'Accueil et Paramètres ▸ Avancé ▸ export.pdb ; ouvrir la Device Library dans Rekordbox. | Jamais de message « export.pdb est plein » ; export.pdb à jour ; les 20 titres modifiés visibles dans la Device Library. | — | Auteur | 0.2.4 |
+| 030-REC-1 | Infos complétées au téléchargement (Deezer) | Paramètres ▸ Téléchargement ▸ « Compléter album, année, genre, label et n° de piste au téléchargement » coché : télécharger un son connu ; puis décocher et en télécharger un autre. | 1er son : album, année, genre, label remplis ; 2e son : seulement ce que donne la source. Rien n'est inventé si Deezer ne trouve pas le son. | — | Auteur | 0.3.0 |
+| 030-GRI-1 | Grille : glisser le curseur, petits décalages, BPM ÷ 2 | Grille et cues : glisser le curseur d'écoute sur la forme d'onde ; décaler de ±1, ±10 et ±100 ms ; BPM ÷ 2 ; Enregistrer. | Le curseur suit la souris et la lecture repart de là ; chaque décalage déplace toute la grille de la bonne valeur ; BPM divisé par deux ; gardé après Enregistrer. | — | Auteur | 0.3.0 |
+| 040-BIB-1 | Ordinateur : copie de master.db avant chaque écriture | Rekordbox fermé : faire 2 changements dans « Cet ordinateur » (ajouter un son à une playlist, renommer une playlist) ; ouvrir le dossier des réglages de DJSync (à côté du journal) ▸ Backups ▸ rekordbox. | Un dossier master-<date> par changement, avec master.db (et ses fichiers -wal / XML) ; seules les 10 dernières copies sont gardées. | — | Auteur | 0.4.0 |
+| 040-BIB-2 | Ordinateur : supprimer ne touche jamais aux fichiers qui ne sont pas à DJSync | Rekordbox fermé : « Cet ordinateur » ▸ supprimer un son ajouté par Rekordbox (pas par DJSync), puis un son téléchargé par DJSync ; regarder leurs fichiers sur le disque ; ouvrir Rekordbox. | Les deux sons sortent de la collection. Le fichier du son Rekordbox reste sur le disque (avec son analyse) ; celui de DJSync est effacé de Musique/DJSync (dossiers vides retirés). | — | Auteur | 0.4.0 |
+| 040-ANA-1 | Ordinateur : les analyses de Rekordbox ne sont pas refaites | « Cet ordinateur » : sélectionner des sons analysés par Rekordbox et d'autres par DJSync ▸ Analyser la sélection, avec « Réanalyser aussi les titres déjà analysés par DJSync ». | Seuls les sons de DJSync sont réanalysés ; ceux de Rekordbox gardent leur analyse (BPM, grille, cues) à l'identique. | — | Auteur | 0.4.0 |
+| 040-BIB-3 | Ordinateur : dossier des téléchargements | Télécharger un son dans « Cet ordinateur » ; puis Paramètres ▸ Bibliothèques ▸ changer le dossier des téléchargements et en télécharger un autre. | 1er son dans Musique/DJSync/Artiste/Album ; 2e dans le nouveau dossier ; les deux lus par Rekordbox. | — | Auteur | 0.4.0 |
+| 050-DEM-1 | Clé branchée sur un autre ordinateur : on demande avant d'ouvrir sa bibliothèque | Lancer DJSync depuis la clé sur un ordinateur où Rekordbox est installé et où DJSync n'a jamais tourné. | Question « Ouvrir la bibliothèque Rekordbox de cet ordinateur (nom) ? » ; rien n'est ouvert sans accord ; la réponse est retenue pour cet ordinateur (plus de question au lancement suivant). | — | Auteur | 0.5.0 |
+| 050-REC-1 | Moteur de téléchargement : mise à jour et retour arrière | Paramètres ▸ Avancé ▸ Moteur de téléchargement ▸ Rechercher une mise à jour ; Installer si proposé ; puis Version précédente. | Version installée sans redémarrer, puis retour à la précédente ; aucune mise à jour automatique ; un échec ne change rien (« rien n'a été modifié »). | — | Auteur | 0.5.0 |
+| 050-BIB-1 | Compléter les métadonnées sans rien écraser | Bibliothèque ▸ sélectionner des sons dont l'album ou l'année manque, et un son déjà complet ▸ Compléter les métadonnées. | Seuls les champs vides sont remplis (Deezer) ; titre, artiste et champs déjà remplis ne changent pas. | — | Auteur | 0.5.0 |
+| 050-CLE-1 | Pas de mémoire cue ajoutée sur un son qui a déjà des cues | Mémoire cue sur le premier temps fort activée : réanalyser un son qui a déjà des hot cues ou des mémoires (posés dans Rekordbox ou DJSync). | Ses cues restent tels quels ; aucune mémoire cue en plus. | — | Auteur | 0.5.0 |
+| 050-BIB-2 | Copier une playlist d'une clé vers une autre clé | Brancher deux clés préparées par Rekordbox ; clic droit sur une playlist de la 1re ▸ Copier vers la 2e ; ouvrir la 2e clé dans Rekordbox. | Sons copiés avec leur analyse (grille corrigée comprise, pas recalculée) ; la playlist est sur la 2e clé, lue par Rekordbox. | — | Auteur | 0.5.0 |
+| 050-LEC-1 | Long mix : lecture et analyse | Télécharger ou ajouter un mix d'au moins une heure ; le lire, sauter à la fin ; l'analyser. | Lecture immédiate et sauts sans attente ; l'analyse se termine sans ralentir l'ordinateur ni faire planter DJSync. | — | Auteur | 0.5.0 |
 
 ## Non-régression 1.0.0 : clé portable, recherche, téléchargement, analyse, Rekordbox
 
