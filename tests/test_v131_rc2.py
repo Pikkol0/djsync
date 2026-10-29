@@ -189,7 +189,12 @@ def test_title_fills_the_space_until_resized(tmp_path, monkeypatch):
         if grown < 100 or sum(table._width(c) for c in table.columns if not table.isColumnHidden(table.column_index(c.key))) \
                 > table.viewport().width():
             pytest.skip("écran trop petit : les colonnes ne tiennent pas, le tableau défile")
-        assert head.sectionSize(title) >= w1 + grown * 0.5            # suit la fenêtre tant qu'il n'est pas réglé
+        # Suit la fenêtre tant qu'il n'est pas réglé : il ne rétrécit pas et aucun vide ne reste à droite. La place
+        # gagnée peut aussi servir à réafficher des colonnes masquées faute de place (priorités) : sur les petits
+        # écrans de la CI Windows, le Titre ne reçoit donc pas forcément toute la place gagnée.
+        assert head.sectionSize(title) >= w1
+        shown = sum(head.sectionSize(i) for i in range(head.count()) if not head.isSectionHidden(i))
+        assert shown >= table.viewport().width() - 2
         assert "title" not in app.ctrl.settings.table_layouts.get("library", {}).get("widths", {})
         assert not app.errors
     finally:
