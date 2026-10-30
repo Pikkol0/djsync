@@ -23,8 +23,8 @@ def test_duplicates_detail_scrolls_instead_of_squeezing(demo):  # noqa: F811
     assert isinstance(dup.detail_scroll, QScrollArea) and dup.detail_scroll.widget() is dup.detail
     assert dup.detail_scroll.widgetResizable()
     demo.resize(900, 420)                                      # petite fenêtre : ça défile, rien n'est tassé
-    pump(demo, 0.3)
-    assert dup.detail.height() >= dup.detail.minimumSizeHint().height()
+    # sous charge (CI Windows), la mise en page arrive après quelques tours de boucle : on l'attend
+    assert pump(demo, 4, lambda: dup.detail.height() >= dup.detail.minimumSizeHint().height())
     assert dup.apply_btn.isVisibleTo(dup)                      # actions hors de la zone qui défile
     dup.detail_scroll.verticalScrollBar().setValue(dup.detail_scroll.verticalScrollBar().maximum())
     dup._select(0)                                             # nouveau groupe : en haut

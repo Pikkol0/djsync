@@ -10,6 +10,7 @@ Bornes inchangées : 80 à 200 %, pas de 10 %.
 """
 from __future__ import annotations
 
+import weakref
 from typing import Any, Optional
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
@@ -74,9 +75,7 @@ class ZoomKeys(QObject):
         self._badge_timer.setInterval(BADGE_MS)
         self._badge_timer.timeout.connect(self._hide_badge)
         self.badge: Optional[QLabel] = None
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        _AppFilter.register(self)
 
     # ------------------------------------------------------------------ zoom
     @property
@@ -128,7 +127,8 @@ class ZoomKeys(QObject):
             self.badge.hide()
 
     # ------------------------------------------------------------------ molette, pincement
-    def eventFilter(self, obj: Any, ev: Any) -> bool:   # noqa: N802
+    def handle(self, obj: Any, ev: Any) -> bool:
+        """Appelé par le filtre unique de l'application pour un évènement molette / pincement de cette fenêtre."""
         t = ev.type()
         if t == QEvent.Wheel:
             if ev.modifiers() & (Qt.ControlModifier | Qt.MetaModifier) and self._in_window(obj) \
@@ -150,4 +150,47 @@ class ZoomKeys(QObject):
         try:
             return hasattr(obj, "window") and obj.window() is self.window
         except RuntimeError:
+            return False
+
+
+class _AppFilter(QObject):
+    """Un seul filtre d'évènements pour toute l'application, quel que soit le nombre de fenêtres.
+
+    Chaque fenêtre installait le sien sur QApplication : chaque évènement de l'appli passait alors par autant
+    d'appels Python que de fenêtres créées (et jamais détruites dans les tests : des centaines par processus,
+    d'où une suite de tests Ubuntu au-delà de 45 min). Ici : un seul appel, qui ne s'intéresse qu'à la molette
+    et au pincement, puis transmet à la ZoomKeys de la fenêtre concernée."""
+
+    _instance: Optional["_AppFilter"] = None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.keys: "weakref.WeakValueDictionary[int, ZoomKeys]" = weakref.WeakValueDictionary()
+
+    @classmethod
+    def register(cls, keys: "ZoomKeys") -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        if cls._instance is None:
+            cls._instance = _AppFilter()
+            app.installEventFilter(cls._instance)
+        cls._instance.keys[id(keys.window)] = keys
+
+    def eventFilter(self, obj: Any, ev: Any) -> bool:   # noqa: N802
+        t = ev.type()
+        if t != QEvent.Wheel and t != QEvent.NativeGesture:
+            return False
+        try:
+            win = obj.window() if hasattr(obj, "window") else None
+        except RuntimeError:
+            return False
+        keys = self.keys.get(id(win)) if win is not None else None
+        if keys is None:
+            return False
+        try:
+            if keys.window is not win:
+                return False
+            return keys.handle(obj, ev)
+        except RuntimeError:                              # fenêtre détruite entre-temps
             return False

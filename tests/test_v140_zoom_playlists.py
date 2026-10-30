@@ -67,6 +67,16 @@ def test_zoom_shortcuts_wheel_and_badge(light_restyle, demo):  # noqa: F811
     assert pump(demo, 2, lambda: demo.ctrl.settings.zoom == 100)
 
 
+def test_one_app_filter_for_every_window(light_restyle, demo):  # noqa: F811
+    """Une seule entrée dans le filtre d'évènements de l'application, quel que soit le nombre de fenêtres."""
+    from djsync.ui import zoom
+
+    first = zoom._AppFilter._instance
+    assert first is not None and first.keys.get(id(demo)) is demo.zoom_keys
+    zoom.ZoomKeys(demo)                                  # une 2e ZoomKeys : même filtre, pas un de plus
+    assert zoom._AppFilter._instance is first
+
+
 def test_ctrl_wheel_on_the_waveform_keeps_zooming_the_waveform(light_restyle, demo_grid):  # noqa: F811
     app = demo_grid
     ed = _open_grid(app)
