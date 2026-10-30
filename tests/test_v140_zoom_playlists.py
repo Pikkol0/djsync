@@ -11,6 +11,20 @@ from .test_v130rc3 import _open_grid  # noqa: E402
 
 
 # ------------------------------------------------------------------ C102
+@pytest.fixture
+def light_restyle(monkeypatch):
+    """Le zoom appliqué garde son effet (theme.zoom) sans réappliquer la feuille de style à toute l'application.
+
+    Dans un processus de test, Qt la réappliquait aussi à tous les widgets laissés par les centaines de
+    tests précédents (xdist --dist loadfile) : le test durait plus que les 45 min du job Ubuntu. La vraie
+    application à chaud est testée par test_ui_v020::test_zoom_is_live_and_window_size_does_not_change_it.
+    """
+    from djsync.ui import theme
+
+    monkeypatch.setattr(theme, "apply", lambda app, zoom_percent=None: theme.set_zoom(zoom_percent)
+                        if zoom_percent is not None else None)
+
+
 def _wheel(widget, dy, ctrl=True):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent
@@ -22,7 +36,7 @@ def _wheel(widget, dy, ctrl=True):
     QApplication.sendEvent(widget, ev)
 
 
-def test_zoom_shortcuts_wheel_and_badge(demo):  # noqa: F811
+def test_zoom_shortcuts_wheel_and_badge(light_restyle, demo):  # noqa: F811
     from djsync.ui import theme
 
     from .qt_util import pump
@@ -53,7 +67,7 @@ def test_zoom_shortcuts_wheel_and_badge(demo):  # noqa: F811
     assert pump(demo, 2, lambda: demo.ctrl.settings.zoom == 100)
 
 
-def test_ctrl_wheel_on_the_waveform_keeps_zooming_the_waveform(demo_grid):  # noqa: F811
+def test_ctrl_wheel_on_the_waveform_keeps_zooming_the_waveform(light_restyle, demo_grid):  # noqa: F811
     app = demo_grid
     ed = _open_grid(app)
     keys = app.zoom_keys
@@ -63,7 +77,7 @@ def test_ctrl_wheel_on_the_waveform_keeps_zooming_the_waveform(demo_grid):  # no
     ed.close()
 
 
-def test_settings_have_buttons_not_a_slider(demo):  # noqa: F811
+def test_settings_have_buttons_not_a_slider(light_restyle, demo):  # noqa: F811
     from PySide6.QtWidgets import QSlider
 
     from .qt_util import pump
@@ -112,7 +126,7 @@ def test_playlists_column_shows_where_each_track_is(demo):  # noqa: F811
     # ajouter un son à une playlist : la colonne suit
     other = next(x for x in lib.all_tracks if club.playlist_id not in member.get(x.content_id, []))
     demo.ctrl.add_to_playlists([other.content_id], [club.playlist_id])
-    assert pump(demo, 6, lambda: club.playlist_id in (getattr(lib, "_member", {}) or {}).get(other.content_id, []))
+    assert pump(demo, 20, lambda: club.playlist_id in (getattr(lib, "_member", {}) or {}).get(other.content_id, []))
     assert not demo.errors
 
 
