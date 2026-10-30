@@ -37,7 +37,8 @@ SEARCH_MODE_LABELS = LazyLabels(lambda: {
     SearchMode.ARTISTS: "mode.artists",
 })
 
-SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud"}
+SOURCE_LABELS = {"ytmusic": "YouTube Music", "youtube": "YouTube", "soundcloud": "SoundCloud", "soulseek": "Soulseek",
+                 "audius": "Audius", "archive": "Internet Archive"}
 
 
 def source_from_url(url: Optional[str]) -> str:
@@ -104,6 +105,14 @@ class TrackResult:
     track_no: int = 0
     isrc: Optional[str] = None
 
+    # 1.4.0 (C10.1) : fichier d'origine SoundCloud (envoyé par l'artiste, souvent WAV)
+    free_download_url: Optional[str] = None     # 1.4.0 (C45) : lien « Free Download » de l'artiste (SoundCloud)
+    original_available: Optional[bool] = None   # None : pas encore vérifié ; True : téléchargement autorisé
+    want_original: bool = False                 # ce téléchargement demande le fichier d'origine
+    slsk: Any = field(default=None, compare=False, repr=False)   # 1.4.0 (C10.2) : résultat Soulseek d'origine
+    license: str = ""                           # 1.4.0 (C45) : licence (Internet Archive, Audius)
+    quality: str = ""                           # 1.4.0 (C45) : qualité annoncée (« FLAC », « MP3 320 »)
+
     # Renseignés par DuplicateChecker
     is_duplicate: bool = False
     duplicate_of: Optional[str] = None   # ex. "Daft Punk - One More Time"
@@ -152,6 +161,7 @@ class DownloadedTrack:
 
     track: TrackResult
     file_path: str
+    original: bool = False           # 1.4.0 (C10.1) : fichier d'origine obtenu (sinon le flux)
 
 
 @dataclass
@@ -172,6 +182,7 @@ class UrlKind(str, Enum):
     SPOTIFY = "spotify"          # -> correspondance via YouTube Music
     YOUTUBE = "youtube"          # -> téléchargement direct (yt-dlp)
     SOUNDCLOUD = "soundcloud"    # -> téléchargement direct (yt-dlp)
+    DEEZER = "deezer"            # 1.4.0 (C86) -> comme Spotify : liste lue, puis correspondance YouTube Music
     UNKNOWN = "unknown"
 
 
@@ -373,6 +384,7 @@ class DownloadJob:
     library: Any = field(default=None, repr=False, compare=False)  # clé visée (fixée à l'ajout)
     replace_ids: List[int] = field(default_factory=list)   # V1.1.0 : sons remplacés une fois téléchargé
     reanalyse: bool = False                                # … et analyser le nouveau (l'ancien l'était)
+    original: bool = False                                 # 1.4.0 (C10.1) : fichier d'origine SoundCloud obtenu
 
     @property
     def is_finished(self) -> bool:

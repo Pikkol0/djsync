@@ -107,6 +107,24 @@ class Settings:
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
+    player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
+    youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
+    light_mode: str = "auto"           # 1.4.0 (C65) : mode léger auto | on | off
+    light_prompt_off: bool = False     # 1.4.0 (C65) : ne plus proposer le mode léger au démarrage
+    youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
+    improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
+    free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
+    soulseek_enabled: bool = False     # 1.4.0 (C10.2) : désactivé par défaut
+    soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
+    soulseek_user: str = ""
+    soulseek_password: str = ""
+    soulseek_share: bool = False       # partager le dossier musique de la bibliothèque ouverte (rien par défaut)
+    soulseek_port: int = 0             # 0 = port par défaut d'aioslsk
+    watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
+    watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Importés »
+    soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
+    soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
+    soundcloud_token: str = ""         # ou jeton « oauth_token » du compte
     suggestions_open: bool = False     # 1.3.1 (C30) : panneau « Suggestions » de la Bibliothèque
     suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
     settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres

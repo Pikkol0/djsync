@@ -7,17 +7,18 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 """
 from __future__ import annotations
 
+import sys
 from typing import Any, Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractButton, QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QProgressBar, QScrollArea, QSlider, QSpinBox, QToolButton, QWidget,
+    QProgressBar, QScrollArea, QSpinBox, QToolButton, QWidget,
 )
 
 from ...db import UsbDrive
 from ...i18n import LANGUAGES, t
-from ...settings import ZOOM_MAX, ZOOM_MIN, ZOOM_STEP
+from ...settings import ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
@@ -39,10 +40,6 @@ class SettingsView(View):
         super().__init__(parent, controller, loader)
         self._drives: Dict[str, UsbDrive] = {}
         self._swatches: Dict[str, QToolButton] = {}
-        self._zoom_timer = QTimer(self)
-        self._zoom_timer.setSingleShot(True)
-        self._zoom_timer.setInterval(250)
-        self._zoom_timer.timeout.connect(self._apply_zoom)
         s = controller.settings
 
         head = self.header(t("tab.settings"))
@@ -141,38 +138,44 @@ class SettingsView(View):
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.theme"))), 0, Qt.AlignTop)
-        grid = QGridLayout()
-        grid.setSpacing(theme.px(3))
-        for i, (name, accent) in enumerate(PALETTES.items()):
-            b = QToolButton()
-            b.setCheckable(True)
-            b.setIcon(logo_pixmap(theme.px(22), accent))
-            b.setIconSize(QSize(theme.px(22), theme.px(22)))
-            b.setToolTip(t(f"theme.{name}"))
-            b.setChecked(name == theme.CURRENT_THEME)
-            b.clicked.connect(lambda _=False, n=name: self._theme_changed(n))
-            grid.addWidget(b, i // 10, i % 10)
-            self._swatches[name] = b
-        row.addLayout(grid)
+        # 1.4.0 (C50) : une pastille (la couleur actuelle) ; un clic ouvre un petit menu avec les couleurs
+        from PySide6.QtWidgets import QMenu
+
+        self.theme_btn = QToolButton()
+        self.theme_btn.setIcon(logo_pixmap(theme.px(22), PALETTES[theme.CURRENT_THEME]))
+        self.theme_btn.setIconSize(QSize(theme.px(22), theme.px(22)))
+        self.theme_btn.setText(t(f"theme.{theme.CURRENT_THEME}"))
+        self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.theme_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.theme_btn)
+        for name, accent in PALETTES.items():
+            act = menu.addAction(logo_pixmap(theme.px(18), accent), t(f"theme.{name}"))
+            act.setCheckable(True)
+            act.setChecked(name == theme.CURRENT_THEME)
+            act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
+            self._swatches[name] = act
+        self.theme_btn.setMenu(menu)
+        row.addWidget(self.theme_btn)
         row.addStretch(1)
         card.addLayout(row)
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
 
+        # 1.4.0 (C102) : plus de curseur : − / + / 100 % et les raccourcis (Ctrl/Cmd +, −, 0, molette)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.zoom"))))
-        self.zoom = QSlider(Qt.Horizontal)
-        self.zoom.setRange(ZOOM_MIN // ZOOM_STEP, ZOOM_MAX // ZOOM_STEP)
-        self.zoom.setValue(s.zoom // ZOOM_STEP)
-        self.zoom.setFixedWidth(theme.px(220))
-        self.zoom.valueChanged.connect(self._zoom_moved)
-        row.addWidget(self.zoom)
+        row.addWidget(icon_button("minus", lambda: self._zoom_step(-1), t("settings.zoom_out")))
         self.zoom_val = label(f"{s.zoom} %", "accent")
+        self.zoom_val.setMinimumWidth(theme.px(52))
+        self.zoom_val.setAlignment(Qt.AlignCenter)
         row.addWidget(self.zoom_val)
-        row.addWidget(button(t("settings.zoom_reset"), lambda: self.zoom.setValue(100 // ZOOM_STEP), kind="flat",
-                             icon="refresh"))
+        row.addWidget(icon_button("plus", lambda: self._zoom_step(1), t("settings.zoom_in")))
+        row.addWidget(button(t("settings.zoom_reset"), lambda: self._zoom_step(0), kind="flat", icon="refresh"))
         row.addStretch(1)
         card.addLayout(row)
+        card.addWidget(label(t("settings.zoom_keys", mod="⌘" if sys.platform == "darwin" else "Ctrl"), "faint",
+                             wrap=True))
+        controller.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
@@ -188,6 +191,23 @@ class SettingsView(View):
         self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
         self.scroll_wave_var.setChecked(s.scrolling_wave)
         card.addWidget(self.scroll_wave_var)
+        # 1.4.0 (C65) : mode léger pour les PC modestes
+        from ...core.machine import MODES, light_active, machine_info
+
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.light"))))
+        self._light_labels = {m: t(f"settings.light_{m}") for m in MODES}
+        self.light_menu = QComboBox()
+        self.light_menu.addItems(list(self._light_labels.values()))
+        self.light_menu.setCurrentText(self._light_labels.get(s.light_mode, self._light_labels["auto"]))
+        self.light_menu.setToolTip(t("settings.light_tip"))
+        row.addWidget(self.light_menu)
+        info = machine_info()
+        self.light_state = label(t("settings.light_state_on" if light_active(s, info) else "settings.light_state_off",
+                                   machine=info.describe()), "dim")
+        row.addWidget(self.light_state)
+        row.addStretch(1)
+        card.addLayout(row)
 
         # ---- clé USB
         self._section = "libraries"
@@ -297,6 +317,16 @@ class SettingsView(View):
         card.addLayout(row)
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
+        row = hbox()                                          # 1.4.0 (C26 sens C)
+        row.addWidget(self._fixed(label(t("players.settings_flac"))))
+        self._player_formats = {"": t("players.keep"), "wav": t("players.wav"), "aiff": t("players.aiff")}
+        self.player_format = QComboBox()
+        self.player_format.addItems(list(self._player_formats.values()))
+        self.player_format.setCurrentText(self._player_formats.get(s.player_format, self._player_formats[""]))
+        self.player_format.setToolTip(t("players.settings_tip"))
+        row.addWidget(self.player_format)
+        row.addStretch(1)
+        card.addLayout(row)
         self._section = "advanced"
         card = self._card(t("settings.pdb_options"), "library", t("settings.pdb_hint"))
         self.pdb_var = QCheckBox(t("settings.pdb_sync"))
@@ -328,6 +358,91 @@ class SettingsView(View):
         self.normalize_var.setChecked(s.normalize_volume)
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
         card.addWidget(self.normalize_var)
+        self.yt_best_var = QCheckBox(t("yt.settings_best"))          # 1.4.0 (C48), désactivé par défaut
+        self.yt_best_var.setChecked(s.youtube_best)
+        self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
+        card.addWidget(self.yt_best_var)
+        card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        row = hbox()
+        row.addWidget(self._fixed(label(t("yt.settings_account"))))
+        from ...core.soundcloud import BROWSERS as _YT_BROWSERS
+
+        self._yt_browsers = {"": t("yt.settings_no_account")}
+        self._yt_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in _YT_BROWSERS})
+        self.yt_browser = QComboBox()
+        self.yt_browser.addItems(list(self._yt_browsers.values()))
+        self.yt_browser.setCurrentText(self._yt_browsers.get(s.youtube_browser, self._yt_browsers[""]))
+        self.yt_browser.setToolTip(t("yt.settings_account_tip"))
+        row.addWidget(self.yt_browser)
+        row.addStretch(1)
+        card.addLayout(row)
+
+        # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
+        card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"))
+        self.sc_original_var = QCheckBox(t("sc.settings_original"))
+        self.sc_original_var.setChecked(s.soundcloud_original)
+        self.sc_original_var.setToolTip(t("sc.settings_original_tip"))
+        card.addWidget(self.sc_original_var)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("sc.settings_account"))))
+        from ...core.soundcloud import BROWSERS
+
+        self._sc_browsers = {"": t("sc.settings_no_account")}
+        self._sc_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
+        self.sc_browser = QComboBox()
+        self.sc_browser.addItems(list(self._sc_browsers.values()))
+        self.sc_browser.setCurrentText(self._sc_browsers.get(s.soundcloud_browser, self._sc_browsers[""]))
+        self.sc_browser.setToolTip(t("sc.settings_browser_tip"))
+        row.addWidget(self.sc_browser)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("sc.settings_token"))))
+        self.sc_token = QLineEdit(s.soundcloud_token)
+        self.sc_token.setEchoMode(QLineEdit.Password)
+        self.sc_token.setPlaceholderText(t("sc.settings_token_ph"))
+        self.sc_token.setToolTip(t("sc.settings_token_tip"))
+        row.addWidget(self.sc_token, 1)
+        card.addLayout(row)
+
+        # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
+        card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"))
+        self.slsk_var = QCheckBox(t("slsk.settings_enable"))
+        self.slsk_var.setChecked(s.soulseek_enabled)
+        self.slsk_var.toggled.connect(self._slsk_toggled)
+        card.addWidget(self.slsk_var)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("slsk.settings_user"))))
+        self.slsk_user = QLineEdit(s.soulseek_user)
+        self.slsk_user.setPlaceholderText(t("slsk.settings_user_ph"))
+        row.addWidget(self.slsk_user, 1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(self._fixed(label(t("slsk.settings_password"))))
+        self.slsk_password = QLineEdit(s.soulseek_password)
+        self.slsk_password.setEchoMode(QLineEdit.Password)
+        row.addWidget(self.slsk_password, 1)
+        card.addLayout(row)
+        card.addWidget(label(t("slsk.settings_account_hint"), "faint", wrap=True))
+        self.slsk_share_var = QCheckBox(t("slsk.settings_share"))
+        self.slsk_share_var.setChecked(s.soulseek_share)
+        self.slsk_share_var.setToolTip(t("slsk.settings_share_tip"))
+        card.addWidget(self.slsk_share_var)
+        card.addWidget(label(t("slsk.settings_warning_short"), "warn", wrap=True))
+
+        # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
+        card = self._card(t("watch.settings_title"), "folder", t("watch.settings_hint"))
+        row = hbox()
+        self.watch_folder = QLineEdit(s.watch_folder)
+        self.watch_folder.setPlaceholderText(t("watch.settings_off"))
+        self.watch_folder.setReadOnly(True)
+        row.addWidget(self.watch_folder, 1)
+        row.addWidget(button(t("watch.settings_browse"), lambda: self._browse_into(self.watch_folder), icon="folder"))
+        row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), kind="flat"))
+        card.addLayout(row)
+        self.watch_playlist_var = QCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
+        self.watch_playlist_var.setChecked(s.watch_playlist)
+        card.addWidget(self.watch_playlist_var)
 
         # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement (C89 : Avancé, repliée)
         self._section = "advanced"
@@ -753,12 +868,15 @@ class SettingsView(View):
             self.ctrl.settings.save()
             self.ctrl._emit("restyle")
 
-    def _zoom_moved(self, value: int) -> None:
-        self.zoom_val.setText(f"{value * ZOOM_STEP} %")
-        self._zoom_timer.start()
+    def _zoom_step(self, delta: int) -> None:
+        keys = getattr(self.window(), "zoom_keys", None)
+        if keys is not None:
+            keys.step(delta)
+            return
+        from ..zoom import clamp                      # page seule (tests) : appliqué tout de suite
 
-    def _apply_zoom(self) -> None:
-        z = self.zoom.value() * ZOOM_STEP
+        z = 100 if delta == 0 else clamp(self.ctrl.settings.zoom + delta * ZOOM_STEP)
+        self.zoom_val.setText(f"{z} %")
         if z != self.ctrl.settings.zoom:
             self.ctrl.settings.zoom = z
             self.ctrl.settings.save()
@@ -820,6 +938,24 @@ class SettingsView(View):
         }.get(st.state, t("pdb.unknown"))
         self.pdb_state.setText(text)
         self.pdb_sync_btn.setEnabled(st.state == "stale")
+
+    def _slsk_toggled(self, on: bool) -> None:
+        """1.4.0 (C10.2) : première activation -> avertissement à accepter (VPN, droits, fiabilité)."""
+        if not on or self.ctrl.settings.soulseek_accepted:
+            return
+        from ..dialogs import ConfirmDialog
+
+        def accept() -> None:
+            self.ctrl.settings.soulseek_accepted = True
+            self.ctrl.settings.save()
+
+        def refuse() -> None:
+            self.slsk_var.blockSignals(True)
+            self.slsk_var.setChecked(False)
+            self.slsk_var.blockSignals(False)
+
+        ConfirmDialog(self, t("slsk.warn_title"), t("slsk.warn_text"), accept, confirm_text=t("slsk.warn_accept"),
+                      detail=t("slsk.warn_detail"), on_cancel=refuse)
 
     def _latency_test(self) -> None:
         from ..latency_dialog import LatencyDialog
@@ -1178,7 +1314,20 @@ class SettingsView(View):
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
+        s.soundcloud_original = self.sc_original_var.isChecked()
+        s.soundcloud_browser = next((k for k, v in self._sc_browsers.items() if v == self.sc_browser.currentText()), "")
+        s.soundcloud_token = self.sc_token.text().strip()
+        s.youtube_best = self.yt_best_var.isChecked()
+        s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
+        s.watch_folder = self.watch_folder.text().strip()
+        s.soulseek_enabled = self.slsk_var.isChecked() and s.soulseek_accepted
+        s.soulseek_user = self.slsk_user.text().strip()
+        s.soulseek_password = self.slsk_password.text()
+        s.soulseek_share = self.slsk_share_var.isChecked()
+        s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
+        s.watch_playlist = self.watch_playlist_var.isChecked()
         s.scrolling_wave = self.scroll_wave_var.isChecked()
+        s.light_mode = next((k for k, v in self._light_labels.items() if v == self.light_menu.currentText()), "auto")
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
         s.update_channel = "test" if self.show_rc_var.isChecked() else "stable"      # C96

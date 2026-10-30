@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from dataclasses import replace
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ...i18n import plural, t
 from ...models import DownloadJob, TrackResult
@@ -13,7 +14,9 @@ log = logging.getLogger(__name__)
 
 
 class DownloadsMixin:
-    def enqueue(self, tracks: Sequence[TrackResult], playlist_ids: Sequence[int]) -> List[DownloadJob]:
+    def enqueue(self, tracks: Sequence[TrackResult], playlist_ids: Sequence[int],
+                original: Optional[bool] = None) -> List[DownloadJob]:
+        """`original` (1.4.0, C10.1) : fichier d'origine SoundCloud oui / non ; None = réglage."""
         lib = self.library
         if lib is None:
             self.message("error", t("msg.no_drive"))
@@ -22,6 +25,9 @@ class DownloadsMixin:
         self.last_playlist_ids = list(playlist_ids)
         created: List[DownloadJob] = []
         for track in tracks:
+            if track.source == "soundcloud":
+                want = self.settings.soundcloud_original if original is None else original
+                track = replace(track, want_original=bool(want and track.original_available is not False))
             self._job_seq += 1
             job = DownloadJob(
                 id=self._job_seq, track=track, playlist_ids=list(playlist_ids),
@@ -35,6 +41,24 @@ class DownloadsMixin:
                  else t("msg.queued_library"))
         self.message("info", plural("msg.queued_one", "msg.queued_many", len(created), where=where))
         return created
+
+    def check_originals(self, tracks: Sequence[TrackResult], ok: Any) -> None:
+        """1.4.0 (C10.1) : pour chaque son SoundCloud, le fichier d'origine est-il téléchargeable ?
+        `ok(tracks)` reçoit les sons mis à jour (original_available renseigné). Réseau, 50 au plus."""
+        todo = [x for x in tracks if x.source == "soundcloud" and x.original_available is None][:50]
+        if not todo:
+            return
+
+        def work() -> List[TrackResult]:
+            from ...core.soundcloud import track_info
+
+            out = []
+            for x in todo:
+                info = track_info(x.url)
+                out.append(replace(x, original_available=info["original"], free_download_url=info["free_url"]))
+            return out
+
+        self.dispatcher.submit(work, ok, lambda _e: None, pool="net")
 
     def _job_changed(self, job: DownloadJob) -> None:
         self._emit("download_update", job)
@@ -52,6 +76,9 @@ class DownloadsMixin:
             job.percent = p.percent
             self.dispatcher.post(self._job_changed, job)
 
+        if job.track.source == "soulseek":              # 1.4.0 (C10.2)
+            self._run_slsk_job(job)
+            return
         job.status = "downloading"
         self.dispatcher.post(self._job_changed, job)
         try:
@@ -62,6 +89,16 @@ class DownloadsMixin:
 
                 track = enrich(track)
             result = self.service.download(track, lib.default_download_dir(track.artist, track.album), on_progress=progress)
+            fmt = "" if getattr(lib, "is_local", False) else (self.settings.player_format or "")
+            from ...core import players
+
+            if players.needs(Path(result.file_path), fmt):     # C26 sens C : FLAC d'origine pour les platines
+                job.status = "converting"
+                self.dispatcher.post(self._job_changed, job)
+                flac = Path(result.file_path)
+                out = players.convert(flac, players.target_path(flac, fmt), fmt, self.settings.ffmpeg_location or None)
+                flac.unlink(missing_ok=True)
+                result = replace(result, file_path=str(out))
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
             meta = {"year": track.year, "release_date": track.release_date, "genre": track.genre,
@@ -72,6 +109,9 @@ class DownloadsMixin:
             )
             self.service.refresh_library()
             job.file_path, job.content_id = result.file_path, added.content_id
+            job.original = bool(getattr(result, "original", False))
+            if track.want_original and not job.original:      # C10.1 : dit pourquoi on a eu le flux
+                self.dispatcher.post(self.message, "info", t("sc.original_not_given", title=track.title))
             if job.replace_ids:                       # V1.1.0 : diagnostic, remplacer une mauvaise version
                 self._finish_replace(job, lib)
             self._genre_after_change(lib)             # 1.2.2 : playlists par genre tenues à jour

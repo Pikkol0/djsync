@@ -111,11 +111,13 @@ class AnalysisQueue(TaskHandle):
             self.total += len(new)
             return len(new)
 
-    def take(self) -> List[int]:
+    def take(self, size: Optional[int] = None) -> List[int]:
+        """Lot suivant (`size` : 1 en mode léger, C65)."""
+        n = size or self.BATCH
         with self._lock:
             if self.cancelled:
                 self.pending.clear()
-            batch, self.pending = self.pending[: self.BATCH], self.pending[self.BATCH:]
+            batch, self.pending = self.pending[:n], self.pending[n:]
             # 1.2.1 (C21) : ordre de traitement du lot en cours (forcés après les autres, comme `work`)
             self.batch = [i for i in batch if i not in self.forced] + [i for i in batch if i in self.forced]
             return batch
@@ -135,6 +137,21 @@ class AnalysisQueue(TaskHandle):
 
 
 class LibraryOpsMixin:
+    # ------------------------------------------------------------------ 1.4.0 (C65) : mode léger
+    def _light(self) -> bool:
+        from ...core.machine import light_active
+
+        return light_active(self.settings)
+
+    def _wait_while_playing(self, q: Any, step: float = 0.5) -> None:
+        """Mode léger : l'analyse en arrière-plan attend la fin de la lecture (le son reste fluide)."""
+        import time
+
+        from ...audio.player import PLAYING
+
+        while not q.cancelled and getattr(getattr(self, "player", None), "state", None) == PLAYING:
+            time.sleep(step)
+
     # ------------------------------------------------------------------ lecture
     def load_library(self, ok: Callback, err: Optional[Callback] = None) -> None:
         """ok({"playlists": [...], "tracks": [...], "stats": {playlist_id: PlaylistStats}})."""
@@ -319,21 +336,25 @@ class LibraryOpsMixin:
     # ------------------------------------------------------------------ analyse (V0.2.0)
     def orphan_ids(self, content_ids: Sequence[int], ok: Callable[[set], None]) -> None:
         """1.3.2 (C56) : sons qui ne sont dans aucune playlist (les playlists intelligentes ne comptent pas)."""
+        ids = [int(i) for i in content_ids]
+        self.playlist_membership(ids, lambda found: ok({cid for cid in ids if not found.get(cid)}))
+
+    def playlist_membership(self, content_ids: Sequence[int], ok: Callable[[Dict[int, List[int]]], None]) -> None:
+        """1.4.0 (C103) : playlists (identifiants) de chaque son, par lots de 800, hors du fil de l'interface."""
         lib = self.library
         ids = [int(i) for i in content_ids]
         if lib is None or not ids or not hasattr(lib, "playlists_of"):
-            ok(set())
+            ok({})
             return
 
-        def work() -> set:
-            out: set = set()
+        def work() -> Dict[int, List[int]]:
+            out: Dict[int, List[int]] = {}
             for k in range(0, len(ids), 800):
                 found = lib.playlists_of(ids[k:k + 800])
-                out |= {cid for cid in ids[k:k + 800] if not found.get(cid)}
+                out.update({int(cid): list(v) for cid, v in found.items() if v})
             return out
 
-        self.dispatcher.submit(work, ok, lambda exc: log.info("Tracks outside playlists not counted: %s", exc),
-                               pool="db")
+        self.dispatcher.submit(work, ok, lambda exc: log.info("Playlist membership not read: %s", exc), pool="db")
 
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library
@@ -390,7 +411,10 @@ class LibraryOpsMixin:
 
         def work() -> Any:
             while True:
-                batch = q.take()
+                light = self._light()
+                if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
+                    self._wait_while_playing(q)
+                batch = q.take(1 if light else None)
                 if not batch or q.cancelled:
                     break
                 normal = [i for i in batch if i not in q.forced]

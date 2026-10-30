@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 class Diagnosis:
     duplicates: List[List[LibraryTrack]] = field(default_factory=list)
     issues: List[Any] = field(default_factory=list)          # core.quality.QualityIssue
+    unmeasured: List[LibraryTrack] = field(default_factory=list)   # 1.4.0 (C46) : vraie qualité pas mesurée
 
     @property
     def total(self) -> int:
@@ -103,12 +104,42 @@ class DiagnosticMixin:
                 rest = [x for x in rest if _exists(lib, x)]
             report = (lambda i, n: self.dispatcher.post(progress, i, n)) if progress else None
             issues = find_issues(rest, lib.absolute_path, progress=report)
+            unmeasured: List[LibraryTrack] = []
             if not duplicates:
+                from ...analysis.spectrum import lookup
+
+                unmeasured = [x for x in rest if lookup(Path(x.path).name, x.file_size) is None]
                 self.diag_counts["quality"] = len(issues)
                 self.dispatcher.post(self._emit, "diag_counts")
-            return Diagnosis(groups, issues)
+            return Diagnosis(groups, issues, unmeasured)
 
         self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok(Diagnosis())), pool="tools")
+
+    def measure_quality(self, tracks: Sequence[LibraryTrack], ok: Callable[[int], None],
+                        progress: Optional[Callable[[int, int], None]] = None) -> None:
+        """1.4.0 (C46) : mesure la vraie qualité (spectre) des sons donnés ; `ok(nombre de faux)`."""
+        lib = self.library
+        if lib is None:
+            ok(0)
+            return
+        ffmpeg = self.settings.ffmpeg_location or None
+
+        def work() -> int:
+            from ...analysis.spectrum import measure_and_remember
+            from ...core.quality import probe
+
+            fakes = 0
+            items = list(tracks)
+            for i, x in enumerate(items, start=1):
+                path = lib.absolute_path(x)
+                if path.exists():
+                    measure_and_remember(path, ffmpeg, x.duration_seconds or 0.0)
+                    fakes += probe(path).fake
+                if progress and (i % 5 == 0 or i == len(items)):
+                    self.dispatcher.post(progress, i, len(items))
+            return fakes
+
+        self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok(0)), pool="tools")
 
     # ------------------------------------------------- 1.3.1 (C41/C43) : onglets du Diagnostic
     @property

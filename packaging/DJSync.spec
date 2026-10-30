@@ -19,7 +19,8 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 import sys
 
 datas, binaries, hidden = [], [], []
-for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3"):    # numpy: native hook
+# 1.4.0 (C10.2) : aioslsk (Soulseek), imported only when Soulseek is turned on
+for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3", "aioslsk"):    # numpy: native hook
     datas += collect_data_files(pkg)               # .py excluded by default
     binaries += collect_dynamic_libs(pkg)
     hidden += collect_submodules(pkg)

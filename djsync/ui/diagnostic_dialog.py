@@ -65,6 +65,11 @@ class DiagnosticDialog(BaseDialog):
         head.addStretch(1)
         self.count = label(t("diag.running"), "dim")
         head.addWidget(self.count)
+        self._unmeasured: List[LibraryTrack] = []               # 1.4.0 (C46)
+        self.measure_btn = button("", self._measure, icon="wave")
+        self.measure_btn.setToolTip(t("quality.measure_tip"))
+        self.measure_btn.hide()
+        head.addWidget(self.measure_btn)
         self.body.addLayout(head)
 
         main = hbox(spacing=theme.px(10))
@@ -91,6 +96,25 @@ class DiagnosticDialog(BaseDialog):
         self.show_dialog()
         controller.diagnose(self._loaded, self._progress, duplicates=False)
 
+    def _measure(self) -> None:
+        """1.4.0 (C46) : mesure la vraie qualité des sons pas encore mesurés, puis relance la liste."""
+        if not self._unmeasured:
+            return
+        self.measure_btn.setEnabled(False)
+
+        def progress(i: int, n: int) -> None:
+            if self.winfo_exists():
+                self.count.setText(t("quality.measuring", i=i, n=n))
+
+        def done(fakes: int) -> None:
+            if not self.winfo_exists():
+                return
+            self.ctrl.message("ok" if not fakes else "warn", t("quality.measured", n=fakes))
+            self._loading = True
+            self.ctrl.diagnose(self._loaded, self._progress, duplicates=False)
+
+        self.ctrl.measure_quality(self._unmeasured, done, progress)
+
     # ------------------------------------------------------------------ chargement
     def _progress(self, i: int, n: int) -> None:
         if self.winfo_exists() and self._loading:
@@ -100,6 +124,10 @@ class DiagnosticDialog(BaseDialog):
         if not self.winfo_exists():
             return
         self._loading = False
+        self._unmeasured = list(getattr(diagnosis, "unmeasured", []) or [])
+        self.measure_btn.setText(t("quality.measure", n=len(self._unmeasured)))
+        self.measure_btn.setVisible(bool(self._unmeasured))
+        self.measure_btn.setEnabled(True)
         ignored = set(self.ctrl.settings.diag_ignored)
         items: List[Tuple[str, Any]] = [("dup", g) for g in diagnosis.duplicates]
         items += [(i.kind, i) for i in diagnosis.issues if i.kind == "source"]
@@ -322,8 +350,8 @@ class DiagnosticDialog(BaseDialog):
 
         if len(group) < 2 or any(y.content_id not in self._quality for y in group):
             return False
-        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].bitrate,
-                                                  self._quality[y.content_id].lossless) for y in group}
+        rank = {y.content_id: levels.quality_rank(self._quality[y.content_id].effective_kbps,
+                                                  self._quality[y.content_id].real_lossless) for y in group}
         top = max(rank.values())
         return top > 0 and rank[x.content_id] == top and len(set(rank.values())) > 1 \
             and sum(1 for v in rank.values() if v == top) == 1

@@ -29,7 +29,8 @@ ERR = "#E5575C"
 # 1.3.1 (C29) : échelle de qualité commune, indépendante de la couleur d'accent, toujours doublée d'un mot
 GOOD = "#4CC38A"          # bon
 FAIR = "#D2BE4E"          # moyen
-LEVELS = {"good": GOOD, "fair": FAIR, "warn": WARN, "bad": ERR, "neutral": DIM}
+GOLD, SILVER = "#E2B84A", "#C9D1DB"     # 1.4.0 (C10) : sans perte (doré), 320 kbps (argenté)
+LEVELS = {"good": GOOD, "fair": FAIR, "warn": WARN, "bad": ERR, "neutral": DIM, "gold": GOLD, "silver": SILVER}
 
 ACCENT = ON_ACCENT = ACCENT_DIM = ""
 CURRENT_THEME = DEFAULT_THEME
@@ -75,6 +76,9 @@ def palette_colors(accent: str) -> dict:
 def apply_palette(name: str) -> str:
     """Active une palette (identifiant inconnu -> défaut). Renvoie l'identifiant appliqué."""
     global ACCENT, ON_ACCENT, ACCENT_DIM, CURRENT_THEME
+    from .palettes import RETIRED
+
+    name = RETIRED.get(name, name)
     if name not in PALETTES:
         name = DEFAULT_THEME
     c = palette_colors(PALETTES[name])
@@ -145,6 +149,8 @@ QLabel[role="chip"], QFrame[role="panel"] QLabel[role="chip"] {{ background: {EL
 QLabel[role="chip_warn"], QFrame[role="panel"] QLabel[role="chip_warn"] {{ background: {mix(SURFACE, WARN, 0.18)}; color: {WARN}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_ok"], QFrame[role="panel"] QLabel[role="chip_ok"] {{ background: {ACCENT_DIM}; color: {ACCENT}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_good"], QFrame[role="panel"] QLabel[role="chip_good"] {{ background: {mix(SURFACE, GOOD, 0.16)}; color: {GOOD}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="chip_gold"], QFrame[role="panel"] QLabel[role="chip_gold"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #8C6A1C, stop:0.45 #F3D27A, stop:0.55 #FFF1BF, stop:1 #B8862B); color: #2B1E05; font-weight: 700; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
+QLabel[role="chip_silver"], QFrame[role="panel"] QLabel[role="chip_silver"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7D8792, stop:0.45 #DDE3EA, stop:0.55 #FFFFFF, stop:1 #98A2AD); color: #1C2128; font-weight: 700; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_fair"], QFrame[role="panel"] QLabel[role="chip_fair"] {{ background: {mix(SURFACE, FAIR, 0.16)}; color: {FAIR}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="chip_bad"], QFrame[role="panel"] QLabel[role="chip_bad"] {{ background: {mix(SURFACE, ERR, 0.16)}; color: {ERR}; border-radius: {p(9)}px; padding: {p(2)}px {p(9)}px; }}
 QLabel[role="good"] {{ color: {GOOD}; }}

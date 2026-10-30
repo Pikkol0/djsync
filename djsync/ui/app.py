@@ -148,6 +148,10 @@ class DJSyncApp(QMainWindow):
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(self._hide_toast)
+        self._watch_timer = QTimer(self)                     # 1.4.0 (C10.3) : dossier surveillé
+        self._watch_timer.setInterval(8000)
+        self._watch_timer.timeout.connect(self.ctrl.watch_tick)
+        self._watch_timer.start()
 
         # écouteurs de la FENÊTRE d'abord : ceux des vues (ajoutés ensuite) sont oubliés à chaque
         # reconstruction de l'interface (langue)
@@ -234,6 +238,46 @@ class DJSyncApp(QMainWindow):
         from .splash import close_native
 
         close_native()
+        if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
+            self._light_checked = True
+            from ..core.machine import light_active, machine_info, should_offer
+
+            info = machine_info()
+            log.info("Machine: %s, light mode %s (%s)", info.describe(),
+                     "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
+            if should_offer(self.ctrl.settings, info):
+                QTimer.singleShot(1500, lambda: self.offer_light_mode(info))
+
+    def offer_light_mode(self, info: Any) -> Any:
+        """1.4.0 (C65) : une fois, sur un PC modeste : explique le mode léger (gardé ou désactivé)."""
+        from PySide6.QtWidgets import QCheckBox
+
+        from .dialogs import BaseDialog
+
+        s = self.ctrl.settings
+        dlg = BaseDialog(self, t("light.title"), 460)
+        dlg.heading(t("light.title"))
+        dlg.body.addWidget(label(t("light.text", machine=info.describe()), wrap=True))
+        never = QCheckBox(t("light.never"))
+        dlg.body.addWidget(never)
+
+        def done(mode: str) -> None:
+            s.light_mode = mode
+            s.light_prompt_off = never.isChecked() or mode == "off"
+            s.save()
+            dlg.close()
+
+        dlg.body.addStretch(1)
+        row = hbox(spacing=theme.px(6))
+        row.addStretch(1)
+        row.addWidget(button(t("light.off"), lambda: done("off")))
+        keep = button(t("light.keep"), lambda: done("auto"), kind="primary")
+        keep.setDefault(True)
+        row.addWidget(keep)
+        dlg.body.addLayout(row)
+        dlg.never_box = never
+        dlg.show_dialog()
+        return dlg
 
     # ------------------------------------------------------------------ construction
     def _build(self) -> None:
@@ -575,6 +619,9 @@ class DJSyncApp(QMainWindow):
         self._shortcut("Ctrl+F", self._focus_filter)
         self._shortcut("Ctrl+,", lambda: self.show_view("settings"))
         self._shortcut("F1", self.open_help)
+        from .zoom import ZoomKeys
+
+        self.zoom_keys = ZoomKeys(self)                 # 1.4.0 (C102) : Ctrl/Cmd +, −, 0 et Ctrl/Cmd + molette
         self._shortcut("Ctrl+Right", self.ctrl.play_next)
         self._shortcut("Ctrl+Left", self.ctrl.play_previous)
         sc = QShortcut(QKeySequence(Qt.Key_Space), self)
@@ -680,6 +727,8 @@ class DJSyncApp(QMainWindow):
                     return
             elif tab == "quality":
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
+            elif tab == "improve":                          # 1.4.0 (C47)
+                from .improve_dialog import ImproveDialog as page_cls
             else:
                 from .missing_dialog import MissingFilesDialog as page_cls
             page_cls(self, self.ctrl)

@@ -10,7 +10,7 @@ arrière-plan (file commune du contrôleur), progression, arrêt.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
@@ -39,11 +39,14 @@ def _fmt(track: LibraryTrack) -> str:
     return _FORMATS.get(track.file_type) or Path(track.path).suffix.lstrip(".").upper()
 
 
-EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "rate", "rating", "color", "plays", "created", "size",
+EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "real", "rate", "rating", "color", "plays", "created", "size",
                  "comment", "path")
 # Couleurs des sons Rekordbox (identifiants 1 à 8, même ordre dans exportLibrary.db et master.db)
 TRACK_COLORS = {1: "#F06EB4", 2: "#E5464A", 3: "#F08C2E", 4: "#E8D23C", 5: "#4CC38A", 6: "#3CC8D2",
                 7: "#3C78E6", 8: "#9A5BE0"}
+
+
+_CODECS = {".flac": "flac", ".wav": "wav", ".aiff": "aiff", ".aif": "aiff", ".mp3": "mp3", ".m4a": "aac", ".aac": "aac"}
 
 
 def extra_values(x: LibraryTrack) -> Dict[str, Any]:
@@ -61,6 +64,26 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     }
     if color:
         out["color__dot"] = color
+    # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit) ; (C46) jamais
+    # pour un fichier dont le spectre trahit une qualité inférieure (colonne « Qualité réelle »)
+    from ...analysis.spectrum import lookup
+    from ...core.quality import AudioInfo
+    from .. import levels
+
+    suffix = Path(x.path).suffix.lower()
+    lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
+    codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
+    info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
+                     cutoff=lookup(Path(x.path).name, x.file_size) or 0)
+    real = info.real_kbps
+    if real:
+        out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
+        out["real__color"] = levels.color(levels.audio_quality(info.effective_kbps, info.real_lossless))
+    tier = None if info.fake else ("gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None))
+    if tier:
+        out["format__color"] = out["bitrate__color"] = theme.LEVELS[tier]
+    elif info.fake:
+        out["format__color"] = out["bitrate__color"] = out["real__color"] = theme.LEVELS["warn"]
     return out
 
 
@@ -68,6 +91,13 @@ def total_duration(seconds: int) -> str:
     h, rem = divmod(int(seconds), 3600)
     m = rem // 60
     return t("lib.duration_hm", h=h, m=m) if h else t("lib.duration_m", m=m)
+
+
+def _local_files(mime: Any) -> List[str]:
+    """Chemins des fichiers / dossiers glissés depuis l'explorateur (vide sinon)."""
+    if not mime.hasUrls():
+        return []
+    return [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
 
 
 class NavTree(QTreeWidget):
@@ -96,7 +126,7 @@ class NavTree(QTreeWidget):
         return p if p is not None and p.is_editable else None
 
     def dragEnterEvent(self, e: Any) -> None:    # noqa: N802
-        if e.mimeData().hasFormat(MIME_IDS):
+        if e.mimeData().hasFormat(MIME_IDS) or _local_files(e.mimeData()):
             e.acceptProposedAction()
         else:
             e.ignore()
@@ -122,6 +152,10 @@ class NavTree(QTreeWidget):
             return
         e.setDropAction(Qt.CopyAction)
         e.accept()
+        files = _local_files(e.mimeData())
+        if files and not e.mimeData().hasFormat(MIME_IDS):        # 1.4.0 (C26) : fichiers de l'ordinateur
+            self.view.import_paths(files, target)
+            return
         ids = [int(i) for i in bytes(e.mimeData().data(MIME_IDS)).decode().split(",") if i]
         self.view._drop_on(target, ids)
 
@@ -158,6 +192,7 @@ class LibraryView(View):
             Column("year", t("track.year"), 52, "e", sort=lambda r: r.data.year or None if r.data else None),
             Column("label", t("track.label"), 120),
             Column("bitrate", t("track.bitrate"), 78, "e", sort=lambda r: r.data.bitrate or None if r.data else None),
+            Column("real", t("track.real_quality"), 96, "e"),               # 1.4.0 (C46)
             Column("rate", t("track.sample_rate"), 78, "e",
                    sort=lambda r: r.data.sample_rate or None if r.data else None),
             Column("rating", t("track.rating"), 76, "center", sort=lambda r: r.data.rating or None if r.data else None),
@@ -167,6 +202,8 @@ class LibraryView(View):
             Column("size", t("track.size"), 70, "e", sort=lambda r: r.data.file_size or None if r.data else None),
             Column("comment", t("track.comment"), 180),
             Column("path", t("track.path"), 240),
+            # 1.4.0 (C103) : playlists du son, affichée par défaut (bulle : chemin des dossiers)
+            Column("playlists", t("track.playlists"), 170, sort=lambda r: r.values.get("playlists") or None),
             Column("grid", "", 40, "center", sortable=False, min_width=34),   # 1.3.2 (C58) : bouton Grille et cues
         ]
 
@@ -224,6 +261,9 @@ class LibraryView(View):
                   self.analyse_btn, self.analysis_bar):
             bar.addWidget(w)
         bar.addStretch(1)
+        self.import_btn = button(t("import_files.button"), self._import_files, icon="folder",
+                                 tooltip=t("import_files.tip"))              # 1.4.0 (C26)
+        bar.addWidget(self.import_btn)
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
         bar.addWidget(self.harm_btn)
@@ -265,6 +305,7 @@ class LibraryView(View):
         self.table.on_sort_changed = self._sort_changed
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
+        self.table.on_files_dropped = lambda paths: self.import_paths(paths)      # 1.4.0 (C26)
         from ..suggestions_panel import SuggestionsPanel
 
         content = hbox(spacing=theme.px(8))
@@ -284,9 +325,37 @@ class LibraryView(View):
                       if kind == "loaded" else None)
         controller.on("analysis", self._analysis_changed)
         controller.on("show_unanalysed", self.show_unanalysed)
+        controller.on("import_progress", self._import_progress)
         self._refresh_buttons()
         if controller.settings.suggestions_open:
             self.show_suggestions(True, remember=False)
+
+    # ------------------------------------------------------------- 1.4.0 (C26) : ajouter des fichiers
+    def _import_files(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        exts = " ".join(f"*{e}" for e in (".wav", ".aiff", ".aif", ".flac", ".mp3", ".m4a", ".aac"))
+        files, _f = QFileDialog.getOpenFileNames(self, t("import_files.button"), "",
+                                                 f"{t('import_files.filter')} ({exts})")
+        if files:
+            self.import_paths(files)
+
+    def import_paths(self, paths: List[str], playlist: Optional[PlaylistInfo] = None) -> None:
+        """Fichiers ou dossiers ajoutés à la bibliothèque ; dans la playlist visée (glissés sur elle) ou
+        dans la playlist ouverte si on peut y ajouter."""
+        target = playlist or (self.playlist if self.in_playlist and self.playlist is not None
+                              and self.playlist.is_editable else None)
+        self.ctrl.import_files(paths, [target.playlist_id] if target is not None else [])
+
+    def _import_progress(self, i: int, n: int) -> None:
+        if not self.winfo_exists():
+            return
+        if n:
+            self.sub_lbl.setText(t("import_files.progress", i=i, n=n))
+            self.import_btn.setEnabled(False)
+        else:
+            self.import_btn.setEnabled(True)
+            self._show_header()
 
     # ------------------------------------------------------------- 1.3.1 (C30) : suggestions
     def show_suggestions(self, on: bool, remember: bool = True) -> None:
@@ -466,12 +535,16 @@ class LibraryView(View):
 
     # -------------------------------------------------------------------- tableau
     def _count_orphans(self) -> None:
-        """1.3.2 (C56) : compte (hors du fil de l'interface) les sons qui ne sont dans aucune playlist."""
+        """1.3.2 (C56) : compte (hors du fil de l'interface) les sons qui ne sont dans aucune playlist.
+        1.4.0 (C103) : la même lecture donne les playlists de chaque son (colonne « Playlists »)."""
         key = self._drive_key()
+        ids = [x.content_id for x in self.all_tracks]
 
-        def ok(found: set) -> None:
+        def ok(member: Dict[int, List[int]]) -> None:
             if not self.winfo_exists() or key != self._drive_key():
                 return
+            self._member = dict(member)
+            found = {cid for cid in ids if not member.get(cid)}
             self._orphans = set(found)
             it = self._items.get(ORPH)
             if it is not None:
@@ -479,10 +552,32 @@ class LibraryView(View):
                     it.setText(1, str(len(self._orphans)))
                 except RuntimeError:
                     pass
-            if self.current == ORPH and not self._dirty:
+            if not self._dirty and (self.current == ORPH or not self.table.isColumnHidden(
+                    self.table.column_index("playlists"))):
                 self._fill_table()
 
-        self.ctrl.orphan_ids([x.content_id for x in self.all_tracks], ok)
+        self.ctrl.playlist_membership(ids, ok)
+
+    def _playlist_names(self, cid: int) -> List[str]:
+        """1.4.0 (C103) : noms des playlists d'un son, dans l'ordre de l'arbre."""
+        order = {p.playlist_id: i for i, p in enumerate(self.playlists)}
+        names = {p.playlist_id: p.name for p in self.playlists}
+        pids = sorted((pid for pid in (getattr(self, "_member", {}) or {}).get(cid, []) if pid in names),
+                      key=lambda pid: order.get(pid, 0))
+        return [names[pid] for pid in pids]
+
+    def _playlist_paths(self, cid: int) -> List[Tuple[int, str]]:
+        """(identifiant, « Dossier ▸ Playlist ») pour chaque playlist du son."""
+        by_id = {p.playlist_id: p for p in self.playlists}
+        out = []
+        for pid in (getattr(self, "_member", {}) or {}).get(cid, []):
+            p, parts, guard = by_id.get(pid), [], 0
+            while p is not None and guard < 20:
+                parts.insert(0, p.name)
+                p, guard = by_id.get(p.parent_id), guard + 1
+            if parts:
+                out.append((pid, " ▸ ".join(parts)))
+        return out
 
     def _orphan_tracks(self) -> List[LibraryTrack]:
         orph = getattr(self, "_orphans", None) or set()
@@ -500,9 +595,17 @@ class LibraryView(View):
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
-             "source": source_from_url(x.source_url), "grid": "1" if x.is_analysed else "", **extra_values(x)},
+             "source": source_from_url(x.source_url), "grid": "1" if x.is_analysed else "", **extra_values(x),
+             **self._playlist_values(x)},
             (), x,
         )
+
+    def _playlist_values(self, x: LibraryTrack) -> Dict[str, str]:
+        if getattr(self, "_member", None) is None:
+            return {"playlists": ""}
+        names = self._playlist_names(x.content_id)
+        tip = "\n".join(path for _pid, path in self._playlist_paths(x.content_id))
+        return {"playlists": ", ".join(names) if names else "—", "playlists__tip": tip or t("lib.in_no_playlist")}
 
     def _cell_click(self, iid: str, key: str) -> None:
         row = self.table.row(iid)
@@ -977,6 +1080,16 @@ class LibraryView(View):
                 entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
                                 "key"))
         entries.append((t("meta.complete_sel", n=len(tracks)), lambda: self._complete_metadata(tracks), "tag"))
+        if len(tracks) == 1:                                      # 1.4.0 (C103) : ouvrir une de ses playlists
+            paths = self._playlist_paths(tracks[0].content_id)[:8]
+            if paths:
+                entries.append(None)
+                entries += [(t("lib.open_playlist", name=path), lambda pid=pid: self._goto(f"p{pid}"), "playlist")
+                            for pid, path in paths]
+        if len(tracks) == 1:                                      # 1.4.0 (C10.3)
+            from .common import buy_entry
+
+            entries.append(buy_entry(self.ctrl, tracks[0].artist, tracks[0].title))
         entries += [None, (t("lib.delete") + "…", self._delete, "trash")]
         return entries
 

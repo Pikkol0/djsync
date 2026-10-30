@@ -49,10 +49,46 @@ class AudioInfo:
     codec: str = ""                 # "mp3" | "aac" | "flac" | "wav" | "aiff" | "alac" | "opus"… ("" inconnu)
     bitrate: int = 0                # kbit/s (0 = inconnu)
     sample_rate: int = 0
+    cutoff: int = 0                 # 1.4.0 (C46) : coupure du spectre mesurée (Hz), 0 = pas encore mesurée
 
     @property
     def lossless(self) -> bool:
         return self.codec in LOSSLESS
+
+    @property
+    def real_kbps(self) -> int:
+        """Débit équivalent d'après le spectre (128…320, spectrum.LOSSLESS), 0 si pas mesuré."""
+        from ..analysis.spectrum import estimate
+
+        return estimate(self.cutoff, self.sample_rate) if self.cutoff else 0
+
+    @property
+    def fake(self) -> bool:
+        """Fichier qui vaut moins que son format : faux sans perte, ou faux 320 (spectre d'un ~128-192)."""
+        from ..analysis.spectrum import LOSSLESS as REAL_LOSSLESS
+
+        real = self.real_kbps
+        if not real or not self.codec:
+            return False
+        if self.lossless:
+            return real < REAL_LOSSLESS
+        return bool(self.bitrate) and self.bitrate >= 256 and real < 0.75 * self.bitrate
+
+    @property
+    def real_lossless(self) -> bool:
+        return self.lossless and not self.fake
+
+    @property
+    def effective_kbps(self) -> int:
+        """Débit à retenir pour comparer deux versions : le vrai quand le fichier est faux."""
+        if self.fake:
+            return self.real_kbps
+        return self.bitrate
+
+    @property
+    def real_label(self) -> str:
+        """« ≈ 128 kbps » quand la vraie qualité est connue et inférieure au format."""
+        return f"≈ {self.real_kbps} kbps" if self.fake else ""
 
     @property
     def label(self) -> str:
@@ -130,11 +166,17 @@ def probe(path: Path) -> AudioInfo:
     elif "vorbis" in name or "ogg" in name:
         codec = "vorbis"
     bitrate = int(round((getattr(info, "bitrate", 0) or 0) / 1000))
-    return AudioInfo(codec=codec, bitrate=bitrate, sample_rate=int(getattr(info, "sample_rate", 0) or 0))
+    from ..analysis.spectrum import known
+
+    return AudioInfo(codec=codec, bitrate=bitrate, sample_rate=int(getattr(info, "sample_rate", 0) or 0),
+                     cutoff=known(path) or 0)
 
 
 def low_quality(info: AudioInfo) -> Optional[str]:
-    """Raison (« MP3 160 kbps ») si le fichier est sous les seuils, sinon None."""
+    """Raison (« MP3 160 kbps ») si le fichier est sous les seuils, sinon None. 1.4.0 (C46) : un faux
+    sans perte ou un faux 320 (spectre coupé tôt) est signalé avec sa vraie qualité."""
+    if info.fake:
+        return f"{info.label} · {info.real_label}"
     if not info.codec or info.lossless:
         return None
     if info.sample_rate and info.sample_rate < MIN_SAMPLE_RATE:

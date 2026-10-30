@@ -540,7 +540,10 @@ class PlayerBar(QWidget):
                 return
             self._use_scroll(data)
 
-        if getattr(self.ctrl.settings, "scrolling_wave", True):
+        from ..core.machine import light_active
+
+        # 1.4.0 (C65) : en mode léger, pas de forme d'onde défilante (le lecteur garde sa forme d'onde fixe)
+        if getattr(self.ctrl.settings, "scrolling_wave", True) and not light_active(self.ctrl.settings):
             self.ctrl.load_detail(track, show_detail)
         else:
             self._use_scroll(None)

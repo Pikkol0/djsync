@@ -47,6 +47,9 @@ from .ctrl.tools import ToolsMixin
 from .ctrl.backups import BackupsMixin
 from .ctrl.curation import CurationMixin
 from .ctrl.diagnostic import DiagnosticMixin
+from .ctrl.imports import ImportsMixin
+from .ctrl.soulseek import SoulseekMixin
+from .ctrl.improve import ImproveMixin
 from .ctrl.library_ops import DriveSummary, LibraryOpsMixin, TaskHandle  # noqa: F401 (ré-export)
 from .ctrl.playback import PlaybackMixin, QueueItem  # noqa: F401 (ré-export)
 from .runner import UiDispatcher
@@ -136,7 +139,7 @@ class MatchHandle:
 
 
 class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin, ToolsMixin,
-                    DiagnosticMixin, BackupsMixin, CurationMixin):
+                    DiagnosticMixin, BackupsMixin, CurationMixin, ImportsMixin, SoulseekMixin, ImproveMixin):
     def __init__(
         self,
         settings: Settings,
@@ -721,6 +724,19 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.dispatcher.submit(probe, ok, err, pool="net")
 
     # ---------------------------------------------------------------- recherche
+    def free_search(self, query: str, ok: Callback) -> None:
+        """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués."""
+        from ..core import freesources
+
+        sources = list(self.settings.free_sources or [])
+
+        def work() -> Any:
+            found = freesources.search_all(query, sources)
+            dup = getattr(self.service, "_duplicates", None)
+            return dup.annotate(found) if dup is not None else found
+
+        self.dispatcher.submit(work, ok, lambda exc: (log.info("Free sources: %s", exc), ok([])), pool="net")
+
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
         try:
             mode = SearchMode(self.settings.search_mode)
@@ -782,6 +798,14 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         kind = self.service.classify_url(url)
         if kind == UrlKind.SPOTIFY:
             work: Callable[[], Any] = lambda: ("spotify", self.service.fetch_spotify(url))  # noqa: E731
+        elif kind == UrlKind.DEEZER:                                    # 1.4.0 (C86) : même suite que Spotify
+            def work() -> Any:
+                from ..core.deezer import DeezerError
+
+                try:
+                    return "spotify", self.service.fetch_deezer(url)
+                except DeezerError as exc:
+                    raise UrlImportError(t("error.deezer_private") if exc.private else str(exc)) from exc
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:
@@ -852,10 +876,22 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         s.save()
+        if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
+            self.slsk_disconnect()
+        self._emit("settings_saved")
 
     def _apply_output(self) -> None:
         if hasattr(self.service, "set_output"):
             self.service.set_output(self.settings.audio_format, self.settings.normalize_volume)
+        if hasattr(self.service, "set_soundcloud_auth"):                  # 1.4.0 (C10.1)
+            from ..core.soundcloud import auth_options
+
+            self.service.set_soundcloud_auth(auth_options(self.settings.soundcloud_browser,
+                                                          self.settings.soundcloud_token))
+        if hasattr(self.service, "set_youtube"):                          # 1.4.0 (C48)
+            from ..core.soundcloud import auth_options
+
+            self.service.set_youtube(self.settings.youtube_best, auth_options(self.settings.youtube_browser))
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:
@@ -878,6 +914,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.settings.volume = self.player.volume
         self.settings.save()
         self.player.close()
+        slsk, self.slsk = self.slsk, None                  # 1.4.0 (C10.2) : déconnexion de Soulseek
+        if slsk is not None:
+            try:
+                slsk.stop()
+            except Exception:  # noqa: BLE001
+                log.info("Soulseek stop failed", exc_info=True)
         lib, self.library = self.library, None
         if lib is not None:
             try:
