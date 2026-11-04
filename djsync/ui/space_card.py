@@ -6,7 +6,7 @@ de la clé ; le résultat est gardé quelques minutes (`core.space.UsageCache`).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
@@ -19,8 +19,9 @@ from .views.common import human_size
 from .widgets import button, hbox, label
 
 # Couleur de chaque poste (le libre reste neutre)
+# 1.4.0-rc.2 (C132) : caches en vert, pour ne plus les confondre avec « Autres fichiers » (gris)
 PART_COLORS = {"music": "#8B7CF6", "analysis": "#3CC8D2", "databases": "#E8D23C", "backups": "#F08C2E",
-               "app": "#F06EB4", "caches": "#9AA0A6", "other": "#5A5F66", "free": ""}
+               "app": "#F06EB4", "caches": "#6FCF7C", "other": "#5A5F66", "free": ""}
 TRIM_KEEP = 5
 
 
@@ -40,6 +41,10 @@ class SpaceBar(QWidget):
         self.setToolTip("\n".join(f"{t('space.' + k)} : {human_size(v)}" for k, v in parts.items() if v))
         self.update()
 
+    def ordered(self) -> List[Tuple[str, int]]:
+        """Ordre des segments dans la barre (C132) : autres fichiers, bibliothèque, libre."""
+        return sorted(self.parts.items(), key=lambda kv: (kv[0] != "other", kv[0] == "free"))
+
     def paintEvent(self, _e: Any) -> None:     # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -52,7 +57,8 @@ class SpaceBar(QWidget):
         total = sum(self.parts.values())
         x = r.left()
         if total > 0:
-            for key, value in self.parts.items():
+            # 1.4.0-rc.2 (C132) : « Autres fichiers » à gauche, puis la bibliothèque, puis le libre
+            for key, value in self.ordered():
                 color = PART_COLORS.get(key)
                 w = r.width() * value / total
                 if color and w > 0:

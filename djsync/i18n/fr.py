@@ -1528,4 +1528,7 @@ STRINGS = {
     "err_report.mode_ask": "Demander à chaque fois",
     "err_report.mode_always": "Toujours envoyer",
     "err_report.mode_never": "Ne jamais envoyer",
+    # 1.4.0-rc.2 (C139)
+    "reveal.explorer": "Afficher dans l'explorateur",
+    "reveal.finder": "Afficher dans le Finder",
 }

@@ -81,3 +81,61 @@ def test_b61_narrow_last_column_does_not_eat_the_title(demo):  # noqa: F811
 
     assert head.sectionSize(idx["title"]) >= theme.px(160)
     assert head.sectionSize(idx["time"]) < theme.px(160)   # l'Heure garde sa taille
+
+
+# ------------------------------------------------------------------ C132 : barre Espace occupé
+def test_c132_other_files_first_and_caches_not_grey(demo):  # noqa: F811
+    from djsync.ui.space_card import PART_COLORS, SpaceBar
+
+    bar = SpaceBar()
+    bar.set_parts({"music": 5, "caches": 1, "other": 9, "free": 20})
+    keys = [k for k, _v in bar.ordered()]
+    assert keys[0] == "other" and keys[-1] == "free"
+    assert PART_COLORS["caches"] != PART_COLORS["other"] and PART_COLORS["caches"].upper() != "#9AA0A6"
+
+
+# ------------------------------------------------------------------ B57 : sommaire des Paramètres
+def test_b57_settings_nav_follows_what_is_visible(demo):  # noqa: F811
+    v = demo.views["settings"]
+    demo.show_view("settings")
+    pump(demo, 0.5)
+    bar = v.area.verticalScrollBar()
+    bar.setValue(0)                                        # en haut de la page
+    v._set_nav("djsync")                                   # section retenue d'une visite précédente
+    v._sync_nav()
+    assert v._current_section == "general"
+    v._start_section = "advanced"                          # ouverture sur une section demandée
+    v._sync_nav()
+    assert bar.value() > 0 and v._current_section != "general"
+
+
+# ------------------------------------------------------------------ C139 : afficher dans l'explorateur
+def test_c139_reveal_command_per_system(tmp_path):
+    from djsync.ui.reveal import reveal, reveal_command
+
+    f = tmp_path / "a b.m4a"
+    f.write_bytes(b"x")
+    assert reveal_command(f, "win32") == ["explorer", f"/select,{f}"]
+    assert reveal_command(f, "darwin") == ["open", "-R", str(f)]
+    assert reveal_command(f, "linux") is None
+    assert reveal(tmp_path / "absent.m4a") is False
+
+
+def test_c139_library_menu_has_reveal_and_missing_file_is_explained(demo, monkeypatch):  # noqa: F811
+    from djsync.i18n import t
+    from djsync.ui import reveal as R
+
+    v = demo.views["library"]
+    demo.show_view("library")
+    assert pump(demo, 4, lambda: len(v.table.displayed_iids()) > 0)
+    iid = v.table.displayed_iids()[0]
+    v.table.select([iid])
+    entries = [e for e in v._menu([iid]) if e]
+    label = t("reveal.finder") if R.sys.platform == "darwin" else t("reveal.explorer")
+    entry = next(e for e in entries if e[0] == label)
+    shown = []
+    monkeypatch.setattr(R, "reveal", lambda p: shown.append(p) or False)
+    msgs = []
+    monkeypatch.setattr(demo.ctrl, "message", lambda kind, text: msgs.append(kind))
+    entry[1]()
+    assert shown and msgs == ["error"]

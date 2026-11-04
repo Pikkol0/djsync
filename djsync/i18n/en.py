@@ -1522,4 +1522,7 @@ STRINGS = {
     "err_report.mode_ask": "Ask each time",
     "err_report.mode_always": "Always send",
     "err_report.mode_never": "Never send",
+    # 1.4.0-rc.2 (C139)
+    "reveal.explorer": "Show in Explorer",
+    "reveal.finder": "Show in Finder",
 }

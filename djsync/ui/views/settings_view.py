@@ -8,7 +8,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -528,6 +528,7 @@ class SettingsView(View):
         self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
         self.show_section(start, remember=False)
+        self._start_section: Optional[str] = start       # 1.4.0-rc.2 (B57) : refait au premier affichage
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
@@ -1020,6 +1021,19 @@ class SettingsView(View):
         if not self._versions_loaded:                       # 1.3.2-rc.2 (C96) : une fois, à la première visite
             QTimer.singleShot(0, self.load_versions)
         QTimer.singleShot(0, self._space_if_shown)
+        QTimer.singleShot(0, self._sync_nav)
+
+    def _sync_nav(self) -> None:
+        """1.4.0-rc.2 (B57) : à la construction, la page n'a pas encore sa taille et ne peut pas défiler
+        jusqu'à la section retenue : le sommaire surlignait « DJSync » alors que la page était en haut
+        (Général). Au premier affichage, on défile pour de bon, puis le sommaire suit ce qui est visible."""
+        start, self._start_section = getattr(self, "_start_section", None), None
+        if start and not self.search.text().split():
+            self._scroll_to(start)
+        self._current_section = ""                       # force le recalcul
+        self._on_scroll()
+        if not self._current_section:
+            self._set_nav("general")
 
     # --------------------------------------------------------------- apparence
     def _language_changed(self, text: str) -> None:
