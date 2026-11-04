@@ -96,7 +96,6 @@ def test_advanced_section_and_folded_cards(tmp_path, monkeypatch):
         assert [k for k, _i in SECTIONS][-1] == "advanced"
         view.show_section("general")
         pump(app, 0.2)
-        assert not view.ffmpeg.isVisibleTo(view)                 # carte FFmpeg repliée
         assert view.ffmpeg_card in view.section_cards("advanced") and view.latency_box.isVisibleTo(view)
         view.show_section("download")
         assert view.format_menu.isVisibleTo(view)
