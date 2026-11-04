@@ -61,7 +61,7 @@ def test_b54_rekordbox_open_refuses_before_downloading(monkeypatch):
 
     calls = []
     lib = types.SimpleNamespace(ensure_writable=lambda: (_ for _ in ()).throw(RuntimeError("Close Rekordbox first")))
-    job = types.SimpleNamespace(library=lib, track=types.SimpleNamespace(video_id="x", title="T"), status="", percent=0,
+    job = types.SimpleNamespace(library=lib, track=types.SimpleNamespace(video_id="x", title="T", source="youtube"), status="", percent=0,
                                 message="")
     ctrl = types.SimpleNamespace(
         settings=types.SimpleNamespace(fetch_metadata=False),
