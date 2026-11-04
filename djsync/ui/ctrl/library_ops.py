@@ -515,9 +515,9 @@ class LibraryOpsMixin:
         self._missing_checked = (key, time.monotonic())
 
         def work() -> Dict[int, str]:
-            from .diagnostic import find_missing
+            from .diagnostic import missing_map
 
-            return find_missing(lib, items)
+            return missing_map(lib, items)
 
         def done(found: Dict[int, str]) -> None:
             if self.library is not lib:

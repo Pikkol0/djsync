@@ -78,7 +78,7 @@ def missing_reason(lib: Any, track: LibraryTrack) -> Optional[str]:
         return None
 
 
-def find_missing(lib: Any, tracks: Sequence[LibraryTrack]) -> Dict[int, str]:
+def missing_map(lib: Any, tracks: Sequence[LibraryTrack]) -> Dict[int, str]:
     """{content_id: disque absent ou ""} des sons dont le fichier est introuvable. Un disque absent
     n'est testé qu'une fois (rapide même pour des milliers de sons)."""
     out: Dict[int, str] = {}

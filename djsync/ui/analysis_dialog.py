@@ -98,9 +98,9 @@ class AnalysisDialog(BaseDialog):
         tracks = list(self._tracks)
 
         def work() -> Dict[int, str]:
-            from .ctrl.diagnostic import find_missing      # 1.3.2-rc.3 (B49) : même tri que l'analyse
+            from .ctrl.diagnostic import missing_map      # 1.3.2-rc.3 (B49) : même tri que l'analyse
 
-            return find_missing(lib, tracks)
+            return missing_map(lib, tracks)
 
         def done(found: Dict[int, str]) -> None:
             if not self.winfo_exists():

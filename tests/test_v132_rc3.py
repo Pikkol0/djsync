@@ -17,7 +17,7 @@ def test_find_missing_names_the_absent_drive(tmp_path):
     from pathlib import Path, PureWindowsPath
 
     from djsync.models import LibraryTrack
-    from djsync.ui.ctrl.diagnostic import find_missing, missing_reason
+    from djsync.ui.ctrl.diagnostic import missing_map, missing_reason
     from djsync.ui.ctrl.library_ops import missing_summary
 
     here = tmp_path / "a.m4a"
@@ -33,7 +33,7 @@ def test_find_missing_names_the_absent_drive(tmp_path):
     tracks = [LibraryTrack(content_id=i, title=str(i), artist="", album=None, duration_seconds=1, bpm=0,
                            file_type="m4a", source_url=None, date_added="", is_analysed=False, path=str(p))
               for i, p in paths.items()]
-    found = find_missing(Lib(), tracks)
+    found = missing_map(Lib(), tracks)
     assert found == {2: "", 3: "NO_SUCH_DRIVE_DJSYNC"}
     assert missing_reason(Lib(), tracks[0]) is None and missing_reason(Lib(), tracks[1]) == ""
     from djsync.i18n import set_language
@@ -249,5 +249,43 @@ def test_welcome_has_a_size_hierarchy_and_centred_thanks(demo):  # noqa: F811
     assert d.thanks_lbl.alignment() & Qt.AlignHCenter
     texts = " ".join(lbl.text() for lbl in d.findChildren(QLabel))
     assert "Rekordbox" in texts and "Tazyh" in texts
+    d.close()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C126 : retirer en lot
+def test_missing_files_can_be_removed_in_bulk_even_on_an_absent_drive(demo, monkeypatch):  # noqa: F811
+    from PySide6.QtWidgets import QPushButton
+
+    from djsync.ui import dialogs
+    from djsync.ui.ctrl.diagnostic import MissingItem
+    from djsync.ui.missing_dialog import MissingFilesDialog
+
+    tracks = _tracks(demo)
+    monkeypatch.setattr(demo.ctrl, "find_missing", lambda ok: None)
+    removed, confirms = [], []
+    monkeypatch.setattr(demo.ctrl, "remove_missing", lambda ids, ok=None, err=None: (removed.append(list(ids)),
+                                                                                       ok and ok()))
+
+    class Confirm:
+        def __init__(self, parent, title, msg, go, **kw):
+            confirms.append(kw.get("detail", ""))
+            go()
+
+    monkeypatch.setattr(dialogs, "ConfirmDialog", Confirm)
+    d = MissingFilesDialog(demo, demo.ctrl)
+    items = [MissingItem(tracks[0], "/x/a.m4a"),
+             MissingItem(tracks[1], "E:/Contents/b.m4a", offline=True, volume="E:"),
+             MissingItem(tracks[2], "E:/Contents/c.m4a", offline=True, volume="E:")]
+    d._loaded(items)
+    assert not d.remove_checked_btn.isEnabled()
+    labels = [b.text() for b in d.findChildren(QPushButton)]
+    assert any("E:" in x for x in labels)
+    d._check(lambda it: it.offline and it.volume == "E:")      # « Cocher ceux de E: »
+    assert d.remove_checked_btn.isEnabled() and "2" in d.remove_checked_btn.text()
+    d._remove_checked()
+    assert removed == [[tracks[1].content_id, tracks[2].content_id]]
+    assert confirms and "E:" in confirms[0]                    # avertissement : disque débranché
+    assert [i.track.content_id for i in d.items] == [tracks[0].content_id]
     d.close()
     assert not demo.errors
