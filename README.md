@@ -236,7 +236,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
-| **1.3.2-rc.7** | **Beat grid and cues**: the mouse wheel or a vertical touchpad swipe now zooms the main waveform (Shift + wheel or a horizontal swipe scrolls); zoom from 0.5 s to 2 min. |
+| **1.3.2-rc.7** | **Beat grid and cues**: the mouse wheel or a vertical touchpad swipe now zooms the main waveform (Shift + wheel or a horizontal swipe scrolls); zoom from 0.5 s to 2 min. **Library** (computer): playlists open without waiting behind downloads. **Downloads**: refused before downloading while Rekordbox is open (no more duplicate files). |
 | **1.3.2-rc.6** | **Beat grid and cues**: the waveform is drawn in one block (~40× faster): no more freeze every ~8 s during playback. **Library**: playlists no longer stay on "loading" after a series of downloads (the computer library reopens itself if it was closed). |
 | **1.3.2-rc.5** | **Beat grid and cues**: no more freeze of the cursor and sound every ~8 s during playback. Python's memory clean-up now runs in small, regular steps and never does a full pass while a track plays. If the screen still freezes during playback, the log records what was blocking it. |
 | **1.3.2-rc.4** | **Beat grid and cues**: no more small freezes of the cursor and sound every few seconds during playback. On Windows, checking whether Rekordbox is open took up DJSync for a moment every 4 s; it now reads the process list in one quick call. Duplicate checks slow down while a track plays, and a slow drive check is noted in the log. |

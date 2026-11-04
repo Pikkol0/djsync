@@ -45,3 +45,28 @@ def test_wider_zoom_range():
 
     assert VIEW_CHOICES[0] == 0.5 and VIEW_CHOICES[-1] == 120
     assert view_label(0.5) == "0.5 s" and view_label(4) == "4 s"
+
+
+def test_b52_computer_playlists_use_their_own_queue():
+    from djsync.ui.ctrl.library_ops import _read_pool
+    from djsync.ui.runner import _POOLS
+
+    assert "ui_db" in _POOLS
+    assert _read_pool(types.SimpleNamespace(is_local=True)) == "ui_db"
+    assert _read_pool(types.SimpleNamespace()) == "db"
+
+
+def test_b54_rekordbox_open_refuses_before_downloading(monkeypatch):
+    from djsync.ui.ctrl.downloads import DownloadsMixin
+
+    calls = []
+    lib = types.SimpleNamespace(ensure_writable=lambda: (_ for _ in ()).throw(RuntimeError("Close Rekordbox first")))
+    job = types.SimpleNamespace(library=lib, track=types.SimpleNamespace(video_id="x", title="T"), status="", percent=0,
+                                message="")
+    ctrl = types.SimpleNamespace(
+        settings=types.SimpleNamespace(fetch_metadata=False),
+        service=types.SimpleNamespace(download=lambda *a, **k: calls.append("download")),
+        dispatcher=types.SimpleNamespace(post=lambda *a, **k: None), engine_failure=lambda *a: None,
+        _job_changed=lambda *a: None)
+    DownloadsMixin._run_job(ctrl, job)
+    assert calls == [] and job.status == "error" and "Rekordbox" in job.message
