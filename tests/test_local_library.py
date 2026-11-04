@@ -249,3 +249,28 @@ def test_b52_never_connected_still_raises(tmp_path):
                                   owned_path=tmp_path / "o.json")
     with pytest.raises(L.LibraryError):
         lib._session_db()
+
+
+def test_b52_playlist_read_does_not_wait_for_the_library_lock(local):
+    """1.3.2 (B52) : une playlist se lit par une 2e connexion, même si une écriture tient le verrou."""
+    import threading
+    import time
+
+    pid = next(p.playlist_id for p in local.list_playlists() if p.kind == 0)
+    held, release = threading.Event(), threading.Event()
+
+    def writer():
+        with local._lock:
+            held.set()
+            release.wait(5)
+
+    th = threading.Thread(target=writer)
+    th.start()
+    held.wait(2)
+    t0 = time.monotonic()
+    try:
+        local.get_playlist_tracks(pid)
+        assert time.monotonic() - t0 < 2.0
+    finally:
+        release.set()
+        th.join()
