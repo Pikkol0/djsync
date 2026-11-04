@@ -52,6 +52,16 @@ def history_row(version: str) -> str:
     return ""
 
 
+def as_list(changes: str) -> str:
+    """1.3.2 : notes lisibles : une puce par rubrique (« **Duplicates**: … ») au lieu d'un seul paragraphe."""
+    import re
+
+    parts = [p.strip() for p in re.split(r"(?=\*\*[^*]{1,40}\*\*\s*[:(])", changes) if p.strip()]
+    if len(parts) < 2:
+        return changes
+    return "\n".join(f"- {p.rstrip('.').strip()}." if not p.endswith(('.', '!', ')')) else f"- {p}" for p in parts)
+
+
 def main(tag: str) -> int:
     wanted = tag.lstrip("v")
     base = wanted.split("-", 1)[0]
@@ -59,7 +69,7 @@ def main(tag: str) -> int:
     if base != current:
         print(f"Tag {tag} does not match djsync.__version__ = {current}", file=sys.stderr)
         return 1
-    changes = history_row(current) or "See the README version history."
+    changes = as_list(history_row(current)) or "See the README version history."
     title = "Pre-release" if "-" in wanted else "Release"
     thanks = ""
     try:                                         # 1.3.1 (C55) : remerciements, même texte que le README
