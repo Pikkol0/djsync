@@ -444,7 +444,7 @@ STRINGS = {
     "grid.bpm_range": "Le BPM doit être compris entre 40 et 300.",
     "grid.play_tip": "Écouter depuis le curseur (clic ou glisser sur la forme d'onde pour le placer)",
     "grid.hint": "Clic ou glisser : déplace le curseur d'écoute (sélectionne le temps le plus proche)  ·  "
-                 "clic droit glissé, molette ou barre : défiler  ·  les débuts de mesure sont épais et numérotés.",
+                 "molette ou pincement : zoomer  ·  clic droit glissé, Maj + molette, glissement horizontal ou barre : défiler  ·  les débuts de mesure sont épais et numérotés.",
     "grid.bar_here": "Début de mesure ici",
     "grid.bar_here_tip": "Un temps est placé exactement sur le curseur et devient le 1er temps d'une mesure "
                          "(toute la grille suit)",
@@ -461,11 +461,11 @@ STRINGS = {
     "grid.loop_exit": "Sortir de la boucle",
     "grid.loop_exit_tip": "Quitter la boucle : la lecture continue après sa fin, sans coupure (touche 0 / à). Recliquer le pad pour reboucler.",
     "grid.fixed_cursor": "Curseur fixe au centre",
-    "grid.fixed_cursor_tip": "Coché : le curseur reste au milieu et le son défile dessous (glisser la forme d'onde, molette, ou la vue d'ensemble du lecteur). Décoché : le curseur suit la souris. Choix gardé pour la prochaine fois.",
+    "grid.fixed_cursor_tip": "Coché : le curseur reste au milieu et le son défile dessous (glisser la forme d'onde, Maj + molette, ou la vue d'ensemble). Décoché : le curseur suit la souris. Choix gardé pour la prochaine fois.",
     "grid.overview_tip": "Tout le son : cliquer ou glisser pour s'y déplacer",
     "grid.half_beat_tip": "Décaler toute la grille d'un demi-temps (temps posés sur les charleys ou les claps au lieu des kicks)",
-    "grid.zoom_in": "Zoomer (Ctrl/⌘ + molette)",
-    "grid.zoom_out": "Dézoomer (Ctrl/⌘ + molette)",
+    "grid.zoom_in": "Zoomer (molette)",
+    "grid.zoom_out": "Dézoomer (molette)",
     "grid.half": "BPM ÷ 2",
     "grid.double_tip": "Deux fois plus de temps, ancrés sur le temps sélectionné",
     "grid.half_tip": "Deux fois moins de temps, ancrés sur le temps sélectionné",
