@@ -586,8 +586,8 @@ STRINGS = {
     "grid.apply_bpm_tip": "Constant grid at this BPM, anchored on the selected beat",
     "grid.bpm_range": "BPM must be between 40 and 300.",
     "grid.play_tip": "Play from the cursor (click or drag on the waveform to place it)",
-    "grid.hint": "Click or drag: move the listening cursor (selects the nearest beat)  ·  right-drag, wheel or "
-                 "scroll bar: scroll  ·  bar starts are thick and numbered.",
+    "grid.hint": "Click or drag: move the listening cursor (selects the nearest beat)  ·  wheel or pinch: zoom  ·  right-drag, "
+                 "Shift + wheel, horizontal swipe or scroll bar: scroll  ·  bar starts are thick and numbered.",
     "grid.bar_here": "Bar starts here",
     "grid.bar_here_tip": "A beat is placed exactly on the cursor and becomes the first beat of a bar "
                          "(the whole grid moves with it)",
@@ -604,11 +604,11 @@ STRINGS = {
     "grid.loop_exit": "Exit loop",
     "grid.loop_exit_tip": "Leave the loop: playback carries on past its end, without a cut (key 0). Click the pad again to loop.",
     "grid.fixed_cursor": "Fixed cursor in the middle",
-    "grid.fixed_cursor_tip": "Ticked: the cursor stays in the middle and the track scrolls under it (drag the waveform, wheel, or the overview in the player). Unticked: the cursor follows the mouse. Kept for next time.",
+    "grid.fixed_cursor_tip": "Ticked: the cursor stays in the middle and the track scrolls under it (drag the waveform, Shift + wheel, or the overview). Unticked: the cursor follows the mouse. Kept for next time.",
     "grid.overview_tip": "Whole track: click or drag to move through it",
     "grid.half_beat_tip": "Shift the whole grid by half a beat (beats landing on the hi-hats or claps instead of the kicks)",
-    "grid.zoom_in": "Zoom in (Ctrl/⌘ + wheel)",
-    "grid.zoom_out": "Zoom out (Ctrl/⌘ + wheel)",
+    "grid.zoom_in": "Zoom in (wheel)",
+    "grid.zoom_out": "Zoom out (wheel)",
     "grid.half": "BPM ÷ 2",
     "grid.double_tip": "Twice as many beats, anchored on the selected beat",
     "grid.half_tip": "Half as many beats, anchored on the selected beat",

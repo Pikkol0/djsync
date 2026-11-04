@@ -8,9 +8,16 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
-1.3.2-rc.6 à rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
+1.3.2-rc.7 à rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
+
+## 1.3.2-rc.7 : zoom à la molette dans Grille et cues (04/11)
+**Sous Windows** (et sur Mac par le testeur Mac) : GRI-7.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| GRI-7 | — | (**B53**) Grille et cues : molette (souris) puis glissement vertical à deux doigts (pavé tactile) sur la forme d'onde principale ; puis Maj + molette et glissement horizontal ; puis menu de durée affichée. | Molette / glissement vertical : zoom (un palier par cran, centré sur le curseur s'il est visible) ; Ctrl + molette et pincement zooment aussi. Maj + molette et glissement horizontal : défilement dans le son. Paliers de 0,5 s à 120 s (menu identique). |
 
 ## 1.3.2-rc.6 : forme d'onde de Grille et cues, playlists en chargement (04/11)
 Le relevé de la rc.5 a montré la vraie cause du blocage toutes les ~8 s : le redessin de la forme d'onde 3 bandes (un point Qt par pixel), maintenant fait en bloc (~40 fois plus rapide).

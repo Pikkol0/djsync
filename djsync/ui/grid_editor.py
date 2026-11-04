@@ -35,7 +35,12 @@ from .icons import qicon
 from .widgets import button, hbox, icon_button, label, restyle, vbox
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
-VIEW_CHOICES = (2, 4, 8, 16, 32)
+VIEW_CHOICES = (0.5, 1, 2, 4, 8, 16, 32, 64, 120)   # 1.3.2 (B53) : 0,5 s à 2 min (avant 2 à 32 s)
+WHEEL_STEP = 120          # 1.3.2 (B53) : un palier de zoom par cran de molette (pavé tactile : par cumul)
+
+
+def view_label(v: float) -> str:
+    return f"{v:g} s"
 # Couleurs de la forme d'onde 3 bandes de Rekordbox (basses, médiums, aigus), quel que soit le thème
 BAND_COLORS = ("#1f6fe5", "#f0982c", "#f6ead2")
 
@@ -128,13 +133,21 @@ class GridCanvas(QWidget):
         e.accept()                                  # clic droit = défilement, pas de menu
 
     def wheelEvent(self, e: Any) -> None:           # noqa: N802
-        """Molette : défiler. 1.2.1 (C03) : Ctrl / ⌘ + molette (ou pincement du pavé tactile) : zoomer."""
-        if e.modifiers() & (Qt.ControlModifier | Qt.MetaModifier):
-            self.ed.zoom(-1 if e.angleDelta().y() > 0 else 1)
+        """1.3.2 (B53) : molette ou glissement vertical du pavé tactile = zoomer (Ctrl / ⌘ + molette aussi) ;
+        glissement horizontal ou Maj + molette = défiler dans le son. Avant (C03, 1.2.1) : l'inverse."""
+        dx, dy = e.angleDelta().x(), e.angleDelta().y()
+        if e.modifiers() & Qt.ShiftModifier:          # Maj + molette : Qt donne parfois le pas en x
+            dx, dy = dx or dy, 0
+        if dx and abs(dx) > abs(dy):
+            self.ed.pan(-0.15 * dx / WHEEL_STEP if abs(dx) < WHEEL_STEP else (-0.15 if dx > 0 else 0.15))
             return
-        dy = e.angleDelta().y() or e.angleDelta().x()
-        if dy:
-            self.ed.pan(-0.15 if dy > 0 else 0.15)
+        if not dy:
+            return
+        self._wheel = getattr(self, "_wheel", 0) + dy
+        while abs(self._wheel) >= WHEEL_STEP:          # un palier par cran ; le pavé tactile cumule ses petits pas
+            step = -1 if self._wheel > 0 else 1
+            self._wheel -= WHEEL_STEP if self._wheel > 0 else -WHEEL_STEP
+            self.ed.zoom(step)
 
     def event(self, e: Any) -> bool:                 # noqa: D401
         from PySide6.QtCore import QEvent
@@ -189,8 +202,8 @@ class GridEditor(QWidget):
         head.addLayout(titles, 1)
         head.addWidget(label(t("grid.view"), "dim"))
         self.view_menu = QComboBox()
-        self.view_menu.addItems([f"{v} s" for v in VIEW_CHOICES])
-        self.view_menu.setCurrentText(f"{self.view_s} s")
+        self.view_menu.addItems([view_label(v) for v in VIEW_CHOICES])
+        self.view_menu.setCurrentText(view_label(self.view_s))
         self.view_menu.currentTextChanged.connect(self._view_changed)
         head.addWidget(self.view_menu)
         head.addWidget(icon_button("minus", lambda: self.zoom(1), t("grid.zoom_out")))
@@ -790,13 +803,14 @@ class GridEditor(QWidget):
     # --------------------------------------------------------------- navigation
     def _view_changed(self, text: str) -> None:
         center = self.cursor_ms if self.fixed_cursor else self.start_ms + self.view_s * 500
-        self.view_s = int(text.split()[0])
+        self.view_s = float(text.split()[0].replace(",", "."))
+        self.view_s = int(self.view_s) if self.view_s == int(self.view_s) else self.view_s
         self.start_ms = center - self.view_s * 500
         self.draw()
 
     def zoom(self, step: int) -> None:
         """Vue plus courte (step < 0, on zoome) ou plus longue, centrée sur le curseur s'il est visible."""
-        i = VIEW_CHOICES.index(self.view_s) if self.view_s in VIEW_CHOICES else 2
+        i = VIEW_CHOICES.index(self.view_s) if self.view_s in VIEW_CHOICES else VIEW_CHOICES.index(8)
         j = max(0, min(len(VIEW_CHOICES) - 1, i + step))
         if j == i:
             return
@@ -808,7 +822,7 @@ class GridEditor(QWidget):
         self.view_s = VIEW_CHOICES[j]
         self.start_ms = anchor - ratio * self.view_s * 1000.0
         self.view_menu.blockSignals(True)
-        self.view_menu.setCurrentText(f"{self.view_s} s")
+        self.view_menu.setCurrentText(view_label(self.view_s))
         self.view_menu.blockSignals(False)
         self.draw()
 
