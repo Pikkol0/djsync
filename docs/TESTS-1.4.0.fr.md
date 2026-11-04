@@ -75,3 +75,23 @@ Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TEST
 | # | Étapes | Attendu |
 |---|---|---|
 | DOW-2 | (**B55**) Lancer une dizaine de téléchargements d'un coup, regarder la barre à côté de « Downloads ». | La barre avance d'un son à l'autre jusqu'au bout, sans retomber à 0 quand un son se termine ; elle repart de 0 seulement pour une nouvelle série lancée après la fin de la précédente. |
+
+## rc.2 — retours de tests de la rc.1
+| # | Étapes | Attendu |
+|---|---|---|
+| SCP-1 | (**B64**) Importer une adresse ▸ une playlist SoundCloud d'au moins 100 sons (ex. une playlist de rap). | Chaque ligne a son titre, son artiste et sa durée (plus de « Untitled · Inconnu · 0:00 ») ; les sons protégés sont marqués « protégé : version YouTube Music » en orange, avec leur nombre en haut. |
+| SCP-2 | (**B64**) Écouter puis télécharger un son marqué protégé. | La version YouTube Music est lue puis téléchargée (même titre, même durée à peu près) ; plus d'erreur « DRM protected ». Si aucune version n'est trouvée : message clair. |
+| SLK-1 | (**B60**) Paramètres ▸ Téléchargement ▸ Soulseek, sur un nouveau profil ou après avoir coché le partage. | Le partage est coché par défaut ; s'il est décoché, le panneau Soulseek dit « ne partage rien : certains pairs vous refuseront ». |
+| SLK-2 | (**B60**) Recherche Haute qualité. | La colonne Type affiche, pour chaque pair, « place libre » ou « file N » et sa vitesse (« 1.2 Mo/s »). |
+| SLK-3 | (**B60**) Télécharger un fichier proposé par plusieurs pairs, dont un lent ou en file d'attente. | Si rien n'arrive en 60 s (ou refus / « Banned »), la ligne dit « … : essai chez un autre pair » et le téléchargement repart chez un autre ; le son finit par arriver. |
+| SLK-4 | (**B59**) Juste après la connexion à Soulseek, lancer une recherche Haute qualité. | Pendant la recherche : squelette et « 0 fichier pour l'instant », jamais « Aucun résultat » ; sans réponse, la recherche est renvoyée une fois toute seule. |
+| YTB-1 | (**B66**) Avec un VPN qui déclenche « Sign in to confirm you're not a bot », télécharger un son YouTube. | Message clair (VPN, navigateur) et bouton **Choisir le navigateur** qui ouvre Paramètres ▸ Téléchargement ; après 3 refus, les autres sons YouTube passent en erreur avec le même message (pause). Choisir le navigateur et Enregistrer : les sons refusés repartent. |
+| QLT-1 | (**C137**) Paramètres ▸ Téléchargement. | Tableau « Quelle qualité j'obtiens vraiment ? » (équivalent MP3, aigus coupés) ; le format MP3 ne dit plus « 320 » ; choisir MP3 affiche l'avertissement orange, M4A le cache. |
+| DIA-5 | (**B58**) Diagnostic ▸ onglet **Améliorer**. | La page Améliorer s'ouvre (plus « Fichiers introuvables ») ; rouvrir le Diagnostic la ramène si c'était le dernier onglet. |
+| DIA-6 | (**B63**) Diagnostic ▸ Mauvaise qualité : lancer la mesure, aller dans la Bibliothèque, revenir par le bouton Diagnostic. | La même page revient avec sa mesure en cours ou finie, sans tout recharger. |
+| COL-1 | (**B65**) Importer une adresse : glisser le bord d'une colonne, changer de page et revenir. | Seule la colonne glissée change, sa largeur est gardée ; clic droit sur l'en-tête : choix des colonnes. |
+| COL-2 | (**B61**) Téléchargements & analyse avec quelques téléchargements. | Le Titre est lisible (jamais 3 lettres) ; l'Heure reste étroite à droite, sans grande colonne vide. |
+| ESP-4 | (**C132**) Paramètres ▸ Espace occupé. | « Autres fichiers » à gauche de la barre ; les caches en vert, plus en gris. |
+| REG-1 | (**B57**) Aller dans Paramètres ▸ DJSync, quitter, revenir dans Paramètres (en haut de la page). | Le sommaire surligne la section réellement affichée. |
+| EXP-1 | (**C139**) Bibliothèque : clic droit sur un son ▸ **Afficher dans l'explorateur** (« dans le Finder » sur Mac). | Le dossier s'ouvre avec le fichier sélectionné ; fichier absent : message clair. |
+| CI-1 | (**B56**) GitHub Actions du build v1.4.0-rc.2. | Plus d'échec du test du ramasse-miettes ; build marqué vert si rien d'autre ne casse. |
