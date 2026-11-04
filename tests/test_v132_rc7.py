@@ -70,3 +70,15 @@ def test_b54_rekordbox_open_refuses_before_downloading(monkeypatch):
         _job_changed=lambda *a: None)
     DownloadsMixin._run_job(ctrl, job)
     assert calls == [] and job.status == "error" and "Rekordbox" in job.message
+
+
+def test_release_notes_one_bullet_per_section():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("rn", Path(__file__).parents[1] / "packaging" / "release_notes.py")
+    rn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rn)
+    out = rn.as_list("**Library**: a; b. **Search**: c. **Also**: d")
+    assert out.splitlines() == ["- **Library**: a; b.", "- **Search**: c.", "- **Also**: d."]
+    assert rn.as_list("plain text") == "plain text"
