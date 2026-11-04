@@ -140,6 +140,8 @@ class DJSyncApp(QMainWindow):
 
         self.dispatcher = UiDispatcher()
         self.ctrl = controller or AppController(settings, self.dispatcher)
+        # 1.3.2-rc.5 (B50) : pas de ramassage complet de la mémoire pendant la lecture
+        self.dispatcher.gc_busy = lambda: getattr(getattr(self.ctrl, "player", None), "state", None) == "playing"
         self.loader = CoverLoader(self.dispatcher)
         self._current: Optional[str] = None
         self._compact: Optional[bool] = None

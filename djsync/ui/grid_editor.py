@@ -28,7 +28,7 @@ from ..analysis.cues import Cue, nearest_beat_ms
 from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
-from . import theme
+from . import stall, theme
 from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
@@ -923,9 +923,11 @@ class GridEditor(QWidget):
             self.overview.update()
             self._meter.frame(getattr(self.canvas, "paint_ms", 0.0), getattr(self.overview, "paint_ms", 0.0),
                               (time.perf_counter() - t0) * 1000.0)
+            stall.watch().tick()                 # 1.3.2-rc.5 (B50) : piles écrites si l'interface se fige
         else:
             self._mono.reset()
             self._meter.stop()
+            stall.watch().stop()
 
     # -------------------------------------------------------------- enregistrer
     def _save(self) -> None:
@@ -971,6 +973,7 @@ class GridEditor(QWidget):
             return False
         self._closed = True
         self._timer.stop()
+        stall.watch().stop()                      # 1.3.2-rc.5 (B50)
         if getattr(self.ctrl, "grid_editor", None) is self:
             self.ctrl.grid_editor = None
         self.ctrl._emit("grid_page", None)

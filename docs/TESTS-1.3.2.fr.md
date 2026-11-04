@@ -8,9 +8,18 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
-1.3.2-rc.4, rc.3 puis rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
+1.3.2-rc.5, rc.4, rc.3 puis rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
+
+## 1.3.2-rc.5 : blocage toutes les ~8 s pendant la lecture (04/11)
+Refait le test KO de la rc.4 (GRI-4). La rc.4 a supprimé les saccades (vérification de Rekordbox) ; il restait un blocage de 250 à 780 ms toutes les ~8 s, image et son ensemble. La rc.5 fait le nettoyage de la mémoire de Python par petits passages réguliers, sans passage complet pendant la lecture, et écrit dans le journal ce qui bloque si un blocage reste.
+
+**Sous Windows** (et sur Mac par le testeur Mac) : GRI-5.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| GRI-5 | GRI-4 | (**B50**) Grille et cues : lire un son 2 min juste après avoir lancé DJSync ; puis ouvrir Doublons, revenir dans Grille et cues et relire 1 min ; puis Retours ▸ Envoyer mes logs (pas besoin de joindre le fichier : il est lu dans le mail). | Plus de freeze toutes les ~8 s. Journal : plus de « Audio late » réguliers ; « worst gap » sous ~100 ms. S'il reste un blocage : des lignes « Slow garbage collection » et/ou « UI blocked for more than 350 ms during playback » disent ce qui bloque. |
 
 ## 1.3.2-rc.4 : freezes de la lecture (04/11)
 Refait le test KO de la rc.3 (GRI-3). Le journal de la rc.3 montrait l'affichage rapide (~65 images/s) mais des blocages de 120 à 700 ms toutes les ~8 s, le son en même temps : c'était la détection de Rekordbox (contrôle des clés, toutes les 4 s), très lente sous Windows. Les autres tests de la rc.3 restent valables (DEM-14 encore à faire, et la partie Mac).
