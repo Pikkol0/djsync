@@ -84,6 +84,9 @@ class DownloadsMixin:
         try:
             lib = job.library
             track = job.track
+            check = getattr(lib, "ensure_writable", None)
+            if check is not None:                     # 1.3.2 (B54) : Rekordbox ouvert -> refus AVANT le téléchargement
+                check()
             if self.settings.fetch_metadata:          # album, année, genre, label… (Deezer, sans compte)
                 from ...core.metadata import enrich
 
@@ -103,10 +106,20 @@ class DownloadsMixin:
             self.dispatcher.post(self._job_changed, job)
             meta = {"year": track.year, "release_date": track.release_date, "genre": track.genre,
                     "label": track.label, "track_no": track.track_no, "isrc": track.isrc}
-            added = lib.add_track(
-                Path(result.file_path), track.title, track.artist, track.album, track.url, job.playlist_ids,
-                meta=meta,
-            )
+            try:
+                added = lib.add_track(
+                    Path(result.file_path), track.title, track.artist, track.album, track.url, job.playlist_ids,
+                    meta=meta,
+                )
+            except Exception:
+                # 1.3.2 (B54) : pas de fichier orphelin ; une relance retéléchargeait sous un autre nom (« [id] »)
+                try:
+                    Path(result.file_path).unlink()
+                    log.info("Download %s not added to the library: file removed (%s)", track.video_id,
+                             Path(result.file_path).name)
+                except OSError:
+                    pass
+                raise
             self.service.refresh_library()
             job.file_path, job.content_id = result.file_path, added.content_id
             job.original = bool(getattr(result, "original", False))

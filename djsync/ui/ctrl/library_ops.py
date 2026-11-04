@@ -19,6 +19,13 @@ from ...models import LibraryTrack, PlaylistInfo
 
 Callback = Callable[[Any], None]
 log = logging.getLogger(__name__)
+
+
+def _read_pool(lib: Any) -> str:
+    """1.3.2 (B52) : la bibliothèque de l'ordinateur (protégée par un verrou) se lit dans sa propre file,
+    sans attendre les écritures et calculs de la file « db » ; la clé garde une seule file (connexion SQLite
+    partagée)."""
+    return "ui_db" if getattr(lib, "is_local", False) else "db"
 PLAYBACK_YIELD_S = 0.15      # 1.3.2-rc.4 (B50) : pause avant chaque empreinte à calculer pendant la lecture
 FP_FAILURES_LOGGED = 5        # 1.3.0-rc.9 : « No fingerprint » détaillés au journal, ensuite comptés
 
@@ -202,12 +209,28 @@ class LibraryOpsMixin:
             self.playlists = playlists
             ok(playlists)
 
-        self.dispatcher.submit(lib.list_playlists, done, self._on_error, pool="db")
+        self.dispatcher.submit(lib.list_playlists, done, self._on_error, pool=_read_pool(lib))   # 1.3.2 (B52)
 
     def playlist_tracks(self, playlist_id: int, ok: Callback) -> None:
+        """1.3.2 (B52) : ouvrir une playlist passe par sa propre file (« ui_db »), plus derrière les écritures
+        des téléchargements et les calculs de fond ; noté au journal s'il dure plus d'1 s."""
         lib = self.library
-        if lib is not None:
-            self.dispatcher.submit(lambda: lib.get_playlist_tracks(playlist_id), ok, self._on_error, pool="db")
+        if lib is None:
+            return
+        import time
+
+        asked = time.monotonic()
+
+        def work() -> Any:
+            started = time.monotonic()
+            out = lib.get_playlist_tracks(playlist_id)
+            done = time.monotonic()
+            if done - asked >= 1.0:
+                log.info("Slow playlist opening: %.1f s (waiting %.1f s, reading %.1f s, %d tracks)",
+                         done - asked, started - asked, done - started, len(out))
+            return out
+
+        self.dispatcher.submit(work, ok, self._on_error, pool=_read_pool(lib))
 
     def drive_summaries(self, ok: Callable[[List[DriveSummary]], None]) -> None:
         """Clés détectées pour l'Accueil : espace libre, contenu (si connectée), export.pdb."""

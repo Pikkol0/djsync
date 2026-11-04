@@ -13,11 +13,13 @@ restent à faire s'ils ne sont pas cochés.
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
 
 ## 1.3.2-rc.7 : zoom à la molette dans Grille et cues (04/11)
-**Sous Windows** (et sur Mac par le testeur Mac) : GRI-7.
+**Sous Windows** (et sur Mac par le testeur Mac) : GRI-7, BIB-10, DOW-1.
 
 | # | Refait | Étapes | Attendu |
 |---|---|---|---|
 | GRI-7 | — | (**B53**) Grille et cues : molette (souris) puis glissement vertical à deux doigts (pavé tactile) sur la forme d'onde principale ; puis Maj + molette et glissement horizontal ; puis menu de durée affichée. | Molette / glissement vertical : zoom (un palier par cran, centré sur le curseur s'il est visible) ; Ctrl + molette et pincement zooment aussi. Maj + molette et glissement horizontal : défilement dans le son. Paliers de 0,5 s à 120 s (menu identique). |
+| BIB-10 | BIB-9 | (**B52**) Bibliothèque de l'ordinateur : lancer une dizaine de téléchargements, et pendant ce temps ouvrir plusieurs playlists ; puis Envoyer mes logs. | Les playlists s'ouvrent vite, même pendant les téléchargements. Journal : une ligne « Slow playlist opening » (attente / lecture) seulement si une ouverture a pris plus d'1 s ; « Slow logs sending » (rapport / préparation / envoi) si l'envoi a pris plus de 3 s. |
+| DOW-1 | — | (**B54**) Rekordbox ouvert, lancer 2 téléchargements vers la bibliothèque de l'ordinateur ; fermer Rekordbox, relancer. | Refus tout de suite (« Fermez Rekordbox »), sans téléchargement ; après relance : un seul fichier par son dans Music\DJSync (pas de « … [id].m4a »). |
 
 ## 1.3.2-rc.6 : forme d'onde de Grille et cues, playlists en chargement (04/11)
 Le relevé de la rc.5 a montré la vraie cause du blocage toutes les ~8 s : le redessin de la forme d'onde 3 bandes (un point Qt par pixel), maintenant fait en bloc (~40 fois plus rapide).
