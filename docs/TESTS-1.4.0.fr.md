@@ -63,3 +63,10 @@ Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TEST
 | IMP-6 | Importer : lien d'une playlist Deezer **privée**. | « Cette playlist Deezer est privée ou introuvable. Rends-la publique dans Deezer (… ▸ Rendre publique), puis réessaie. » |
 | LEC-2 | Paramètres ▸ Général ▸ **Mode léger** : Activé. Lire un son, ouvrir Grille et cues, lancer une analyse pendant la lecture. | Pas de forme d'onde défilante dans le lecteur ; lecture fluide à 30 images/s dans Grille et cues ; l'analyse attend la fin de la lecture. Le journal indique « Machine: … light mode on ». |
 | DEM-1 | (PC modeste, ou mode Auto sur un PC à 2 cœurs / 4 Go) Premier lancement. | Fenêtre « Mode léger activé » : Garder / Désactiver, « Ne plus me le rappeler ». |
+
+## ESP — Espace occupé sur l'ordinateur (C27, C129)
+| # | Étapes | Attendu |
+|---|---|---|
+| ESP-1 | (**C27**) Bibliothèque de l'ordinateur ▸ Paramètres ▸ Bibliothèques ▸ Espace occupé ▸ Mesurer à nouveau. | Pendant la mesure, une petite barre d'attente. Ensuite **Musique** = taille de tous les sons de la collection Rekordbox (plusieurs Go, plus 0 B) ; Analyses et pochettes, Bases Rekordbox, Sauvegardes DJSync, Caches comme avant. |
+| ESP-2 | (**C129**) Même carte. | La barre couvre **tout le disque** : postes de la bibliothèque en couleur, « Autres fichiers » (gris foncé), Libre. Au-dessus : « Bibliothèque Rekordbox : x Go (y % du disque) · autres fichiers : … · libre : … sur … ». Si des sons sont sur un autre disque (ex. E:) : ligne « Et x Go de musique sur E:\ ». |
+| ESP-3 | Même chose sur une clé. | Inchangé (la clé avait déjà « Autres fichiers »). |

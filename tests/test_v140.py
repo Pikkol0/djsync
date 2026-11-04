@@ -618,3 +618,19 @@ def test_lossless_from_a_free_source_is_never_transcoded(tmp_path, monkeypatch):
                      source_url="https://archive.org/download/x/t.wav", quality="WAV")
     res = d.download(tr, tmp_path)
     assert res.original and res.file_path.endswith(".wav")
+
+
+def test_c129_whole_disk_bar_and_music_elsewhere(tmp_path, monkeypatch):
+    """1.4.0 (C129) : la barre couvre tout le disque (bibliothèque, autres fichiers, libre) ; la musique
+    rangée sur un autre disque est donnée à part."""
+    from djsync.core import space
+
+    monkeypatch.setattr(space, "_disk", lambda root: (1000, 400))
+    (tmp_path / "share").mkdir()
+    (tmp_path / "share" / "a.dat").write_bytes(b"x" * 50)
+    u = space.local_usage(tmp_path, tmp_path / "bk", tmp_path / "data", {str(tmp_path): 300, "E:\\\\": 70},
+                          tmp_path / "share", tmp_path)
+    assert u.parts["music"] == 300 and u.music_elsewhere == {"E:\\\\": 70}
+    assert u.parts["other"] == 600 - 300 - 50 and u.parts["free"] == 400
+    assert sum(u.parts.values()) == 1000
+    assert u.library == 350

@@ -1268,6 +1268,8 @@ STRINGS = {
     "space.no_library": "No library open.",
     "space.refresh": "Measure again",
     "space.summary": "{free} free of {total}",
+    "space.summary_lib": "Rekordbox library: {lib} ({pct} % of the drive) · other files: {other} · free: {free} of {total}",
+    "space.music_elsewhere": "Also {size} of music on {drive}",
     "space.music": "Music",
     "space.analysis": "Analyses and artwork",
     "space.databases": "Rekordbox databases",

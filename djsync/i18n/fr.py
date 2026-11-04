@@ -1274,6 +1274,8 @@ STRINGS = {
     "space.no_library": "Aucune bibliothèque ouverte.",
     "space.refresh": "Mesurer à nouveau",
     "space.summary": "{free} libres sur {total}",
+    "space.summary_lib": "Bibliothèque Rekordbox : {lib} ({pct} % du disque) · autres fichiers : {other} · libre : {free} sur {total}",
+    "space.music_elsewhere": "Et {size} de musique sur {drive}",
     "space.music": "Musique",
     "space.analysis": "Analyses et pochettes",
     "space.databases": "Bases Rekordbox",
