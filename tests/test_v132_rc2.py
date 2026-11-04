@@ -303,3 +303,45 @@ def test_no_scrolling_waveform_above_the_player(demo):  # noqa: F811
     from djsync.i18n import en
 
     assert "settings.scrolling_wave" not in en.STRINGS
+
+
+# ------------------------------------------------------------------ C76 : fichiers introuvables écartés
+def test_analysis_page_leaves_out_missing_files(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.analysis_dialog import AnalysisDialog
+
+    lib = demo.views["library"]
+    demo.show_view("library")
+    assert pump(demo, 4, lambda: lib.table.total > 2)
+    tracks = [r.data for r in lib.table.all_rows() if r.data is not None][:3]
+    gone = demo.ctrl.library.absolute_path(tracks[0])
+    gone.unlink()
+    started = []
+    monkeypatch.setattr(demo.ctrl, "analyze", lambda ids, force=False: started.append(list(ids)))
+    d = AnalysisDialog(demo, demo.ctrl, tracks)
+    d.force.setChecked(True)
+    assert pump(demo, 4, lambda: tracks[0].content_id in d._missing)
+    assert tracks[0].content_id not in [x.content_id for x in d._todo()]
+    assert "introuvable" in d.what.text() or "not found" in d.what.text()
+    d._start()
+    assert started and tracks[0].content_id not in started[0]
+    assert d._eta(0)                                       # temps restant affiché pendant l'analyse
+    d.close()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ B40, B41 : messages clairs
+def test_absent_drive_and_unreadable_file_messages():
+    from pathlib import PureWindowsPath
+
+    from djsync.i18n import set_language, t
+    from djsync.ui.ctrl.diagnostic import volume_label
+    from djsync.ui.player_bar import play_error_text
+
+    assert volume_label(PureWindowsPath("E:\\")) == "E:"
+    set_language("fr")
+    try:
+        assert "E:" in t("missing.offline", drive="E:") and "clé" in t("missing.offline", drive="E:")
+        text = play_error_text("Cannot play: ('failed to init decoder', -1)", type("M", (), {"path": "/x/a.m4a"})())
+        assert text.startswith("Impossible de lire « a.m4a »") and "failed to init decoder" in text
+    finally:
+        set_language("en")

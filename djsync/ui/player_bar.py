@@ -28,6 +28,19 @@ SCROLL_H = 46
 SCROLL_SECONDS = 8.0          # largeur de la forme d'onde défilante (± 4 s autour de la tête de lecture)
 
 
+def play_error_text(raw: str, meta: Any = None) -> str:
+    """1.3.2-rc.2 (B41) : « Cannot play: ('failed to init decoder', -1) » -> message clair, la cause brute
+    entre parenthèses (utile dans un rapport). Le fichier existe (sinon : message « introuvable », B20)
+    mais ne peut pas être décodé : abîmé, incomplet ou format non lu."""
+    name = ""
+    try:
+        name = Path(getattr(meta, "path", "") or "").name
+    except Exception:  # noqa: BLE001
+        name = ""
+    detail = raw.removeprefix("Cannot play: ").strip()
+    return t("player.unreadable", name=name or "?") + (f"  ({detail})" if detail else "")
+
+
 class ScrollingWave(QWidget):
     """1.2.3 (retour testeur) : forme d'onde détaillée qui défile sous une tête de lecture FIXE au centre,
     comme dans Rekordbox, avec les temps et les débuts de mesure. Sons analysés seulement."""
@@ -439,7 +452,7 @@ class PlayerBar(QWidget):
             meta, duration = payload if isinstance(payload, tuple) else (payload, self.player.duration)
             self._show_meta(meta, float(duration or 0))
         elif kind == "error":
-            self.ctrl.message("error", str(payload))
+            self.ctrl.message("error", play_error_text(str(payload), getattr(self.player, "meta", None)))
         elif kind == "ended":
             self._reset_progress()
 
