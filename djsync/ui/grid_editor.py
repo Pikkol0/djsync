@@ -266,8 +266,10 @@ class GridEditor(QWidget):
             sc.activated.connect(lambda f=fn: f() if not self.bpm_entry.hasFocus() else None)
 
         self._timer = QTimer(self)
+        self._timer.setTimerType(Qt.PreciseTimer)           # 1.3.2-rc.3 (B50) : minuteur précis sous Windows
         self._timer.timeout.connect(self._tick)
         self._timer.start(60)
+        self._play_icon_state: Any = None
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
@@ -879,13 +881,20 @@ class GridEditor(QWidget):
         return cur
 
     def _tick(self) -> None:
+        import time
+
+        t0 = time.perf_counter()
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
         interval = self._frame_interval() if playing else 60    # 1.3.2 (C52) : cadence de l'écran, adaptée
-        self.exit_btn.setVisible(self.active_loop is not None and playing)
+        show_exit = self.active_loop is not None and playing
+        if self.exit_btn.isVisibleTo(self) != show_exit:
+            self.exit_btn.setVisible(show_exit)
         if self._timer.interval() != interval:
             self._timer.setInterval(interval)
-        self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
+        if self._play_icon_state != playing:                # 1.3.2-rc.3 (B50) : l'icône (dessin SVG) était
+            self._play_icon_state = playing                 # refaite à chaque image (60 fois par seconde)
+            self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
             # 1.3.2 (C52, testeur Mac) : la position affichée ne recule jamais d'un petit pas pendant la lecture
             self.cursor_ms = self._mono(player.position() * 1000.0 + self._lead_ms)
@@ -912,7 +921,8 @@ class GridEditor(QWidget):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
             self.overview.update()
-            self._meter.frame(getattr(self.canvas, "paint_ms", 0.0))
+            self._meter.frame(getattr(self.canvas, "paint_ms", 0.0), getattr(self.overview, "paint_ms", 0.0),
+                              (time.perf_counter() - t0) * 1000.0)
         else:
             self._mono.reset()
             self._meter.stop()

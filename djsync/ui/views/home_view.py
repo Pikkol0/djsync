@@ -306,7 +306,7 @@ class HomeView(View):
         self.ctrl.connect(drive)
 
     def _open_diagnostic(self) -> None:
-        self.window().open_diagnostic("missing")        # 1.3.1 (C41/C43) : Diagnostic en onglets
+        self.window().open_diagnostic()                 # 1.3.2-rc.3 (C127) : rouvre sur le dernier onglet
 
     def _analysis(self) -> None:
         self.ctrl._emit("show_unanalysed")

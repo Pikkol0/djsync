@@ -38,7 +38,9 @@ _AHEAD = RATE * 2                          # trames décodées d'avance
 # Windows, retour en arrière ou saut de cue entendus tard). Hors macOS : 2 paquets de 40 ms (~80 ms) ;
 # macOS garde 200 ms (testé sans souci). La position n'utilise plus ce chiffre : le retard réel est mesuré.
 BUFFER_MS = 200 if sys.platform == "darwin" else 40
-PERIODS = 0 if sys.platform == "darwin" else 2      # 0 = valeur de miniaudio (3)
+# 1.3.2-rc.3 (B50) : 3 paquets de 40 ms (~120 ms) hors macOS : un à-coup de l'interface de 50 à 100 ms
+# (« Audio late » dans les journaux de l'auteur) ne s'entend plus ; la position reste mesurée.
+PERIODS = 0 if sys.platform == "darwin" else 3      # 0 = valeur de miniaudio (3)
 UR_RESTART_S = 1.0          # 1.3.0-rc.9 (B33) : au-delà, un appel de la carte son est un redémarrage, pas un retard
 _NATIVE = {".mp3", ".wav", ".flac", ".ogg"}  # décodés par miniaudio
 

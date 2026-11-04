@@ -113,6 +113,7 @@ class Settings:
     settings_version: int = 0          # migrations des réglages enregistrés
     # ---- 1.3.2
     welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
+    diag_tab: str = "missing"          # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
 
     @classmethod
@@ -174,7 +175,8 @@ class Settings:
     # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
-                   "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut")
+                   "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut",
+                   "diag_tab")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 

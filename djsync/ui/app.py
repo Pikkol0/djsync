@@ -212,7 +212,8 @@ class DJSyncApp(QMainWindow):
             w, h = min(DEFAULT_W, max_w), min(DEFAULT_H, max_h)
             self.resize(w, h)
             self.move(area.x() + (area.width() - w) // 2, area.y() + max(0, (area.height() - h) // 3))
-        self._start_maximized = bool(settings.maximized)
+        # 1.3.2-rc.3 (C123) : tout premier lancement (aucune taille enregistrée) : fenêtre agrandie
+        self._start_maximized = bool(settings.maximized) or not settings.geometry
 
     def reveal(self) -> None:
         """Affiche la fenêtre (agrandie si elle l'était) puis ferme l'écran de démarrage."""
@@ -660,12 +661,21 @@ class DJSyncApp(QMainWindow):
         self.show_view(getattr(self, "_uni_return", None) or "library")
 
     # ------------------------------------------------- 1.3.1 (C41/C43) : Diagnostic en onglets
-    def open_diagnostic(self, tab: str = "missing", from_page: Optional[QWidget] = None) -> None:
+    def open_diagnostic(self, tab: Optional[str] = None, from_page: Optional[QWidget] = None) -> None:
         """Ouvre un onglet du Diagnostic. `from_page` : l'onglet quitté (fermé sans revenir à la vue
-        d'origine ; le bouton Retour du nouvel onglet y ramène)."""
+        d'origine ; le bouton Retour du nouvel onglet y ramène). 1.3.2-rc.3 (C127) : sans onglet précis
+        (bouton « Diagnostic »), il rouvre sur le dernier utilisé."""
         if not self.ctrl.has_library:
             self.ctrl.message("error", t("msg.no_drive"))
             return
+        s = self.ctrl.settings
+        if tab is None:
+            tab = getattr(s, "diag_tab", "") or "missing"
+        if tab not in ("missing", "dup", "quality", "uniformize"):
+            tab = "missing"
+        if getattr(s, "diag_tab", None) != tab:
+            s.diag_tab = tab
+            self.ctrl.save_settings_quiet()
 
         def go() -> None:
             if tab == "uniformize":

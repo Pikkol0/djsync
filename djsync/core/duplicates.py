@@ -247,14 +247,17 @@ def best_keeper(group: List[Any]) -> Any:
 
 
 # ------------------------------------------------------------------ 1.3.0 (B02) : par le son
-def refine_by_audio(groups: List[List[Any]], fingerprint_of: Any, progress: Any = None
-                    ) -> Tuple[List[List[Any]], Dict[int, Any]]:
+def refine_by_audio(groups: List[List[Any]], fingerprint_of: Any, progress: Any = None,
+                    reasons: Optional[Dict[int, str]] = None) -> Tuple[List[List[Any]], Dict[int, Any]]:
     """Le titre propose des candidats, l'empreinte audio décide. Chaque membre est comparé au son de
     référence du groupe (plus de regroupement en chaîne) : « same » ou « variant » restent dans le
     groupe, « different » en sort (les sons sortis sont comparés entre eux une fois de plus).
 
     `fingerprint_of(track)` -> empreinte ou None (fichier illisible : le son reste, sans verdict).
     Renvoie (groupes, {content_id: Match relatif à la référence de son groupe ; None = non comparé}).
+    1.3.2-rc.3 (B41) : la référence est choisie parmi les versions LISIBLES : un fichier introuvable ou
+    illisible ne fait plus abandonner la comparaison des autres. `reasons` reçoit, pour chaque son non
+    comparé, « unreadable » (son fichier n'a pas pu être lu) ou « alone » (seule version lisible).
     """
     from ..analysis.fingerprint import compare, is_usable
 
@@ -275,13 +278,23 @@ def refine_by_audio(groups: List[List[Any]], fingerprint_of: Any, progress: Any 
     out: List[List[Any]] = []
     matches: Dict[int, Any] = {}
 
+    def why(cid: int, reason: str) -> None:
+        if reasons is not None:
+            reasons[cid] = reason
+
     def split(group: List[Any], depth: int) -> None:
-        ref = best_keeper(group)
-        ref_fp = fp(ref)
-        if ref_fp is None:
+        readable = [x for x in group if fp(x) is not None]
+        for x in group:
+            if fp(x) is None:
+                why(int(x.content_id), "unreadable")
+        if len(readable) < 2:                          # rien à comparer : le groupe reste, sans verdict
             out.append(group)
             matches.update({int(x.content_id): None for x in group})
+            for x in readable:
+                why(int(x.content_id), "alone")
             return
+        ref = best_keeper(readable)
+        ref_fp = fp(ref)
         kept, rest = [ref], []
         found: Dict[int, Any] = {}
         for x in group:

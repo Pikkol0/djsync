@@ -406,6 +406,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
+        from ..wheel_guard import guard_children
+
+        guard_children(self.area)              # 1.3.2-rc.3 (B51) : la molette fait défiler, pas les réglages
         self.page.addStretch(1)
         self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
@@ -895,6 +898,9 @@ class SettingsView(View):
         return w
 
     def on_show(self) -> None:
+        from ..wheel_guard import guard_children
+
+        guard_children(self.area)                           # B51 : champs ajoutés depuis la construction
         self.ctrl.refresh_drives()
         if not self._versions_loaded:                       # 1.3.2-rc.2 (C96) : une fois, à la première visite
             QTimer.singleShot(0, self.load_versions)

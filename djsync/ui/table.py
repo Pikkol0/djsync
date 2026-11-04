@@ -160,6 +160,8 @@ class _Model(QAbstractTableModel):
                 return _dot(hexa, theme.px(10))
             if col.key == "title" and "playing" in row.tags:
                 return qicon("volume", 14, theme.ACCENT)
+            if col.key == "title" and "missing" in row.tags:     # 1.3.2-rc.3 (C124) : fichier introuvable
+                return qicon("warn", 14, theme.ERR)
             if col.key == "title" and self.table.show_covers:
                 return self.table._cover_for(row)
             return None
@@ -171,11 +173,13 @@ class _Model(QAbstractTableModel):
             if level:
                 return QColor(theme.LEVELS.get(level, theme.DIM))
             for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
-                               ("ok", theme.ACCENT), ("dim", theme.DIM)):
+                               ("ok", theme.ACCENT), ("dim", theme.DIM), ("missing", theme.DIM)):
                 if tag in row.tags:
                     return QColor(color)
         if role == Qt.ToolTipRole and col.key in ICON_COLUMNS and row.values.get(col.key):
             return t(ICON_COLUMNS[col.key][1])
+        if role == Qt.ToolTipRole and row.values.get("_tip"):        # 1.3.2-rc.3 (C124) : bulle de ligne
+            return row.values["_tip"]
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:

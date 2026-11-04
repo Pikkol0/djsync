@@ -65,6 +65,45 @@ def volume_root(path: Path) -> Optional[Path]:
     return None
 
 
+def missing_reason(lib: Any, track: LibraryTrack) -> Optional[str]:
+    """1.3.2-rc.3 (B49, C124) : None si le fichier du son existe ; sinon « E: » (disque absent) ou ""
+    (fichier introuvable). Un chemin illisible est laissé à l'analyse (None)."""
+    try:
+        path = Path(lib.absolute_path(track))
+        if path.is_file():
+            return None
+        vol = volume_root(path)
+        return volume_label(vol) if vol is not None and not vol.exists() else ""
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def missing_map(lib: Any, tracks: Sequence[LibraryTrack]) -> Dict[int, str]:
+    """{content_id: disque absent ou ""} des sons dont le fichier est introuvable. Un disque absent
+    n'est testé qu'une fois (rapide même pour des milliers de sons)."""
+    out: Dict[int, str] = {}
+    absent: Dict[Path, bool] = {}
+    for x in tracks:
+        try:
+            path = Path(lib.absolute_path(x))
+        except Exception:  # noqa: BLE001
+            continue
+        vol = volume_root(path)
+        if vol is not None:
+            gone = absent.get(vol)
+            if gone is None:
+                gone = absent[vol] = not vol.exists()
+            if gone:
+                out[x.content_id] = volume_label(vol)
+                continue
+        try:
+            if not path.is_file():
+                out[x.content_id] = ""
+        except OSError:
+            out[x.content_id] = ""
+    return out
+
+
 def index_files(roots: Sequence[Path], names: set, limit: int = 200_000) -> dict:
     """{nom (casefold): chemin} des fichiers portant l'un des `names`, sous `roots` (parcours borné)."""
     import os

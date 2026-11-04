@@ -121,6 +121,7 @@ class DownloadsView(View):
         controller.on("library", lambda: self.reload())
         controller.on("drive", lambda: self.reload())
         controller.on("analysis", self._analysis_changed)
+        controller.on("missing_files", self._analysis_changed)          # 1.3.2-rc.3 (B49, C124)
         # 1.2.1 (C21) : avancement estimé du son en cours d'analyse (durée moyenne des précédents)
         self._an_cur: Any = None
         self._an_started = 0.0
@@ -227,6 +228,7 @@ class DownloadsView(View):
             self._loaded_for = key
             self._tracks = {str(x.content_id): x for x in data["tracks"]}
             self._fill()
+            self.ctrl.check_missing_files(data["tracks"])           # 1.3.2-rc.3 (B49, C124)
 
         self.ctrl.load_library(ok)
 
@@ -239,6 +241,10 @@ class DownloadsView(View):
                 return t("an.queued"), ("dim",)
             return t("an.running"), ("playing",)
         result = self.ctrl.analysis_results.get(cid)
+        missing = self.ctrl.missing_files.get(cid) if not x.is_analysed else None
+        if result == "missing" or missing is not None:     # 1.3.2-rc.3 (B49) : introuvable, pas en échec
+            drive = missing if missing is not None else self.ctrl.analysis.missing.get(cid, "")
+            return (t("analysis.state_offline", drive=drive) if drive else t("analysis.state_missing")), ("dup",)
         if result == "failed":
             return t("an.failed"), ("err",)
         if result == "ok" and not x.is_analysed:
@@ -318,7 +324,9 @@ class DownloadsView(View):
         return [r.data for r in self.an_table.selected_rows() if r.data is not None]
 
     def _unanalysed(self) -> List[LibraryTrack]:
-        return [x for x in self._tracks.values() if not x.is_analysed]
+        """Sons à analyser ; 1.3.2-rc.3 (B49) : sans ceux dont le fichier est introuvable."""
+        missing = self.ctrl.missing_files
+        return [x for x in self._tracks.values() if not x.is_analysed and x.content_id not in missing]
 
     def _refresh_analysis(self) -> None:
         q = self.ctrl.analysis

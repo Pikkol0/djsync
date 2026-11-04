@@ -469,8 +469,16 @@ class DuplicatesDialog(BaseDialog):
         if m == "reference":
             return chip(t("dup.audio_reference"))
         if m is None:
-            c = chip(t("dup.audio_unknown"))
-            c.setToolTip(t("dup.audio_unknown_tip"))
+            reason = (getattr(self.ctrl, "duplicate_reasons", {}) or {}).get(x.content_id, "")
+            if reason == "alone":                                 # 1.3.2-rc.3 (B41) : la raison, en clair
+                c = chip(t("dup.audio_alone"))
+                c.setToolTip(t("dup.audio_alone_tip"))
+            elif reason == "unreadable":
+                c = chip(t("dup.audio_unreadable"), "chip_warn")
+                c.setToolTip(t("dup.audio_unreadable_tip"))
+            else:
+                c = chip(t("dup.audio_unknown"))
+                c.setToolTip(t("dup.audio_unknown_tip"))
             return c
         from . import levels
 

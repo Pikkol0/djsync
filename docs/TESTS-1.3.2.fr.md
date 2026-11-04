@@ -8,12 +8,32 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
-1.3.2-rc.2 : correctifs des tests KO de la rc.1 et des signalements de testeurs (section en tête).
+1.3.2-rc.3 puis 1.3.2-rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
 
+## 1.3.2-rc.3 : correctifs après les tests de la rc.2 (04/11)
+Refont le test KO de la rc.2 (colonne « Refait ») et couvrent les signalements du 04/11. Les tests de la rc.2 encore à faire (ANA-3, ANA-4, MAJ-4, DOU-11/12/14, Mac) restent valables.
+
+**Sous Windows et sur Mac** (le testeur Mac fait la partie Mac) : ANA-5, BIB-7, BIB-8, DOU-17, GRI-3, PAR-6, DIA-2, DIA-3, DEM-13, DEM-14.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| ANA-5 | — | (**B49**) Bibliothèque de l'ordinateur avec des sons sur une clé débranchée (E:) : Téléchargements & analyse ▸ **Tout analyser** ; puis Bibliothèque ▸ bouton **Analyser** (sans sélection) ; puis une sélection qui contient un son introuvable. | « Tout analyser (n) » ne compte pas les sons introuvables. Pendant l'analyse, ces sons sont marqués « fichier sur E:, pas branché » (orange), jamais « Échec ». Message de fin : « … 0 en échec. n fichiers introuvables (écartés) : n sur E: (pas branché). » avec **Voir dans le Diagnostic**. |
+| BIB-7 | — | (**C124**) Même bibliothèque ▸ Tous les titres. | Les sons introuvables ont une petite icône ⚠ rouge devant le titre et le titre grisé ; au survol, la bulle dit pourquoi (« Fichier sur E:, pas branché… » ou « Fichier introuvable… »). « Non analysés » ne les compte plus. |
+| BIB-8 | — | (**C124**) Arbre de la Bibliothèque ▸ **Introuvables (n)** ; clic droit dessus. | L'entrée (icône ⚠, rouge quand n > 0) liste ces sons ; en haut, le bouton **Voir dans le Diagnostic** ouvre Fichiers introuvables ; le clic droit propose la même chose. Sur une clé sans fichier manquant : « Tous les fichiers sont là ». |
+| DOU-17 | DOU-15 | (**B41**) Doublons ▸ groupe « Chargé » (ou un groupe où la meilleure version est introuvable). | Les versions dont le fichier existe sont **comparées entre elles** (« Référence », « Même son » ou « Variante ») ; « file not found » sur les introuvables ; un fichier présent mais illisible : pastille orange « Illisible » ; s'il ne reste qu'une version lisible : « Non comparé : seule version lisible » (bulle explicative). |
+| GRI-3 | — | (**B50**) Grille et cues : lire un son 1 min, juste après avoir lancé DJSync, puis avec Doublons ouvert ; puis Retours ▸ Envoyer mes logs. | Curseur fluide, plus de petits freezes réguliers ni de craquements. Journal : « Playback frames (beat grid): … fps, … ms per drawing, … ms other drawings, … ms work per frame, worst gap … ms, n gap(s) over 50 ms » : à joindre (il dira ce qui bloque si des freezes restent). |
+| PAR-6 | — | (**B51**) Paramètres : faire défiler la page à la molette ou au pavé tactile en passant sur les listes (langue, couleur…) et les compteurs. | La page défile, aucune valeur ne change. Après un clic dans une liste, la molette change sa valeur comme avant. |
+| DIA-2 | — | (**C127**) Accueil ▸ **Diagnostic** ▸ onglet Doublons ▸ revenir à l'Accueil ▸ **Diagnostic**. | Le Diagnostic rouvre sur **Doublons** (le dernier onglet), aussi après avoir relancé DJSync. Un lien précis (Accueil ▸ Doublons, « Voir dans le Diagnostic ») ouvre toujours son onglet. |
+| DIA-3 | — | (**C126**) Diagnostic ▸ Fichiers introuvables (bibliothèque de l'ordinateur, clé E: débranchée) ▸ **Cocher ceux de E:** ▸ **Retirer les n cochés**. | Chaque son a une case ; « Tout cocher » et « Cocher ceux de E: » cochent ; le bouton dit le nombre. La confirmation prévient que rebrancher E: ne les fera pas revenir et que les fichiers ne sont pas touchés ; après, ils ne sont plus dans la liste ni dans la Bibliothèque. |
+| DEM-13 | — | (**C123**) Tout premier lancement (dossier neuf sans `.djsync`). | La fenêtre s'ouvre **agrandie** (barre des tâches visible). Ensuite, DJSync rouvre comme on l'a laissée. |
+| DEM-14 | — | (**C128**) Premier lancement ▸ étape Bienvenue, en français puis en anglais, à 100 % puis 200 %. | Titre en grand, une phrase d'accroche plus grande que le texte, trois points avec une icône chacun ; remerciements en petit, **centrés**. Aucun texte coupé. |
+
 ## 1.3.2-rc.2 : correctifs après les tests de la rc.1 (02/11)
 Refont les tests KO de la rc.1 (colonne « Refait ») et couvrent les signalements de testeurs du 02/11.
+
+**Sous Windows et sur Mac** (le testeur Mac fait la partie Mac) : DEM-11, PAR-3, PAR-4, PAR-5, BIB-4, BIB-5, BIB-6, REC-1, ANA-3 (clé débranchée = `/Volumes/…`), DIA-1, DOU-15, DOU-16, LEC-5, MAJ-5. Windows seulement : DEM-10.
 
 | # | Refait | Étapes | Attendu |
 |---|---|---|---|
