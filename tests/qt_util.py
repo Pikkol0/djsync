@@ -43,6 +43,7 @@ def make_window(settings, monkeypatch, size=(1280, 800)):
     window = DJSyncApp(settings)
     window.errors = errors
     window.resize(*size)
+    window._start_maximized = bool(settings.maximized)   # 1.3.2-rc.3 (C123) : taille fixe dans les tests
     window.reveal()
     return window
 

@@ -165,3 +165,89 @@ def test_player_reserve_absorbs_a_100ms_hiccup():
 
     if sys.platform != "darwin":
         assert P.BUFFER_MS * (P.PERIODS or 3) == 120
+
+
+# ------------------------------------------------------------------ B51 : molette dans les Paramètres
+def test_wheel_scrolls_the_settings_instead_of_changing_a_value(demo):  # noqa: F811
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QApplication, QComboBox
+
+    view = demo.views["settings"]
+    demo.show_view("settings")
+    pump(demo, 0.5)
+    combos = [c for c in view.area.findChildren(QComboBox) if c.isVisibleTo(view) and c.count() > 1]
+    assert combos
+    combo = combos[0]
+    assert combo.property("_wheel_guard")
+    before = combo.currentIndex()
+    bar = view.area.verticalScrollBar()
+    bar.setValue(0)
+    ev = QWheelEvent(QPointF(5, 5), QPointF(combo.mapToGlobal(QPoint(5, 5))), QPoint(0, 0), QPoint(0, -120),
+                     Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+    QApplication.sendEvent(combo, ev)
+    pump(demo, 0.2)
+    assert combo.currentIndex() == before                  # la valeur ne change pas
+    assert bar.value() > 0 or bar.maximum() == 0           # la page a défilé
+    combo.setFocus()
+    pump(demo, 0.1)
+    if combo.hasFocus():                                   # cliqué : la molette change la valeur, comme avant
+        QApplication.sendEvent(combo, QWheelEvent(QPointF(5, 5), QPointF(combo.mapToGlobal(QPoint(5, 5))),
+                                                  QPoint(0, 0), QPoint(0, -120), Qt.NoButton, Qt.NoModifier,
+                                                  Qt.NoScrollPhase, False))
+        assert combo.currentIndex() != before
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C123 : premier lancement agrandi
+def test_first_launch_opens_maximized(monkeypatch, tmp_path):
+    from djsync.settings import Settings
+    from djsync.ui.app import DJSyncApp
+
+    monkeypatch.setenv("DJSYNC_HOME", str(tmp_path / "home"))
+    first = DJSyncApp(Settings())
+    assert first._start_maximized
+    first.deleteLater()
+    s = Settings()
+    s.geometry, s.maximized = "AdnQywADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", False
+    again = DJSyncApp(s)
+    assert not again._start_maximized                     # ensuite : comme on l'a laissée
+    again.deleteLater()
+
+
+# ------------------------------------------------------------------ C127 : Diagnostic sur le dernier onglet
+def test_diagnostic_reopens_on_the_last_tab(demo, monkeypatch):  # noqa: F811
+    opened = []
+    import djsync.ui.duplicates_dialog as dd
+    import djsync.ui.missing_dialog as md
+
+    monkeypatch.setattr(dd, "DuplicatesDialog", lambda *a: opened.append("dup"))
+    monkeypatch.setattr(md, "MissingFilesDialog", lambda *a: opened.append("missing"))
+    monkeypatch.setattr(demo, "reopen_dialog_page", lambda cls: None)
+    demo.open_diagnostic()
+    assert opened[-1] == "missing"
+    demo.open_diagnostic("dup")
+    assert demo.ctrl.settings.diag_tab == "dup"
+    demo.open_diagnostic()                                 # bouton « Diagnostic » : là où on était
+    assert opened[-1] == "dup"
+    demo.open_diagnostic("missing")                        # un lien précis garde son onglet
+    assert opened[-1] == "missing"
+
+
+# ------------------------------------------------------------------ C128 : accueil plus lisible
+def test_welcome_has_a_size_hierarchy_and_centred_thanks(demo):  # noqa: F811
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    from djsync.ui.welcome import WelcomeDialog
+
+    d = WelcomeDialog(demo, demo.ctrl)
+    d._step = 2
+    d._build()
+    roles = {lbl.property("role") for lbl in d.findChildren(QLabel)}
+    assert {"title", "h2", "faint"} <= roles
+    assert d.thanks_lbl.alignment() & Qt.AlignHCenter
+    texts = " ".join(lbl.text() for lbl in d.findChildren(QLabel))
+    assert "Rekordbox" in texts and "Tazyh" in texts
+    d.close()
+    assert not demo.errors

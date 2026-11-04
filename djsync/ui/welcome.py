@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QLocale
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import QCheckBox
 
 from ..i18n import get_language, set_language, t
 from . import theme
 from .dialogs import BaseDialog
-from .widgets import button, hbox, label
+from .widgets import button, hbox, icon_label, label
 
 REPO = "https://github.com/Pikkol0/djsync"
 
@@ -51,7 +51,7 @@ class WelcomeDialog(BaseDialog):
             elif item.layout() is not None:
                 _drop_layout(item.layout())
 
-    def _logo_row(self, title: str) -> None:
+    def _logo_row(self, title: str, role: str = "h2") -> None:
         from PySide6.QtWidgets import QLabel
 
         from .logo import logo_pixmap
@@ -60,7 +60,7 @@ class WelcomeDialog(BaseDialog):
         logo = QLabel()
         logo.setPixmap(logo_pixmap(theme.px(40), theme.ACCENT))
         row.addWidget(logo)
-        row.addWidget(label(title, "h2"), 1)
+        row.addWidget(label(title, role), 1)
         self.body.addLayout(row)
 
     def _build(self) -> None:
@@ -90,9 +90,17 @@ class WelcomeDialog(BaseDialog):
             return
         from ..credits import thanks_text
 
-        self._logo_row(t("welcome.title"))
-        for line in t("welcome.text").split("\n"):
-            self.body.addWidget(label(line, wrap=True))
+        # 1.3.2-rc.3 (C128) : hiérarchie de tailles (titre, accroche, trois points avec une icône chacun,
+        # remerciements en petit et centrés) pour que le texte soit lu et pas survolé
+        self._logo_row(t("welcome.title"), role="title")
+        lead = label(t("welcome.lead"), "h2", wrap=True)
+        self.body.addWidget(lead)
+        for icon, key in (("search", "welcome.point_find"), ("wave", "welcome.point_analyse"),
+                          ("usb", "welcome.point_free")):
+            line = hbox(spacing=theme.px(10))
+            line.addWidget(icon_label(icon, 18, theme.ACCENT), 0, Qt.AlignTop)
+            line.addWidget(label(t(key), wrap=True), 1)
+            self.body.addLayout(line)
         star = button("⭐  " + t("welcome.star"), lambda: self.ctrl._emit("open_url", REPO), kind="primary")
         star.setMinimumHeight(theme.px(48))
         self.star_btn = star
@@ -105,7 +113,10 @@ class WelcomeDialog(BaseDialog):
         self.shortcut.setChecked(shortcut.target() is not None)
         self.body.addWidget(self.shortcut)
         self.body.addStretch(1)
-        self.body.addWidget(label("🙏 " + thanks_text(get_language()), "faint", wrap=True))
+        thanks = label("🙏 " + thanks_text(get_language()), "faint", wrap=True)
+        thanks.setAlignment(Qt.AlignCenter)                   # 1.3.2-rc.3 (C128, DEM-12) : centré
+        self.thanks_lbl = thanks
+        self.body.addWidget(thanks)
         foot = hbox(spacing=theme.px(8))
         foot.addWidget(button(t("welcome.first_steps"), self._first_steps, kind="flat", icon="help"))
         foot.addStretch(1)
