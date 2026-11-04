@@ -275,3 +275,31 @@ def test_reset_message_and_undo_after_rebuild(demo, monkeypatch):  # noqa: F811
     assert pump(demo, 3, lambda: demo.toast_action.isVisibleTo(demo))
     assert demo.toast.isVisibleTo(demo) and demo.toast.geometry().intersects(demo.stack.rect())
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ B47 : Retour ne ferme pas Doublons
+def test_back_keeps_the_duplicates_page(demo):  # noqa: F811
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    demo.show_view("library")
+    page = DuplicatesDialog(demo, demo.ctrl)
+    assert demo.stack.currentWidget() is page
+    page.go_back()
+    assert demo.stack.currentWidget() is demo.views["library"]
+    assert page.winfo_exists() and demo.stack.indexOf(page) >= 0        # toujours ouverte, en arrière-plan
+    assert demo.reopen_dialog_page(DuplicatesDialog) is page
+    page.close()                                                          # « Fermer » la ferme vraiment
+    assert not page.winfo_exists()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C85 : pas de forme d'onde défilante
+def test_no_scrolling_waveform_above_the_player(demo):  # noqa: F811
+    bar = demo.player_bar
+    bar._use_scroll(None)
+    bar._grid_page(None)
+    assert bar.scroll_wave.isHidden()
+    assert not hasattr(demo.views["settings"], "scroll_wave_var")
+    from djsync.i18n import en
+
+    assert "settings.scrolling_wave" not in en.STRINGS

@@ -30,6 +30,7 @@ ALT = 100          # 1.3.1 (C42) : boutons des versions à retélécharger (100,
 class DuplicatesDialog(BaseDialog):
     as_page = True                    # 1.2.3 : page de la fenêtre principale
     modal = False
+    back_keeps_page = True            # 1.3.2-rc.2 (B47) : Retour garde la vérification en cours
 
     def __init__(self, parent: Any, controller: Any, focus_ids: Optional[List[int]] = None, full: bool = False,
                  keep_id: Optional[int] = None) -> None:

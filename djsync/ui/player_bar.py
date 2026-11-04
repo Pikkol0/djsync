@@ -535,15 +535,9 @@ class PlayerBar(QWidget):
 
         self.ctrl.load_overview(track, show)
 
-        def show_detail(data: Any) -> None:
-            if token != self._wave_token or not self.winfo_exists():
-                return
-            self._use_scroll(data)
-
-        if getattr(self.ctrl.settings, "scrolling_wave", True):
-            self.ctrl.load_detail(track, show_detail)
-        else:
-            self._use_scroll(None)
+        # 1.3.2-rc.2 (C85) : plus de forme d'onde défilante au-dessus du lecteur ; elle n'existe que dans
+        # la page Grille et cues (demande du testeur Mac et de l'auteur).
+        self._use_scroll(None)
 
     def _use_wave(self, on: bool) -> None:
         self.wave.setVisible(on)
@@ -552,10 +546,7 @@ class PlayerBar(QWidget):
     def _grid_page(self, editor: Any) -> None:
         """La page Grille et cues s'ouvre (editor) ou se ferme (None)."""
         self._grid_editor = editor
-        if editor is not None:
-            self.scroll_wave.hide()
-        else:
-            self.scroll_wave.setVisible(self.scroll_wave.has_data and self.player.state != STOPPED)
+        self.scroll_wave.hide()                            # C85 : jamais au-dessus du lecteur
 
     def _use_scroll(self, data: Any) -> None:
         detail, beats = data if data else ([], [])
