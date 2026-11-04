@@ -38,6 +38,31 @@ COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par s
 VIEW_CHOICES = (2, 4, 8, 16, 32)
 # Couleurs de la forme d'onde 3 bandes de Rekordbox (basses, médiums, aigus), quel que soit le thème
 BAND_COLORS = ("#1f6fe5", "#f0982c", "#f6ead2")
+
+
+def band_image(wave: Any, start_ms: float, px_per_ms: float, w: int, h: int, mid: float, scale: float) -> Any:
+    """1.3.2-rc.6 (B50) : image (QImage, w × h pixels) de la forme d'onde 3 bandes, calculée en bloc.
+    Chaque colonne = maximum des points couverts ; bandes empilées basses, médiums puis aigus devant."""
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    if w <= 0 or h <= 0:
+        return None
+    n = wave.low.size
+    xs = np.arange(w + 1, dtype=np.float64)
+    pos = (start_ms + xs / px_per_ms) / 1000.0 * wave.rate
+    a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
+    b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
+    inside = (pos[:-1] < n) & (pos[1:] > 0)
+    img = np.zeros((h, w), dtype=np.uint32)              # ARGB32 prémultiplié (opaque ou transparent)
+    dy = np.abs(np.arange(h, dtype=np.float32) + 0.5 - np.float32(mid))[:, None]
+    for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
+        vals = np.maximum.reduceat(np.append(band, 0), np.append(a, b[-1]))[:-1]
+        vals = np.where(inside, vals, 0).astype(np.float32) * np.float32(scale)
+        argb = np.uint32(0xFF000000 | int(color[1:], 16))
+        img[dy <= vals[None, :]] = argb
+    q = QImage(img.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied)
+    return q.copy()                                      # l'image garde ses propres données
 SCROLL_STEPS = 1000
 
 
@@ -650,26 +675,19 @@ class GridEditor(QWidget):
 
     def _paint_bands(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """Forme d'onde 3 bandes façon Rekordbox : basses (bleu) derrière, médiums (orange), aigus
-        (blanc) devant, symétrique ; chaque pixel = maximum des points qu'il couvre."""
-        import numpy as np
+        (blanc) devant, symétrique ; chaque pixel = maximum des points qu'il couvre.
 
-        wave = self.wave
-        n = wave.low.size
-        xs = np.arange(w + 1, dtype=np.float64)
-        pos = (self.start_ms + xs / self.px_per_ms) / 1000.0 * wave.rate
-        a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
-        b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
-        inside = (pos[:-1] < n) & (pos[1:] > 0)
-        scale = h * 0.27 / 127.0                 # amplitude réduite : temps plus lisibles
-        p.setPen(Qt.NoPen)
-        for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
-            # maximum sur [a_i, a_i+1) (bornes croissantes) ; un 0 ajouté en fin sert de borne finale
-            vals = np.maximum.reduceat(np.append(band, 0), np.append(a, b[-1]))[:-1]
-            vals = np.where(inside, vals, 0).astype(np.float64) * scale
-            top = [QPointF(float(x) + 0.5, mid - v) for x, v in enumerate(vals)]
-            bottom = [QPointF(float(x) + 0.5, mid + v) for x, v in reversed(list(enumerate(vals)))]
-            p.setBrush(QColor(color))
-            p.drawPolygon(QPolygonF(top + bottom))
+        1.3.2-rc.6 (B50) : dessinée en bloc dans une image (numpy), en pixels réels de l'écran. Avant, un
+        point Qt était créé en Python par pixel et par bande, puis un grand polygone lissé : 300 à 700 ms à
+        chaque renouvellement de l'image en cache (toutes les ~8 s), qui figeaient l'image et le son."""
+        from PySide6.QtCore import QRectF
+
+        dev = p.device()
+        dpr = float(dev.devicePixelRatioF()) if dev is not None and hasattr(dev, "devicePixelRatioF") else 1.0
+        img = band_image(self.wave, self.start_ms, self.px_per_ms * dpr, int(round(w * dpr)),
+                         int(round(h * dpr)), mid * dpr, h * dpr * 0.27 / 127.0)
+        if img is not None:
+            p.drawImage(QRectF(0, 0, w, h), img)
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
         p.drawLine(QPointF(0, mid), QPointF(w, mid))

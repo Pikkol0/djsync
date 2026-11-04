@@ -79,7 +79,7 @@ class StallWatch:
             os.lseek(fd, 0, os.SEEK_SET)
         except (OSError, ValueError):
             return
-        if text.strip():
+        if text.strip() and self.reports < MAX_REPORTS:   # rc.6 : jamais plus de MAX_REPORTS (« [6/5] »)
             self.reports += 1
             log.info("UI blocked for more than %.0f ms during playback; what each thread was doing [%d/%d]:\n%s",
                      STALL_S * 1000, self.reports, MAX_REPORTS, text.rstrip())
