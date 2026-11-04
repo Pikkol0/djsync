@@ -326,7 +326,7 @@ STRINGS = {
     "sc.settings_token": "Or account token",
     "sc.settings_token_ph": "oauth_token (optional)",
     "sc.settings_token_tip": "In your browser, signed in to soundcloud.com: developer tools ▸ Storage / Application ▸ Cookies ▸ value of oauth_token. Kept on this computer only.",
-    "yt.settings_best": "Best YouTube stream (AAC 256 instead of AAC ~128)",
+    "yt.settings_best": "Best YouTube stream (≈ MP3 256 without Premium, ≈ MP3 320 with it)",
     "yt.settings_best_tip": "Takes the Opus stream (~160 kbps) and converts it to AAC 256, or the AAC 256 stream of a YouTube Premium account. Needs FFmpeg.",
     "yt.settings_best_hint": "Small gain, about twice the file size: off by default.",
     "yt.settings_account": "YouTube account",
@@ -1113,7 +1113,7 @@ STRINGS = {
     "settings.auto_cue_hint": "Players can jump straight to the first beat of a bar. Tracks that already have cues are not changed.",
     "settings.format": "File format",
     "settings.format_m4a": "M4A / AAC (original quality, recommended)",
-    "settings.format_mp3": "MP3 320 kbps (older players)",
+    "settings.format_mp3": "MP3 (file format for older players; does not restore lost quality)",
     "settings.normalize": "Same volume for every download",
     "settings.normalize_hint": "Measures the loudness and applies a fixed gain (no compression, peaks kept under -1 dBTP). The file is re-encoded.",
     # ---- V1.0.0
@@ -1536,4 +1536,8 @@ STRINGS = {
     # 1.4.0-rc.2 (B60)
     "slsk.next_peer": "{reason}: trying another user",
     "unit.mbps_short": "MB/s",
+    # 1.4.0-rc.2 (C137) : vraie qualité
+    "quality.mp3_warning": "From YouTube, converting to MP3 adds a little loss and a bigger file, for no gain: the real quality stays that of the source.",
+    "quality.real_title": "What quality do I really get?",
+    "quality.real_table": "<table cellspacing='2'><tr><td><b>Source</b></td><td><b>≈ MP3 equivalent</b></td><td><b>Highs cut at</b></td></tr><tr><td>YouTube (default)</td><td>MP3 160–192</td><td>≈ 16 kHz</td></tr><tr><td>YouTube, best stream, no Premium</td><td>MP3 224–256</td><td>≈ 20 kHz</td></tr><tr><td>YouTube, best stream, Premium</td><td>MP3 320</td><td>≈ 19–20 kHz</td></tr><tr><td>SoundCloud stream</td><td>MP3 128–160</td><td>≈ 16 kHz</td></tr><tr><td>SoundCloud original, High quality</td><td>MP3 320 or lossless</td><td>20 kHz +</td></tr></table>The bitrate written in the file (and shown by Rekordbox) is that of the conversion, not the real quality: the “Real quality” column measures it. Converting never restores what was lost.",
 }

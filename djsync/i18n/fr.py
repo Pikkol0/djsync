@@ -326,7 +326,7 @@ STRINGS = {
     "sc.settings_token": "Ou jeton du compte",
     "sc.settings_token_ph": "oauth_token (facultatif)",
     "sc.settings_token_tip": "Dans votre navigateur, connecté à soundcloud.com : outils de développement ▸ Stockage / Application ▸ Cookies ▸ valeur de oauth_token. Gardé sur cet ordinateur uniquement.",
-    "yt.settings_best": "Meilleur flux YouTube (AAC 256 au lieu de l'AAC ~128)",
+    "yt.settings_best": "Meilleur flux YouTube (≈ MP3 256 sans Premium, ≈ MP3 320 avec)",
     "yt.settings_best_tip": "Prend le flux Opus (~160 kbps) et le convertit en AAC 256, ou le flux AAC 256 d'un compte YouTube Premium. FFmpeg nécessaire.",
     "yt.settings_best_hint": "Gain faible, fichiers environ deux fois plus lourds : désactivé par défaut.",
     "yt.settings_account": "Compte YouTube",
@@ -1119,7 +1119,7 @@ STRINGS = {
     "settings.auto_cue_hint": "Les platines peuvent sauter directement au premier temps d'une mesure. Les sons qui ont déjà des cues ne sont pas modifiés.",
     "settings.format": "Format des fichiers",
     "settings.format_m4a": "M4A / AAC (qualité d'origine, recommandé)",
-    "settings.format_mp3": "MP3 320 kbit/s (anciens lecteurs)",
+    "settings.format_mp3": "MP3 (format de fichier pour anciens lecteurs ; ne rend pas la qualité perdue)",
     "settings.normalize": "Même volume pour tous les téléchargements",
     "settings.normalize_hint": "Mesure la sonie et applique un gain fixe (sans compression, crêtes sous -1 dBTP). Le fichier est ré-encodé.",
     # ---- V1.0.0
@@ -1542,4 +1542,8 @@ STRINGS = {
     # 1.4.0-rc.2 (B60)
     "slsk.next_peer": "{reason} : essai chez un autre pair",
     "unit.mbps_short": "Mo/s",
+    # 1.4.0-rc.2 (C137) : vraie qualité
+    "quality.mp3_warning": "Depuis YouTube, convertir en MP3 ajoute un peu de perte et un fichier plus lourd, sans aucun gain : la vraie qualité reste celle de la source.",
+    "quality.real_title": "Quelle qualité j'obtiens vraiment ?",
+    "quality.real_table": "<table cellspacing='2'><tr><td><b>Source</b></td><td><b>≈ équivalent MP3</b></td><td><b>Aigus coupés vers</b></td></tr><tr><td>YouTube (par défaut)</td><td>MP3 160–192</td><td>≈ 16 kHz</td></tr><tr><td>YouTube, meilleur flux, sans Premium</td><td>MP3 224–256</td><td>≈ 20 kHz</td></tr><tr><td>YouTube, meilleur flux, Premium</td><td>MP3 320</td><td>≈ 19–20 kHz</td></tr><tr><td>Flux SoundCloud</td><td>MP3 128–160</td><td>≈ 16 kHz</td></tr><tr><td>Original SoundCloud, Haute qualité</td><td>MP3 320 ou sans perte</td><td>20 kHz et +</td></tr></table>Le débit écrit dans le fichier (et affiché par Rekordbox) est celui de la conversion, pas la vraie qualité : la colonne « Qualité réelle » la mesure. Convertir ne rend jamais ce qui a été perdu.",
 }

@@ -328,3 +328,16 @@ def test_b59_hq_search_shows_searching_not_no_result(demo, monkeypatch):  # noqa
     view.run_search(force=True)
     pump(demo, 0.3)
     assert skel
+
+
+# ------------------------------------------------------------------ C137 : vraie qualité expliquée
+def test_c137_settings_explain_real_quality_and_warn_on_mp3(demo):  # noqa: F811
+    from djsync.i18n import t
+
+    v = demo.views["settings"]
+    assert "MP3 160" in v.quality_table.text()
+    v.format_menu.setCurrentText(v._format_labels["mp3"])
+    assert not v.format_warn.isHidden()
+    v.format_menu.setCurrentText(v._format_labels["m4a"])
+    assert v.format_warn.isHidden()
+    assert "320" not in t("settings.format_mp3")             # plus de « 320 » trompeur

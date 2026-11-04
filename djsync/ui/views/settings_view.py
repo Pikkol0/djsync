@@ -350,6 +350,13 @@ class SettingsView(View):
         row.addWidget(self.format_menu)
         row.addStretch(1)
         card.addLayout(row)
+        # 1.4.0-rc.2 (C137) : convertir en MP3 ne rend pas la qualité perdue ; on le dit au moment du choix
+        self.format_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
+        self.format_warn.setStyleSheet(f"color: {theme.WARN};")
+        card.addWidget(self.format_warn)
+        self.format_menu.currentTextChanged.connect(
+            lambda txt: self.format_warn.setVisible(txt == self._format_labels["mp3"]))
+        self.format_warn.setVisible(s.audio_format == "mp3")
         self.normalize_var = QCheckBox(t("settings.normalize"))
         self.normalize_var.setChecked(s.normalize_volume)
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
@@ -359,6 +366,11 @@ class SettingsView(View):
         self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
         card.addWidget(self.yt_best_var)
         card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
+        card.addWidget(label(t("quality.real_title")))
+        self.quality_table = label(t("quality.real_table"), "dim", wrap=True)
+        self.quality_table.setTextFormat(Qt.RichText)
+        card.addWidget(self.quality_table)
         row = hbox()
         row.addWidget(self._fixed(label(t("yt.settings_account"))))
         from ...core.soundcloud import BROWSERS as _YT_BROWSERS
