@@ -36,6 +36,8 @@ class AnalysisDialog(BaseDialog):
         self._removed: set = set()
         self._started: List[int] = []
         self._missing: Dict[int, str] = {}       # 1.3.2-rc.2 (C76) : fichier introuvable -> disque absent ou ""
+        known = getattr(controller, "missing_files", {}) or {}        # 1.3.2-rc.3 : déjà connus, tout de suite
+        self._missing.update({x.content_id: known[x.content_id] for x in self._tracks if x.content_id in known})
         self._checked_files = False
         self._t0 = 0.0
         self.heading(t("analysis.title"))
@@ -96,21 +98,9 @@ class AnalysisDialog(BaseDialog):
         tracks = list(self._tracks)
 
         def work() -> Dict[int, str]:
-            from pathlib import Path
+            from .ctrl.diagnostic import find_missing      # 1.3.2-rc.3 (B49) : même tri que l'analyse
 
-            from .ctrl.diagnostic import volume_label, volume_root
-
-            out: Dict[int, str] = {}
-            for x in tracks:
-                try:
-                    path = Path(lib.absolute_path(x))
-                    if path.is_file():
-                        continue
-                    vol = volume_root(path)
-                    out[x.content_id] = volume_label(vol) if vol is not None and not vol.exists() else ""
-                except Exception:  # noqa: BLE001 - chemin illisible : on laisse l'analyse décider
-                    continue
-            return out
+            return find_missing(lib, tracks)
 
         def done(found: Dict[int, str]) -> None:
             if not self.winfo_exists():
@@ -174,6 +164,9 @@ class AnalysisDialog(BaseDialog):
         if x.content_id in self._started:
             if results.get(x.content_id) == "ok":
                 return "✓ " + t("analysis.state_done")
+            if results.get(x.content_id) == "missing":               # 1.3.2-rc.3 (B49)
+                vol = self.ctrl.analysis.missing.get(x.content_id, "")
+                return "⚠ " + (t("analysis.state_offline", drive=vol) if vol else t("analysis.state_missing"))
             if results.get(x.content_id) == "failed":
                 return "✗ " + t("analysis.state_failed")
             if q.running and x.content_id in getattr(q, "ids", set()):
