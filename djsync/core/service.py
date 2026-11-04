@@ -1,6 +1,7 @@
 """Façade de l'Étape 1 : c'est elle que l'interface (et le contrôleur) appelle."""
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Union
@@ -12,6 +13,16 @@ from .matcher import SpotifyMatcher
 from .search import ExcludeFilter, MusicSearcher
 from .spotify import fetch_spotify
 from .urlimport import classify_url, resolve_direct
+
+log = logging.getLogger(__name__)
+
+
+class ProtectedTrackError(RuntimeError):
+    """1.4.0-rc.2 (B64) : son protégé (DRM) et aucune autre version trouvée."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__(f"Protected (DRM) on SoundCloud, no other version found: {title}")
+        self.title = title
 
 
 class MusicService:
@@ -130,7 +141,30 @@ class MusicService:
         on_progress: Optional[ProgressCallback] = None,
         tag: bool = True,
     ) -> DownloadedTrack:
-        return self._downloader.download(track, dest_dir, on_progress, tag=tag)
+        # 1.4.0-rc.2 (B64) : son protégé (DRM) sur SoundCloud : même son sur YouTube Music
+        if track.protected:
+            track = self.unprotected_version(track)
+        try:
+            return self._downloader.download(track, dest_dir, on_progress, tag=tag)
+        except Exception as exc:  # noqa: BLE001
+            if track.source != "soundcloud" or "drm" not in str(exc).lower():
+                raise
+        return self._downloader.download(self.unprotected_version(track), dest_dir, on_progress, tag=tag)
+
+    def unprotected_version(self, track: TrackResult) -> TrackResult:
+        """Version YouTube Music d'un son protégé (titre, artiste, durée) ; ProtectedTrackError si aucune."""
+        from .matcher import choose
+        from ..models import MatchPreference
+
+        src = SpotifyTrack(track.title, (track.artist,) if track.artist else (), track.album,
+                           track.duration_seconds)
+        candidates = self.match_spotify(src)
+        idx = choose(candidates, MatchPreference.AUTO)
+        if idx is None:
+            raise ProtectedTrackError(track.title)
+        alt = candidates[idx].track
+        log.info("Protected SoundCloud track %s: YouTube Music version %s used", track.video_id, alt.video_id)
+        return alt
 
     def refresh_library(self) -> None:
         """À appeler après un ajout/suppression en base."""

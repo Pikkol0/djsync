@@ -1531,4 +1531,12 @@ STRINGS = {
     # 1.4.0-rc.2 (C139)
     "reveal.explorer": "Afficher dans l'explorateur",
     "reveal.finder": "Afficher dans le Finder",
+    # 1.4.0-rc.2 (B64, B66, B60)
+    "error.youtube_bot": "YouTube demande de confirmer que vous n'êtes pas un robot (fréquent avec un VPN). Désactivez le VPN ou changez de serveur, ou choisissez le navigateur où YouTube est ouvert (Paramètres ▸ Téléchargement), puis réessayez.",
+    "error.youtube_bot_action": "Choisir le navigateur",
+    "error.drm": "Ce son est protégé (DRM) sur SoundCloud et aucune autre version n'a été trouvée sur YouTube Music.",
+    "error.slsk_banned": "Soulseek : cet utilisateur vous a refusé (banni). Beaucoup refusent ceux qui ne partagent rien : partagez votre dossier de téléchargement (Paramètres ▸ Téléchargement).",
+    "sc.protected_short": "protégé : version YouTube Music",
+    "sc.protected_one": "1 son protégé sur SoundCloud : sa version YouTube Music sera prise",
+    "sc.protected_many": "{n} sons protégés sur SoundCloud : leurs versions YouTube Music seront prises",
 }

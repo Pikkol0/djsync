@@ -137,6 +137,11 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
             values["source__color"] = theme.GOLD
         elif "320" in track.quality:
             values["source__color"] = theme.SILVER
+    elif track.protected:                      # 1.4.0-rc.2 (B64) : DRM : la version YouTube Music sera prise
+        from .. import theme
+
+        values["source"] = f"{track.source_label} · {t('sc.protected_short')}"
+        values["source__color"] = theme.WARN
     elif track.original_available:             # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
         from .. import theme
 

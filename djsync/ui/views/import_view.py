@@ -353,6 +353,9 @@ class ImportView(View):
         extra = [resolved.note] if resolved.note else []
         if resolved.truncated:
             extra.append(t("import.truncated"))
+        protected = sum(1 for tr in resolved.tracks if tr.protected)         # 1.4.0-rc.2 (B64)
+        if protected:
+            extra.append(plural("sc.protected_one", "sc.protected_many", protected))
         tail = ("  ·  " + "  ·  ".join(extra)) if extra else ""
         self.info.setText(t("import.direct_info", source=source, name=resolved.name,
                             tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail)

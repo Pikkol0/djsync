@@ -107,6 +107,7 @@ class TrackResult:
 
     # 1.4.0 (C10.1) : fichier d'origine SoundCloud (envoyé par l'artiste, souvent WAV)
     free_download_url: Optional[str] = None     # 1.4.0 (C45) : lien « Free Download » de l'artiste (SoundCloud)
+    protected: bool = False                     # 1.4.0-rc.2 (B64) : son chiffré (DRM) sur SoundCloud
     original_available: Optional[bool] = None   # None : pas encore vérifié ; True : téléchargement autorisé
     want_original: bool = False                 # ce téléchargement demande le fichier d'origine
     slsk: Any = field(default=None, compare=False, repr=False)   # 1.4.0 (C10.2) : résultat Soulseek d'origine
@@ -378,6 +379,7 @@ class DownloadJob:
     status: str = "queued"
     percent: float = 0.0
     message: str = ""
+    reason: str = ""                  # 1.4.0-rc.2 (B66) : clé de l'erreur connue (relance ciblée)
     file_path: Optional[str] = None
     content_id: Optional[int] = None
     created_at: datetime = field(default_factory=datetime.now)

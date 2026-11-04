@@ -1525,4 +1525,12 @@ STRINGS = {
     # 1.4.0-rc.2 (C139)
     "reveal.explorer": "Show in Explorer",
     "reveal.finder": "Show in Finder",
+    # 1.4.0-rc.2 (B64, B66, B60)
+    "error.youtube_bot": "YouTube asks to confirm you are not a robot (common with a VPN). Turn off the VPN or change server, or choose the browser where YouTube is open (Settings ▸ Download), then retry.",
+    "error.youtube_bot_action": "Choose the browser",
+    "error.drm": "This track is protected (DRM) on SoundCloud and no other version was found on YouTube Music.",
+    "error.slsk_banned": "Soulseek: this user refused you (banned). Many users refuse people who share nothing: share your download folder (Settings ▸ Download).",
+    "sc.protected_short": "protected: YouTube Music version",
+    "sc.protected_one": "1 track protected on SoundCloud: its YouTube Music version will be used",
+    "sc.protected_many": "{n} tracks protected on SoundCloud: their YouTube Music versions will be used",
 }

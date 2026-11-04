@@ -179,6 +179,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("app_update_ready", self._app_update_ready)
         self.ctrl.on("open_url", self._open_url)
+        self.ctrl.on("open_settings_section", self._open_settings_section)        # 1.4.0-rc.2 (B66)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
         self.ctrl.on("quit", self.close)
@@ -710,6 +711,10 @@ class DJSyncApp(QMainWindow):
         self.show_view(getattr(self, "_uni_return", None) or "library")
 
     # ------------------------------------------------- 1.3.1 (C41/C43) : Diagnostic en onglets
+    def _open_settings_section(self, section: str) -> None:
+        self.show_view("settings")
+        self.views["settings"].show_section(section)
+
     def open_diagnostic(self, tab: Optional[str] = None, from_page: Optional[QWidget] = None) -> None:
         """Ouvre un onglet du Diagnostic. `from_page` : l'onglet quitté (fermé sans revenir à la vue
         d'origine ; le bouton Retour du nouvel onglet y ramène). 1.3.2-rc.3 (C127) : sans onglet précis

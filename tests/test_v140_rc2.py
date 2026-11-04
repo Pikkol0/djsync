@@ -139,3 +139,95 @@ def test_c139_library_menu_has_reveal_and_missing_file_is_explained(demo, monkey
     monkeypatch.setattr(demo.ctrl, "message", lambda kind, text: msgs.append(kind))
     entry[1]()
     assert shown and msgs == ["error"]
+
+
+# ------------------------------------------------------------------ B64 : playlists SoundCloud
+def _sc_api(i, title, drm=False):
+    proto = "ctr-encrypted-hls" if drm else "hls"
+    return {"id": i, "title": title, "user": {"username": "Uploader"}, "duration": 200000,
+            "permalink_url": f"https://soundcloud.com/u/t{i}", "policy": "MONETIZE",
+            "publisher_metadata": {"artist": "Artiste"},
+            "media": {"transcodings": [{"format": {"protocol": proto}}]}}
+
+
+def test_b64_soundcloud_playlist_entries_are_completed_and_drm_flagged():
+    from djsync.core import soundcloud as sc
+    from djsync.core.urlimport import resolve_direct
+    from djsync.models import UrlKind
+
+    calls = []
+
+    def fetch(url, query):
+        calls.append(query["ids"])
+        return [_sc_api(int(i), f"Son {i}", drm=int(i) % 2 == 0) for i in query["ids"].split(",")]
+
+    details = lambda ids: sc.tracks_details(ids, fetch=fetch)  # noqa: E731
+    entries = [{"id": str(i), "url": f"https://api.soundcloud.com/tracks/{i}"} for i in range(1, 121)]
+    info = {"_type": "playlist", "title": "Rap", "entries": entries}
+    res = resolve_direct("https://soundcloud.com/u/sets/rap", UrlKind.SOUNDCLOUD,
+                         extractor=lambda u, o: info, details=details)
+    assert len(calls) == 3                                     # par lots de 50
+    assert [t.title for t in res.tracks[:2]] == ["Son 1", "Son 2"] and res.tracks[0].artist == "Artiste"
+    assert res.tracks[0].duration_seconds == 200 and res.tracks[0].source_url.startswith("https://soundcloud.com/")
+    assert not res.tracks[0].protected and res.tracks[1].protected
+
+
+def test_b64_protected_track_downloads_the_youtube_music_version(tmp_path):
+    from djsync.core.service import MusicService, ProtectedTrackError
+    from djsync.models import Candidate, TrackResult
+
+    svc = MusicService.__new__(MusicService)
+    got = []
+
+    class D:
+        def download(self, track, dest, prog, tag=True):
+            got.append(track.source)
+            if track.source == "soundcloud":
+                raise RuntimeError("ERROR: [soundcloud] 1: This video is DRM protected")
+            return "ok"
+
+    svc._downloader = D()
+    yt = TrackResult(video_id="abc", title="Son", artist="Artiste", duration_seconds=200, source="ytmusic",
+                     result_type="song")
+    svc.match_spotify = lambda src, per_type=5: [Candidate(yt, 95.0)]
+    sc = TrackResult(video_id="1", title="Son", artist="Artiste", duration_seconds=200, source="soundcloud")
+    assert svc.download(sc, tmp_path) == "ok" and got == ["soundcloud", "ytmusic"]   # erreur DRM : relais
+    got.clear()
+    from dataclasses import replace
+
+    sc = replace(sc, protected=True)
+    assert svc.download(sc, tmp_path) == "ok" and got == ["ytmusic"]                  # connu : direct
+    svc.match_spotify = lambda src, per_type=5: []
+    with pytest.raises(ProtectedTrackError):
+        svc.download(sc, tmp_path)
+
+
+# ------------------------------------------------------------------ B66 / B60 : erreurs connues
+def test_b66_known_errors_are_explained():
+    from djsync.i18n import t
+    from djsync.ui.controller import known_error
+
+    assert known_error(Exception("Sign in to confirm you're not a bot")) == "error.youtube_bot"
+    assert known_error(Exception("[soundcloud] 1: This video is DRM protected")) == "error.drm"
+    assert known_error(Exception("Soulseek: Banned")) == "error.slsk_banned"
+    assert known_error(Exception("other")) == ""
+    assert "VPN" in t("error.youtube_bot")
+
+
+def test_b66_bot_refusals_pause_youtube_then_retry_when_browser_chosen(demo):  # noqa: F811
+    from djsync.models import DownloadJob, TrackResult
+
+    c = demo.ctrl
+    jobs = []
+    for i in range(4):
+        tr = TrackResult(video_id=f"v{i}", title=f"T{i}", artist="A", source="youtube")
+        job = DownloadJob(id=i, track=tr, status="error", reason="error.youtube_bot")
+        jobs.append(job)
+    c.jobs[:] = jobs
+    for job in jobs[:3]:
+        c._youtube_bot(job)
+    assert c.youtube_paused(jobs[0])
+    retried = []
+    c.retry = lambda job: retried.append(job)
+    c.retry_bot_failures()
+    assert retried == jobs and not c.youtube_paused(jobs[0])
