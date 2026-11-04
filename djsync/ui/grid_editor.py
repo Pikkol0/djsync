@@ -206,6 +206,7 @@ class GridEditor(QWidget):
         tools = hbox()
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
+        self.play_btn.setFixedSize(theme.px(34), theme.px(34))     # 1.3.2-rc.2 (B46) : rond à tout zoom
         tools.addWidget(self.play_btn)
         # 1.3.0-rc.3 (C40) : sortir de la boucle sans coupure (« Loop Exit » des platines)
         self.exit_btn = button(t("grid.loop_exit"), self.exit_loop, kind="primary", icon="next",

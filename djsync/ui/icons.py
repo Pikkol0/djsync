@@ -274,6 +274,14 @@ def _playlist(p: _Pen) -> None:
     p.circle(16.2, 18, 2.2, fill=True)
 
 
+def _unlisted(p: _Pen) -> None:
+    """1.3.2-rc.2 (C56) : « Hors playlist » : lignes de playlist et un rond barré."""
+    for y in (6, 11, 16):
+        p.line(3, y, 11, y)
+    p.circle(17, 15, 4.6)
+    p.line(13.8, 18.2, 20.2, 11.8)
+
+
 def _warn(p: _Pen) -> None:
     p.line(12, 3.5, 21.5, 20, 2.5, 20, 12, 3.5)
     p.line(12, 9.5, 12, 14)
@@ -341,7 +349,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "duplicates": _duplicates, "menu": _menu, "close": _close, "plus": _plus, "minus": _minus, "usb": _usb, "grid": _grid,
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
-    "clipboard": _clipboard, "playlist": _playlist, "warn": _warn, "info": _info, "move": _move,
+    "clipboard": _clipboard, "playlist": _playlist, "unlisted": _unlisted, "warn": _warn, "info": _info, "move": _move,
     "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
     "diagnostic": _diagnostic, "chat": _chat, "columns": _columns,
 }

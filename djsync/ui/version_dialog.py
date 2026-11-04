@@ -109,14 +109,7 @@ class VersionDialog(BaseDialog):
         busy = self.ctrl.update_progress is not None
         self.notes_btn.setEnabled(up is not None)
         self.install_btn.setEnabled(up is not None and up.version != self.current and not busy)
-        if up is not None and not self.ctrl.can_self_update():
-            self.install_btn.setText(t("update.pick_open_page"))
-        elif up is not None and updates.is_older(up.version, self.current):
-            self.install_btn.setText(t("update.pick_install_older", version=up.version))
-        elif up is not None:
-            self.install_btn.setText(t("update.install_to", version=up.version))
-        else:
-            self.install_btn.setText(t("update.pick_install"))
+        self.install_btn.setText(install_label(self.ctrl, up, self.current))
 
     def _notes(self) -> None:
         up = self.selected()
@@ -124,21 +117,45 @@ class VersionDialog(BaseDialog):
             self.ctrl._emit("open_url", up.url)
 
     def _install(self) -> None:
-        up = self.selected()
-        if up is None or up.version == self.current or self.ctrl.update_progress is not None:
-            return
+        install_version(self, self.ctrl, self.selected(), self.current, after=self.close)
 
-        def go() -> None:
-            self.ctrl.app_update_install(up)
-            self.close()
 
-        if updates.is_older(up.version, self.current) and self.ctrl.can_self_update():
-            ConfirmDialog(self, t("update.older_title"), t("update.older_msg", version=up.version,
-                                                           current=self.current),
-                          go, confirm_text=t("update.pick_install_older", version=up.version),
-                          detail=t("update.older_detail"))
-            return
-        go()
+def install_label(ctrl: Any, up: Optional[updates.Update], current: str) -> str:
+    """Texte du bouton d'installation pour la version choisie."""
+    if up is not None and not ctrl.can_self_update():
+        return t("update.pick_open_page")
+    if up is not None and updates.is_older(up.version, current):
+        return t("update.pick_install_older", version=up.version)
+    if up is not None:
+        return t("update.install_to", version=up.version)
+    return t("update.pick_install")
+
+
+def install_version(parent: Any, ctrl: Any, up: Optional[updates.Update], current: str, after: Any = None) -> None:
+    """Installe la version choisie (comme la mise à jour) ; vers une plus ancienne, avertissement d'abord."""
+    if up is None or up.version == current or ctrl.update_progress is not None:
+        return
+
+    def go() -> None:
+        ctrl.app_update_install(up)
+        if after is not None:
+            after()
+
+    if updates.is_older(up.version, current) and ctrl.can_self_update():
+        ConfirmDialog(parent, t("update.older_title"), t("update.older_msg", version=up.version, current=current),
+                      go, confirm_text=t("update.pick_install_older", version=up.version),
+                      detail=t("update.older_detail"))
+        return
+    go()
+
+
+def version_text(up: updates.Update, current: str) -> str:
+    text = up.version + (f"  ·  {up.date}" if up.date else "")
+    if up.prerelease:
+        text += "  ·  " + t("update.pick_test")
+    if up.version == current:
+        text += "  ·  " + t("update.pick_installed")
+    return text
 
 
 def show_test_versions(channel: str, current: str) -> bool:

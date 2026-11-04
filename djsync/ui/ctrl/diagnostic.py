@@ -38,6 +38,15 @@ class MissingItem:
     candidates: List[LibraryTrack] = field(default_factory=list)   # même son, fichier présent
     found: Optional[Path] = None                   # fichier du même nom trouvé ailleurs (dossier déplacé)
     offline: bool = False                          # disque du fichier non branché (bibliothèque du PC)
+    volume: str = ""                               # 1.3.2-rc.2 (B40) : ce disque (« E: », « /Volumes/Clé »)
+
+
+def volume_label(vol: Path) -> str:
+    """« E: » plutôt que « E:\\ » ; sinon le nom du volume (« Clé »)."""
+    text = str(vol)
+    if len(text) >= 2 and text[1] == ":":
+        return text[:2].upper()
+    return vol.name or text
 
 
 def volume_root(path: Path) -> Optional[Path]:
@@ -181,7 +190,8 @@ class DiagnosticMixin:
                 path = lib.absolute_path(x)
                 vol = volume_root(path) if local else None
                 out.append(MissingItem(x, str(path), [names[p] for p in member.get(x.content_id, []) if p in names],
-                                       same.get(x.content_id, []), None, bool(vol is not None and not vol.exists())))
+                                       same.get(x.content_id, []), None, bool(vol is not None and not vol.exists()),
+                                       volume_label(vol) if vol is not None and not vol.exists() else ""))
             wanted = {Path(i.path).name.casefold() for i in out if not i.offline}
             found = index_files(list(dict.fromkeys(roots)), wanted) if wanted else {}
             for i in out:

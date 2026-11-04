@@ -28,6 +28,19 @@ SCROLL_H = 46
 SCROLL_SECONDS = 8.0          # largeur de la forme d'onde défilante (± 4 s autour de la tête de lecture)
 
 
+def play_error_text(raw: str, meta: Any = None) -> str:
+    """1.3.2-rc.2 (B41) : « Cannot play: ('failed to init decoder', -1) » -> message clair, la cause brute
+    entre parenthèses (utile dans un rapport). Le fichier existe (sinon : message « introuvable », B20)
+    mais ne peut pas être décodé : abîmé, incomplet ou format non lu."""
+    name = ""
+    try:
+        name = Path(getattr(meta, "path", "") or "").name
+    except Exception:  # noqa: BLE001
+        name = ""
+    detail = raw.removeprefix("Cannot play: ").strip()
+    return t("player.unreadable", name=name or "?") + (f"  ({detail})" if detail else "")
+
+
 class ScrollingWave(QWidget):
     """1.2.3 (retour testeur) : forme d'onde détaillée qui défile sous une tête de lecture FIXE au centre,
     comme dans Rekordbox, avec les temps et les débuts de mesure. Sons analysés seulement."""
@@ -439,7 +452,7 @@ class PlayerBar(QWidget):
             meta, duration = payload if isinstance(payload, tuple) else (payload, self.player.duration)
             self._show_meta(meta, float(duration or 0))
         elif kind == "error":
-            self.ctrl.message("error", str(payload))
+            self.ctrl.message("error", play_error_text(str(payload), getattr(self.player, "meta", None)))
         elif kind == "ended":
             self._reset_progress()
 
@@ -535,15 +548,9 @@ class PlayerBar(QWidget):
 
         self.ctrl.load_overview(track, show)
 
-        def show_detail(data: Any) -> None:
-            if token != self._wave_token or not self.winfo_exists():
-                return
-            self._use_scroll(data)
-
-        if getattr(self.ctrl.settings, "scrolling_wave", True):
-            self.ctrl.load_detail(track, show_detail)
-        else:
-            self._use_scroll(None)
+        # 1.3.2-rc.2 (C85) : plus de forme d'onde défilante au-dessus du lecteur ; elle n'existe que dans
+        # la page Grille et cues (demande du testeur Mac et de l'auteur).
+        self._use_scroll(None)
 
     def _use_wave(self, on: bool) -> None:
         self.wave.setVisible(on)
@@ -552,10 +559,7 @@ class PlayerBar(QWidget):
     def _grid_page(self, editor: Any) -> None:
         """La page Grille et cues s'ouvre (editor) ou se ferme (None)."""
         self._grid_editor = editor
-        if editor is not None:
-            self.scroll_wave.hide()
-        else:
-            self.scroll_wave.setVisible(self.scroll_wave.has_data and self.player.state != STOPPED)
+        self.scroll_wave.hide()                            # C85 : jamais au-dessus du lecteur
 
     def _use_scroll(self, data: Any) -> None:
         detail, beats = data if data else ([], [])
@@ -589,6 +593,8 @@ class PlayerBar(QWidget):
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
         self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
+        self.play_btn.setFixedSize(theme.px(34), theme.px(34))     # 1.3.2-rc.2 (B46) : reste rond après un zoom
+        self.play_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 

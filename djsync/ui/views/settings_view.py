@@ -184,10 +184,6 @@ class SettingsView(View):
         row.addWidget(self.sidebar_menu)
         row.addStretch(1)
         card.addLayout(row)
-        self.scroll_wave_var = QCheckBox(t("settings.scrolling_wave"))       # 1.2.3
-        self.scroll_wave_var.setToolTip(t("settings.scrolling_wave_tip"))
-        self.scroll_wave_var.setChecked(s.scrolling_wave)
-        card.addWidget(self.scroll_wave_var)
 
         # ---- clé USB
         self._section = "libraries"
@@ -409,7 +405,9 @@ class SettingsView(View):
         row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
         row.addStretch(1)
         card.addLayout(row)
+        self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
         self.page.addStretch(1)
+        self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
         self.show_section(start, remember=False)
 
@@ -469,12 +467,27 @@ class SettingsView(View):
         # et le choix de la version à installer, plus ancienne comprise
         from ..version_dialog import show_test_versions
 
+        # 1.3.2-rc.2 (C96, test MAJ-1) : sur une ligne, la liste des versions à gauche de la case, le bouton
+        # d'installation à droite (plus de fenêtre « Choisir une version… »)
+        row.addWidget(label(t("update.pick_label")))
+        self.version_menu = QComboBox()
+        self.version_menu.setMinimumWidth(theme.px(260))
+        self.version_menu.addItem(t("update.pick_loading"))
+        self.version_menu.setEnabled(False)
+        self.version_menu.currentIndexChanged.connect(lambda _i: self._version_refresh())
+        row.addWidget(self.version_menu)
         self.show_rc_var = QCheckBox(t("update.show_rc"))
         self.show_rc_var.setChecked(show_test_versions(s.update_channel, full_version()))
+        self.show_rc_var.toggled.connect(self._show_rc_toggled)
         row.addWidget(self.show_rc_var)
         row.addStretch(1)
-        row.addWidget(button(t("update.pick"), self._pick_version, kind="flat", icon="menu"))
+        self.version_install_btn = button(t("update.pick_install"), self._install_picked, kind="primary",
+                                          icon="download")
+        self.version_install_btn.setEnabled(False)
+        row.addWidget(self.version_install_btn)
         card.addLayout(row)
+        self._versions: list = []
+        self._versions_loaded = False
         row = hbox()                                    # 1.3.1 (C88) : désinstaller, toujours visible
         self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="flat", icon="trash")
         mode = self.ctrl.uninstall_mode()
@@ -493,25 +506,8 @@ class SettingsView(View):
         thanks = label("🙏 " + thanks_text(get_language()), wrap=True)
         thanks.setObjectName("about_thanks")
         card.addWidget(thanks)
-        # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
-        self._section = "privacy"
-        card = self._card(t("settings.section_privacy"), "info")
-        row = hbox()                                   # 1.2.3 : rapports d'erreur
-        row.addWidget(self._fixed(label(t("err_report.setting"))))
-        self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
-                               "never": t("err_report.mode_never")}
-        self.report_menu = QComboBox()
-        self.report_menu.addItems(list(self._report_labels.values()))
-        self.report_menu.setCurrentText(self._report_labels.get(s.error_reports, self._report_labels["ask"]))
-        self.report_menu.setToolTip(t("err_report.what"))
-        row.addWidget(self.report_menu)
-        row.addStretch(1)
-        card.addLayout(row)
-        row = hbox()
-        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
-        row.addStretch(1)
-        card.addLayout(row)
-        self._section = "djsync"
+        # 1.3.2-rc.2 (C70) : liens, raccourci et accueil dans la carte DJSync (ils tombaient dans
+        # « Retours et confidentialité », créée juste avant)
         row = hbox()
         row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
                              kind="flat", icon="go"))
@@ -535,6 +531,24 @@ class SettingsView(View):
         row.addWidget(button(t("settings.welcome_again"), self._welcome_again, kind="flat", icon="info"))
         row.addStretch(1)
         card.addLayout(row)
+        # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
+        self._section = "privacy"
+        card = self._card(t("settings.section_privacy"), "info")
+        row = hbox()                                   # 1.2.3 : rapports d'erreur
+        row.addWidget(self._fixed(label(t("err_report.setting"))))
+        self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
+                               "never": t("err_report.mode_never")}
+        self.report_menu = QComboBox()
+        self.report_menu.addItems(list(self._report_labels.values()))
+        self.report_menu.setCurrentText(self._report_labels.get(s.error_reports, self._report_labels["ask"]))
+        self.report_menu.setToolTip(t("err_report.what"))
+        row.addWidget(self.report_menu)
+        row.addStretch(1)
+        card.addLayout(row)
+        row = hbox()
+        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
+        row.addStretch(1)
+        card.addLayout(row)
         self.ctrl.on("app_update_state", self._update_state)
         self._update_state()
 
@@ -553,6 +567,79 @@ class SettingsView(View):
 
         VersionDialog(self, self.ctrl, on_channel=self.show_rc_var.setChecked)
 
+    # 1.3.2-rc.2 (C96) : liste des versions directement dans la carte DJSync
+    def load_versions(self) -> None:
+        from .common import alive
+
+        self._versions_loaded = True
+        self.version_menu.blockSignals(True)
+        self.version_menu.clear()
+        self.version_menu.addItem(t("update.pick_loading"))
+        self.version_menu.setEnabled(False)
+        self.version_menu.blockSignals(False)
+        self._versions = []
+        self._version_refresh()
+
+        def ok(versions: list) -> None:
+            if not alive(self.version_menu):
+                return
+            from ... import full_version
+            from ..version_dialog import version_text
+
+            current = full_version()
+            self._versions = list(versions)
+            self.version_menu.blockSignals(True)
+            self.version_menu.clear()
+            for up in self._versions:
+                self.version_menu.addItem(version_text(up, current), up.version)
+            if not self._versions:
+                self.version_menu.addItem(t("update.pick_none"))
+            self.version_menu.setEnabled(bool(self._versions))
+            mine = next((k for k, up in enumerate(self._versions) if up.version == current), -1)
+            self.version_menu.setCurrentIndex(0 if mine != 0 or len(self._versions) < 2 else 1)
+            self.version_menu.blockSignals(False)
+            self._version_refresh()
+
+        def failed(exc: BaseException) -> None:
+            if not alive(self.version_menu):
+                return
+            from ..controller import is_offline_error
+
+            self.version_menu.clear()
+            self.version_menu.addItem(t("error.offline") if is_offline_error(exc) else t("update.pick_failed"))
+            self.version_menu.setEnabled(False)
+            self._version_refresh()
+
+        self.ctrl.app_versions(self.show_rc_var.isChecked(), ok, failed)
+
+    def picked_version(self) -> Any:
+        i = self.version_menu.currentIndex()
+        return self._versions[i] if 0 <= i < len(self._versions) else None
+
+    def _version_refresh(self) -> None:
+        from ... import full_version
+        from ..version_dialog import install_label
+
+        up, current = self.picked_version(), full_version()
+        self.version_install_btn.setText(install_label(self.ctrl, up, current))
+        self.version_install_btn.setEnabled(up is not None and up.version != current
+                                            and self.ctrl.update_progress is None)
+
+    def _install_picked(self) -> None:
+        from ... import full_version
+        from ..version_dialog import install_version
+
+        install_version(self, self.ctrl, self.picked_version(), full_version())
+
+    def _show_rc_toggled(self, on: bool) -> None:
+        s = self.ctrl.settings
+        s.update_channel = "test" if on else "stable"
+        try:
+            s.save()
+        except OSError:
+            pass
+        self.load_versions()
+
     def _install_update(self) -> None:
         if self.ctrl.available_update is not None:
             self.ctrl.app_update_install(self.ctrl.available_update)
@@ -563,6 +650,8 @@ class SettingsView(View):
         if not alive(self.update_state):
             return
         upd, prog, ready = self.ctrl.available_update, self.ctrl.update_progress, self.ctrl.update_ready
+        if hasattr(self, "version_install_btn"):
+            self._version_refresh()                          # C96 : pas d'installation pendant une autre
         self.update_bar.setVisible(prog is not None)
         self.update_cancel_btn.setVisible(prog is not None)
         self.update_restart_btn.setVisible(ready is not None and prog is None)
@@ -646,32 +735,88 @@ class SettingsView(View):
         f[2].setVisible(not f[3])
 
     # ------------------------------------------------------- 1.3.1 (C28) : sections et recherche
-    def show_section(self, key: str, remember: bool = True) -> None:
-        """Affiche les cartes d'une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »)."""
-        if key not in dict(SECTIONS):
-            return
+    def _arrange_sections(self) -> None:
+        """1.3.2-rc.2 (C121) : une seule page qui défile, sections dans l'ordre du volet, chacune sous un
+        titre ; le volet de gauche ne fait plus que défiler jusqu'à la section (et suit le défilement)."""
+        for _sec, box in self._cards:
+            self.page.removeWidget(box)
+        self._heads: Dict[str, QLabel] = {}
+        for key, _icon in SECTIONS:
+            boxes = [box for sec, box in self._cards if sec == key]
+            if not boxes:
+                continue
+            head = label(t(f"settings.section_{key}"), "h2")
+            head.setObjectName("settingsSectionTitle")
+            head.setContentsMargins(0, theme.px(10), 0, 0)
+            self._heads[key] = head
+            self.page.addWidget(head)
+            for box in boxes:
+                self.page.addWidget(box)
+
+    def section_cards(self, key: str) -> list:
+        return [box for sec, box in self._cards if sec == key]
+
+    def _set_nav(self, key: str) -> None:
+        """Surligne la section dans le volet (et la liste déroulante) sans rien déclencher."""
         self._current_section = key
         # C90 : « Avancé » reste gris même sélectionné
         self.sections.setStyleSheet(self._sections_css + (f" #settingsSections::item:selected {{ color: {theme.DIM}; }}"
                                                           if key == "advanced" else ""))
-        keys = [k for k, _i in SECTIONS]
-        for w, idx in ((self.sections, keys.index(key)), (self.section_menu, keys.index(key))):
+        idx = [k for k, _i in SECTIONS].index(key)
+        for w in (self.sections, self.section_menu):
             w.blockSignals(True)
             w.setCurrentRow(idx) if w is self.sections else w.setCurrentIndex(idx)
             w.blockSignals(False)
+
+    def show_section(self, key: str, remember: bool = True) -> None:
+        """Fait défiler jusqu'à une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »).
+        1.3.2-rc.2 (C121) : toutes les sections restent affichées, l'une sous l'autre."""
+        if key not in dict(SECTIONS):
+            return
+        self._set_nav(key)
         if self.search.text():
             self.search.blockSignals(True)
             self.search.clear()
             self.search.blockSignals(False)
-        self._apply_filter()
-        self.area.verticalScrollBar().setValue(0)
-        self._space_if_shown()
+            self._apply_filter()
+        self._scroll_to(key)
         if remember and self.ctrl.settings.settings_section != key:
             self.ctrl.settings.settings_section = key
             try:
                 self.ctrl.settings.save()
             except OSError:
                 pass
+
+    def _scroll_to(self, key: str) -> None:
+        head = getattr(self, "_heads", {}).get(key)
+        if head is None:
+            return
+        self._scrolling_to = key
+        page = self.area.widget()
+        if page is not None and page.layout() is not None:
+            page.layout().activate()                     # positions à jour même avant le premier affichage
+        bar = self.area.verticalScrollBar()
+        bar.setValue(min(bar.maximum(), head.y()))
+        self._scrolling_to = None
+        self._space_if_shown()
+
+    def _on_scroll(self) -> None:
+        """Le volet suit la section en haut de la zone visible (sauf pendant un saut demandé)."""
+        if getattr(self, "_scrolling_to", None) or self.search.text().split():
+            self._space_if_shown()
+            return
+        bar = self.area.verticalScrollBar()
+        top = bar.value() + theme.px(24)
+        current = None
+        for key, _icon in SECTIONS:
+            head = self._heads.get(key)
+            if head is not None and head.y() <= top:
+                current = key
+        if bar.value() >= bar.maximum() - 2 and bar.maximum() > 0:    # tout en bas : la dernière section
+            current = [k for k, _i in SECTIONS if k in self._heads][-1]
+        if current and current != self._current_section:
+            self._set_nav(current)
+        self._space_if_shown()
 
     @staticmethod
     def _card_text(box: QWidget) -> str:
@@ -686,16 +831,20 @@ class SettingsView(View):
         return " ".join(p for p in parts if p).casefold()
 
     def _apply_filter(self) -> None:
-        """Sans recherche : cartes de la section choisie. Avec : cartes de toutes les sections qui
-        contiennent tous les mots cherchés (titre, libellés, cases, choix, info-bulles)."""
+        """Sans recherche : toutes les cartes (C121). Avec : cartes de toutes les sections qui contiennent
+        tous les mots cherchés (titre, libellés, cases, choix, info-bulles), sous leur titre de section."""
         words = self.search.text().casefold().split()
         shown = 0
+        per_section: Dict[str, int] = {}
         for sec, box in self._cards:
-            visible = all(w in self._card_text(box) for w in words) if words else sec == self._current_section
+            visible = all(w in self._card_text(box) for w in words) if words else True
             box.setVisible(visible)
             shown += visible
+            per_section[sec] = per_section.get(sec, 0) + visible
             if box in self._folds:                     # C89 : une recherche montre aussi le contenu replié
                 self._folds[box][0].setVisible(self._folds[box][3] or bool(words))
+        for key, head in getattr(self, "_heads", {}).items():
+            head.setVisible(per_section.get(key, 0) > 0)
         self.sections.setEnabled(not words)
         self.sections.blockSignals(True)
         if words:
@@ -707,16 +856,26 @@ class SettingsView(View):
         self.no_match.setVisible(bool(words) and not shown)
 
     def _space_if_shown(self) -> None:
-        """C27 : mesure lancée seulement quand la carte « Espace » est affichée."""
+        """C27 : mesure lancée seulement quand la carte « Espace » arrive à l'écran (C121 : en défilant)."""
         space = getattr(self, "space", None)
-        if space is not None and self.isVisible() and not self.space_box.isHidden():
+        if space is None or not self.isVisible() or self.space_box.isHidden():
+            return
+        bar = self.area.verticalScrollBar()
+        top, bottom = bar.value(), bar.value() + self.area.viewport().height()
+        y = self.space_box.y()
+        if y < bottom and y + self.space_box.height() > top:
             space.compute()
 
     def show_space(self) -> None:
         """Lien « espace » de l'Accueil : section Bibliothèques, défilée jusqu'à la carte."""
         self.show_section("libraries")
-        QTimer.singleShot(120, lambda: self.area.verticalScrollBar().setValue(
-            self.area.verticalScrollBar().maximum()))         # dernière carte de la section
+
+        def go() -> None:
+            bar = self.area.verticalScrollBar()
+            bar.setValue(min(bar.maximum(), self.space_box.y()))
+            self._space_if_shown()
+
+        QTimer.singleShot(120, go)
 
     def visible_cards(self) -> list:
         return [box for _s, box in self._cards if not box.isHidden()]
@@ -729,11 +888,16 @@ class SettingsView(View):
 
     @staticmethod
     def _fixed(w: Any) -> Any:
-        w.setFixedWidth(theme.px(150))
+        # 1.3.2-rc.2 (B45) : un libellé trop long passe à la ligne au lieu d'être coupé
+        w.setFixedWidth(theme.px(170))
+        if isinstance(w, QLabel):
+            w.setWordWrap(True)
         return w
 
     def on_show(self) -> None:
         self.ctrl.refresh_drives()
+        if not self._versions_loaded:                       # 1.3.2-rc.2 (C96) : une fois, à la première visite
+            QTimer.singleShot(0, self.load_versions)
         QTimer.singleShot(0, self._space_if_shown)
 
     # --------------------------------------------------------------- apparence
@@ -1147,11 +1311,16 @@ class SettingsView(View):
                 ctrl.settings.save()
                 ctrl.apply_settings()
                 ctrl._emit("rebuild_ui")
-                ctrl.message("ok", t("settings.reset_undone"))
+                QTimer.singleShot(250, lambda: ctrl.message("ok", t("settings.reset_undone")))
+
+            def announce() -> None:
+                ctrl.message("ok", t("settings.reset_done"))
+                ctrl._emit("message_action", t("action.undo"), undo)
 
             ctrl._emit("rebuild_ui")               # thème, zoom, langue, valeurs des Paramètres
-            ctrl.message("ok", t("settings.reset_done"))
-            ctrl._emit("message_action", t("action.undo"), undo)
+            # 1.3.2-rc.2 (C57, test PAR-2 ; B42) : le message et son « Annuler » après la reconstruction de
+            # la fenêtre (mise en page faite) : envoyés aussitôt, la bulle était mal placée ou perdue.
+            QTimer.singleShot(250, announce)
 
         dlg = ConfirmDialog(self.window(), t("settings.reset"), t("settings.reset_msg"), go,
                             confirm_text=t("settings.reset_confirm"), detail=t("settings.reset_detail"))
@@ -1178,7 +1347,6 @@ class SettingsView(View):
         s.auto_cue = self.cue_var.isChecked()
         s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
         s.normalize_volume = self.normalize_var.isChecked()
-        s.scrolling_wave = self.scroll_wave_var.isChecked()
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()
         s.update_channel = "test" if self.show_rc_var.isChecked() else "stable"      # C96

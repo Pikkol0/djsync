@@ -386,6 +386,8 @@ class LibraryOpsMixin:
                 q.current = track.display_name
             if problem:
                 q.problems.append(f"{track.display_name if track else '?'}: {problem}"[:160])
+                # 1.3.2-rc.2 (C76) : la raison d'un échec dans le journal (« 11 en échec » sans détail)
+                log.warning("Analysis failed for track %s: %s", track.content_id if track else "?", problem[:300])
             self.dispatcher.post(self._analysis_progress, q.done, q.total, track, problem)
 
         def work() -> Any:

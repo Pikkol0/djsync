@@ -245,7 +245,9 @@ class _ButtonDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
         opt = option
         self.initStyleOption(opt, index)
-        icon = opt.icon
+        # 1.3.2-rc.2 (C58) : copie ! Avec PySide, `opt.icon` désigne le champ lui-même : le vider juste
+        # après vidait aussi l'icône lue, et le bouton n'était jamais dessiné (seule la bulle restait).
+        icon = QIcon(opt.icon)
         opt.icon, opt.text = QIcon(), ""
         style = opt.widget.style() if opt.widget else QApplication.style()
         style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
@@ -257,8 +259,8 @@ class _ButtonDelegate(QStyledItemDelegate):
         hover = bool(opt.state & QStyle.State_MouseOver) and self.table._hover_cell == (index.row(), index.column())
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.45)))
-        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.ACCENT, 0.28 if hover else 0.10)))
+        painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.6)))
+        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.ACCENT, 0.30 if hover else 0.16)))
         painter.drawRoundedRect(box, theme.px(6), theme.px(6))
         ico = theme.px(16)
         icon.paint(painter, int(box.center().x() - ico / 2), int(box.center().y() - ico / 2), ico, ico)
@@ -497,6 +499,17 @@ class TrackTable(QTableView):
                 else:
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
                     self.setColumnWidth(i, self._width(col))
+            # 1.3.2-rc.2 (B39) : si la dernière colonne affichée est une colonne-bouton (Télécharger…),
+            # elle ne doit pas s'élargir pour combler le reste (grand vide sans contenu à droite, Recherche) :
+            # c'est le Titre qui prend la place restante, même s'il a une largeur choisie plus petite.
+            last = self._last_visible_section()
+            if scroll and not overflow and 0 <= last < len(self.columns) and self.columns[last].key in ICON_COLUMNS:
+                for i, col in enumerate(self.columns):
+                    if col.stretch and col.key in visible:
+                        others = sum(self._width(self.columns[j]) if j == last else head.sectionSize(j)
+                                     for j in range(len(self.columns)) if j != i and not self.isColumnHidden(j))
+                        self.setColumnWidth(i, max(head.sectionSize(i), avail - others))
+                        break
         finally:
             self._fitting = False
 

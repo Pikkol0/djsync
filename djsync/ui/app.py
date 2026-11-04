@@ -826,6 +826,12 @@ class DJSyncApp(QMainWindow):
             handle.windowStateChanged.connect(
                 lambda st: log.info("Main window state: %s%s", window_state_name(st), since()))
 
+    def leave_dialog_page(self, page: QWidget) -> None:
+        """1.3.2-rc.2 (B47) : Retour sans fermer la page (Doublons) : on revient d'où l'on vient, la page
+        reste ouverte en arrière-plan avec son travail en cours, comme en passant par un autre menu."""
+        back = self.__dict__.setdefault("_page_returns", {}).get(id(page)) or "home"
+        self._go_back(back)
+
     def close_dialog_page(self, page: QWidget) -> None:
         back = self.__dict__.setdefault("_page_returns", {}).pop(id(page), None) or "home"
         try:

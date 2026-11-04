@@ -91,10 +91,17 @@ class MissingFilesDialog(BaseDialog):
         self.list.blockSignals(True)
         self.list.clear()
         n = len(self.items)
-        self.count.setText(plural("missing.count_one", "missing.count_many", n) if n else t("missing.none_short"))
+        text = plural("missing.count_one", "missing.count_many", n) if n else t("missing.none_short")
+        gone: dict = {}                                     # 1.3.2-rc.2 (B40) : regroupés par disque absent
+        for it in self.items:
+            if it.offline:
+                gone[it.volume or "?"] = gone.get(it.volume or "?", 0) + 1
+        for vol, k in sorted(gone.items()):
+            text += "  ·  " + t("missing.offline_group", n=k, drive=vol)
+        self.count.setText(text)
         for it in self.items:
             title, artist = split_display(it.track.title, it.track.artist)
-            extra = "  ·  " + t("missing.offline_short") if it.offline else ""
+            extra = "  ·  " + t("missing.offline_short", drive=it.volume or "?") if it.offline else ""
             item = QListWidgetItem(f"{title}\n{artist or '—'}{extra}")
             if it.offline:
                 item.setForeground(Qt.gray)
@@ -142,7 +149,7 @@ class MissingFilesDialog(BaseDialog):
         self.detail_lay.addWidget(label(t("dup.in_playlists", names=", ".join(it.playlists)) if it.playlists
                                         else t("dup.in_no_playlist"), "dim", wrap=True))
         if it.offline:
-            self.detail_lay.addWidget(label(t("missing.offline"), "warn", wrap=True))
+            self.detail_lay.addWidget(label(t("missing.offline", drive=it.volume or "?"), "warn", wrap=True))
         self.detail_lay.addSpacing(theme.px(6))
         self.detail_lay.addWidget(label(t("missing.what"), "dim"))
         default = None

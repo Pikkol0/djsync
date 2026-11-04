@@ -44,7 +44,7 @@ class HelpDialog(BaseDialog):
         tabs = QTabWidget()
         self.tabs = tabs
 
-        first = QWidget()                                   # 1.3.2 (C68) : premiers pas + FAQ
+        first = QWidget()                                   # 1.3.2 (C68) : premiers pas
         lay = vbox(first, margins=theme.px(8), spacing=theme.px(4))
         lay.addWidget(label(t("start.intro"), "dim", wrap=True))
         for k in range(1, 7):
@@ -53,11 +53,7 @@ class HelpDialog(BaseDialog):
             lay.addSpacing(theme.px(6))
             lay.addWidget(title)
             lay.addWidget(label(t(f"start.s{k}"), "dim", wrap=True))
-        lay.addSpacing(theme.px(10))
-        lay.addWidget(label(t("start.faq"), "h2"))
-        for k in range(1, 6):
-            lay.addWidget(label("• " + t(f"start.q{k}"), "dim", wrap=True))
-        lay.addStretch(1)
+        lay.addStretch(1)                                   # 1.3.2-rc.2 (C68) : FAQ retirée
         tabs.addTab(_scroll(first), t("start.tab"))
 
         sc = QWidget()

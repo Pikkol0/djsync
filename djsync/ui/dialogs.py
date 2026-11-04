@@ -22,6 +22,8 @@ class BaseDialog(QDialog):
     # 1.2.3 (retour testeur Mac) : affiché comme une page de la fenêtre principale (bouton Retour),
     # pas comme une fenêtre séparée. Doublons, Diagnostic, Analyse.
     as_page = False
+    # 1.3.2-rc.2 (B47) : Retour (et Échap) quittent la page sans la fermer ; seul « Fermer » la ferme
+    back_keeps_page = False
 
     def __init__(self, parent: Any, title: str, width: int = 440, height: int = 0) -> None:
         win = parent.window() if parent is not None else None
@@ -33,7 +35,7 @@ class BaseDialog(QDialog):
             self.setModal(False)
             self.body = vbox(self, margins=theme.px(16), spacing=theme.px(8))
             top = hbox(spacing=theme.px(8))
-            top.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
+            top.addWidget(button(t("grid.back"), self.go_back, kind="flat", icon="back"))
             top.addStretch(1)
             self.body.addLayout(top)
             self._closed = False
@@ -103,9 +105,16 @@ class BaseDialog(QDialog):
             return result
         return super().close()
 
+    def go_back(self) -> None:
+        """Bouton Retour d'une page : la ferme, sauf `back_keeps_page` (B47) où elle reste ouverte derrière."""
+        if self._host is not None and self.back_keeps_page and hasattr(self._host, "leave_dialog_page"):
+            self._host.leave_dialog_page(self)
+            return
+        self.close()
+
     def reject(self) -> None:                     # Échap : sur une page, comme le bouton Retour
         if self._host is not None:
-            self.close()
+            self.go_back()
             return
         super().reject()
 
