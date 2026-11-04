@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import List
 
-THANKS: List[str] = ["Tazyh", "Vogue", "Paf", "Kuss"]
+THANKS: List[str] = ["Tazyh"]          # 1.3.2-rc.2 (C119) : seul nom gardé, pour son aide aux tests
 
 
 def names(lang: str = "en") -> str:

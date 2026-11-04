@@ -45,9 +45,9 @@ def test_thanks_in_one_place():
 
     from djsync.credits import THANKS, thanks_text
 
-    assert THANKS == ["Tazyh", "Vogue", "Paf", "Kuss"]
-    assert "Tazyh, Vogue, Paf and Kuss" in thanks_text("en")
-    assert "Tazyh, Vogue, Paf et Kuss" in thanks_text("fr")
+    assert THANKS == ["Tazyh"]                                  # 1.3.2-rc.2 (C119)
+    assert thanks_text("en") == "A huge thank you to Tazyh for helping with testing."
+    assert thanks_text("fr") == "Un grand merci à Tazyh pour son aide aux tests."
     readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
     head = readme[:readme.index("---")]                       # tout en haut, avant la présentation
     assert thanks_text("en") in head and thanks_text("fr") in head

@@ -18,8 +18,8 @@
 
 <p align="center">
   🙏 <b>Thanks / Merci</b><br>
-  A huge thank you to Tazyh, Vogue, Paf and Kuss for sharing their resources and testing, and for helping make this project happen.<br>
-  <i>Un grand merci à Tazyh, Vogue, Paf et Kuss pour la mise à disposition de leurs ressources, leurs tests et leur aide pour mener ce projet à bien.</i>
+  A huge thank you to Tazyh for helping with testing.<br>
+  <i>Un grand merci à Tazyh pour son aide aux tests.</i>
 </p>
 
 ---
