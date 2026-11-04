@@ -10,7 +10,29 @@ from __future__ import annotations
 from typing import Optional
 
 GOOD, FAIR, WARN, BAD, NEUTRAL = "good", "fair", "warn", "bad", "neutral"
-CHIP_ROLE = {GOOD: "chip_good", FAIR: "chip_fair", WARN: "chip_warn", BAD: "chip_bad", NEUTRAL: "chip"}
+GOLD, SILVER = "gold", "silver"          # 1.4.0 (C10) : sans perte / 320 kbps mis en avant
+CHIP_ROLE = {GOOD: "chip_good", FAIR: "chip_fair", WARN: "chip_warn", BAD: "chip_bad", NEUTRAL: "chip",
+             GOLD: "chip_gold", SILVER: "chip_silver"}
+
+
+def tier(kbps: Optional[int], lossless: bool = False) -> Optional[str]:
+    """1.4.0 (C10) : « gold » pour le sans perte, « silver » pour 320 kbps, sinon None."""
+    if lossless:
+        return GOLD
+    return SILVER if kbps and kbps >= 300 else None
+
+
+def tier_chip(kbps: Optional[int], lossless: bool = False, label: str = "") -> Optional[object]:
+    """Badge doré / argenté (QLabel) ou None. `label` : texte (sinon « Sans perte » / « 320 »)."""
+    level = tier(kbps, lossless)
+    if level is None:
+        return None
+    from ..i18n import t
+    from .widgets import chip
+
+    c = chip(label or (t("quality.lossless") if level == GOLD else t("quality.320")), CHIP_ROLE[level])
+    c.setToolTip(t("quality.lossless_tip") if level == GOLD else t("quality.320_tip"))
+    return c
 
 
 def similarity(pct: float) -> str:
@@ -66,7 +88,13 @@ def audio_text(info, file_type: int = 0, missing: bool = False):
             parts.append(f"{info.bitrate} kbps")
         if info.sample_rate:
             parts.append(f"{info.sample_rate / 1000:g} kHz")
-        return " · ".join(parts), audio_quality(info.bitrate, info.lossless)
+        real = getattr(info, "real_label", "")
+        if real:                                   # 1.4.0 (C46) : faux sans perte / faux 320
+            from ..i18n import t
+
+            parts.append(t("quality.real", value=real))
+            return " · ".join(parts), audio_quality(info.effective_kbps)
+        return " · ".join(parts), tier(info.bitrate, info.lossless) or audio_quality(info.bitrate, info.lossless)
     return _FORMATS.get(file_type, ""), NEUTRAL
 
 
@@ -104,4 +132,5 @@ def html(text: str, level: str) -> str:
         return ""
     if level == NEUTRAL:
         return escape(text)
-    return f'<span style="color:{color(level)}">{escape(text)}</span>'
+    weight = "font-weight:700;" if level in (GOLD, SILVER) else ""
+    return f'<span style="color:{color(level)};{weight}">{escape(text)}</span>'

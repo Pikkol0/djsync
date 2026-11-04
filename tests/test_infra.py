@@ -95,13 +95,14 @@ def test_palettes():
     pytest.importorskip("PySide6")
     from djsync.ui import theme
 
-    assert len(theme.PALETTES) == 20 and theme.DEFAULT_THEME == "violet_light"
+    assert len(theme.PALETTES) == 12 and theme.DEFAULT_THEME == "violet_light"     # 1.4.0 (C50)
     for name, accent in theme.PALETTES.items():
         assert i18n.en.STRINGS[f"theme.{name}"] and i18n.fr.STRINGS[f"theme.{name}"]   # nom traduit
         colors = theme.palette_colors(accent)
         # texte posé sur l'accent lisible (le meilleur de noir/blanc donne toujours >= 4.4 : WCAG « grand texte » = 3)
         assert theme.contrast(colors["ACCENT"], colors["ON_ACCENT"]) >= 4.4, name
-    assert theme.apply_palette("cyan") == "cyan" and theme.ACCENT == "#36E2FF"
+    assert theme.apply_palette("turquoise") == "turquoise" and theme.ACCENT == "#2EE6C5"
+    assert theme.apply_palette("cyan") == "turquoise"                 # couleur retirée : la plus proche
     assert theme.apply_palette("inconnu") == "violet_light" and theme.ACCENT == "#B79CFF"
     assert theme.ACCENT in theme.stylesheet()
 

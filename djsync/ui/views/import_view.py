@@ -244,7 +244,10 @@ class ImportView(View):
         self.sp_table.set_rows([self._sp_row(i, m) for i, m in enumerate(self.matches)], reset_sort=True,
                                keep_selection=False)
         n = len(self.matches)
-        note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+        if "spotify" in (playlist.source_url or ""):
+            note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+        else:                                                       # 1.4.0 (C86) : Deezer
+            note = "  ·  " + t("import.list_truncated", n=len(playlist.tracks)) if playlist.truncated else ""
         self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=0) + note)
 
         def on_item(i: int, cands: List[Candidate]) -> None:
@@ -351,6 +354,32 @@ class ImportView(View):
         self.info.setText(t("import.direct_info", source=source, name=resolved.name,
                             tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail)
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
+        if resolved.kind == UrlKind.SOUNDCLOUD:                         # 1.4.0 (C10.1)
+            self.ctrl.check_originals(resolved.tracks, self._originals_checked)
+
+    def _originals_checked(self, tracks: List[TrackResult]) -> None:
+        if self.mode != "direct" or not self.winfo_exists():
+            return
+        from dataclasses import replace
+
+        for tr in tracks:
+            old = self._tracks.get(tr.video_id)
+            if old is None:
+                continue
+            new = replace(old, original_available=tr.original_available, free_download_url=tr.free_download_url)
+            self._tracks[tr.video_id] = new
+            row = self.dl_table.row(tr.video_id)
+            if row is not None:
+                row.data = new
+                fresh = result_row(new)
+                self.dl_table.update_values(tr.video_id, source=fresh.values["source"],
+                                            source__color=fresh.values.get("source__color"))
+        n = sum(1 for tr in tracks if tr.original_available)
+        if n:
+            self.info.setText(self.info.text() + "  ·  " + plural("sc.originals_one", "sc.originals_many", n))
+        n = sum(1 for tr in tracks if tr.free_download_url and not tr.original_available)
+        if n:
+            self.info.setText(self.info.text() + "  ·  " + plural("sc.free_one", "sc.free_many", n))
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
         for tr in tracks:
@@ -436,6 +465,21 @@ class ImportView(View):
         entries: list = [(t("action.listen"), self._preview)]
         if self.mode == "spotify":
             entries.append((t("import.other_match"), self._cycle))
+        picked = [self._tracks[i] for i in iids if i in self._tracks] if self.mode == "direct" else []
+        if any(x.source == "soundcloud" for x in picked):                 # 1.4.0 (C10.1) : au choix
+            name = self.resolved.name if self.resolved and self.resolved.is_playlist else ""
+            if any(x.original_available for x in picked):
+                entries.append((t("sc.download_original"),
+                                lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=True)))
+            entries.append((t("sc.download_stream"),
+                            lambda: ask_and_download(self, self.ctrl, picked, new_name=name, original=False)))
+            if len(picked) == 1 and picked[0].free_download_url:        # 1.4.0 (C45)
+                url = picked[0].free_download_url
+                entries.append((t("sc.free_open"), lambda: self.ctrl._emit("open_url", url), "download"))
+        if len(picked) == 1:
+            from .common import buy_entry
+
+            entries.append(buy_entry(self.ctrl, picked[0].artist, picked[0].title))
         return entries
 
     def _library_changed(self) -> None:

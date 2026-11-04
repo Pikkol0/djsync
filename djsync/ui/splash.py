@@ -48,7 +48,9 @@ def _saved_accent() -> str:
         theme = json.loads(Settings.path().read_text(encoding="utf-8")).get("theme", DEFAULT_THEME)
     except Exception:  # noqa: BLE001 - pas encore de réglages : couleur par défaut
         theme = DEFAULT_THEME
-    return PALETTES.get(theme, PALETTES[DEFAULT_THEME])
+    from .palettes import RETIRED
+
+    return PALETTES.get(RETIRED.get(theme, theme), PALETTES[DEFAULT_THEME])
 
 
 class Splash:

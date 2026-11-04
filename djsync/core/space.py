@@ -16,13 +16,13 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
 # Postes, dans l'ordre de la barre (« other » et « free » sont calculés)
 USB_PARTS = ("music", "analysis", "databases", "backups", "app", "caches", "other", "free")
-LOCAL_PARTS = ("music", "analysis", "databases", "backups", "caches", "free")   # 1.3.1-rc.2 (C27)
+LOCAL_PARTS = ("music", "analysis", "databases", "backups", "caches", "other", "free")   # C27 ; « other » : C129
 LOW_FREE = 0.10              # alerte : moins de 10 % libre
 BACKUPS_HEAVY = 0.25         # alerte : les sauvegardes dépassent 25 % de l'espace occupé par DJSync et la musique
 CACHE_SECONDS = 300
@@ -35,6 +35,12 @@ class Usage:
     free: int = 0
     folders: Dict[str, Path] = field(default_factory=dict)   # poste -> dossier à ouvrir
     at: float = 0.0
+    music_elsewhere: Dict[str, int] = field(default_factory=dict)   # 1.4.0 (C129) : disque -> musique ailleurs
+
+    @property
+    def library(self) -> int:
+        """1.4.0 (C129) : place prise par la bibliothèque (tous les postes sauf « autres » et « libre »)."""
+        return sum(v for k, v in self.parts.items() if k not in ("other", "free", "app"))
 
     @property
     def used(self) -> int:
@@ -132,26 +138,54 @@ def usb_usage(root: Path, contents_dir: str = "Contents", data_dir: Optional[Pat
     return Usage(parts, total, free, {k: v for k, v in folders.items() if v.exists()}, time.time())
 
 
-def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path, track_bytes: Optional[int] = None,
+def drive_of(path: Any) -> str:
+    """1.4.0 (C129) : disque d'un chemin (« C:\\ » sous Windows, point de montage ailleurs)."""
+    p = Path(str(path))
+    if p.anchor and p.drive:
+        return p.anchor
+    try:
+        q = p if p.exists() else p.parent
+        while not os.path.ismount(q) and q.parent != q:
+            q = q.parent
+        return str(q)
+    except OSError:
+        return p.anchor or "/"
+
+
+def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path, track_bytes: Any = None,
                 share_dir: Optional[Path] = None, db_dir: Optional[Path] = None) -> Usage:
-    """Bibliothèque de l'ordinateur, comme Rekordbox la voit (1.3.1-rc.2, C27 : avant, seulement le dossier
-    de téléchargement de DJSync, presque vide quand la musique est rangée ailleurs) :
-      * Musique : taille des fichiers des sons de la collection (`track_bytes`, lue dans master.db) ;
-        à défaut, le dossier de téléchargement de DJSync ;
-      * Analyses et pochettes : dossier de partage de Rekordbox (PIONEER/share) ;
-      * Bases Rekordbox : master.db et ses fichiers (-wal, -shm, sauvegardes de Rekordbox) ;
-      * Sauvegardes DJSync, Caches, Libre (disque de la musique)."""
+    """Bibliothèque de l'ordinateur, comme Rekordbox la voit (C27) :
+      * Musique : taille des fichiers des sons de la collection (`track_bytes`, lue dans master.db : un
+        nombre, ou {disque: octets} quand la musique est sur plusieurs disques) ; à défaut, le dossier de
+        téléchargement de DJSync ;
+      * Analyses et pochettes, Bases Rekordbox, Sauvegardes DJSync, Caches ;
+      * 1.4.0 (C129) : la barre couvre tout le disque principal (celui qui a le plus de musique) : postes de
+        la bibliothèque sur ce disque, puis « Autres fichiers » (le reste de l'occupé), puis Libre ; la
+        musique rangée sur d'autres disques est donnée à part (`music_elsewhere`)."""
     cache = Path(data_dir) / "cache"
-    music = int(track_bytes) if track_bytes is not None else _sizes([Path(music_dir)])
+    elsewhere: Dict[str, int] = {}
+    if isinstance(track_bytes, dict) and track_bytes:
+        main = max(track_bytes, key=lambda d: track_bytes[d])
+        music = int(track_bytes[main])
+        elsewhere = {d: int(b) for d, b in track_bytes.items() if d != main and b}
+        disk_root = Path(main)
+    else:
+        music = int(track_bytes) if track_bytes is not None else _sizes([Path(music_dir)])
+        disk_root = Path(music_dir)
     dbs = sorted(Path(db_dir).glob("master*")) if db_dir is not None and Path(db_dir).is_dir() else []
     parts = {"music": music, "analysis": _sizes([Path(share_dir)]) if share_dir is not None else 0,
              "databases": _sizes(dbs), "backups": _sizes([Path(backup_dir)]), "caches": _sizes([cache])}
-    total, free = _disk(Path(music_dir))
+    total, free = _disk(disk_root)
+    where = {"analysis": share_dir, "databases": db_dir, "backups": backup_dir, "caches": cache}
+    main_drive = drive_of(disk_root)
+    on_disk = parts["music"] + sum(parts[k] for k, p in where.items() if p is not None and drive_of(p) == main_drive)
+    parts["other"] = max(0, (total - free) - on_disk) if total else 0
     parts["free"] = free
     folders = {"music": Path(music_dir), "analysis": Path(share_dir) if share_dir is not None else None,
                "databases": Path(db_dir) if db_dir is not None else None, "backups": Path(backup_dir),
                "caches": cache}
-    return Usage(parts, total, free, {k: v for k, v in folders.items() if v is not None and v.exists()}, time.time())
+    return Usage(parts, total, free, {k: v for k, v in folders.items() if v is not None and v.exists()}, time.time(),
+                 elsewhere)
 
 
 def _on(root: Path, p: Path) -> bool:

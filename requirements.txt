@@ -14,6 +14,9 @@ numpy>=1.24                # local audio analysis: BPM, key, ANLZ waveforms
 rapidfuzz>=3.6.0           # duplicates + Spotify -> YouTube Music matching
 requests>=2.31.0           # artwork, public Spotify page
 
+# --- Soulseek, high quality search (1.4.0, off by default) ---
+aioslsk>=1.7,<2            # Soulseek protocol in Python (GPL-3.0-or-later), no server to install
+
 # --- exportLibrary.db (SQLCipher 4 encrypted, WAL mode) ---
 sqlcipher3-wheels>=0.5.5   # replaces sqlite3: the standard module CANNOT open this database
 

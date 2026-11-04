@@ -20,6 +20,8 @@ Their source code is available at the addresses below.
 | [Pillow](https://python-pillow.org/) | artwork, icons | MIT-CMU (HPND) |
 | [miniaudio](https://github.com/irmen/pyminiaudio) | audio player | MIT |
 | [requests](https://requests.readthedocs.io/) | artwork, Spotify pages | Apache-2.0 |
+| [aioslsk](https://github.com/JurgenR/aioslsk) | Soulseek protocol (off by default) | GPL-3.0-or-later |
+| [pydantic](https://github.com/pydantic/pydantic), [async-upnp-client](https://github.com/StevenLooman/async_upnp_client), [aiohttp](https://github.com/aio-libs/aiohttp), aiofiles, multidict | used by aioslsk | MIT / Apache-2.0 |
 | [psutil](https://github.com/giampaolo/psutil) | "is Rekordbox open?" | BSD-3-Clause |
 | [rkbdb2xml](https://github.com/kuwa72/rkbdb2xml) (algorithm, re-implemented in `djsync/analysis/anlz.py`) | analysis folder names computed like Rekordbox | MIT |
 | [miniz](https://github.com/richgel999/miniz) (`packaging/launcher`) | single-file Windows launcher | MIT |

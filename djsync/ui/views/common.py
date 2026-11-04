@@ -120,6 +120,33 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         "lib": t("track.already") if track.is_duplicate else "", "dl": DOWNLOAD_GLYPH,
         "source": track.source_label,
     }
+    if track.slsk is not None:                 # 1.4.0 (C10.2) : Soulseek, qualité annoncée en doré / argenté
+        from .. import theme
+
+        r = track.slsk
+        values["source"] = f"Soulseek · {r.quality_label()}"
+        if r.lossless or r.bitrate >= 300:
+            values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
+        values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
+        values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
+    elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
+        from .. import theme
+
+        values["source"] = " · ".join(x for x in (track.source_label, track.quality, track.license) if x)
+        if track.quality in ("FLAC", "WAV", "AIFF"):
+            values["source__color"] = theme.GOLD
+        elif "320" in track.quality:
+            values["source__color"] = theme.SILVER
+    elif track.original_available:             # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
+        from .. import theme
+
+        values["source"] = f"{track.source_label} · {t('sc.original_short')}"
+        values["source__color"] = theme.GOLD
+    elif track.free_download_url:              # 1.4.0 (C45) : téléchargement gratuit proposé par l'artiste
+        from .. import theme
+
+        values["source"] = f"{track.source_label} · {t('sc.free_short')}"
+        values["source__color"] = theme.SILVER
     if track.is_album:                         # 1.2.1 (C09) : une ligne par album, s'ouvre au double-clic
         values.update(artist=" · ".join(x for x in (track.artist, track.album or "") if x), views="", duration="",
                       lib="", dl="›")
@@ -128,7 +155,16 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
     return Row(track.video_id, values, ("dup",) if track.is_duplicate else (), track)
 
 
-def ask_and_download(parent: Any, ctrl: Any, tracks: Sequence[TrackResult], new_name: str = "") -> None:
+def buy_entry(ctrl: Any, artist: str, title: str) -> Any:
+    """1.4.0 (C10.3) : sous-menu « Acheter (WAV / AIFF / FLAC) » vers les magasins, recherche déjà tapée."""
+    from ...core.buy import links
+
+    return (t("buy.menu"), [(name, lambda u=url: ctrl._emit("open_url", u)) for name, url in links(artist, title)],
+            "download")
+
+
+def ask_and_download(parent: Any, ctrl: Any, tracks: Sequence[TrackResult], new_name: str = "",
+                     original: Optional[bool] = None) -> None:
     """Popup « playlists de destination » puis mise en file des téléchargements."""
     if not tracks:
         return
@@ -141,6 +177,6 @@ def ask_and_download(parent: Any, ctrl: Any, tracks: Sequence[TrackResult], new_
         sub += " " + plural("dl.already_one", "dl.already_many", dups)
     PlaylistPicker(
         parent, ctrl, t("dl.picker_title"), t("dl.picker_ok", n=len(tracks)),
-        on_ok=lambda ids: ctrl.enqueue(list(tracks), ids), multi=True,
+        on_ok=lambda ids: ctrl.enqueue(list(tracks), ids, original=original), multi=True,
         preselect=ctrl.last_playlist_ids, new_name=new_name, allow_empty=True, subtitle=sub,
     )

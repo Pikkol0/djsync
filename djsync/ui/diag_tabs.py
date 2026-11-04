@@ -14,8 +14,8 @@ from ..i18n import t
 from . import theme
 from .widgets import hbox
 
-TABS = ("missing", "dup", "quality", "uniformize")
-ICONS = {"missing": "warn", "dup": "duplicates", "quality": "wave", "uniformize": "tag"}
+TABS = ("missing", "dup", "quality", "improve", "uniformize")      # 1.4.0 (C47) : « Améliorer »
+ICONS = {"missing": "warn", "dup": "duplicates", "quality": "wave", "improve": "download", "uniformize": "tag"}
 
 
 class DiagTabs(QWidget):

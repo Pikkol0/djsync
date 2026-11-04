@@ -77,6 +77,14 @@ class SpaceCard:
         top.addWidget(self.refresh_btn)
         layout.addLayout(top)
         self.bar = SpaceBar()
+        from PySide6.QtWidgets import QProgressBar
+
+        self.busy = QProgressBar()                  # 1.4.0 (C27) : indéterminée pendant la mesure
+        self.busy.setRange(0, 0)
+        self.busy.setTextVisible(False)
+        self.busy.setMaximumHeight(6)
+        self.busy.setVisible(False)
+        layout.addWidget(self.busy)
         layout.addWidget(self.bar)
         self.warn = label("", "warn", wrap=True)
         self.warn.hide()
@@ -136,6 +144,7 @@ class SpaceCard:
         self._token += 1
         token = self._token
         self.summary.setText(t("space.computing"))
+        self.busy.setVisible(True)                  # 1.4.0 (C27) : barre d'attente pendant la mesure
         self.refresh_btn.setEnabled(False)
 
         def work(track_bytes: Optional[int] = None) -> space.Usage:
@@ -157,6 +166,7 @@ class SpaceCard:
             if token == self._token:
                 self._pending = None
                 self.refresh_btn.setEnabled(True)
+                self.busy.setVisible(False)
                 self.summary.setText(t("space.failed"))
             if done:
                 done(None)
@@ -167,10 +177,17 @@ class SpaceCard:
 
         # 1.3.1-rc.2 (C27) : ordinateur : taille des sons de la collection lue dans master.db (thread de la
         # base), puis le reste mesuré sur le disque (thread des outils).
-        def sizes() -> int:
-            return sum(int(getattr(x, "file_size", 0) or 0) for x in target["lib"].list_tracks())
+        def sizes() -> Dict[str, int]:
+            """1.4.0 (C129) : taille des sons de la collection, par disque."""
+            out: Dict[str, int] = {}
+            for x in target["lib"].list_tracks():
+                n = int(getattr(x, "file_size", 0) or 0)
+                if n:
+                    d = space.drive_of(x.path or "")
+                    out[d] = out.get(d, 0) + n
+            return out
 
-        def measured(total: int) -> None:
+        def measured(total: Any) -> None:
             self.ctrl.dispatcher.submit(lambda: work(total), ok, failed, pool="tools")
 
         self.ctrl.dispatcher.submit(sizes, measured, failed, pool="db")
@@ -179,7 +196,15 @@ class SpaceCard:
     def _show(self, usage: space.Usage, target: Dict[str, Any]) -> None:
         self.usage = usage
         self.refresh_btn.setEnabled(True)
-        self.summary.setText(t("space.summary", free=human_size(usage.free), total=human_size(usage.total)))
+        self.busy.setVisible(False)
+        text = t("space.summary", free=human_size(usage.free), total=human_size(usage.total))
+        if usage.total:                             # 1.4.0 (C129) : part de la bibliothèque sur tout le disque
+            text = t("space.summary_lib", lib=human_size(usage.library),
+                     pct=f"{100.0 * usage.library / usage.total:.1f}", other=human_size(usage.parts.get("other", 0)),
+                     free=human_size(usage.free), total=human_size(usage.total))
+        for drive, size in sorted(getattr(usage, "music_elsewhere", {}).items()):
+            text += "\n" + t("space.music_elsewhere", size=human_size(size), drive=drive)
+        self.summary.setText(text)
         self.bar.set_parts(usage.parts)
         warns = usage.warnings()
         texts = [t(f"space.warn_{w}") for w in warns]

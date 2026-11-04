@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from ..models import Candidate, DownloadedTrack, ResolvedUrl, SearchMode, SpotifyPlaylist, SpotifyTrack, TrackResult, UrlKind
 from .downloader import Downloader, ProgressCallback
@@ -48,6 +48,18 @@ class MusicService:
         self._downloader = Downloader(ffmpeg_location=ffmpeg_location,
                                       audio_format=getattr(old, "audio_format", "m4a"),
                                       normalize=getattr(old, "normalize", False))
+        self._downloader.soundcloud_auth = dict(getattr(old, "soundcloud_auth", {}) or {})
+        self._downloader.youtube_best = bool(getattr(old, "youtube_best", False))
+        self._downloader.youtube_auth = dict(getattr(old, "youtube_auth", {}) or {})
+
+    def set_soundcloud_auth(self, auth: Dict[str, Any]) -> None:
+        """1.4.0 (C10.1) : compte SoundCloud (cookies d'un navigateur ou jeton) pour le fichier d'origine."""
+        self._downloader.soundcloud_auth = dict(auth or {})
+
+    def set_youtube(self, best: bool, auth: Dict[str, Any]) -> None:
+        """1.4.0 (C48) : meilleur flux YouTube et compte (cookies d'un navigateur, YouTube Premium)."""
+        self._downloader.youtube_best = bool(best)
+        self._downloader.youtube_auth = dict(auth or {})
 
     def set_output(self, audio_format: str, normalize: bool) -> None:
         """Format des téléchargements (m4a natif | mp3 320) et normalisation du volume."""
@@ -97,6 +109,12 @@ class MusicService:
     def fetch_spotify(self, url: str) -> SpotifyPlaylist:
         """Playlist / album / titre Spotify (réseau : hors thread UI)."""
         return fetch_spotify(url)
+
+    def fetch_deezer(self, url: str) -> SpotifyPlaylist:
+        """1.4.0 (C86) : playlist / album / titre Deezer public (réseau : hors thread UI)."""
+        from .deezer import fetch_deezer
+
+        return fetch_deezer(url)
 
     def resolve_direct(self, url: str) -> ResolvedUrl:
         """YouTube / SoundCloud : morceaux listés par yt-dlp, doublons marqués, SANS recherche."""
