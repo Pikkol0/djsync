@@ -15,6 +15,8 @@ Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi :
 ## 1.3.2-rc.2 : correctifs après les tests de la rc.1 (02/11)
 Refont les tests KO de la rc.1 (colonne « Refait ») et couvrent les signalements de testeurs du 02/11.
 
+**Sous Windows et sur Mac** (le testeur Mac fait la partie Mac) : DEM-11, PAR-3, PAR-4, PAR-5, BIB-4, BIB-5, BIB-6, REC-1, ANA-3 (clé débranchée = `/Volumes/…`), DIA-1, DOU-15, DOU-16, LEC-5, MAJ-5. Windows seulement : DEM-10.
+
 | # | Refait | Étapes | Attendu |
 |---|---|---|---|
 | DEM-8 | DEM-3 | (**C68**) Aide ▸ onglet **Premiers pas** ; README. | Les six étapes seulement : plus de « Questions fréquentes », ni dans l'app ni dans le README. |
