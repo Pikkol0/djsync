@@ -158,7 +158,9 @@ def _process_names() -> List[str]:
         try:
             return _windows_process_names()
         except (OSError, AttributeError, ValueError) as exc:   # repli : psutil, noms seulement (pas l'état)
-            log.debug("Process snapshot: %s", exc)
+            if not globals().get("_SNAPSHOT_LOGGED"):     # 1.3.2 (B52) : dit une fois si le relevé rapide échoue
+                globals()["_SNAPSHOT_LOGGED"] = True
+                log.info("Fast process list unavailable (%s): using psutil", exc)
             import psutil
 
             return [p.info.get("name") or "" for p in psutil.process_iter(["name"])]
@@ -418,6 +420,12 @@ class LocalRekordboxLibrary:
             self.refresh()
 
     def close(self) -> None:
+        reader = self.__dict__.pop("_reader", None)
+        if reader is not None:                      # 1.3.2 (B52)
+            try:
+                reader.close()
+            except Exception:  # noqa: BLE001
+                pass
         with self._lock:
             if self._db is not None:
                 try:
@@ -646,8 +654,40 @@ class LocalRekordboxLibrary:
             raise PlaylistNotFoundError(f"Playlist not found (id {playlist_id}).")
         return p
 
+    def _read_fast(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:
+        """1.3.2 (B52) : lecture par une 2e connexion à master.db, sans le verrou de la bibliothèque : une
+        playlist s'ouvre pendant qu'un téléchargement écrit (la base est en WAL : on lit la dernière version
+        validée). Rouverte si Rekordbox a remplacé le fichier ; au moindre problème, lecture normale."""
+        from sqlalchemy import text
+
+        if getattr(self, "_closed_by", None) is not None and self._db is None:
+            return self._read(sql, params)
+        lock = self.__dict__.setdefault("_reader_lock", threading.Lock())
+        try:
+            with lock:
+                ident = self._identity()[:2]
+                reader = getattr(self, "_reader", None)
+                if reader is None or getattr(self, "_reader_id", None) != ident:
+                    if reader is not None:
+                        try:
+                            reader.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                    from pyrekordbox.masterdb import MasterDatabase
+
+                    reader = self._reader = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
+                    self._reader_id = ident
+                try:
+                    return [tuple(r) for r in reader.session.execute(text(sql), params or {}).fetchall()]
+                finally:
+                    reader.session.rollback()
+        except Exception as exc:  # noqa: BLE001 - la lecture normale prend le relais
+            log.info("Separate read connection unavailable (%s): normal read", exc)
+            self._reader = None
+            return self._read(sql, params)
+
     def get_playlist_tracks(self, playlist_id: int) -> List[LibraryTrack]:
-        rows = self._read(
+        rows = self._read_fast(
             _TRACK_SQL.replace("SELECT ", "SELECT sp.TrackNo, ", 1)
             + "JOIN djmdSongPlaylist sp ON sp.ContentID = c.ID "
             f"WHERE sp.PlaylistID = :pid AND COALESCE(sp.rb_local_deleted,0) = 0 AND {_VISIBLE} ORDER BY sp.TrackNo",
