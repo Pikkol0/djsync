@@ -249,3 +249,9 @@ def test_b52_never_connected_still_raises(tmp_path):
                                   owned_path=tmp_path / "o.json")
     with pytest.raises(L.LibraryError):
         lib._session_db()
+
+
+def test_c27_computer_tracks_carry_their_file_size(local):
+    """1.4.0 (C27) : la carte Espace occupé additionne la taille des sons de master.db ; elle valait 0."""
+    sizes = [x.file_size for x in local.list_tracks()]
+    assert sizes and sum(sizes) > 0

@@ -286,7 +286,8 @@ def _extras(x: Sequence[Any], comment: Any) -> Dict[str, Any]:
     genre, label, year, bitrate, rate, rating, color, plays, created, size = x[:10]
     return dict(genre=genre or "", label=label or "", year=_num(year), bitrate=_num(bitrate), sample_rate=_num(rate),
                 rating=max(0, min(5, _num(rating))), color=_num(color), play_count=_num(plays),
-                created=str(created or "")[:10], comment=str(comment or ""))
+                created=str(created or "")[:10], comment=str(comment or ""),
+                file_size=_num(size))       # 1.4.0 (C27) : lue mais jamais transmise, d'où « Musique 0 B »
 
 
 class LocalRekordboxLibrary:
