@@ -424,6 +424,12 @@ class LocalRekordboxLibrary:
                 except Exception:  # noqa: BLE001
                     pass
                 self._db = None
+                # 1.3.2-rc.6 (B52) : qui l'a fermée (une lecture arrivée ensuite rouvre la base, voir _session_db)
+                import traceback
+
+                frames = traceback.extract_stack(limit=6)[:-1]
+                self._closed_by = " < ".join(f"{f.name} ({Path(f.filename).name}:{f.lineno})" for f in reversed(frames))
+                log.info("Computer library closed by %s", self._closed_by)
 
     def __enter__(self) -> "LocalRekordboxLibrary":
         return self.connect()
@@ -433,7 +439,15 @@ class LocalRekordboxLibrary:
 
     def _session_db(self) -> Any:
         if self._db is None:
-            raise LibraryError("Library not connected: call connect().")
+            closed_by = getattr(self, "_closed_by", None)
+            if closed_by is None:
+                raise LibraryError("Library not connected: call connect().")
+            # 1.3.2-rc.6 (B52) : une lecture (playlists, etc.) arrivée après une fermeture rouvre master.db au
+            # lieu d'échouer en silence (la Bibliothèque restait sur « chargement » sans fin).
+            with self._lock:
+                if self._db is None:
+                    log.warning("Computer library used after being closed (closed by %s): reopening it", closed_by)
+                    self._open_db()
         return self._db
 
     def _read(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:

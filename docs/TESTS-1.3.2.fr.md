@@ -8,9 +8,19 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
-1.3.2-rc.5, rc.4, rc.3 puis rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
+1.3.2-rc.6 à rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
+
+## 1.3.2-rc.6 : forme d'onde de Grille et cues, playlists en chargement (04/11)
+Le relevé de la rc.5 a montré la vraie cause du blocage toutes les ~8 s : le redessin de la forme d'onde 3 bandes (un point Qt par pixel), maintenant fait en bloc (~40 fois plus rapide).
+
+**Sous Windows** (et sur Mac par le testeur Mac) : GRI-6, BIB-9.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| GRI-6 | GRI-5 | (**B50**) Grille et cues : lire un son 2 min ; zoomer, dézoomer pendant la lecture ; puis Retours ▸ Envoyer mes logs. | Plus aucun freeze périodique ; forme d'onde identique (bleu, orange, blanc), nette à 200 %. Journal : pas de « UI blocked » ni d'« Audio late » réguliers. |
+| BIB-9 | — | (**B52**) Bibliothèque de l'ordinateur : télécharger et analyser une dizaine de sons, puis ouvrir plusieurs playlists ; Envoyer mes logs. | Les playlists s'ouvrent, jamais de chargement sans fin. Si la bibliothèque a été refermée entre-temps, le journal dit par quoi (« Computer library closed by … ») et « reopening it ». |
 
 ## 1.3.2-rc.5 : blocage toutes les ~8 s pendant la lecture (04/11)
 Refait le test KO de la rc.4 (GRI-4). La rc.4 a supprimé les saccades (vérification de Rekordbox) ; il restait un blocage de 250 à 780 ms toutes les ~8 s, image et son ensemble. La rc.5 fait le nettoyage de la mémoire de Python par petits passages réguliers, sans passage complet pendant la lecture, et écrit dans le journal ce qui bloque si un blocage reste.
