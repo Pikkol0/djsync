@@ -32,6 +32,8 @@ from .common import focus_list, View
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
 ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlist
+MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
+SPECIAL = (ALL, TODO, ORPH, MISS)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -137,7 +139,13 @@ class NavTree(QTreeWidget):
             e.setDropAction(Qt.CopyAction)
             e.accept()
             item = self.itemAt(e.position().toPoint())
-            self.setCurrentItem(item)
+            # 1.3.2-rc.2 (C56) : surligner la playlist visée SANS l'ouvrir. Avant, survoler une playlist
+            # pendant le glisser l'ouvrait ; le dépôt sur cette même playlist était alors ignoré.
+            old, self.view._reverting = self.view._reverting, True
+            try:
+                self.setCurrentItem(item)
+            finally:
+                self.view._reverting = old
         else:
             e.ignore()
 
@@ -239,6 +247,10 @@ class LibraryView(View):
         titles.addWidget(self.title_lbl)
         titles.addWidget(self.sub_lbl)
         head.addLayout(titles, 1)
+        self.miss_btn = button(t("missing.see_in_diagnostic"), lambda: self.window().open_diagnostic("missing"),
+                               icon="warn")                     # 1.3.2-rc.3 (C124) : vue « Introuvables »
+        self.miss_btn.hide()
+        head.addWidget(self.miss_btn)
         self.filter = line_edit(t("lib.filter"), "search")
         self.filter.setMaximumWidth(theme.px(240))
         self.filter.textEdited.connect(lambda _t: self._filter_changed())
@@ -324,6 +336,7 @@ class LibraryView(View):
         controller.on("player", lambda kind, _p: (self._mark_playing(), self._suggest_from_player())
                       if kind == "loaded" else None)
         controller.on("analysis", self._analysis_changed)
+        controller.on("missing_files", self._missing_changed)          # 1.3.2-rc.3 (C124)
         controller.on("show_unanalysed", self.show_unanalysed)
         controller.on("import_progress", self._import_progress)
         self._refresh_buttons()
@@ -420,9 +433,10 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats = data["playlists"], data["tracks"], data.get("stats", {})
             if full:
                 self.current, self._dirty = ALL, False
-            if self.current not in (ALL, TODO, ORPH) and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
+            if self.current not in SPECIAL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
             self._count_orphans()
+            self.ctrl.check_missing_files(self.all_tracks)              # 1.3.2-rc.3 (C124)
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
             ref = self.suggestions.ref                           # C30 : infos à jour (analyse, BPM)
@@ -462,7 +476,10 @@ class LibraryView(View):
         todo = self._unanalysed_count()
         item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
         orph = getattr(self, "_orphans", None)
-        item(None, ORPH, t("lib.orphans"), icon="playlist", count="" if orph is None else len(orph))   # C56
+        item(None, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                   # C56
+             count="" if orph is None else len(orph))
+        miss = len(self._missing_tracks())                                                            # C124
+        item(None, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -550,11 +567,16 @@ class LibraryView(View):
             if it is not None:
                 try:
                     it.setText(1, str(len(self._orphans)))
+                    color = theme.SKY if self._orphans else ""                       # 1.3.2-rc.2 (C56)
+                    it.setIcon(0, qicon("unlisted", 16, color or theme.DIM))
+                    it.setForeground(0, _qcolor(color or theme.TEXT))
                 except RuntimeError:
                     pass
             if not self._dirty and (self.current == ORPH or not self.table.isColumnHidden(
                     self.table.column_index("playlists"))):
                 self._fill_table()
+            elif self.current == ALL:
+                self._show_header()
 
         self.ctrl.playlist_membership(ids, ok)
 
@@ -584,7 +606,49 @@ class LibraryView(View):
         return [x for x in self.all_tracks if x.content_id in orph]
 
     def _unanalysed(self) -> List[LibraryTrack]:
-        return [x for x in self.all_tracks if not x.is_analysed]
+        """1.3.2-rc.3 (B49) : sans les sons dont le fichier est introuvable (ils ne peuvent pas l'être)."""
+        missing = self.ctrl.missing_files
+        return [x for x in self.all_tracks if not x.is_analysed and x.content_id not in missing]
+
+    def _missing_tracks(self) -> List[LibraryTrack]:
+        missing = self.ctrl.missing_files
+        return [x for x in self.all_tracks if x.content_id in missing]
+
+    def _missing_tip(self, cid: int) -> str:
+        drive = self.ctrl.missing_files.get(cid)
+        if drive is None:
+            return ""
+        return t("lib.missing_tip_offline", drive=drive) if drive else t("lib.missing_tip")
+
+    def _missing_changed(self) -> None:
+        """1.3.2-rc.3 (C124) : vérification des fichiers finie : compteurs de l'arbre et lignes à jour."""
+        if not self.winfo_exists():
+            return
+        for iid, n, color, icon in ((MISS, len(self._missing_tracks()), theme.ERR, "warn"),
+                                    (TODO, self._unanalysed_count(), theme.WARN, "wave")):
+            it = self._items.get(iid)
+            if it is None:
+                continue
+            try:
+                it.setText(1, str(n))
+                it.setIcon(0, qicon(icon, 16, color if n else theme.DIM))
+                it.setForeground(0, _qcolor(color if n else theme.TEXT))
+            except RuntimeError:
+                return
+        if self.current in (MISS, TODO) and not self._dirty:
+            self._fill_table()
+            return
+        for row in self.table.all_rows():
+            x = row.data
+            if x is None:
+                continue
+            tip = self._missing_tip(x.content_id)
+            want = bool(tip)
+            if want != ("missing" in row.tags) or row.values.get("_tip", "") != tip:
+                row.values["_tip"] = tip
+                tags = tuple(tg for tg in row.tags if tg != "missing") + (("missing",) if want else ())
+                self.table.set_tags(row.iid, *tags)
+        self._show_header()
 
     def _unanalysed_count(self) -> int:
         return len(self._unanalysed())
@@ -596,8 +660,8 @@ class LibraryView(View):
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
              "source": source_from_url(x.source_url), "grid": "1" if x.is_analysed else "", **extra_values(x),
-             **self._playlist_values(x)},
-            (), x,
+             **self._playlist_values(x), "_tip": self._missing_tip(x.content_id)},
+            ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
 
     def _playlist_values(self, x: LibraryTrack) -> Dict[str, str]:
@@ -626,6 +690,10 @@ class LibraryView(View):
         if self.current == ORPH:                                   # 1.3.2 (C56)
             self.table.set_empty("check", t("lib.empty_orphans_title"))
             self._apply_rows(self._orphan_tracks(), pos=False)
+            return
+        if self.current == MISS:                                   # 1.3.2-rc.3 (C124)
+            self.table.set_empty("check", t("lib.empty_missing_title"))
+            self._apply_rows(self._missing_tracks(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
@@ -661,6 +729,7 @@ class LibraryView(View):
         self._show_header()
 
     def _show_header(self) -> None:
+        self.miss_btn.setVisible(self.current == MISS and bool(self._missing_tracks()))
         if self.current == TODO:
             self.title_lbl.setText(t("lib.unanalysed"))
             parts = [plural("lib.tracks_one", "lib.tracks_many", self._unanalysed_count())]
@@ -672,8 +741,15 @@ class LibraryView(View):
             self.title_lbl.setText(t("lib.orphans"))
             n = len(self._orphan_tracks())
             parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
-            if n and not self.ctrl.is_local:
-                parts.append(t("lib.orphans_hint"))
+            if n:                                                  # 1.3.2-rc.2 (C56) : aussi sur l'ordinateur
+                parts.append(t("lib.orphans_hint_local" if self.ctrl.is_local else "lib.orphans_hint"))
+            self.sub_lbl.setText("  ·  ".join(parts))
+        elif self.current == MISS:                                 # 1.3.2-rc.3 (C124)
+            self.title_lbl.setText(t("lib.missing"))
+            n = len(self._missing_tracks())
+            parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
+            if n:
+                parts.append(t("lib.missing_hint"))
             self.sub_lbl.setText("  ·  ".join(parts))
         elif self.current == ALL:
             st = self.stats.get(0)
@@ -683,6 +759,9 @@ class LibraryView(View):
                 parts.append(total_duration(st.total_seconds))
             if st is not None and st.last_added:
                 parts.append(t("lib.last_added", date=st.last_added))
+            orph = getattr(self, "_orphans", None)                # 1.3.2-rc.2 (C56) : le rappel, visible ici
+            if orph:
+                parts.append(plural("lib.orphans_count_one", "lib.orphans_count_many", len(orph)))
             self.sub_lbl.setText("  ·  ".join(parts))
         elif self.playlist is not None:
             p = self.playlist
@@ -721,7 +800,8 @@ class LibraryView(View):
         for row in self.table.all_rows():
             want = row.iid == playing
             if want != ("playing" in row.tags):
-                self.table.set_tags(row.iid, *(("playing",) if want else ()))
+                keep = tuple(tg for tg in row.tags if tg != "playing")          # garde « missing » (C124)
+                self.table.set_tags(row.iid, *(keep + (("playing",) if want else ())))
 
     # ------------------------------------------------------------- filtre harmonique
     def _toggle_harmonic(self) -> None:
@@ -1116,7 +1196,11 @@ class LibraryView(View):
     def _nav_context(self, pos: Any) -> None:
         it = self.nav.itemAt(pos)
         iid = it.data(0, Qt.UserRole) if it is not None else None
-        if not iid or iid in (ALL, TODO, ORPH):
+        if iid == MISS:                                            # 1.3.2-rc.3 (C124)
+            popup_menu(self.nav, [(t("missing.see_in_diagnostic"), lambda: self.window().open_diagnostic("missing"),
+                                   "warn")], self.nav.viewport().mapToGlobal(pos))
+            return
+        if not iid or iid in SPECIAL:
             return
         self.nav.setCurrentItem(it)
         p = self._by_iid.get(iid)

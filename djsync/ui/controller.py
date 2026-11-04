@@ -117,6 +117,23 @@ def eject_volume(root: Any) -> bool:
         return False
 
 
+SLOW_POLL_S = 0.1          # 1.3.2-rc.4 (B50) : un contrôle des clés plus long est noté au journal
+_slow_polls = {"n": 0}
+
+
+def _note_slow_poll(base: float, drives: float, rekordbox: float, blank: float) -> None:
+    """1.3.2-rc.4 (B50) : durée de chaque partie du contrôle des clés, notée si le total dépasse 100 ms
+    (les 5 premières fois, puis une fois sur 50), pour retrouver ce qui fige l'app s'il en reste."""
+    total = base + drives + rekordbox + blank
+    if total < SLOW_POLL_S:
+        return
+    _slow_polls["n"] += 1
+    n = _slow_polls["n"]
+    if n <= 5 or n % 50 == 0:
+        log.info("Slow drive check: %.0f ms (open library %.0f, drives %.0f, Rekordbox %.0f, blank drives %.0f)"
+                 " [%d so far]", total * 1000, base * 1000, drives * 1000, rekordbox * 1000, blank * 1000, n)
+
+
 def _unprepared() -> List[Any]:
     """Clés sans bibliothèque (T02) ; jamais bloquant."""
     try:
@@ -685,11 +702,20 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         lib = self.library
 
         def probe() -> Any:
+            t0 = time.perf_counter()
             still = active is None or active.db_path.is_file()
             # rc.7 (B28) : clé là, mais base illisible = retirée puis rebranchée entre deux contrôles
             alive = lib.alive() if still and lib is not None and isinstance(active, UsbDrive) and \
                 hasattr(lib, "alive") else None
-            return (find_usb_drives(), still, _local.rekordbox_running(), _unprepared(), alive)
+            t1 = time.perf_counter()
+            drives = find_usb_drives()
+            t2 = time.perf_counter()
+            rb_open = _local.rekordbox_running()
+            t3 = time.perf_counter()
+            blank = _unprepared()
+            t4 = time.perf_counter()
+            _note_slow_poll(t1 - t0, t2 - t1, t3 - t2, t4 - t3)
+            return (drives, still, rb_open, blank, alive)
 
         def ok(result: Any) -> None:
             self._polling = False

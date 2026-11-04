@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -18,7 +19,21 @@ from ...models import LibraryTrack, PlaylistInfo
 
 Callback = Callable[[Any], None]
 log = logging.getLogger(__name__)
+PLAYBACK_YIELD_S = 0.15      # 1.3.2-rc.4 (B50) : pause avant chaque empreinte à calculer pendant la lecture
 FP_FAILURES_LOGGED = 5        # 1.3.0-rc.9 : « No fingerprint » détaillés au journal, ensuite comptés
+
+
+def missing_summary(missing: Dict[int, str]) -> str:
+    """1.3.2-rc.3 (B49) : « 49 fichiers introuvables (écartés) : 45 sur E: (pas branché) »."""
+    text = plural("analysis.missing_one", "analysis.missing_many", len(missing))
+    drives: Dict[str, int] = {}
+    for drive in missing.values():
+        if drive:
+            drives[drive] = drives.get(drive, 0) + 1
+    if drives:
+        return t("analysis.missing_detail", count=text,
+                 drives=", ".join(t("missing.offline_group", n=n, drive=d) for d, n in sorted(drives.items())))
+    return text + "."
 
 
 def pdb_warning(lib: Any, title: str = "") -> str:
@@ -93,6 +108,7 @@ class AnalysisQueue(TaskHandle):
         self.ids: set = set()            # sons en file ou en cours (pour l'affichage)
         self.current = ""
         self.ok = self.skipped = self.failed = 0
+        self.missing: Dict[int, str] = {}  # 1.3.2-rc.3 (B49) : fichier introuvable -> disque absent ou ""
         self.problems: List[str] = []
         self.on_done: List[Callable[[Any], None]] = []
         self.on_progress: List[Callable[[int, int, Optional[LibraryTrack], str], None]] = []
@@ -126,6 +142,7 @@ class AnalysisQueue(TaskHandle):
         with self._lock:
             self.total = self.done = self.ok = self.skipped = self.failed = 0
             self.pending, self.ids, self.forced, self.problems = [], set(), set(), []
+            self.missing = {}
             self.batch = []
             self.cancelled, self.current = False, ""
             self.on_done, self.on_progress = [], []
@@ -407,6 +424,8 @@ class LibraryOpsMixin:
                 q.current = track.display_name
             if problem:
                 q.problems.append(f"{track.display_name if track else '?'}: {problem}"[:160])
+                # 1.3.2-rc.2 (C76) : la raison d'un échec dans le journal (« 11 en échec » sans détail)
+                log.warning("Analysis failed for track %s: %s", track.content_id if track else "?", problem[:300])
             self.dispatcher.post(self._analysis_progress, q.done, q.total, track, problem)
 
         def work() -> Any:
@@ -417,6 +436,7 @@ class LibraryOpsMixin:
                 batch = q.take(1 if light else None)
                 if not batch or q.cancelled:
                     break
+                batch = self._skip_missing(lib, q, batch)        # 1.3.2-rc.3 (B49)
                 normal = [i for i in batch if i not in q.forced]
                 forced = [i for i in batch if i in q.forced]
                 for ids, force_it in ((normal, False), (forced, True)):
@@ -434,10 +454,16 @@ class LibraryOpsMixin:
             if result is not None:
                 ok_n, skipped, failed = result
                 text = t("msg.analysis_done", done=ok_n, skipped=skipped, failed=failed)
+                missing = dict(q.missing)
+                if missing:                    # 1.3.2-rc.3 (B49) : introuvables à part, pas en échec
+                    text += "  " + missing_summary(missing)
                 if q.cancelled:
                     text = t("msg.analysis_stopped") + "  " + text
                 warning = pdb_warning(lib)
-                self.message("warn" if (failed or warning) else "ok", warning or text)
+                self.message("warn" if (failed or warning or missing) else "ok", warning or text)
+                if missing and not warning:
+                    self._emit("message_action", t("missing.see_in_diagnostic"),
+                               lambda: self._emit("open_diagnostic", "missing"))
             self._emit("library")
             self._emit("analysis")
             for cb in list(q.on_done):
@@ -452,6 +478,82 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, finish, fail, pool="analysis")
         return q
+
+    def _skip_missing(self, lib: Any, q: "AnalysisQueue", batch: List[int]) -> List[int]:
+        """1.3.2-rc.3 (B49) : quel que soit le bouton qui a lancé l'analyse (« Tout analyser », Analyser de
+        la Bibliothèque, page Analyser), un son dont le fichier est introuvable n'est pas analysé ni compté
+        en échec : il est mis à part (« introuvable », disque absent nommé). Appelé dans le fil d'analyse."""
+        from .diagnostic import missing_reason
+
+        keep: List[int] = []
+        for cid in batch:
+            try:
+                track = lib.get_track(cid)
+            except Exception:  # noqa: BLE001 - son disparu : l'analyse le signalera
+                keep.append(cid)
+                continue
+            reason = missing_reason(lib, track)
+            if reason is None:
+                keep.append(cid)
+                continue
+            q.missing[cid] = reason
+            q.done += 1
+            self.dispatcher.post(self._analysis_missing, cid, reason, q.done, q.total, track)
+        return keep
+
+    def _analysis_missing(self, cid: int, reason: str, i: int, total: int, track: LibraryTrack) -> None:
+        self.analysis_results[cid] = "missing"
+        self.missing_files[cid] = reason
+        for cb in list(self.analysis.on_progress):
+            try:
+                cb(i, total, track, "")
+            except Exception:  # noqa: BLE001
+                log.debug("analysis progress callback", exc_info=True)
+        self._emit("analysis")
+
+    @property
+    def missing_files(self) -> Dict[int, str]:
+        """1.3.2-rc.3 (C124, B49) : sons de la bibliothèque ouverte dont le fichier est introuvable
+        ({content_id: disque absent ou ""}), vérifiés en arrière-plan à l'ouverture (check_missing_files)."""
+        if "_missing_files" not in self.__dict__:
+            self._missing_files: Dict[int, str] = {}
+        return self._missing_files
+
+    def check_missing_files(self, tracks: Sequence[LibraryTrack],
+                            ok: Optional[Callable[[Dict[int, str]], None]] = None) -> None:
+        """Vérifie (hors du fil de l'interface) que le fichier de chaque son existe ; évènement
+        « missing_files » à la fin."""
+        import time
+
+        lib = self.library
+        if lib is None:
+            self._missing_files = {}
+            return
+        items = list(tracks)
+        key = (id(lib), len(items))
+        last = self.__dict__.get("_missing_checked")
+        if last is not None and last[0] == key and time.monotonic() - last[1] < 20:
+            if ok:                                     # vues qui rechargent ensemble : un seul passage
+                ok(self.missing_files)
+            return
+        if last is None or last[0][0] != key[0]:
+            self._missing_files = {}                   # autre bibliothèque : rien de l'ancienne
+        self._missing_checked = (key, time.monotonic())
+
+        def work() -> Dict[int, str]:
+            from .diagnostic import missing_map
+
+            return missing_map(lib, items)
+
+        def done(found: Dict[int, str]) -> None:
+            if self.library is not lib:
+                return
+            self._missing_files = dict(found)
+            self._emit("missing_files")
+            if ok:
+                ok(self._missing_files)
+
+        self.dispatcher.submit(work, done, lambda exc: log.info("Missing files not checked: %s", exc), pool="tools")
 
     def _analysis_progress(self, i: int, total: int, track: Optional[LibraryTrack], problem: str) -> None:
         if track is not None:          # état par son pour Téléchargements & analyse (toute la session)
@@ -633,21 +735,35 @@ class LibraryOpsMixin:
         def work() -> List[List[LibraryTrack]]:
             from ...core.duplicates import refine_by_audio
 
-            groups, matches = refine_by_audio([group], lambda x: self._fingerprint(lib, x))
+            reasons: Dict[int, str] = {}
+            groups, matches = refine_by_audio([group], lambda x: self._fingerprint(lib, x), reasons=reasons)
             if not isinstance(getattr(self, "duplicate_matches", None), dict):
                 self.duplicate_matches = {}
             self.duplicate_matches.update(matches)
+            if not isinstance(self.__dict__.get("duplicate_reasons"), dict):
+                self.duplicate_reasons = {}
+            self.duplicate_reasons.update(reasons)                # 1.3.2-rc.3 (B41) : pourquoi non comparé
             return groups
 
         self.dispatcher.submit(work, ok, lambda exc: (log.info("Audio check: %s", exc), ok([group])), pool="match")
 
+    def _yield_to_playback(self) -> None:
+        """1.3.2-rc.4 (B50) : pendant la lecture, le calcul des empreintes des Doublons (décodage + calcul,
+        en Python) ralentit : une pause avant chaque son laisse l'affichage et le son passer en premier."""
+        player = getattr(self, "player", None)
+        if getattr(player, "state", None) == "playing":
+            time.sleep(PLAYBACK_YIELD_S)
+
     def _fingerprint(self, lib: Any, track: LibraryTrack) -> Any:
-        from ...analysis.fingerprint import file_fingerprint
+        from ...analysis.fingerprint import file_fingerprint, fingerprint_cached
         from ...settings import settings_dir
 
+        cache = settings_dir() / "cache" / "fp"
         try:
-            return file_fingerprint(lib.absolute_path(track), self.settings.ffmpeg_location or None,
-                                    settings_dir() / "cache" / "fp")
+            path = lib.absolute_path(track)
+            if not fingerprint_cached(path, cache):
+                self._yield_to_playback()             # 1.3.2-rc.4 (B50) : seulement s'il faut la calculer
+            return file_fingerprint(path, self.settings.ffmpeg_location or None, cache)
         except Exception as exc:  # noqa: BLE001 - illisible : le son reste dans son groupe, sans verdict
             # 1.3.0-rc.9 : les 5 premiers au journal, puis un compte tous les 100. Avant, une ligne par son
             # (sons Apple Music, clé absente) : des centaines de lignes qui noyaient la fin du journal envoyé.

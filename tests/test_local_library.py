@@ -230,3 +230,22 @@ def test_rekordbox_saving_in_place_is_picked_up_before_the_next_write(local, tmp
     again = L.LocalRekordboxLibrary(local.drive, backup_root=tmp_path / "b3", owned_path=tmp_path / "o3.json").connect()
     assert {"Before Rekordbox", "Made in Rekordbox", "After Rekordbox"} <= {p.name for p in again.list_playlists()}
     again.close()
+
+
+def test_b52_read_after_close_reopens_and_logs_who_closed(local, caplog):
+    """1.3.2-rc.6 (B52) : une lecture arrivée après la fermeture de la bibliothèque de l'ordinateur la rouvre
+    au lieu d'échouer en silence (« Library not connected »), et le journal dit qui l'a fermée."""
+    import logging
+
+    before = [p.playlist_id for p in local.list_playlists()]
+    with caplog.at_level(logging.INFO, logger=L.log.name):
+        local.close()
+        assert [p.playlist_id for p in local.list_playlists()] == before
+    assert "Computer library closed by" in caplog.text and "reopening it" in caplog.text
+
+
+def test_b52_never_connected_still_raises(tmp_path):
+    lib = L.LocalRekordboxLibrary(L.LocalRekordbox(tmp_path, tmp_path / "m"), backup_root=tmp_path / "b",
+                                  owned_path=tmp_path / "o.json")
+    with pytest.raises(L.LibraryError):
+        lib._session_db()

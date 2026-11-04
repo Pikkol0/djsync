@@ -250,14 +250,14 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
         seen = set()
         for key, _icon in SECTIONS:
             view.show_section(key)
-            cards = view.visible_cards()
+            cards = view.section_cards(key)                      # 1.3.2-rc.2 (C121) : une seule page
             assert cards, key                                    # chaque section a au moins une carte
             seen.update(id(c) for c in cards)
         assert len(seen) == len(view._cards)                     # chaque carte est dans une section
         assert app.ctrl.settings.settings_section == "advanced"            # 1.3.1 (C89) : dernière section
         view.show_section("analysis")
         assert view.analyze_usb_var.isVisibleTo(view)
-        assert not view.update_var.isVisibleTo(view)
+        assert view.update_var.isVisibleTo(view)                 # C121 : toutes les sections, l'une sous l'autre
         # recherche dans toutes les sections
         view.search.setText("export.pdb")
         assert view.pdb_var.isVisibleTo(view) and not view.no_match.isVisibleTo(view)
@@ -289,7 +289,6 @@ def test_home_pdb_chip_opens_the_libraries_section(tmp_path, monkeypatch):
         pump(app, 0.2)
         assert app._current == "settings" and app.views["settings"]._current_section == "libraries"
         assert app.views["settings"].pdb_sync_btn.isVisibleTo(app.views["settings"])
-        assert not app.views["settings"].pdb_var.isVisibleTo(app.views["settings"])    # options : Avancé
     finally:
         close_window(app)
 

@@ -53,10 +53,16 @@ class MissingFilesDialog(BaseDialog):
         self.body.addLayout(head)
 
         main = hbox(spacing=theme.px(10))
+        left = vbox(spacing=theme.px(4))
+        # 1.3.2-rc.3 (C126) : cocher pour retirer en lot (tout, ou tous ceux d'un disque absent)
+        self.check_row = hbox(spacing=theme.px(4))
+        left.addLayout(self.check_row)
         self.list = QListWidget()
         self.list.setFixedWidth(theme.px(280))
         self.list.currentRowChanged.connect(self._select)
-        main.addWidget(self.list)
+        self.list.itemChanged.connect(lambda _i: self._refresh_actions())
+        left.addWidget(self.list, 1)
+        main.addLayout(left)
         self.detail = panel()
         self.detail_lay = vbox(self.detail, margins=theme.px(10), spacing=theme.px(6))
         self.detail_lay.addWidget(label(t("missing.searching_sub"), "faint", wrap=True))
@@ -68,6 +74,9 @@ class MissingFilesDialog(BaseDialog):
         self.remove_all_btn = button(t("missing.remove_all"), self._remove_all, kind="flat", icon="trash")
         self.remove_all_btn.setToolTip(t("missing.remove_all_tip"))
         bar.addWidget(self.remove_all_btn)
+        self.remove_checked_btn = button(t("missing.remove_checked", n=0), self._remove_checked, kind="flat",
+                                         icon="trash")                                     # C126
+        bar.addWidget(self.remove_checked_btn)
         bar.addStretch(1)
         self.skip_btn = button(t("missing.skip"), self._skip, icon="next")
         self.apply_btn = button(t("missing.apply"), self._apply, kind="primary", icon="check")
@@ -91,15 +100,50 @@ class MissingFilesDialog(BaseDialog):
         self.list.blockSignals(True)
         self.list.clear()
         n = len(self.items)
-        self.count.setText(plural("missing.count_one", "missing.count_many", n) if n else t("missing.none_short"))
+        text = plural("missing.count_one", "missing.count_many", n) if n else t("missing.none_short")
+        gone: dict = {}                                     # 1.3.2-rc.2 (B40) : regroupés par disque absent
+        for it in self.items:
+            if it.offline:
+                gone[it.volume or "?"] = gone.get(it.volume or "?", 0) + 1
+        for vol, k in sorted(gone.items()):
+            text += "  ·  " + t("missing.offline_group", n=k, drive=vol)
+        self.count.setText(text)
         for it in self.items:
             title, artist = split_display(it.track.title, it.track.artist)
-            extra = "  ·  " + t("missing.offline_short") if it.offline else ""
+            extra = "  ·  " + t("missing.offline_short", drive=it.volume or "?") if it.offline else ""
             item = QListWidgetItem(f"{title}\n{artist or '—'}{extra}")
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)          # C126
+            item.setCheckState(Qt.Unchecked)
             if it.offline:
                 item.setForeground(Qt.gray)
             self.list.addItem(item)
         self.list.blockSignals(False)
+        self._fill_check_row(sorted(gone))
+
+    def _fill_check_row(self, drives: List[str]) -> None:
+        """1.3.2-rc.3 (C126) : « Tout cocher », puis « Cocher ceux de E: » par disque absent."""
+        _drop_layout(self.check_row)
+        if not self.items:
+            return
+        self.check_row.addWidget(button(t("missing.check_all"), lambda: self._check(lambda it: True), kind="flat"))
+        for vol in drives:
+            self.check_row.addWidget(button(t("missing.check_drive", drive=vol),
+                                            lambda v=vol: self._check(lambda it: it.offline and (it.volume or "?") == v),
+                                            kind="flat"))
+        self.check_row.addStretch(1)
+
+    def _check(self, pick: Any) -> None:
+        self.list.blockSignals(True)
+        for k, it in enumerate(self.items):
+            row = self.list.item(k)
+            if row is not None and pick(it):
+                row.setCheckState(Qt.Checked)
+        self.list.blockSignals(False)
+        self._refresh_actions()
+
+    def checked(self) -> List[Any]:
+        return [it for k, it in enumerate(self.items)
+                if self.list.item(k) is not None and self.list.item(k).checkState() == Qt.Checked]
 
     @property
     def current(self) -> Optional[Any]:
@@ -142,7 +186,7 @@ class MissingFilesDialog(BaseDialog):
         self.detail_lay.addWidget(label(t("dup.in_playlists", names=", ".join(it.playlists)) if it.playlists
                                         else t("dup.in_no_playlist"), "dim", wrap=True))
         if it.offline:
-            self.detail_lay.addWidget(label(t("missing.offline"), "warn", wrap=True))
+            self.detail_lay.addWidget(label(t("missing.offline", drive=it.volume or "?"), "warn", wrap=True))
         self.detail_lay.addSpacing(theme.px(6))
         self.detail_lay.addWidget(label(t("missing.what"), "dim"))
         default = None
@@ -244,6 +288,10 @@ class MissingFilesDialog(BaseDialog):
         self.apply_btn.setEnabled(bool(ok))
         self.skip_btn.setEnabled(it is not None and not self._busy)
         self.remove_all_btn.setEnabled(not self._busy and any(not i.offline for i in self.items))
+        n = len(self.checked()) if hasattr(self, "remove_checked_btn") else 0
+        if hasattr(self, "remove_checked_btn"):                              # C126
+            self.remove_checked_btn.setText(t("missing.remove_checked", n=n))
+            self.remove_checked_btn.setEnabled(not self._busy and n > 0)
 
     def _skip(self) -> None:
         if self.current is None:
@@ -293,6 +341,44 @@ class MissingFilesDialog(BaseDialog):
             self.ctrl.remove_missing([x.content_id], done, self._failed)
         else:
             self._busy = False
+
+    def _remove_checked(self) -> None:
+        """1.3.2-rc.3 (C126) : retirer en une fois les sons cochés, y compris ceux d'un disque absent
+        (avec un avertissement : rebrancher le disque ne les fera pas revenir)."""
+        from .dialogs import ConfirmDialog
+
+        picked = self.checked()
+        if not picked or self._busy:
+            return
+        ids = [i.track.content_id for i in picked]
+        offline: dict = {}
+        for i in picked:
+            if i.offline:
+                offline[i.volume or "?"] = offline.get(i.volume or "?", 0) + 1
+        detail = t("missing.remove_all_detail")
+        if offline:
+            drives = ", ".join(t("missing.offline_group", n=k, drive=v) for v, k in sorted(offline.items()))
+            detail = t("missing.remove_offline_detail", drives=drives) + "\n" + detail
+
+        def go() -> None:
+            self._busy = True
+            self._refresh_actions()
+            gone = set(ids)
+
+            def done(_r: Any = None) -> None:
+                if not self.winfo_exists():
+                    return
+                self._busy = False
+                self.items = [i for i in self.items if i.track.content_id not in gone]
+                self.ctrl.set_diag_count("missing", len(self.items))
+                self._fill_list()
+                self._select(0 if self.items else -1)
+
+            self.ctrl.remove_missing(ids, done, self._failed)
+
+        ConfirmDialog(self, t("missing.remove_checked", n=len(ids)),
+                      plural("missing.remove_all_one", "missing.remove_all_many", len(ids)),
+                      go, confirm_text=t("action.delete"), danger=True, detail=detail)
 
     def _remove_all(self) -> None:
         from .dialogs import ConfirmDialog

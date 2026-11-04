@@ -20,14 +20,20 @@ SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW = 0x0002, 0x0001, 0x0040
 FLASHW_ALL, FLASHW_TIMERNOFG = 0x3, 0xC
 
 
-def bring_to_front(hwnd: int, user32: Optional[Any] = None) -> str:
-    """Renvoie « already », « raised » ou « flashed » (ou « skip » hors Windows)."""
+def bring_to_front(hwnd: int, user32: Optional[Any] = None, kernel32: Optional[Any] = None) -> str:
+    """Renvoie « already », « raised » ou « flashed » (ou « skip » hors Windows).
+
+    1.3.2-rc.2 (B36) : Windows refusait encore le premier plan (journal de l'auteur : icône qui clignote).
+    Deux méthodes documentées sont essayées en plus, dans l'ordre : s'attacher un instant à la file
+    d'entrée de la fenêtre au premier plan (AttachThreadInput), puis une pression de la touche Alt
+    simulée (Windows accorde le premier plan au processus qui a reçu la dernière entrée clavier)."""
     if user32 is None:
         if sys.platform != "win32":
             return "skip"
         import ctypes
 
         user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
     try:
         if user32.GetForegroundWindow() == hwnd:
             return "already"
@@ -38,12 +44,45 @@ def bring_to_front(hwnd: int, user32: Optional[Any] = None) -> str:
         if user32.GetForegroundWindow() == hwnd:
             log.info("Window brought to the front")
             return "raised"
+        for name, method in (("attach", _attach_raise), ("alt key", _alt_raise)):
+            try:
+                method(hwnd, user32, kernel32)
+            except Exception as exc:  # noqa: BLE001 - méthode absente (tests) ou refusée
+                log.debug("Bring to front (%s) failed: %s", name, exc)
+                continue
+            if user32.GetForegroundWindow() == hwnd:
+                log.info("Window brought to the front (%s)", name)
+                return "raised"
         _flash(hwnd, user32)
         log.info("Window not allowed to the front: taskbar icon flashing")
         return "flashed"
     except Exception as exc:  # noqa: BLE001 - jamais bloquant au démarrage
         log.warning("Bring to front failed: %s", exc)
         return "error"
+
+
+def _attach_raise(hwnd: int, user32: Any, kernel32: Any) -> None:
+    """S'attache à la file d'entrée du fil qui possède la fenêtre au premier plan, passe devant, se détache."""
+    front = user32.GetForegroundWindow()
+    theirs = user32.GetWindowThreadProcessId(front, None)
+    ours = kernel32.GetCurrentThreadId()
+    attached = bool(theirs) and theirs != ours and user32.AttachThreadInput(ours, theirs, True)
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(ours, theirs, False)
+
+
+VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
+
+
+def _alt_raise(hwnd: int, user32: Any, _kernel32: Any) -> None:
+    """Alt pressée puis relâchée (sans effet visible), puis nouvelle demande de premier plan."""
+    user32.keybd_event(VK_MENU, 0, 0, 0)
+    user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+    user32.SetForegroundWindow(hwnd)
 
 
 def _flash(hwnd: int, user32: Any) -> None:
@@ -59,8 +98,8 @@ def _flash(hwnd: int, user32: Any) -> None:
 
 
 def ensure_front(window: Any, later: Optional[Callable[[int, Callable[[], None]], None]] = None) -> None:
-    """Après l'affichage de la fenêtre principale (Windows seulement), puis une seconde fois 300 ms plus
-    tard : le temps que l'écran de démarrage se ferme."""
+    """Après l'affichage de la fenêtre principale (Windows seulement), puis 300 ms et 1 s plus tard : le
+    temps que l'écran de démarrage se ferme."""
     if sys.platform != "win32":
         return
     try:
@@ -68,5 +107,6 @@ def ensure_front(window: Any, later: Optional[Callable[[int, Callable[[], None]]
     except Exception:  # noqa: BLE001
         return
     bring_to_front(hwnd)
-    if later is not None:
-        later(300, lambda: bring_to_front(hwnd))
+    if later is not None:                     # 1.3.2-rc.2 (B36) : encore après la fermeture de l'écran de démarrage
+        for delay in (300, 1000):
+            later(delay, lambda: bring_to_front(hwnd))

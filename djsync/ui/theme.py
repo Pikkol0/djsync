@@ -30,6 +30,7 @@ ERR = "#E5575C"
 GOOD = "#4CC38A"          # bon
 FAIR = "#D2BE4E"          # moyen
 GOLD, SILVER = "#E2B84A", "#C9D1DB"     # 1.4.0 (C10) : sans perte (doré), 320 kbps (argenté)
+SKY = "#5AA9E6"           # 1.3.2-rc.2 (C56) : « Hors playlist » dans la Bibliothèque
 LEVELS = {"good": GOOD, "fair": FAIR, "warn": WARN, "bad": ERR, "neutral": DIM, "gold": GOLD, "silver": SILVER}
 
 ACCENT = ON_ACCENT = ACCENT_DIM = ""
@@ -208,7 +209,7 @@ QComboBox QAbstractItemView {{ background: {ELEV}; border: 1px solid {BORDER}; s
 QCheckBox, QRadioButton {{ background: transparent; spacing: {p(8)}px; }}
 QCheckBox::indicator, QRadioButton::indicator {{ width: {p(15)}px; height: {p(15)}px; border: 1px solid {FAINT};
               background: {SURFACE}; border-radius: {p(4)}px; }}
-QRadioButton::indicator {{ border-radius: {p(8)}px; }}
+QRadioButton::indicator {{ border-radius: {(p(15) + 2) // 2}px; }}
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{ border-color: {ACCENT}; }}
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 
@@ -233,7 +234,7 @@ QProgressBar {{ background: {BORDER}; border: 0; border-radius: {p(3)}px; max-he
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: {p(3)}px; }}
 QSlider::groove:horizontal {{ height: {p(4)}px; background: {BORDER}; border-radius: {p(2)}px; }}
 QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: {p(2)}px; }}
-QSlider::handle:horizontal {{ width: {p(12)}px; margin: -{p(4)}px 0; background: {TEXT}; border-radius: {p(6)}px; }}
+QSlider::handle:horizontal {{ width: {p(12)}px; margin: -{p(4)}px 0; background: {TEXT}; border-radius: {min(p(12), 3 * p(4)) // 2}px; }}
 QSlider::handle:horizontal:hover {{ background: {ACCENT}; }}
 QScrollBar:vertical {{ background: transparent; width: {p(10)}px; margin: 0; }}
 QScrollBar:horizontal {{ background: transparent; height: {p(10)}px; margin: 0; }}
@@ -255,7 +256,7 @@ QTabBar::tab:hover {{ color: {TEXT}; }}
 QSplitter::handle {{ background: transparent; }}
 QDialog {{ background: {BG}; }}
 QToolButton[kind="primary"], QFrame[role="bar"] QToolButton[kind="primary"] {{ background: {ACCENT}; border-color: {ACCENT};
-              border-radius: {p(16)}px; }}
+              border-radius: {p(34) // 2}px; }}
 QToolButton[kind="primary"]:hover, QFrame[role="bar"] QToolButton[kind="primary"]:hover {{ background: {accent_hover}; }}
 """
 

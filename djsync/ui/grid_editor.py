@@ -28,7 +28,7 @@ from ..analysis.cues import Cue, nearest_beat_ms
 from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
-from . import theme
+from . import stall, theme
 from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
@@ -38,6 +38,31 @@ COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par s
 VIEW_CHOICES = (2, 4, 8, 16, 32)
 # Couleurs de la forme d'onde 3 bandes de Rekordbox (basses, médiums, aigus), quel que soit le thème
 BAND_COLORS = ("#1f6fe5", "#f0982c", "#f6ead2")
+
+
+def band_image(wave: Any, start_ms: float, px_per_ms: float, w: int, h: int, mid: float, scale: float) -> Any:
+    """1.3.2-rc.6 (B50) : image (QImage, w × h pixels) de la forme d'onde 3 bandes, calculée en bloc.
+    Chaque colonne = maximum des points couverts ; bandes empilées basses, médiums puis aigus devant."""
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    if w <= 0 or h <= 0:
+        return None
+    n = wave.low.size
+    xs = np.arange(w + 1, dtype=np.float64)
+    pos = (start_ms + xs / px_per_ms) / 1000.0 * wave.rate
+    a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
+    b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
+    inside = (pos[:-1] < n) & (pos[1:] > 0)
+    img = np.zeros((h, w), dtype=np.uint32)              # ARGB32 prémultiplié (opaque ou transparent)
+    dy = np.abs(np.arange(h, dtype=np.float32) + 0.5 - np.float32(mid))[:, None]
+    for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
+        vals = np.maximum.reduceat(np.append(band, 0), np.append(a, b[-1]))[:-1]
+        vals = np.where(inside, vals, 0).astype(np.float32) * np.float32(scale)
+        argb = np.uint32(0xFF000000 | int(color[1:], 16))
+        img[dy <= vals[None, :]] = argb
+    q = QImage(img.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied)
+    return q.copy()                                      # l'image garde ses propres données
 SCROLL_STEPS = 1000
 
 
@@ -206,6 +231,7 @@ class GridEditor(QWidget):
         tools = hbox()
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
+        self.play_btn.setFixedSize(theme.px(34), theme.px(34))     # 1.3.2-rc.2 (B46) : rond à tout zoom
         tools.addWidget(self.play_btn)
         # 1.3.0-rc.3 (C40) : sortir de la boucle sans coupure (« Loop Exit » des platines)
         self.exit_btn = button(t("grid.loop_exit"), self.exit_loop, kind="primary", icon="next",
@@ -265,8 +291,10 @@ class GridEditor(QWidget):
             sc.activated.connect(lambda f=fn: f() if not self.bpm_entry.hasFocus() else None)
 
         self._timer = QTimer(self)
+        self._timer.setTimerType(Qt.PreciseTimer)           # 1.3.2-rc.3 (B50) : minuteur précis sous Windows
         self._timer.timeout.connect(self._tick)
         self._timer.start(60)
+        self._play_icon_state: Any = None
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
@@ -647,26 +675,19 @@ class GridEditor(QWidget):
 
     def _paint_bands(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """Forme d'onde 3 bandes façon Rekordbox : basses (bleu) derrière, médiums (orange), aigus
-        (blanc) devant, symétrique ; chaque pixel = maximum des points qu'il couvre."""
-        import numpy as np
+        (blanc) devant, symétrique ; chaque pixel = maximum des points qu'il couvre.
 
-        wave = self.wave
-        n = wave.low.size
-        xs = np.arange(w + 1, dtype=np.float64)
-        pos = (self.start_ms + xs / self.px_per_ms) / 1000.0 * wave.rate
-        a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
-        b = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
-        inside = (pos[:-1] < n) & (pos[1:] > 0)
-        scale = h * 0.27 / 127.0                 # amplitude réduite : temps plus lisibles
-        p.setPen(Qt.NoPen)
-        for band, color in zip((wave.low, wave.mid, wave.high), BAND_COLORS):
-            # maximum sur [a_i, a_i+1) (bornes croissantes) ; un 0 ajouté en fin sert de borne finale
-            vals = np.maximum.reduceat(np.append(band, 0), np.append(a, b[-1]))[:-1]
-            vals = np.where(inside, vals, 0).astype(np.float64) * scale
-            top = [QPointF(float(x) + 0.5, mid - v) for x, v in enumerate(vals)]
-            bottom = [QPointF(float(x) + 0.5, mid + v) for x, v in reversed(list(enumerate(vals)))]
-            p.setBrush(QColor(color))
-            p.drawPolygon(QPolygonF(top + bottom))
+        1.3.2-rc.6 (B50) : dessinée en bloc dans une image (numpy), en pixels réels de l'écran. Avant, un
+        point Qt était créé en Python par pixel et par bande, puis un grand polygone lissé : 300 à 700 ms à
+        chaque renouvellement de l'image en cache (toutes les ~8 s), qui figeaient l'image et le son."""
+        from PySide6.QtCore import QRectF
+
+        dev = p.device()
+        dpr = float(dev.devicePixelRatioF()) if dev is not None and hasattr(dev, "devicePixelRatioF") else 1.0
+        img = band_image(self.wave, self.start_ms, self.px_per_ms * dpr, int(round(w * dpr)),
+                         int(round(h * dpr)), mid * dpr, h * dpr * 0.27 / 127.0)
+        if img is not None:
+            p.drawImage(QRectF(0, 0, w, h), img)
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
         p.drawLine(QPointF(0, mid), QPointF(w, mid))
@@ -882,13 +903,20 @@ class GridEditor(QWidget):
         return cur
 
     def _tick(self) -> None:
+        import time
+
+        t0 = time.perf_counter()
         player = self.ctrl.player
         playing = self._is_playing_this() and player.state == PLAYING
         interval = self._frame_interval() if playing else 60    # 1.3.2 (C52) : cadence de l'écran, adaptée
-        self.exit_btn.setVisible(self.active_loop is not None and playing)
+        show_exit = self.active_loop is not None and playing
+        if self.exit_btn.isVisibleTo(self) != show_exit:
+            self.exit_btn.setVisible(show_exit)
         if self._timer.interval() != interval:
             self._timer.setInterval(interval)
-        self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
+        if self._play_icon_state != playing:                # 1.3.2-rc.3 (B50) : l'icône (dessin SVG) était
+            self._play_icon_state = playing                 # refaite à chaque image (60 fois par seconde)
+            self.play_btn.setIcon(qicon("pause" if playing else "play", 16, theme.ON_ACCENT))
         if playing and not self._scrubbing:
             # 1.3.2 (C52, testeur Mac) : la position affichée ne recule jamais d'un petit pas pendant la lecture
             self.cursor_ms = self._mono(player.position() * 1000.0 + self._lead_ms)
@@ -915,10 +943,13 @@ class GridEditor(QWidget):
                 self.start_ms = self.cursor_ms - span * 0.15
             self.draw()
             self.overview.update()
-            self._meter.frame(getattr(self.canvas, "paint_ms", 0.0))
+            self._meter.frame(getattr(self.canvas, "paint_ms", 0.0), getattr(self.overview, "paint_ms", 0.0),
+                              (time.perf_counter() - t0) * 1000.0)
+            stall.watch().tick()                 # 1.3.2-rc.5 (B50) : piles écrites si l'interface se fige
         else:
             self._mono.reset()
             self._meter.stop()
+            stall.watch().stop()
 
     # -------------------------------------------------------------- enregistrer
     def _save(self) -> None:
@@ -964,6 +995,7 @@ class GridEditor(QWidget):
             return False
         self._closed = True
         self._timer.stop()
+        stall.watch().stop()                      # 1.3.2-rc.5 (B50)
         if getattr(self.ctrl, "grid_editor", None) is self:
             self.ctrl.grid_editor = None
         self.ctrl._emit("grid_page", None)

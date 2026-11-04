@@ -160,6 +160,8 @@ class _Model(QAbstractTableModel):
                 return _dot(hexa, theme.px(10))
             if col.key == "title" and "playing" in row.tags:
                 return qicon("volume", 14, theme.ACCENT)
+            if col.key == "title" and "missing" in row.tags:     # 1.3.2-rc.3 (C124) : fichier introuvable
+                return qicon("warn", 14, theme.ERR)
             if col.key == "title" and self.table.show_covers:
                 return self.table._cover_for(row)
             return None
@@ -171,13 +173,15 @@ class _Model(QAbstractTableModel):
             if level:
                 return QColor(theme.LEVELS.get(level, theme.DIM))
             for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
-                               ("ok", theme.ACCENT), ("dim", theme.DIM)):
+                               ("ok", theme.ACCENT), ("dim", theme.DIM), ("missing", theme.DIM)):
                 if tag in row.tags:
                     return QColor(color)
         if role == Qt.ToolTipRole and col.key in ICON_COLUMNS and row.values.get(col.key):
             return t(ICON_COLUMNS[col.key][1])
         if role == Qt.ToolTipRole and row.values.get(col.key + "__tip"):    # 1.4.0 (C103) : bulle d'une cellule
             return row.values[col.key + "__tip"]
+        if role == Qt.ToolTipRole and row.values.get("_tip"):        # 1.3.2-rc.3 (C124) : bulle de ligne
+            return row.values["_tip"]
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
@@ -247,7 +251,9 @@ class _ButtonDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
         opt = option
         self.initStyleOption(opt, index)
-        icon = opt.icon
+        # 1.3.2-rc.2 (C58) : copie ! Avec PySide, `opt.icon` désigne le champ lui-même : le vider juste
+        # après vidait aussi l'icône lue, et le bouton n'était jamais dessiné (seule la bulle restait).
+        icon = QIcon(opt.icon)
         opt.icon, opt.text = QIcon(), ""
         style = opt.widget.style() if opt.widget else QApplication.style()
         style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
@@ -259,8 +265,8 @@ class _ButtonDelegate(QStyledItemDelegate):
         hover = bool(opt.state & QStyle.State_MouseOver) and self.table._hover_cell == (index.row(), index.column())
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.45)))
-        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.ACCENT, 0.28 if hover else 0.10)))
+        painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.6)))
+        painter.setBrush(QColor(theme.mix(theme.SURFACE, theme.ACCENT, 0.30 if hover else 0.16)))
         painter.drawRoundedRect(box, theme.px(6), theme.px(6))
         ico = theme.px(16)
         icon.paint(painter, int(box.center().x() - ico / 2), int(box.center().y() - ico / 2), ico, ico)
@@ -500,6 +506,17 @@ class TrackTable(QTableView):
                 else:
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
                     self.setColumnWidth(i, self._width(col))
+            # 1.3.2-rc.2 (B39) : si la dernière colonne affichée est une colonne-bouton (Télécharger…),
+            # elle ne doit pas s'élargir pour combler le reste (grand vide sans contenu à droite, Recherche) :
+            # c'est le Titre qui prend la place restante, même s'il a une largeur choisie plus petite.
+            last = self._last_visible_section()
+            if scroll and not overflow and 0 <= last < len(self.columns) and self.columns[last].key in ICON_COLUMNS:
+                for i, col in enumerate(self.columns):
+                    if col.stretch and col.key in visible:
+                        others = sum(self._width(self.columns[j]) if j == last else head.sectionSize(j)
+                                     for j in range(len(self.columns)) if j != i and not self.isColumnHidden(j))
+                        self.setColumnWidth(i, max(head.sectionSize(i), avail - others))
+                        break
         finally:
             self._fitting = False
 

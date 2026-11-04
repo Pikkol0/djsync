@@ -115,17 +115,69 @@ def rekordbox_process_name(names) -> str:
     return ""
 
 
-def rekordbox_running() -> bool:
-    """Rekordbox (le programme principal) est-il ouvert ?"""
+def _windows_process_names() -> List[str]:
+    """1.3.2-rc.4 (B50) : noms de tous les processus Windows en UN relevé du système (Toolhelp32).
+    psutil demandait, pour l'état de chaque processus, un relevé complet du système sans rendre la main
+    à Python : ~300 relevés toutes les 4 s, assez pour figer l'affichage et le son pendant la lecture."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = k32.CreateToolhelp32Snapshot(0x00000002, 0)          # TH32CS_SNAPPROCESS
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), "CreateToolhelp32Snapshot failed")
+    names: List[str] = []
     try:
-        import psutil
-    except ImportError:            # pragma: no cover - psutil vient avec pyrekordbox
-        return False
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            names.append(entry.szExeFile)
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        k32.CloseHandle(snap)
+    return names
+
+
+def _process_names() -> List[str]:
+    """Noms des processus en cours. Windows : un seul relevé (voir plus haut) ; ailleurs, psutil, sans les
+    processus « zombies » (terminés mais pas encore ramassés, ils n'existent que sur macOS / Linux)."""
+    if os.name == "nt":
+        try:
+            return _windows_process_names()
+        except (OSError, AttributeError, ValueError) as exc:   # repli : psutil, noms seulement (pas l'état)
+            log.debug("Process snapshot: %s", exc)
+            import psutil
+
+            return [p.info.get("name") or "" for p in psutil.process_iter(["name"])]
+    import psutil
+
     names = []
     for proc in psutil.process_iter(["name", "status"]):
         if proc.info.get("status") == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
             continue
         names.append(proc.info.get("name") or "")
+    return names
+
+
+def rekordbox_running() -> bool:
+    """Rekordbox (le programme principal) est-il ouvert ?"""
+    try:
+        names = _process_names()
+    except ImportError:            # pragma: no cover - psutil vient avec pyrekordbox
+        return False
     found = rekordbox_process_name(names)
     if found:
         log.debug("Rekordbox running: %s", found)
@@ -372,6 +424,12 @@ class LocalRekordboxLibrary:
                 except Exception:  # noqa: BLE001
                     pass
                 self._db = None
+                # 1.3.2-rc.6 (B52) : qui l'a fermée (une lecture arrivée ensuite rouvre la base, voir _session_db)
+                import traceback
+
+                frames = traceback.extract_stack(limit=6)[:-1]
+                self._closed_by = " < ".join(f"{f.name} ({Path(f.filename).name}:{f.lineno})" for f in reversed(frames))
+                log.info("Computer library closed by %s", self._closed_by)
 
     def __enter__(self) -> "LocalRekordboxLibrary":
         return self.connect()
@@ -381,7 +439,15 @@ class LocalRekordboxLibrary:
 
     def _session_db(self) -> Any:
         if self._db is None:
-            raise LibraryError("Library not connected: call connect().")
+            closed_by = getattr(self, "_closed_by", None)
+            if closed_by is None:
+                raise LibraryError("Library not connected: call connect().")
+            # 1.3.2-rc.6 (B52) : une lecture (playlists, etc.) arrivée après une fermeture rouvre master.db au
+            # lieu d'échouer en silence (la Bibliothèque restait sur « chargement » sans fin).
+            with self._lock:
+                if self._db is None:
+                    log.warning("Computer library used after being closed (closed by %s): reopening it", closed_by)
+                    self._open_db()
         return self._db
 
     def _read(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:

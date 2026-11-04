@@ -30,6 +30,7 @@ ALT = 100          # 1.3.1 (C42) : boutons des versions à retélécharger (100,
 class DuplicatesDialog(BaseDialog):
     as_page = True                    # 1.2.3 : page de la fenêtre principale
     modal = False
+    back_keeps_page = True            # 1.3.2-rc.2 (B47) : Retour garde la vérification en cours
 
     def __init__(self, parent: Any, controller: Any, focus_ids: Optional[List[int]] = None, full: bool = False,
                  keep_id: Optional[int] = None) -> None:
@@ -468,8 +469,16 @@ class DuplicatesDialog(BaseDialog):
         if m == "reference":
             return chip(t("dup.audio_reference"))
         if m is None:
-            c = chip(t("dup.audio_unknown"))
-            c.setToolTip(t("dup.audio_unknown_tip"))
+            reason = (getattr(self.ctrl, "duplicate_reasons", {}) or {}).get(x.content_id, "")
+            if reason == "alone":                                 # 1.3.2-rc.3 (B41) : la raison, en clair
+                c = chip(t("dup.audio_alone"))
+                c.setToolTip(t("dup.audio_alone_tip"))
+            elif reason == "unreadable":
+                c = chip(t("dup.audio_unreadable"), "chip_warn")
+                c.setToolTip(t("dup.audio_unreadable_tip"))
+            else:
+                c = chip(t("dup.audio_unknown"))
+                c.setToolTip(t("dup.audio_unknown_tip"))
             return c
         from . import levels
 
@@ -512,16 +521,20 @@ class DuplicatesDialog(BaseDialog):
         best = hbox(spacing=0)                                # C42 : « meilleure qualité », une fois connue
         self._best_slots[x.content_id] = best
         lay.addLayout(best)
-        audio = self._audio_chip(x)
-        if audio is not None:
-            lay.addWidget(audio)
+        # 1.3.2-rc.2 (B41) : pastilles centrées à leur taille (elles prenaient toute la hauteur de la ligne)
+        def add(w: QWidget) -> None:
+            lay.addWidget(w, 0, Qt.AlignVCenter)
+
         missing = self.ctrl.file_missing(x)                   # 1.3.0-rc.3 (B20)
+        audio = self._audio_chip(x)
+        if audio is not None and not (missing and audio.text() == t("dup.audio_unknown")):
+            add(audio)                                        # « Non comparé » : redondant si introuvable
         if missing:
             gone = chip(t("diag.file_missing"), "chip_warn")
             gone.setToolTip(self.ctrl.missing_file_text(self.ctrl.library.absolute_path(x)))
-            lay.addWidget(gone)
+            add(gone)
         if x.camelot:
-            lay.addWidget(CamelotPill(x.camelot))
+            add(CamelotPill(x.camelot))
         # 1.2.1 (C12) : écouter le début (intro) ou le milieu de chaque version pour comparer
         start = button(t("dup.listen_start"), lambda: self._listen(k, 0.0), icon="play", tooltip=t("dup.listen_start_tip"))
         middle = button(t("dup.listen_middle"), lambda: self._listen(k, 0.45), kind="flat",
@@ -530,10 +543,10 @@ class DuplicatesDialog(BaseDialog):
                       tooltip=t("dup.open_cues_tip"))           # 1.3.2 (C79) : sans passer par le lecteur
         for b in (start, middle, cues):
             b.setEnabled(not missing)
-            lay.addWidget(b)
+            add(b)
         out = button(t("dup.exclude"), lambda: self._exclude(k), kind="flat", icon="close",
                      tooltip=t("dup.exclude_tip"))              # rc.5 (C62)
-        lay.addWidget(out)
+        add(out)
         return row
 
     # ------------------------------------------------------------ 1.3.1 (C42) : qualité
