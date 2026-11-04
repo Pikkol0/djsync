@@ -42,8 +42,17 @@ def test_no_full_collection_while_playing_then_freeze():
         t2 = d._gc_at[2]
         assert d._collect(t2 + R.GC_FULL_MAX_S + 1) == 2          # lecture sans fin : quand même
     finally:
-        d.shutdown()
-    assert gc.get_freeze_count() == 0                             # rendu à la fermeture
+        # 1.4.0-rc.2 (B56) : on vérifie que la fermeture dégèle (espion), sans lire le compteur global de
+        # Python, que d'autres répartiteurs encore ouverts dans la suite complète peuvent modifier.
+        calls = []
+        real = gc.unfreeze
+        gc.unfreeze = lambda: (calls.append(1), real())[1]       # type: ignore[assignment]
+        try:
+            d.shutdown()
+        finally:
+            gc.unfreeze = real                                    # type: ignore[assignment]
+    assert calls                                                  # rendu à la fermeture
+    assert d._collect(time.monotonic() + 999) is None             # fermé : plus de ramassage ni de gel
 
 
 def test_slow_collection_is_logged(caplog):

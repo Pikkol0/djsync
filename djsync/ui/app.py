@@ -122,7 +122,7 @@ def qt_app() -> QApplication:
     return app  # type: ignore[return-value]
 
 
-DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog")   # 1.3.1 (C41)
+DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog", "ImproveDialog")   # 1.3.1 (C41), B58
 
 
 class DJSyncApp(QMainWindow):
@@ -720,7 +720,9 @@ class DJSyncApp(QMainWindow):
         s = self.ctrl.settings
         if tab is None:
             tab = getattr(s, "diag_tab", "") or "missing"
-        if tab not in ("missing", "dup", "quality", "uniformize"):
+        from .diag_tabs import TABS
+
+        if tab not in TABS:                 # 1.4.0-rc.2 (B58) : une seule liste, « improve » compris
             tab = "missing"
         if getattr(s, "diag_tab", None) != tab:
             s.diag_tab = tab
@@ -734,15 +736,16 @@ class DJSyncApp(QMainWindow):
                 return
             if tab == "dup":
                 from .duplicates_dialog import DuplicatesDialog as page_cls
-
-                if self.reopen_dialog_page(page_cls) is not None:      # 1.3.2 (C95) : reprise, pas de zéro
-                    return
             elif tab == "quality":
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
             elif tab == "improve":                          # 1.4.0 (C47)
                 from .improve_dialog import ImproveDialog as page_cls
             else:
                 from .missing_dialog import MissingFilesDialog as page_cls
+            # 1.3.2 (C95), étendu à tous les onglets en 1.4.0-rc.2 (B63) : une page encore ouverte revient
+            # telle quelle, avec la tâche qui a continué en arrière-plan, au lieu d'être recréée de zéro.
+            if self.reopen_dialog_page(page_cls) is not None:
+                return
             page_cls(self, self.ctrl)
 
         self.ctrl.diag_quick_counts()
@@ -776,9 +779,10 @@ class DJSyncApp(QMainWindow):
     def _diag_pages(self) -> List[QWidget]:
         from .diagnostic_dialog import DiagnosticDialog
         from .duplicates_dialog import DuplicatesDialog
+        from .improve_dialog import ImproveDialog
         from .missing_dialog import MissingFilesDialog
 
-        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog)
+        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog, ImproveDialog)   # B58 : Améliorer
         return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
 
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages

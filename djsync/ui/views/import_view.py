@@ -110,6 +110,9 @@ class ImportView(View):
             table.on_double = lambda _i: self._preview()
             table.menu_builder = self._menu
             self.root.addWidget(table, 1)
+        # 1.4.0-rc.2 (B65) : colonnes réglables et retenues, comme dans Rechercher
+        self.remember_layout(self.sp_table, "import_match")
+        self.remember_layout(self.dl_table, "import")
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
         self.dl_table.set_empty("import", t("import.empty_title"), t("import.empty_sub", names=source_names()))
