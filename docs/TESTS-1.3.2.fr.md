@@ -8,9 +8,19 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
-1.3.2-rc.3 puis 1.3.2-rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
+1.3.2-rc.4, rc.3 puis rc.2 : correctifs des tests KO et des signalements de testeurs (sections en tête).
 
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
+
+## 1.3.2-rc.4 : freezes de la lecture (04/11)
+Refait le test KO de la rc.3 (GRI-3). Le journal de la rc.3 montrait l'affichage rapide (~65 images/s) mais des blocages de 120 à 700 ms toutes les ~8 s, le son en même temps : c'était la détection de Rekordbox (contrôle des clés, toutes les 4 s), très lente sous Windows. Les autres tests de la rc.3 restent valables (DEM-14 encore à faire, et la partie Mac).
+
+**Sous Windows** (et sur Mac par le testeur Mac) : GRI-4, RKB-1.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| GRI-4 | GRI-3 | (**B50**) Grille et cues : lire un son 2 min juste après avoir lancé DJSync ; puis ouvrir Doublons, revenir dans Grille et cues et relire 1 min ; puis Retours ▸ Envoyer mes logs. | Curseur et son fluides, plus de petits freezes réguliers. Journal : plus de « Audio late » toutes les ~8 s ; « worst gap » sous ~100 ms la plupart du temps ; aucune ligne « Slow drive check » (si elle apparaît, elle dit quelle partie du contrôle des clés est lente). |
+| RKB-1 | — | (**B50**) Ouvrir Rekordbox, attendre ~10 s, regarder l'Accueil ; fermer Rekordbox, attendre ~10 s. | L'Accueil affiche « Rekordbox ouvert » puis repasse à fermé, comme avant (la détection a changé de méthode sous Windows). Écrire dans la bibliothèque de l'ordinateur reste refusé tant que Rekordbox est ouvert. |
 
 ## 1.3.2-rc.3 : correctifs après les tests de la rc.2 (04/11)
 Refont le test KO de la rc.2 (colonne « Refait ») et couvrent les signalements du 04/11. Les tests de la rc.2 encore à faire (ANA-3, ANA-4, MAJ-4, DOU-11/12/14, Mac) restent valables.

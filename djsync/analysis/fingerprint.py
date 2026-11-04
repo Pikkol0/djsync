@@ -174,6 +174,16 @@ def file_key(path: Union[str, Path]) -> str:
     return hashlib.sha1(f"{p.name}|{st.st_size}|{int(st.st_mtime)}".encode("utf-8")).hexdigest()[:20]
 
 
+def fingerprint_cached(path: Union[str, Path], cache_dir: Optional[Path]) -> bool:
+    """1.3.2-rc.4 (B50) : l'empreinte de ce fichier est-elle déjà en cache (rien à calculer) ?"""
+    if not cache_dir:
+        return False
+    try:
+        return (Path(cache_dir) / f"{file_key(path)}.npy").is_file()
+    except OSError:
+        return False
+
+
 def file_fingerprint(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
                      cache_dir: Optional[Path] = None) -> np.ndarray:
     """Empreinte d'un fichier audio (lue dans le cache si possible). Lève DecodeError si illisible."""
