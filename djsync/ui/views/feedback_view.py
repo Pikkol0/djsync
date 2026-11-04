@@ -334,12 +334,24 @@ class FeedbackView(View):
         self.logs_status.setText(t("fb.sending"))
 
         def work() -> bool:
+            import logging
+            import time
+
+            t0 = time.monotonic()
             report = fb.drive_report(root)
             if ctrl.is_local and ctrl.library is not None:
                 report.append(f"Computer library: {fb.anonymise(str(getattr(ctrl.library, 'db_path', '')))}")
             zipped = fb.library_zip(root) if with_files else None
+            t1 = time.monotonic()
             log_text = fb.log_tail(settings_dir(), fb.LOGS_TAIL_LINES)
-            fb.send(fb.build_logs_payload(note, email, info, log_text, report, client, zipped, language))
+            payload = fb.build_logs_payload(note, email, info, log_text, report, client, zipped, language)
+            t2 = time.monotonic()
+            fb.send(payload)
+            t3 = time.monotonic()
+            if t3 - t0 >= 3.0:                        # 1.3.2 (B52) : où passe le temps d'un envoi lent
+                logging.getLogger(__name__).info(
+                    "Slow logs sending: %.1f s (drive report %.1f s, preparing %.1f s, upload %.1f s, %d KB)",
+                    t3 - t0, t1 - t0, t2 - t1, t3 - t2, len(str(payload)) // 1024)
             return zipped is not None or not with_files
 
         def ok(files_ok: bool) -> None:
