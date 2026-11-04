@@ -35,29 +35,48 @@ METER_SECONDS = 10.0
 
 class FrameMeter:
     """1.3.2 (C52, retour du testeur Mac) : images par seconde réellement affichées pendant la lecture,
-    écrites dans le journal toutes les 10 s (toutes plateformes), avec la durée moyenne d'un dessin."""
+    écrites dans le journal toutes les 10 s (toutes plateformes), avec la durée moyenne d'un dessin.
+    1.3.2-rc.3 (B50) : aussi le temps des autres dessins (vue d'ensemble), du travail de chaque image, et
+    les trous : plus long écart entre deux images, et nombre d'écarts de plus de 50 ms (minuteur servi en
+    retard = interface occupée ailleurs)."""
+
+    GAP_MS = 50.0
 
     def __init__(self, name: str) -> None:
         self.name = name
         self._start: Optional[float] = None
+        self._last: Optional[float] = None
         self._frames = 0
-        self._paint = 0.0
+        self._paint = self._other = self._work = 0.0
+        self._worst = 0.0
+        self._gaps = 0
 
-    def frame(self, paint_ms: float = 0.0) -> None:
+    def frame(self, paint_ms: float = 0.0, other_ms: float = 0.0, work_ms: float = 0.0) -> None:
         now = time.perf_counter()
         if self._start is None:
-            self._start, self._frames, self._paint = now, 0, 0.0
+            self._start, self._last = now, now
+            self._frames, self._paint, self._other, self._work, self._worst, self._gaps = 0, 0.0, 0.0, 0.0, 0.0, 0
             return
+        gap = (now - (self._last or now)) * 1000.0
+        self._last = now
+        self._worst = max(self._worst, gap)
+        if gap > self.GAP_MS:
+            self._gaps += 1
         self._frames += 1
         self._paint += paint_ms
+        self._other += other_ms
+        self._work += work_ms
         if now - self._start >= METER_SECONDS:
             fps = self._frames / (now - self._start)
-            log.info("Playback frames (%s): %.0f fps, %.1f ms per drawing", self.name, fps,
-                     self._paint / max(1, self._frames))
-            self._start, self._frames, self._paint = now, 0, 0.0
+            n = max(1, self._frames)
+            log.info("Playback frames (%s): %.0f fps, %.1f ms per drawing, %.1f ms other drawings, "
+                     "%.1f ms work per frame, worst gap %.0f ms, %d gap(s) over %.0f ms", self.name, fps,
+                     self._paint / n, self._other / n, self._work / n, self._worst, self._gaps, self.GAP_MS)
+            self._start = now
+            self._frames, self._paint, self._other, self._work, self._worst, self._gaps = 0, 0.0, 0.0, 0.0, 0.0, 0
 
     def stop(self) -> None:
-        self._start = None
+        self._start = self._last = None
 
 
 class Monotonic:

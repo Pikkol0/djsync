@@ -66,18 +66,42 @@ class GridOverview(QWidget):
         self._cache_key, self._cache = key, cols
         return cols
 
-    def paintEvent(self, _e: Any) -> None:          # noqa: N802
+    paint_ms = 0.0                                  # 1.3.2-rc.3 (B50) : durée moyenne d'un dessin
+
+    def _layer_key(self, w: int, h: int) -> Any:
+        ed = self.editor
+        cues = tuple((c.slot, int(c.ms), bool(c.is_loop), str(c.label), str(c.colour()))
+                     for c in (getattr(ed, "cues", []) or []))
+        wave = getattr(ed, "wave", None)
+        return (w, h, self.devicePixelRatioF(), id(wave), len(getattr(ed, "detail", []) or []),
+                getattr(ed, "duration_ms", 0), cues)
+
+    def _static_layer(self, w: int, h: int) -> Any:
+        """1.3.2-rc.3 (B50) : forme d'onde et repères des cues dessinés une fois dans une image en mémoire ;
+        pendant la lecture, seuls le cadre de la zone affichée et le curseur sont redessinés. Avant, toute
+        la vue d'ensemble (3 polygones d'autant de points que de pixels) était redessinée à chaque image."""
+        from PySide6.QtGui import QPixmap
+
+        key = self._layer_key(w, h)
+        if getattr(self, "_layer_k", None) == key and getattr(self, "_layer", None) is not None:
+            return self._layer
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap(max(1, int(w * dpr)), max(1, int(h * dpr)))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(QColor("#000000"))                         # 1.3.2 (C51) : fond noir, comme Rekordbox
+        p = QPainter(pm)
+        try:
+            self._paint_static(p, w, h)
+        finally:
+            p.end()
+        self._layer, self._layer_k = pm, key
+        return pm
+
+    def _paint_static(self, p: QPainter, w: int, h: int) -> None:
         from .cue_pads import rgb_hex
-        from .cursor import draw_cursor
         from .grid_editor import BAND_COLORS
 
-        w, h = self.width(), self.height()
-        p = QPainter(self)
-        p.fillRect(0, 0, w, h, QColor("#000000"))          # 1.3.2 (C51) : fond noir, comme Rekordbox
         ed = self.editor
-        if ed is None or w < 8:
-            p.end()
-            return
         dur = max(1.0, float(ed.duration_ms))
         top_band, low_band = theme.px(LABEL_H), theme.px(MARK_H)
         base = h - low_band                                 # la forme d'onde est posée sur cette ligne
@@ -98,15 +122,6 @@ class GridOverview(QWidget):
                 v, color = max(ed.detail[a:min(n, b)] or [(0.0, "#000")], key=lambda d: d[0])
                 bar = max(1.0, v * height)
                 p.fillRect(QRectF(x, base - bar, 1, bar), QColor(color))
-        # zone affichée en grand : cadre discret, la forme d'onde reste visible
-        span = ed.view_s * 1000.0
-        x0, x1 = ed.start_ms / dur * w, (ed.start_ms + span) / dur * w
-        frame = QColor("#FFFFFF")
-        frame.setAlpha(26)
-        p.fillRect(QRectF(x0, top_band, max(2.0, x1 - x0), base - top_band), frame)
-        frame.setAlpha(110)
-        p.setPen(frame)
-        p.drawRect(QRectF(x0, top_band, max(2.0, x1 - x0), base - top_band - 1))
         # mémoires : petit triangle en bas (orange pour une boucle, rouge sinon)
         tri = theme.px(MARK_H) - 1
         p.setPen(Qt.NoPen)
@@ -134,8 +149,36 @@ class GridOverview(QWidget):
             p.setPen(QColor(theme.on_color(color.name())))
             p.drawText(box, Qt.AlignCenter, c.label)
         p.setBrush(Qt.NoBrush)
+
+    def paintEvent(self, _e: Any) -> None:          # noqa: N802
+        import time
+
+        from .cursor import draw_cursor
+
+        t0 = time.perf_counter()
+        w, h = self.width(), self.height()
+        p = QPainter(self)
+        ed = self.editor
+        if ed is None or w < 8:
+            p.fillRect(0, 0, w, h, QColor("#000000"))
+            p.end()
+            return
+        p.drawPixmap(0, 0, self._static_layer(w, h))
+        dur = max(1.0, float(ed.duration_ms))
+        top_band, low_band = theme.px(LABEL_H), theme.px(MARK_H)
+        base = h - low_band
+        # zone affichée en grand : cadre discret, la forme d'onde reste visible
+        span = ed.view_s * 1000.0
+        x0, x1 = ed.start_ms / dur * w, (ed.start_ms + span) / dur * w
+        frame = QColor("#FFFFFF")
+        frame.setAlpha(26)
+        p.fillRect(QRectF(x0, top_band, max(2.0, x1 - x0), base - top_band), frame)
+        frame.setAlpha(110)
+        p.setPen(frame)
+        p.drawRect(QRectF(x0, top_band, max(2.0, x1 - x0), base - top_band - 1))
         draw_cursor(p, ed.cursor_ms / dur * w, 0, h, glow=False)       # 1.3.2 (C52)
         p.end()
+        self.paint_ms = 0.8 * self.paint_ms + 0.2 * (time.perf_counter() - t0) * 1000.0
 
     # ---------------------------------------------------------------- navigation
     def _go(self, x: float) -> None:

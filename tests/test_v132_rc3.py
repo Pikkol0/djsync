@@ -119,3 +119,49 @@ def test_unreadable_reference_does_not_stop_the_group(monkeypatch):
     groups, matches = duplicates.refine_by_audio([[best, gone2, a, b]], lambda x: prints[x.content_id],
                                                  reasons=reasons)
     assert all(matches[i] is None for i in (1, 2, 3, 4)) and reasons[4] == "alone"
+
+
+# ------------------------------------------------------------------ B50 : fluidité de Grille et cues
+def test_frame_meter_reports_gaps(monkeypatch, caplog):
+    import logging
+
+    from djsync.ui import cursor
+
+    now = {"t": 100.0}
+    monkeypatch.setattr(cursor.time, "perf_counter", lambda: now["t"])
+    m = cursor.FrameMeter("beat grid")
+    with caplog.at_level(logging.INFO, logger="djsync.ui.cursor"):
+        for k in range(700):
+            m.frame(4.0, 1.0, 6.0)
+            now["t"] += 0.09 if k % 60 == 59 else 1 / 60       # un trou de 90 ms par seconde
+    text = caplog.text
+    assert "worst gap 90 ms" in text and "gap(s) over 50 ms" in text and "6.0 ms work per frame" in text
+
+
+def test_overview_static_layer_is_reused(demo):  # noqa: F811
+    """La vue d'ensemble garde la forme d'onde en mémoire : redessiner pour le curseur ne la refait pas."""
+    from types import SimpleNamespace
+
+    from djsync.ui.grid_overview import GridOverview
+
+    ov = GridOverview()
+    ov.resize(600, 60)
+    ed = SimpleNamespace(wave=None, detail=[(0.5, "#3366ff")] * 100, duration_ms=60000, cues=[], view_s=8.0,
+                         start_ms=0.0, cursor_ms=1000.0)
+    ov.editor = ed
+    first = ov._static_layer(600, 60)
+    ed.cursor_ms, ed.start_ms = 5000.0, 2000.0
+    assert ov._static_layer(600, 60) is first                 # même image : seul le curseur bouge
+    ov.grab()                                                 # paintEvent sans erreur
+    ed.detail = [(0.9, "#3366ff")] * 120
+    assert ov._static_layer(600, 60) is not first             # nouvelles données : image refaite
+    ov.deleteLater()
+
+
+def test_player_reserve_absorbs_a_100ms_hiccup():
+    import sys
+
+    from djsync.audio import player as P
+
+    if sys.platform != "darwin":
+        assert P.BUFFER_MS * (P.PERIODS or 3) == 120

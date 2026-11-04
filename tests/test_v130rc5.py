@@ -40,7 +40,7 @@ def test_reserve_is_small_outside_macos():
     if sys.platform == "darwin":
         assert P.BUFFER_MS == 200
     else:
-        assert total <= 100                                  # ~80 ms au lieu de ~600 ms
+        assert total <= 120          # ~120 ms (1.3.2-rc.3, B50 : 3 paquets de 40 ms) au lieu de ~600 ms
 
 
 def _playing(tmp_path):
