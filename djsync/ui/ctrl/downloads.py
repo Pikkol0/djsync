@@ -180,8 +180,14 @@ class DownloadsMixin:
         jobs = list(self.jobs)
         first = next((i for i, j in enumerate(jobs) if not j.is_finished), None)
         if first is None:
+            self._batch_from = None
             return 0, 0, 1.0
-        batch = jobs[first:]
+        # 1.4.0 (B55) : la série commence au premier téléchargement lancé alors que rien ne tournait, et garde ce
+        # début tant qu'elle n'est pas finie (avant, chaque son terminé en sortait : la barre retombait à 0)
+        start = getattr(self, "_batch_from", None)
+        if start is None or start > first or start >= len(jobs):
+            start = self._batch_from = first
+        batch = jobs[start:]
         done = sum(1 for j in batch if j.is_finished)
         return done, len(batch), sum(j.progress for j in batch) / len(batch)
 

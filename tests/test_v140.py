@@ -634,3 +634,26 @@ def test_c129_whole_disk_bar_and_music_elsewhere(tmp_path, monkeypatch):
     assert u.parts["other"] == 600 - 300 - 50 and u.parts["free"] == 400
     assert sum(u.parts.values()) == 1000
     assert u.library == 350
+
+
+def test_b55_download_bar_does_not_fall_back_when_a_track_finishes():
+    """1.4.0 (B55) : la barre des téléchargements avance ; un son terminé reste compté dans la série."""
+    import types
+
+    from djsync.ui.ctrl.downloads import DownloadsMixin
+
+    def job(done):
+        return types.SimpleNamespace(is_finished=done, progress=1.0 if done else 0.0)
+
+    ctrl = types.SimpleNamespace(jobs=[job(False) for _ in range(4)])
+    assert DownloadsMixin.download_progress(ctrl)[:2] == (0, 4)
+    ctrl.jobs[0] = job(True)
+    done, total, frac = DownloadsMixin.download_progress(ctrl)
+    assert (done, total) == (1, 4) and frac == 0.25
+    ctrl.jobs[1] = job(True)
+    assert DownloadsMixin.download_progress(ctrl)[2] == 0.5
+    for i in range(4):
+        ctrl.jobs[i] = job(True)
+    assert DownloadsMixin.download_progress(ctrl) == (0, 0, 1.0)
+    ctrl.jobs.append(job(False))                          # nouvelle série : repart de zéro
+    assert DownloadsMixin.download_progress(ctrl)[:2] == (0, 1)

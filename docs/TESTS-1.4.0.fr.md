@@ -70,3 +70,8 @@ Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TEST
 | ESP-1 | (**C27**) Bibliothèque de l'ordinateur ▸ Paramètres ▸ Bibliothèques ▸ Espace occupé ▸ Mesurer à nouveau. | Pendant la mesure, une petite barre d'attente. Ensuite **Musique** = taille de tous les sons de la collection Rekordbox (plusieurs Go, plus 0 B) ; Analyses et pochettes, Bases Rekordbox, Sauvegardes DJSync, Caches comme avant. |
 | ESP-2 | (**C129**) Même carte. | La barre couvre **tout le disque** : postes de la bibliothèque en couleur, « Autres fichiers » (gris foncé), Libre. Au-dessus : « Bibliothèque Rekordbox : x Go (y % du disque) · autres fichiers : … · libre : … sur … ». Si des sons sont sur un autre disque (ex. E:) : ligne « Et x Go de musique sur E:\ ». |
 | ESP-3 | Même chose sur une clé. | Inchangé (la clé avait déjà « Autres fichiers »). |
+
+## DOW — Barre des téléchargements (B55)
+| # | Étapes | Attendu |
+|---|---|---|
+| DOW-2 | (**B55**) Lancer une dizaine de téléchargements d'un coup, regarder la barre à côté de « Downloads ». | La barre avance d'un son à l'autre jusqu'au bout, sans retomber à 0 quand un son se termine ; elle repart de 0 seulement pour une nouvelle série lancée après la fin de la précédente. |
