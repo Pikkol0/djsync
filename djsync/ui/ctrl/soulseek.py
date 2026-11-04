@@ -92,7 +92,9 @@ class SoulseekMixin:
         def run() -> None:
             def work() -> List[Any]:
                 on_partial = (lambda rs: self.dispatcher.post(partial, rs)) if partial else None
-                return self.slsk.search(query, duration=duration, on_partial=on_partial)
+                found = self.slsk.search(query, duration=duration, on_partial=on_partial)
+                self._slsk_last = list(found)            # 1.4.0-rc.2 (B60) : réserve d'autres pairs
+                return found
 
             def failed(exc: BaseException) -> None:
                 log.warning("Soulseek search failed: %s", exc)
@@ -104,9 +106,38 @@ class SoulseekMixin:
         self.slsk_connect(run)
 
     def slsk_enqueue(self, results: List[Any], playlist_ids: List[int]) -> List[DownloadJob]:
-        return self.enqueue([track_of(r) for r in results], playlist_ids)
+        from ...core.soulseek import alternatives
+
+        pool = list(getattr(self, "_slsk_last", []) or [])
+        alts = self.__dict__.setdefault("_slsk_alts", {})
+        jobs = self.enqueue([track_of(r) for r in results], playlist_ids)
+        for job in jobs or []:
+            if job.track.slsk is not None:               # 1.4.0-rc.2 (B60) : même fichier chez d'autres pairs
+                alts[job.id] = alternatives(job.track.slsk, pool)
+        return jobs
 
     # ------------------------------------------------------------------ téléchargement (fil « dl »)
+    def _slsk_download_any(self, job: DownloadJob, result: Any, progress: Callable[[float, str], None]) -> Any:
+        """1.4.0-rc.2 (B60) : si le pair bloque (rien reçu en 60 s), refuse ou bannit, on passe tout seul au
+        même fichier chez un autre pair, en le disant dans la ligne du téléchargement."""
+        from dataclasses import replace
+
+        from ...core.soulseek import STALL_S, SoulseekError
+
+        others = list(self.__dict__.get("_slsk_alts", {}).pop(job.id, []))
+        while True:
+            try:
+                return self.slsk.download(result, progress, stall=STALL_S)
+            except SoulseekError as exc:
+                if not others or str(exc) == "cancelled":
+                    raise
+                log.info("Soulseek: %s from %s (%s); trying %s", result.name, result.username, exc,
+                         others[0].username)
+                result = others.pop(0)
+                job.track = replace(job.track, slsk=result)
+                job.message = t("slsk.next_peer", reason=str(exc)[:60])
+                self.dispatcher.post(self._job_changed, job)
+
     def _run_slsk_job(self, job: DownloadJob) -> None:
         """Téléchargement Soulseek -> fichier temporaire -> import (copie / conversion pour les platines,
         tags, doublons) -> vraie qualité vérifiée (C46) ; un faux sans perte est signalé."""
@@ -125,7 +156,8 @@ class SoulseekMixin:
         try:
             if self.slsk is None or not self.slsk.connected:
                 raise SoulseekError(t("slsk.not_connected"))
-            path = self.slsk.download(result, progress)
+            path = self._slsk_download_any(job, result, progress)
+            result = job.track.slsk or result
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
             src = Path(path)
@@ -156,7 +188,10 @@ class SoulseekMixin:
             self._slsk_check_quality(job, result)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Soulseek download failed (%s): %s", getattr(result, "path", "?"), exc)
-            job.status, job.message = "error", t("slsk.download_failed", detail=str(exc)[:200])
+            from ..controller import known_error
+
+            key = known_error(f"Soulseek: {exc}")
+            job.status, job.message = "error", (t(key) if key else t("slsk.download_failed", detail=str(exc)[:200]))
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":
             self.dispatcher.post(self._emit, "library")

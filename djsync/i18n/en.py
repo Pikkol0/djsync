@@ -377,7 +377,7 @@ STRINGS = {
     "slsk.state_on": "connected as {user}",
     "slsk.state_off": "not connected",
     "slsk.sharing_on": "sharing the music of the open library",
-    "slsk.sharing_off": "sharing nothing",
+    "slsk.sharing_off": "sharing nothing: some users will refuse you (Settings ▸ Download)",
     "slsk.stats": "↓ {down} · ↑ {up} · {peers} peers · {dl} downloading · {ul} uploading · queue {queued} · received {received} · sent {sent} · {share}",
     "unit.bps": "{n} B/s",
     "unit.kbps_s": "{n} kB/s",
@@ -1533,4 +1533,7 @@ STRINGS = {
     "sc.protected_short": "protected: YouTube Music version",
     "sc.protected_one": "1 track protected on SoundCloud: its YouTube Music version will be used",
     "sc.protected_many": "{n} tracks protected on SoundCloud: their YouTube Music versions will be used",
+    # 1.4.0-rc.2 (B60)
+    "slsk.next_peer": "{reason}: trying another user",
+    "unit.mbps_short": "MB/s",
 }

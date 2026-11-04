@@ -120,6 +120,10 @@ class SearchView(View):
             lossless = sum(1 for x in tracks if (x.slsk is not None and x.slsk.lossless)
                            or x.quality in ("FLAC", "WAV", "AIFF"))
             done = state["free"] and state["slsk"]
+            if not done and not tracks:          # 1.4.0-rc.2 (B59) : pas « Aucun résultat » tant que ça cherche
+                self.info.setText(t("search.hq_running", n=0))
+                self.table.show_skeleton()
+                return
             summary = (t("search.hq_results", n=len(tracks), lossless=lossless) if done
                        else t("search.hq_running", n=len(tracks)))
             self._show_results(tracks, summary)

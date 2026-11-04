@@ -94,7 +94,7 @@ class FakeClient:
             on_partial(self.files[:1])
         return list(self.files)
 
-    def download(self, result, progress=None, should_stop=None):
+    def download(self, result, progress=None, should_stop=None, stall=0.0):
         if progress:
             progress(50.0, "downloading")
         src = self.made[result.path]

@@ -231,3 +231,100 @@ def test_b66_bot_refusals_pause_youtube_then_retry_when_browser_chosen(demo):  #
     c.retry = lambda job: retried.append(job)
     c.retry_bot_failures()
     assert retried == jobs and not c.youtube_paused(jobs[0])
+
+
+# ------------------------------------------------------------------ B60 : pair bloqué -> autre pair
+def _slsk(user, path, free=True, speed=0, queue=0):
+    from djsync.core.soulseek import SlskResult
+
+    return SlskResult(user, path, 9_000_000, path.rsplit(".", 1)[-1], free_slot=free, speed=speed, queue=queue)
+
+
+def test_b60_alternatives_same_file_other_users_fast_first():
+    from djsync.core.soulseek import alternatives
+
+    chosen = _slsk("a", "x\\Bicep - Glue.flac")
+    pool = [chosen, _slsk("b", "y\\bicep - glue.flac", free=False, queue=4),
+            _slsk("c", "z\\Bicep - Glue.flac", speed=900_000), _slsk("d", "z\\Bicep - Glue.mp3"),
+            _slsk("e", "z\\Bicep - Other.flac"), _slsk("c", "w\\Bicep - Glue.flac")]
+    assert [r.username for r in alternatives(chosen, pool)] == ["c", "b"]
+
+
+def test_b60_stalled_peer_switches_to_another(demo, monkeypatch, tmp_path):  # noqa: F811
+    from djsync.core.soulseek import SoulseekStalled
+    from djsync.models import DownloadJob
+    from djsync.ui.ctrl.soulseek import track_of
+
+    ctrl = demo.ctrl
+    first, second = _slsk("slow", "x\\Bicep - Glue.flac"), _slsk("fast", "y\\Bicep - Glue.flac")
+    out = tmp_path / "Bicep - Glue.flac"
+    out.write_bytes(b"x")
+    tried = []
+
+    class C:
+        connected = True
+
+        def download(self, result, progress=None, should_stop=None, stall=0.0):
+            tried.append((result.username, stall))
+            if result.username == "slow":
+                raise SoulseekStalled("no data for 60 s")
+            return out
+
+    ctrl.slsk = C()
+    job = DownloadJob(id=777, track=track_of(first))
+    ctrl._slsk_alts = {777: [second]}
+    assert ctrl._slsk_download_any(job, first, lambda p, s: None) == out
+    assert [u for u, _s in tried] == ["slow", "fast"] and tried[0][1] == 60.0
+    assert job.track.slsk.username == "fast"
+
+
+def test_b60_share_by_default_and_speed_shown():
+    from djsync.settings import Settings
+    from djsync.ui.views.common import result_row
+    from djsync.ui.ctrl.soulseek import track_of
+
+    assert Settings().soulseek_share is True
+    row = result_row(track_of(_slsk("a", "x\\Bicep - Glue.flac", speed=1_500_000)))
+    assert "1.5" in row.values["type"]
+
+
+# ------------------------------------------------------------------ B59 : recherche haute qualité
+def test_b59_no_answer_is_sent_again_once(monkeypatch):
+    from djsync.core import soulseek as S
+
+    class Req:
+        def __init__(self, n):
+            self.results = [] if n == 1 else [object()]
+
+    sent = []
+
+    class Searches:
+        def search(self, q):
+            sent.append(q)
+            return Req(len(sent))
+
+        def remove_request(self, r):
+            pass
+
+    c = S.SoulseekClient("u", "p", ".")
+    c._client = type("X", (), {"searches": Searches()})()
+    c._call = lambda coro, timeout: coro
+    monkeypatch.setattr(S, "from_aioslsk", lambda r: [])
+    monkeypatch.setattr(S.time, "sleep", lambda s: None)
+    c.search("fred again", seconds=0.01)
+    assert sent == ["fred again", "fred again"]
+
+
+def test_b59_hq_search_shows_searching_not_no_result(demo, monkeypatch):  # noqa: F811
+    view = demo.views["search"]
+    ctrl = demo.ctrl
+    monkeypatch.setattr(type(ctrl), "slsk_ready", property(lambda self: True))
+    monkeypatch.setattr(ctrl, "free_search", lambda q, ok: ok([]))
+    monkeypatch.setattr(ctrl, "slsk_search", lambda q, ok, partial=None: partial([]))
+    skel = []
+    monkeypatch.setattr(view.table, "show_skeleton", lambda: skel.append(1))
+    view.mode.setCurrentIndex(1)
+    view.entry.setText("fred again")
+    view.run_search(force=True)
+    pump(demo, 0.3)
+    assert skel

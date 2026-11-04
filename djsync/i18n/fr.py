@@ -377,7 +377,7 @@ STRINGS = {
     "slsk.state_on": "connecté en tant que {user}",
     "slsk.state_off": "pas connecté",
     "slsk.sharing_on": "partage la musique de la bibliothèque ouverte",
-    "slsk.sharing_off": "ne partage rien",
+    "slsk.sharing_off": "ne partage rien : certains pairs vous refuseront (Paramètres ▸ Téléchargement)",
     "slsk.stats": "↓ {down} · ↑ {up} · {peers} pairs · {dl} en réception · {ul} en envoi · file {queued} · reçu {received} · envoyé {sent} · {share}",
     "unit.bps": "{n} o/s",
     "unit.kbps_s": "{n} ko/s",
@@ -1539,4 +1539,7 @@ STRINGS = {
     "sc.protected_short": "protégé : version YouTube Music",
     "sc.protected_one": "1 son protégé sur SoundCloud : sa version YouTube Music sera prise",
     "sc.protected_many": "{n} sons protégés sur SoundCloud : leurs versions YouTube Music seront prises",
+    # 1.4.0-rc.2 (B60)
+    "slsk.next_peer": "{reason} : essai chez un autre pair",
+    "unit.mbps_short": "Mo/s",
 }

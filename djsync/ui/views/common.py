@@ -128,6 +128,8 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         if r.lossless or r.bitrate >= 300:
             values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
+        if r.speed:                            # 1.4.0-rc.2 (B60) : repérer les pairs rapides
+            values["type"] += f" · {r.speed / 1e6:.1f} " + t("unit.mbps_short")
         values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
     elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
         from .. import theme
