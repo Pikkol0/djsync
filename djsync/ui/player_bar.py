@@ -589,6 +589,8 @@ class PlayerBar(QWidget):
         self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
         self.wave.setFixedHeight(theme.px(WAVE_H))
         self.scroll_wave.setFixedHeight(theme.px(SCROLL_H))
+        self.play_btn.setFixedSize(theme.px(34), theme.px(34))     # 1.3.2-rc.2 (B46) : reste rond après un zoom
+        self.play_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         self.play_btn.setIcon(qicon("pause" if self.player.state == PLAYING else "play", 18, theme.ON_ACCENT))
         self.wave.update()
 

@@ -107,7 +107,13 @@ class NavTree(QTreeWidget):
             e.setDropAction(Qt.CopyAction)
             e.accept()
             item = self.itemAt(e.position().toPoint())
-            self.setCurrentItem(item)
+            # 1.3.2-rc.2 (C56) : surligner la playlist visée SANS l'ouvrir. Avant, survoler une playlist
+            # pendant le glisser l'ouvrait ; le dépôt sur cette même playlist était alors ignoré.
+            old, self.view._reverting = self.view._reverting, True
+            try:
+                self.setCurrentItem(item)
+            finally:
+                self.view._reverting = old
         else:
             e.ignore()
 
@@ -393,7 +399,8 @@ class LibraryView(View):
         todo = self._unanalysed_count()
         item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
         orph = getattr(self, "_orphans", None)
-        item(None, ORPH, t("lib.orphans"), icon="playlist", count="" if orph is None else len(orph))   # C56
+        item(None, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                   # C56
+             count="" if orph is None else len(orph))
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -477,10 +484,15 @@ class LibraryView(View):
             if it is not None:
                 try:
                     it.setText(1, str(len(self._orphans)))
+                    color = theme.SKY if self._orphans else ""                       # 1.3.2-rc.2 (C56)
+                    it.setIcon(0, qicon("unlisted", 16, color or theme.DIM))
+                    it.setForeground(0, _qcolor(color or theme.TEXT))
                 except RuntimeError:
                     pass
             if self.current == ORPH and not self._dirty:
                 self._fill_table()
+            elif self.current == ALL:
+                self._show_header()
 
         self.ctrl.orphan_ids([x.content_id for x in self.all_tracks], ok)
 
@@ -569,8 +581,8 @@ class LibraryView(View):
             self.title_lbl.setText(t("lib.orphans"))
             n = len(self._orphan_tracks())
             parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
-            if n and not self.ctrl.is_local:
-                parts.append(t("lib.orphans_hint"))
+            if n:                                                  # 1.3.2-rc.2 (C56) : aussi sur l'ordinateur
+                parts.append(t("lib.orphans_hint_local" if self.ctrl.is_local else "lib.orphans_hint"))
             self.sub_lbl.setText("  ·  ".join(parts))
         elif self.current == ALL:
             st = self.stats.get(0)
@@ -580,6 +592,9 @@ class LibraryView(View):
                 parts.append(total_duration(st.total_seconds))
             if st is not None and st.last_added:
                 parts.append(t("lib.last_added", date=st.last_added))
+            orph = getattr(self, "_orphans", None)                # 1.3.2-rc.2 (C56) : le rappel, visible ici
+            if orph:
+                parts.append(plural("lib.orphans_count_one", "lib.orphans_count_many", len(orph)))
             self.sub_lbl.setText("  ·  ".join(parts))
         elif self.playlist is not None:
             p = self.playlist

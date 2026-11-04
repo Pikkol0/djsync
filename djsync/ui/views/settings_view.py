@@ -729,7 +729,10 @@ class SettingsView(View):
 
     @staticmethod
     def _fixed(w: Any) -> Any:
-        w.setFixedWidth(theme.px(150))
+        # 1.3.2-rc.2 (B45) : un libellé trop long passe à la ligne au lieu d'être coupé
+        w.setFixedWidth(theme.px(170))
+        if isinstance(w, QLabel):
+            w.setWordWrap(True)
         return w
 
     def on_show(self) -> None:
