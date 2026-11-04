@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -18,6 +19,7 @@ from ...models import LibraryTrack, PlaylistInfo
 
 Callback = Callable[[Any], None]
 log = logging.getLogger(__name__)
+PLAYBACK_YIELD_S = 0.15      # 1.3.2-rc.4 (B50) : pause avant chaque empreinte à calculer pendant la lecture
 FP_FAILURES_LOGGED = 5        # 1.3.0-rc.9 : « No fingerprint » détaillés au journal, ensuite comptés
 
 
@@ -721,13 +723,23 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: (log.info("Audio check: %s", exc), ok([group])), pool="match")
 
+    def _yield_to_playback(self) -> None:
+        """1.3.2-rc.4 (B50) : pendant la lecture, le calcul des empreintes des Doublons (décodage + calcul,
+        en Python) ralentit : une pause avant chaque son laisse l'affichage et le son passer en premier."""
+        player = getattr(self, "player", None)
+        if getattr(player, "state", None) == "playing":
+            time.sleep(PLAYBACK_YIELD_S)
+
     def _fingerprint(self, lib: Any, track: LibraryTrack) -> Any:
-        from ...analysis.fingerprint import file_fingerprint
+        from ...analysis.fingerprint import file_fingerprint, fingerprint_cached
         from ...settings import settings_dir
 
+        cache = settings_dir() / "cache" / "fp"
         try:
-            return file_fingerprint(lib.absolute_path(track), self.settings.ffmpeg_location or None,
-                                    settings_dir() / "cache" / "fp")
+            path = lib.absolute_path(track)
+            if not fingerprint_cached(path, cache):
+                self._yield_to_playback()             # 1.3.2-rc.4 (B50) : seulement s'il faut la calculer
+            return file_fingerprint(path, self.settings.ffmpeg_location or None, cache)
         except Exception as exc:  # noqa: BLE001 - illisible : le son reste dans son groupe, sans verdict
             # 1.3.0-rc.9 : les 5 premiers au journal, puis un compte tous les 100. Avant, une ligne par son
             # (sons Apple Music, clé absente) : des centaines de lignes qui noyaient la fin du journal envoyé.
