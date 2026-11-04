@@ -86,3 +86,36 @@ def test_library_marks_missing_files(demo):  # noqa: F811
     assert [r.data.content_id for r in lib.table.all_rows()] == [tracks[1].content_id]
     assert lib.miss_btn.isVisibleTo(lib)
     assert not demo.errors
+
+
+# ------------------------------------------------------------------ B41 : versions lisibles comparées
+def test_unreadable_reference_does_not_stop_the_group(monkeypatch):
+    """Groupe de 4 : la meilleure version (référence d'avant) est introuvable ; les deux lisibles sont
+    quand même comparées entre elles, les autres ont leur raison."""
+    from types import SimpleNamespace
+
+    from djsync.analysis import fingerprint
+    from djsync.core import duplicates
+
+    def track(cid, bitrate):
+        return SimpleNamespace(content_id=cid, title="Chargé", artist="Kaaris", duration_seconds=200,
+                               bitrate=bitrate, file_type="m4a", is_analysed=True, date_added="", path="")
+
+    best, gone2, a, b = track(1, 320), track(2, 256), track(3, 128), track(4, 128)
+    monkeypatch.setattr(fingerprint, "is_usable", lambda fp: fp is not None)
+    same = SimpleNamespace(verdict="same", share=0.98, shift_ms=0.0)
+    monkeypatch.setattr(fingerprint, "compare", lambda *a_, **k: same)
+    prints = {1: None, 2: None, 3: "fp3", 4: "fp4"}
+    reasons = {}
+    groups, matches = duplicates.refine_by_audio([[best, gone2, a, b]], lambda x: prints[x.content_id],
+                                                 reasons=reasons)
+    assert len(groups) == 1 and len(groups[0]) == 4
+    assert sorted([matches[3] == "reference", matches[4] == "reference"]) == [False, True]
+    assert same in (matches[3], matches[4])
+    assert matches[1] is None and matches[2] is None
+    assert reasons == {1: "unreadable", 2: "unreadable"}
+    reasons = {}
+    prints = {1: None, 2: None, 3: None, 4: "fp4"}
+    groups, matches = duplicates.refine_by_audio([[best, gone2, a, b]], lambda x: prints[x.content_id],
+                                                 reasons=reasons)
+    assert all(matches[i] is None for i in (1, 2, 3, 4)) and reasons[4] == "alone"

@@ -709,10 +709,14 @@ class LibraryOpsMixin:
         def work() -> List[List[LibraryTrack]]:
             from ...core.duplicates import refine_by_audio
 
-            groups, matches = refine_by_audio([group], lambda x: self._fingerprint(lib, x))
+            reasons: Dict[int, str] = {}
+            groups, matches = refine_by_audio([group], lambda x: self._fingerprint(lib, x), reasons=reasons)
             if not isinstance(getattr(self, "duplicate_matches", None), dict):
                 self.duplicate_matches = {}
             self.duplicate_matches.update(matches)
+            if not isinstance(self.__dict__.get("duplicate_reasons"), dict):
+                self.duplicate_reasons = {}
+            self.duplicate_reasons.update(reasons)                # 1.3.2-rc.3 (B41) : pourquoi non comparé
             return groups
 
         self.dispatcher.submit(work, ok, lambda exc: (log.info("Audio check: %s", exc), ok([group])), pool="match")
