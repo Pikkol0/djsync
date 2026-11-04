@@ -8,7 +8,34 @@ différent (**C80**), barre de progression et vérification prioritaire (**C84**
 Annuler (**C82**), aperçu des cues et bouton Cues (**C79**). Les scénarios de `docs/TESTS-1.3.1.fr.md`
 restent à faire s'ils ne sont pas cochés.
 
+1.3.2-rc.2 : correctifs des tests KO de la rc.1 et des signalements de testeurs (section en tête).
+
 Numérotation : thème en 3 lettres + n°, propre à la version. Dans le suivi : « 132 · DOU-1 ».
+
+## 1.3.2-rc.2 : correctifs après les tests de la rc.1 (02/11)
+Refont les tests KO de la rc.1 (colonne « Refait ») et couvrent les signalements de testeurs du 02/11.
+
+| # | Refait | Étapes | Attendu |
+|---|---|---|---|
+| DEM-8 | DEM-3 | (**C68**) Aide ▸ onglet **Premiers pas** ; README. | Les six étapes seulement : plus de « Questions fréquentes », ni dans l'app ni dans le README. |
+| DEM-9 | DEM-4 | (**C70**) Paramètres ▸ section **DJSync**. | La case « Retrouver DJSync dans le menu Démarrer / Applications », GitHub / Licence / Composants tiers et « Revoir l'accueil » sont dans la carte DJSync, plus dans « Retours et confidentialité ». |
+| DEM-10 | — | (**B36**, B43) Windows : double-clic sur DJSync.exe dans l'Explorateur (depuis la clé, puis depuis le disque). | Après l'écran de chargement, la fenêtre de DJSync est **devant** l'Explorateur. Journal : « Window brought to the front » (avec la méthode) ; plus « taskbar icon flashing ». |
+| DEM-11 | — | (**B44**) Premier lancement (dossier neuf sans `.djsync`), à 100 % puis à 200 %. | Fenêtre plus grande, aucun texte coupé. Langue : deux grandes cartes, un clic choisit, **Valider** passe à la suite. Bienvenue : gros bouton **⭐ Mettre une étoile sur GitHub** en couleur, avec une ligne d'explication ; « Commencer » à côté. |
+| DEM-12 | — | (**C119**) README (haut), accueil, Paramètres ▸ DJSync. | « Un grand merci à Tazyh pour son aide aux tests. » (et en anglais), seul nom cité. |
+| PAR-3 | PAR-2 | (**C57**, B42) Paramètres ▸ **Réglages par défaut** ▸ confirmer. | Après la remise à zéro (fenêtre reconstruite), la notification « Réglages par défaut rétablis » s'affiche bien en bas à droite, avec **Annuler** ; Annuler remet les réglages d'avant. |
+| PAR-4 | — | (**C121**) Paramètres : faire défiler ; cliquer les sections du volet de gauche ; chercher « mp3 ». | Toutes les sections sur une seule page, chacune sous son titre ; un clic dans le volet fait défiler jusqu'à la section ; en défilant à la main, la section surlignée suit. La recherche n'affiche que les cartes trouvées, sous leur titre. Lien « export.pdb » de l'Accueil : défile jusqu'à Bibliothèques. |
+| PAR-5 | — | (**B45**, **B46**) Paramètres en français ; puis zoom à 180 % (et 150 %, 200 %). | « Couleur du thème et du logo » entier (passe à la ligne au besoin). Bouton lecture du lecteur et de Grille et cues, poignées des curseurs et boutons radio restent **ronds** à tout zoom, aussi juste après avoir changé le zoom. |
+| BIB-4 | BIB-1 | (**C56**) Bibliothèque de l'ordinateur et clé. | « Hors playlist » a sa propre icône (rond barré) en bleu quand il y a des sons ; « Tous les titres » rappelle « n hors playlist » ; sur l'ordinateur, le rappel parle de la Collection de Rekordbox. |
+| BIB-5 | BIB-2 | (**C56**) Hors playlist ▸ **glisser** un son sur une playlist de l'arbre. | Survoler une playlist la surligne sans l'ouvrir ; au lâcher, le son est ajouté et sort de « Hors playlist ». Même chose depuis « Tous les titres ». |
+| BIB-6 | BIB-3 | (**C58**) Bibliothèque (son analysé), Recherche, page Analyser. | Les boutons en bout de ligne sont **visibles** : petit bouton avec fond, bordure et icône (Grille et cues, Télécharger, Analyser), survol marqué. |
+| REC-1 | — | (**B39**) Recherche « sls », fenêtre agrandie. | Pas de grand vide à droite : le Titre prend la place, la colonne du bouton Télécharger garde sa petite largeur, tout à droite. |
+| ANA-3 | ANA-1 | (**C76**) Bibliothèque de l'ordinateur avec des sons sur une clé débranchée (E:) ▸ Analyser. | Ces sons sont marqués « ⚠ fichier sur E:, pas branché » et écartés (« n fichiers introuvables (écartés) ») ; la durée estimée s'affiche ; pendant l'analyse, « encore environ n min ». Plus de « 11 en échec ». |
+| ANA-4 | ANA-2 | (**C76**) Réanalyser des sons déjà analysés par DJSync (case cochée). | Ils sont analysés ; un éventuel échec a sa raison dans le journal (« Analysis failed for track … »), à joindre si besoin. Les sons analysés par Rekordbox restent « déjà analysé ». |
+| DIA-1 | — | (**B40**) Bibliothèque de l'ordinateur ▸ Diagnostic ▸ Fichiers manquants, avec une clé débranchée. | En haut : « n sur E: (pas branché) » ; sur chaque son : « sur E:, pas branché » ; le détail explique que c'est une clé ou un disque débranché (souvent un son ajouté à Rekordbox depuis une clé). |
+| DOU-15 | — | (**B41**) Doublons ▸ groupe avec un fichier introuvable et un fichier abîmé. | Pastilles à leur taille, centrées (plus de grands blocs) ; pas de « Non comparé » sur un fichier introuvable ; écouter le fichier abîmé : « Impossible de lire « … » : fichier abîmé, incomplet… », la cause brute entre parenthèses. |
+| DOU-16 | — | (**B47**) Doublons pendant la vérification ▸ **Retour** ▸ rouvrir Doublons. | Retour ramène à la page d'avant **sans fermer** l'outil : à la réouverture, même groupe et la vérification a continué. Seul **Fermer** ferme l'outil. |
+| LEC-5 | — | (**C85**) Lire un son analysé depuis la Bibliothèque ; Paramètres ▸ Général. | Plus de forme d'onde défilante au-dessus du lecteur (elle n'est que dans Grille et cues) ; la case « Forme d'onde défilante » a disparu. |
+| MAJ-5 | MAJ-1 | (**C96**) Paramètres ▸ DJSync. | Sur une ligne : « Version : » et la liste déroulante des versions, la case « Afficher les versions de test (rc) », puis le bouton d'installation à droite (« Mettre à jour vers … » / « Revenir à la … »). Cocher / décocher la case relit la liste. |
 
 ## Ajouts du 28/10 (soir) : B34, C95, C96
 | # | Étapes | Attendu |
