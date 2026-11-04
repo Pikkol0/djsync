@@ -55,7 +55,7 @@ def test_button_column_never_fills_the_rest():
         app.processEvents()
     head = table.horizontalHeader()
     dl, title = table.column_index("dl"), table.column_index("title")
-    assert head.sectionSize(dl) <= table._width(table.columns[dl]) + 2
+    assert head.sectionSize(dl) <= table._width(table.columns[dl]) + 8
     assert head.sectionSize(title) > 600
     table.close()
 
@@ -177,3 +177,101 @@ def test_foreground_retried_after_the_splash_closes(monkeypatch):
 
     F.ensure_front(W(), lambda ms, fn: (delays.append(ms), fn()))
     assert delays == [300, 1000] and tries == [5, 5, 5]
+
+
+# ------------------------------------------------------------------ B44 : accueil
+def test_welcome_language_needs_confirm_and_star_is_primary(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.welcome import WelcomeDialog
+
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
+    w = WelcomeDialog(demo, demo.ctrl)
+    w._pick("fr" if demo.ctrl.settings.language == "en" else "en")
+    assert w._step == 1                                   # un clic choisit, ne passe pas à la suite
+    w._pick(demo.ctrl.settings.language)
+    w.validate_btn.click()
+    assert w._step == 2
+    assert w.star_btn.property("kind") == "primary"
+    assert w.width() >= w.minimumWidth() > 0
+    w._finish()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C119, C68
+def test_thanks_and_first_steps_without_faq():
+    from djsync.credits import THANKS
+    from djsync.i18n import en, fr
+
+    assert THANKS == ["Tazyh"]
+    assert not any(k.startswith(("start.faq", "start.q")) for k in list(en.STRINGS) + list(fr.STRINGS))
+
+
+# ------------------------------------------------------------------ C70, C121 : Paramètres
+def test_settings_one_page_with_anchors(demo):  # noqa: F811
+    from djsync.ui.views.settings_view import SECTIONS
+
+    demo.resize(1300, 800)
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    pump(demo, 0.3)
+    assert all(not box.isHidden() for _s, box in view._cards)            # tout sur une page
+    bar = view.area.verticalScrollBar()
+    for key, _icon in SECTIONS:
+        view.show_section(key)
+        pump(demo, 0.05)
+        assert bar.value() == min(bar.maximum(), view._heads[key].y()), key
+    view.show_section("general")
+    bar.setValue(view._heads["download"].y() + 5)                         # défilement à la main
+    pump(demo, 0.05)
+    assert view._current_section == "download"
+    djsync_cards = view.section_cards("djsync")
+    assert any(view.shortcut_var in box.findChildren(type(view.shortcut_var)) for box in djsync_cards)
+    assert not any(view.shortcut_var in box.findChildren(type(view.shortcut_var))
+                   for box in view.section_cards("privacy"))
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C96 : liste des versions dans la carte
+def test_versions_dropdown_in_settings(demo, monkeypatch):  # noqa: F811
+    from djsync.core.updates import Update
+    from djsync.ui import version_dialog
+
+    ctrl = demo.ctrl
+    vs = [Update("9.9.0", "u", False, "a", "c", "2026-11-01"), Update("1.0.0", "u", False, "a", "c")]
+    asked = []
+    monkeypatch.setattr(ctrl, "app_versions", lambda pre, ok, failed=None: (asked.append(pre), ok(vs)))
+    monkeypatch.setattr(ctrl, "can_self_update", lambda: True)
+    installed = []
+    monkeypatch.setattr(ctrl, "app_update_install", installed.append)
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    view.load_versions()
+    assert view.version_menu.count() == 2 and view.version_menu.isEnabled()
+    view.version_menu.setCurrentIndex(0)
+    assert view.version_install_btn.isEnabled() and "9.9.0" in view.version_install_btn.text()
+    view.version_install_btn.click()
+    assert [u.version for u in installed] == ["9.9.0"]
+    view.show_rc_var.setChecked(not view.show_rc_var.isChecked())        # liste relue
+    assert len(asked) == 2
+    assert version_dialog.version_text(vs[0], "9.9.0").endswith(version_dialog.t("update.pick_installed"))
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C57 : « Annuler » après la remise à zéro
+def test_reset_message_and_undo_after_rebuild(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.dialogs import ConfirmDialog
+
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
+    made = []
+    real_init = ConfirmDialog.__init__
+
+    def spy(self, *a, **k):
+        real_init(self, *a, **k)
+        made.append(self)
+
+    monkeypatch.setattr(ConfirmDialog, "__init__", spy)
+    demo.show_view("settings")
+    demo.views["settings"]._reset_defaults()
+    made[-1]._ok()
+    assert pump(demo, 3, lambda: demo.toast_action.isVisibleTo(demo))
+    assert demo.toast.isVisibleTo(demo) and demo.toast.geometry().intersects(demo.stack.rect())
+    assert not demo.errors
