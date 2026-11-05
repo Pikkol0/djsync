@@ -1545,5 +1545,7 @@ STRINGS = {
     # 1.4.0-rc.2 (C137) : vraie qualité
     "quality.mp3_warning": "Depuis YouTube, convertir en MP3 ajoute un peu de perte et un fichier plus lourd, sans aucun gain : la vraie qualité reste celle de la source.",
     "quality.real_title": "Quelle qualité j'obtiens vraiment ?",
-    "quality.real_table": "<table cellspacing='2'><tr><td><b>Source</b></td><td><b>≈ équivalent MP3</b></td><td><b>Aigus coupés vers</b></td></tr><tr><td>YouTube (par défaut)</td><td>MP3 160–192</td><td>≈ 16 kHz</td></tr><tr><td>YouTube, meilleur flux, sans Premium</td><td>MP3 224–256</td><td>≈ 20 kHz</td></tr><tr><td>YouTube, meilleur flux, Premium</td><td>MP3 320</td><td>≈ 19–20 kHz</td></tr><tr><td>Flux SoundCloud</td><td>MP3 128–160</td><td>≈ 16 kHz</td></tr><tr><td>Original SoundCloud, Haute qualité</td><td>MP3 320 ou sans perte</td><td>20 kHz et +</td></tr></table>Le débit écrit dans le fichier (et affiché par Rekordbox) est celui de la conversion, pas la vraie qualité : la colonne « Qualité réelle » la mesure. Convertir ne rend jamais ce qui a été perdu.",
+    # 1.4.0-rc.3 (B69, C143) : tableau à cases
+    "quality.real_rows": "Source | ≈ équivalent MP3 | Aigus coupés vers\nYouTube (par défaut) | MP3 160–192 | ≈ 16 kHz\nYouTube, meilleur flux, sans Premium | MP3 224–256 | ≈ 20 kHz\nYouTube, meilleur flux, Premium | MP3 320 | ≈ 19–20 kHz\nFlux SoundCloud | MP3 128–160 | ≈ 16 kHz\nOriginal SoundCloud, Haute qualité | MP3 320 ou sans perte | 20 kHz et +",
+    "quality.real_note": "Le débit écrit dans le fichier (et affiché par Rekordbox) est celui de la conversion, pas la vraie qualité : la colonne « Qualité réelle » la mesure. Convertir ne rend jamais ce qui a été perdu.",
 }

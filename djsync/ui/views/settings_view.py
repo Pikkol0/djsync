@@ -35,6 +35,31 @@ SECTIONS = (("general", "settings"), ("libraries", "library"), ("download", "dow
 NARROW_PX = 760          # en dessous (à 100 %), le volet devient une liste déroulante
 
 
+def quality_grid(rows_text: str) -> QWidget:
+    """Tableau « Quelle qualité j'obtiens vraiment ? » : lignes séparées par des retours, cases par « | »."""
+    from PySide6.QtWidgets import QFrame, QGridLayout, QLabel
+
+    box = QFrame()
+    box.setObjectName("qualityGrid")
+    box.setStyleSheet(f"#qualityGrid {{ border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+                      f"#qualityGrid QLabel {{ border-right: 1px solid {theme.BORDER}; "
+                      f"border-bottom: 1px solid {theme.BORDER}; padding: 4px 8px; }}")
+    grid = QGridLayout(box)
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setSpacing(0)
+    box.cells = []                                   # type: ignore[attr-defined]
+    for r, line in enumerate(x for x in rows_text.split("\n") if x.strip()):
+        for c, cell in enumerate(line.split("|")):
+            lab = QLabel(cell.strip())
+            lab.setWordWrap(False)
+            if r == 0:
+                lab.setStyleSheet("font-weight: 600;")
+            grid.addWidget(lab, r, c)
+            box.cells.append(lab)                    # type: ignore[attr-defined]
+    box.setFixedHeight(box.sizeHint().height())
+    return box
+
+
 class SettingsView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
@@ -368,9 +393,11 @@ class SettingsView(View):
         card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
         # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
         card.addWidget(label(t("quality.real_title")))
-        self.quality_table = label(t("quality.real_table"), "dim", wrap=True)
-        self.quality_table.setTextFormat(Qt.RichText)
+        # 1.4.0-rc.3 (B69, C143) : vraie grille à cases tracées, hauteur fixe (le texte HTML tremblait au
+        # défilement : sa hauteur était recalculée à chaque redessin)
+        self.quality_table = quality_grid(t("quality.real_rows"))
         card.addWidget(self.quality_table)
+        card.addWidget(label(t("quality.real_note"), "dim", wrap=True))
         row = hbox()
         row.addWidget(self._fixed(label(t("yt.settings_account"))))
         from ...core.soundcloud import BROWSERS as _YT_BROWSERS
@@ -544,7 +571,8 @@ class SettingsView(View):
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
-        controller.on("drive", lambda: QTimer.singleShot(400, self._space_if_shown))   # 1.3.1 (C27)
+        controller.on("drive", lambda: (setattr(self, "_space_done", False),
+                                        QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
         controller.on("drives", self._refresh_drives)
         controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
         controller.on("drive", self._refresh_drives)
@@ -995,7 +1023,10 @@ class SettingsView(View):
         bar = self.area.verticalScrollBar()
         top, bottom = bar.value(), bar.value() + self.area.viewport().height()
         y = self.space_box.y()
-        if y < bottom and y + self.space_box.height() > top:
+        if y < bottom and y + self.space_box.height() > top and not getattr(self, "_space_done", False):
+            # 1.4.0-rc.3 (B71) : une seule fois par affichage de la page, plus à chaque pas de défilement
+            # (les lignes étaient recréées pendant qu'on défilait : la carte clignotait et changeait de hauteur)
+            self._space_done = True
             space.compute()
 
     def show_space(self) -> None:
@@ -1033,6 +1064,7 @@ class SettingsView(View):
         self.ctrl.refresh_drives()
         if not self._versions_loaded:                       # 1.3.2-rc.2 (C96) : une fois, à la première visite
             QTimer.singleShot(0, self.load_versions)
+        self._space_done = False                         # B71 : remesurée à chaque ouverture de la page
         QTimer.singleShot(0, self._space_if_shown)
         QTimer.singleShot(0, self._sync_nav)
 
