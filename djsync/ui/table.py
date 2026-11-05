@@ -384,6 +384,7 @@ class TrackTable(QTableView):
                  badges: bool = False) -> None:
         super().__init__(parent)
         self.columns = list(columns)
+        self.fit_content = False              # 1.4.0-rc.4 (C150) : colonnes ajustées au contenu
         # V1.0.0 : petite pochette devant le titre (recherche), chargée seulement pour les lignes
         # affichées (Qt ne demande l'icône que des lignes visibles), gardée en mémoire (≈ 4 Ko chacune)
         self.loader = loader
@@ -535,10 +536,29 @@ class TrackTable(QTableView):
             floor = theme.px(col.min_width) if col.stretch else theme.px(24)
             return max(theme.px(self._user_widths[col.key]), floor)
         base = max(theme.px(col.min_width if col.stretch else col.width), title)
+        if self.fit_content and not col.stretch and col.key not in ICON_COLUMNS and col.key != "chk" \
+                and self._rows:
+            # 1.4.0-rc.4 (C150) : largeur ajustée au contenu (plafonnée), une colonne vide se réduit à son titre
+            base = max(title, min(self._content_width(col.key), theme.px(max(col.width * 2, 320))))
         if col.key == "pos":                  # 1.2.1 : « 735 » entier dans la colonne #
             digits = len(str(max(1, len(self._rows))))
             base = max(base, self.fontMetrics().horizontalAdvance("8" * digits) + theme.px(22))
         return base
+
+    def _content_width(self, key: str) -> int:
+        """1.4.0-rc.4 (C150) : largeur du plus long texte de la colonne (500 premières lignes)."""
+        cache = self.__dict__.setdefault("_content_cache", {})
+        if key not in cache:
+            fm = self.fontMetrics()
+            widest = 0
+            for i, iid in enumerate(self._order):
+                if i >= 500:
+                    break
+                v = self._rows[iid].values.get(key)
+                if v not in (None, ""):
+                    widest = max(widest, fm.horizontalAdvance(str(v)))
+            cache[key] = widest + theme.px(22) if widest else 0
+        return cache[key]
 
     def _fit_columns(self) -> None:
         avail = self.viewport().width()
@@ -574,6 +594,10 @@ class TrackTable(QTableView):
                 if col.stretch and scroll and not overflow:
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
                     rest = avail - sum(self._width(cols[k]) for k in visible if k != col.key)
+                    if self.fit_content and self._rows and col.key not in self._user_widths:
+                        # 1.4.0-rc.4 (C150) : jamais plus large que son plus long titre ; le reste va
+                        # à la dernière colonne (Source…), qui n'est plus coupée
+                        rest = min(rest, max(self._content_width(col.key), theme.px(col.min_width)))
                     width = self._width(col) if col.key in self._user_widths else max(self._width(col), rest)
                     self.setColumnWidth(i, width)
                 elif col.stretch and overflow:          # titre à sa largeur normale, le tableau défile
@@ -737,7 +761,8 @@ class TrackTable(QTableView):
         grew = len(str(len(rows))) != len(str(len(self._rows)))
         self._rows = {r.iid: r for r in rows}
         self._order = [r.iid for r in rows]
-        if grew:                              # nombre de chiffres de « # » changé
+        self.__dict__.pop("_content_cache", None)
+        if grew or self.fit_content:          # nombre de chiffres de « # » changé ; (C150) contenu nouveau
             self._fit_columns()
         if reset_sort:
             self._sort_key, self._sort_desc = None, False

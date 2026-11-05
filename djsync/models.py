@@ -380,6 +380,7 @@ class DownloadJob:
     percent: float = 0.0
     message: str = ""
     reason: str = ""                  # 1.4.0-rc.2 (B66) : clé de l'erreur connue (relance ciblée)
+    peer_state: str = ""              # 1.4.0-rc.4 (B83) : attente d'un pair Soulseek (texte de la colonne État)
     file_path: Optional[str] = None
     content_id: Optional[int] = None
     created_at: datetime = field(default_factory=datetime.now)
@@ -405,4 +406,6 @@ class DownloadJob:
     @property
     def status_label(self) -> str:
         label = JOB_STATUS_LABELS.get(self.status, self.status)
+        if self.status == "downloading" and self.peer_state:      # 1.4.0-rc.4 (B83) : attente d'un pair
+            return self.peer_state
         return f"{label} {self.percent:.0f} %" if self.status == "downloading" else label

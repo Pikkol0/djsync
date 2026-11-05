@@ -40,11 +40,20 @@ def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Any:
 
 
 # ------------------------------------------------------------------ Audius
+_AUDIUS_HOST: Dict[str, str] = {}
+
+
 def _audius_host(get: Callable = _get) -> str:
+    """Serveur Audius, gardé en mémoire (1.4.0-rc.4, B78 : une requête de moins par recherche)."""
+    if get is _get and _AUDIUS_HOST.get("host"):
+        return _AUDIUS_HOST["host"]
     hosts = (get(AUDIUS_HOSTS) or {}).get("data") or []
     if not hosts:
         raise RuntimeError("No Audius server available.")
-    return hosts[0].rstrip("/")
+    host = hosts[0].rstrip("/")
+    if get is _get:
+        _AUDIUS_HOST["host"] = host
+    return host
 
 
 def audius_search(query: str, limit: int = 15, get: Callable = _get) -> List[TrackResult]:
@@ -72,40 +81,60 @@ def _plain(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
-def archive_search(query: str, limit: int = 12, get: Callable = _get) -> List[TrackResult]:
-    """Morceaux (fichiers) d'items audio dont le titre ou l'artiste contient la recherche ; sans perte d'abord."""
+ARCHIVE_ITEMS = 15        # éléments (albums, enregistrements) demandés à archive.org
+ARCHIVE_PARALLEL = 8      # 1.4.0-rc.4 (B78) : fiches des éléments demandées en parallèle
+
+
+def _track_no(f: Dict[str, Any]) -> int:
+    m = re.match(r"\d+", str(f.get("track") or ""))
+    return int(m.group()) if m else 10 ** 6
+
+
+def archive_search(query: str, limit: int = 60, get: Callable = _get) -> List[TrackResult]:
+    """Morceaux (fichiers) d'éléments audio d'archive.org, dans l'ordre de pertinence d'archive.org, puis
+    dans l'ordre des pistes de chaque élément. 1.4.0-rc.4 (B78) : fiches demandées en parallèle ; un
+    fichier est gardé si les mots sont dans le fichier OU dans l'élément (titre de l'album, artiste) ; plus
+    de tri global « sans perte d'abord » (la qualité reste affichée)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     words = [w for w in _plain(query).split() if len(w) > 1]
     q = " AND ".join(f"({w})" for w in words) or query
     resp = get(ARCHIVE_SEARCH, {"q": f"({q}) AND mediatype:(audio)", "fl[]": ["identifier", "title", "creator",
                                                                              "licenseurl"],
-                                "rows": 15, "output": "json"})
-    docs = ((resp or {}).get("response") or {}).get("docs") or []
-    out: List[TrackResult] = []
-    for doc in docs:
-        ident = doc.get("identifier")
-        if not ident:
-            continue
+                                "rows": ARCHIVE_ITEMS, "output": "json"})
+    docs = [d for d in ((resp or {}).get("response") or {}).get("docs") or [] if d.get("identifier")]
+
+    def meta_of(doc: Dict[str, Any]) -> Any:
         try:
-            meta = get(ARCHIVE_META.format(id=ident))
+            return get(ARCHIVE_META.format(id=doc["identifier"]))
         except Exception as exc:  # noqa: BLE001
-            log.info("Archive metadata %s: %s", ident, exc)
+            log.info("Archive metadata %s: %s", doc["identifier"], exc)
+            return None
+
+    with ThreadPoolExecutor(max_workers=ARCHIVE_PARALLEL) as pool:
+        metas = list(pool.map(meta_of, docs))
+    out: List[TrackResult] = []
+    for doc, meta in zip(docs, metas):
+        if meta is None:
             continue
+        ident = doc["identifier"]
         creator = doc.get("creator")
         creator = creator[0] if isinstance(creator, list) and creator else (creator or "")
+        item_hay = " " + _plain(f"{doc.get('title') or ''} {creator}") + " "
         best: Dict[str, Any] = {}
         for f in (meta or {}).get("files") or []:
             fmt = _IA_FORMATS.get(str(f.get("format") or "").lower())
             if fmt is None:
                 continue
             title = f.get("title") or str(f.get("name", "")).rsplit(".", 1)[0]
-            hay = " " + _plain(f"{title} {f.get('artist') or creator} {f.get('name')}") + " "
+            hay = " " + _plain(f"{title} {f.get('artist') or creator} {f.get('name')}") + " " + item_hay
             if words and not all(f" {w} " in hay for w in words):
                 continue
             key = _plain(title)
             rank = (fmt[1], fmt[0] == "flac")
             if key not in best or rank > best[key][0]:
                 best[key] = (rank, f, fmt, title)
-        for rank, f, fmt, title in best.values():
+        for rank, f, fmt, title in sorted(best.values(), key=lambda b: _track_no(b[1])):
             length = f.get("length") or "0"
             try:
                 secs = int(float(length)) if ":" not in str(length) else sum(
@@ -120,7 +149,6 @@ def archive_search(query: str, limit: int = 12, get: Callable = _get) -> List[Tr
                                    quality=fmt[0].upper() if fmt[1] else "MP3"))
         if len(out) >= limit:
             break
-    out.sort(key=lambda x: x.quality in ("FLAC", "WAV", "AIFF"), reverse=True)
     return out[:limit]
 
 
@@ -133,13 +161,30 @@ def t_license(source: str, raw: str) -> str:
     return raw.strip() or ("Audius" if source == "audius" else "")
 
 
-def search_all(query: str, sources: List[str], get: Callable = _get) -> List[TrackResult]:
-    """Les sources demandées l'une après l'autre ; une source en panne n'empêche pas les autres."""
-    out: List[TrackResult] = []
-    for name, fn in (("archive", archive_search), ("audius", audius_search)):
-        if name in sources:
-            try:
-                out += fn(query, get=get)
-            except Exception as exc:  # noqa: BLE001 - hors ligne, API changée…
-                log.info("%s search failed: %s", name, exc)
-    return out
+def search_all(query: str, sources: List[str], get: Callable = _get,
+               partial: Optional[Callable[[str, List[TrackResult]], None]] = None) -> List[TrackResult]:
+    """Les sources demandées en même temps (1.4.0-rc.4, B78) ; une source en panne n'empêche pas les
+    autres. `partial(nom, résultats)` est appelé dès qu'une source a répondu (depuis son fil)."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    wanted = [(n, fn) for n, fn in (("archive", archive_search), ("audius", audius_search)) if n in sources]
+
+    def one(item: Any) -> List[TrackResult]:
+        name, fn = item
+        start = time.monotonic()
+        try:
+            found = fn(query, get=get)
+        except Exception as exc:  # noqa: BLE001 - hors ligne, API changée…
+            log.info("%s search failed: %s", name, exc)
+            found = []
+        log.info("Free source %s: %d result(s) in %.1f s", name, len(found), time.monotonic() - start)
+        if partial is not None:
+            partial(name, found)
+        return found
+
+    if not wanted:
+        return []
+    with ThreadPoolExecutor(max_workers=len(wanted)) as pool:
+        results = list(pool.map(one, wanted))
+    return [x for r in results for x in r]

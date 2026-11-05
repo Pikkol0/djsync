@@ -247,6 +247,12 @@ class DJSyncApp(QMainWindow):
         from .splash import close_native
 
         close_native()
+        # 1.4.0-rc.4 (B76) : volet replié refait une fois la fenêtre à sa taille et son zoom définitifs
+        # (au lancement, la mise en forme était faite trop tôt : icônes serrées jusqu'à déplier / replier)
+        def relayout() -> None:
+            self._compact = None
+            self._update_compact()
+        QTimer.singleShot(0, relayout)
         if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
             self._light_checked = True
             from ..core.machine import light_active, machine_info, should_offer
@@ -421,6 +427,10 @@ class DJSyncApp(QMainWindow):
         self.an_ring = MiniRing("wave", lambda: self.show_view("downloads"))
         al.addWidget(self.an_ring, 0, Qt.AlignHCenter)
         self.an_ring.hide()
+        # 1.4.0-rc.4 (B76) : un second anneau pour les téléchargements quand les deux tournent
+        self.dl_ring = MiniRing("download", lambda: self.show_view("downloads"))
+        al.addWidget(self.dl_ring, 0, Qt.AlignHCenter)
+        self.dl_ring.hide()
         from .widgets import clickable
 
         clickable(an, lambda: self.show_view("downloads"))
@@ -534,7 +544,8 @@ class DJSyncApp(QMainWindow):
         both = q.running and downloading
         for w in (self.an_bar, self.an_stop, self.an_open):
             w.setVisible(q.running and not compact)
-        self.an_ring.setVisible(compact)                                   # B73
+        self.an_ring.setVisible(compact and q.running)                     # B73, rc.4 (B76)
+        self.dl_ring.setVisible(compact and downloading)
         self.an_title.setVisible(not compact)
         self.an_label.setVisible(q.running and not compact)
         self.dl_bar.setVisible(downloading and not compact)
@@ -548,14 +559,11 @@ class DJSyncApp(QMainWindow):
         if downloading:
             self.dl_bar.setValue(int(1000 * frac))
             self.dl_label.setText(t("nav.downloading") + f" {b_done} / {b_total}")
-        if compact:                                                        # B73 : anneau + info-bulle
-            parts = []
+        if compact:                                                        # B73, B76 : un anneau par activité
             if q.running:
-                parts.append(t("nav.analysing") + f" {q.done} / {q.total}")
+                self.an_ring.set(q.done / max(1, q.total), "wave", t("nav.analysing") + f" {q.done} / {q.total}")
             if downloading:
-                parts.append(t("nav.downloading") + f" {b_done} / {b_total}")
-            value = q.done / max(1, q.total) if q.running else frac
-            self.an_ring.set(value, "wave" if q.running else "download", " · ".join(parts))
+                self.dl_ring.set(frac, "download", t("nav.downloading") + f" {b_done} / {b_total}")
         if compact:
             title = ""
         elif both:
@@ -577,7 +585,7 @@ class DJSyncApp(QMainWindow):
         labels = {k: l for k, l, *_ in TABS}
         # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
         square = "padding: 0px; text-align: center;" if compact else ""
-        side = theme.px(SIDEBAR_COMPACT - 20)
+        side = theme.px(SIDEBAR_COMPACT - 12)          # 1.4.0-rc.4 (B76) : un peu plus d'air entre les icônes
         for key, b in self._nav.items():
             b.setText("" if compact else self._nav_text(key, labels[key]))
             b.setToolTip(t(labels[key]) if compact else "")

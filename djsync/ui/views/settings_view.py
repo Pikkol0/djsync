@@ -429,7 +429,10 @@ class SettingsView(View):
         from ...core.soundcloud import BROWSERS
 
         self._sc_browsers = {"": t("sc.settings_no_account")}
-        self._sc_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
+        # 1.4.0-rc.4 (B82) : Chrome et Edge chiffrent leurs cookies sous Windows : lecture presque impossible
+        self._sc_browsers.update({b: t("sc.settings_browser_unreliable" if sys.platform == "win32"
+                                       and b in ("chrome", "edge", "brave", "opera", "vivaldi", "chromium")
+                                       else "sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
         self.sc_browser = QComboBox()
         self.sc_browser.addItems(list(self._sc_browsers.values()))
         self.sc_browser.setCurrentText(self._sc_browsers.get(s.soundcloud_browser, self._sc_browsers[""]))

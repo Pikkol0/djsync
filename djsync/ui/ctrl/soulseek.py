@@ -32,6 +32,24 @@ def track_of(result: Any) -> TrackResult:
                        source_url=None, result_type="song", slsk=result)
 
 
+GIVE_UP_S = 15 * 60          # 1.4.0-rc.4 (B83) : au-delà, le son passe en erreur avec un message clair
+
+
+def peer_state(state: str, pct: float) -> str:
+    """1.4.0-rc.4 (B83) : texte de la colonne État pendant l'attente d'un pair ("" = vrai téléchargement)."""
+    if state.startswith("queued_at:"):
+        return t("slsk.state_queued_at", n=state.split(":", 1)[1])
+    if state in ("queued", "queued_remote"):
+        return t("slsk.state_queued")
+    if state == "same_user":
+        return t("slsk.state_same_user")
+    if state == "initializing" or (state == "downloading" and pct <= 0):
+        return t("slsk.state_connecting")
+    if state == "research":
+        return t("slsk.state_research")
+    return ""
+
+
 class SoulseekMixin:
     slsk: Any = None                # core.soulseek.SoulseekClient une fois connecté
 
@@ -131,23 +149,57 @@ class SoulseekMixin:
 
         # liste partagée : remplie par slsk_enqueue / improve_apply, même si le travail a déjà démarré
         others = self.__dict__.setdefault("_slsk_alts", {}).setdefault(job.id, [])
+        tried: List[str] = []
+        searched = False
+        started = time.monotonic()
         while True:
             result = self._slsk_claim(job, result, others, progress)
             claimed = result.username
+            tried.append(f"{result.username}")
             try:
                 wait = 60.0 if others else QUEUE_WAIT_S
-                return self.slsk.download(result, progress, stall=STALL_S, reach=REACH_S, queue_wait=wait)
+                path = self.slsk.download(result, progress, stall=STALL_S, reach=REACH_S, queue_wait=wait)
+                log.info("Soulseek: %s received from %s after %d peer(s), %.0f s", result.name, result.username,
+                         len(tried), time.monotonic() - started)
+                return path
             except SoulseekError as exc:
                 self._slsk_mute(result.username, str(exc))
-                if not others or str(exc) == "cancelled":
+                log.info("Soulseek: %s from %s abandoned (%s)", result.name, result.username, exc)
+                if str(exc) == "cancelled":
                     raise
-                log.info("Soulseek: %s from %s (%s); trying another user", result.name, result.username, exc)
+                # 1.4.0-rc.4 (B83) : plus de pair de secours : une nouvelle recherche, une fois, avant
+                # l'erreur ; et une limite globale par son
+                if not others and not searched and time.monotonic() - started < GIVE_UP_S:
+                    searched = True
+                    others.extend(self._slsk_research(job, result, tried, progress))
+                if not others or time.monotonic() - started >= GIVE_UP_S:
+                    log.info("Soulseek: gave up on %s after %d peer(s) (%s), %.0f s", result.name, len(tried),
+                             ", ".join(tried), time.monotonic() - started)
+                    raise SoulseekError(t("slsk.gave_up")) from exc
                 result = others.pop(0)
                 job.track = replace(job.track, slsk=result)
                 job.message = t("slsk.next_peer", reason=str(exc)[:60])
+                job.peer_state = t("slsk.state_next_peer")
                 self.dispatcher.post(self._job_changed, job)
             finally:
                 self._slsk_release(claimed)
+
+    def _slsk_research(self, job: DownloadJob, last: Any, tried: List[str],
+                       progress: Callable[[float, str], None]) -> List[Any]:
+        """1.4.0-rc.4 (B83) : nouvelle recherche (artiste + titre) pour trouver d'autres pairs qui ont le même
+        son (même durée à ± 3 s, même type de fichier), en excluant les pairs déjà essayés."""
+        query = " ".join(x for x in (job.track.artist, job.track.title) if x).strip() or last.stem
+        progress(0.0, "research")
+        try:
+            found = self.slsk.search(query, duration=int(last.duration or job.track.duration_seconds or 0))
+        except Exception as exc:  # noqa: BLE001
+            log.info("Soulseek re-search failed: %s", exc)
+            return []
+        dur = int(last.duration or job.track.duration_seconds or 0)
+        keep = [r for r in found if r.username not in tried and r.lossless == last.lossless
+                and (not dur or not r.duration or abs(r.duration - dur) <= 3)]
+        log.info("Soulseek re-search for %s: %d other peer(s)", query, len(keep))
+        return self.slsk_order(keep)[:5]
 
     def slsk_order(self, results: List[Any]) -> List[Any]:
         """B72 : pairs restés muets pendant la session en dernier."""
@@ -216,6 +268,8 @@ class SoulseekMixin:
                 job.message = t(f"slsk.{state}")
             else:
                 job.message = t(f"slsk.state_{state}") if state in ("queued", "initializing", "downloading") else ""
+            # 1.4.0-rc.4 (B83) : la colonne État montre le vrai état, pas « Téléchargement 0 % »
+            job.peer_state = peer_state(state, pct)
             self.dispatcher.post(self._job_changed, job)
 
         try:

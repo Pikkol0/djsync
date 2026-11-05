@@ -1571,4 +1571,17 @@ STRINGS = {
     "welcome.yt_later": "Modifiable à tout moment dans Paramètres ▸ Téléchargement.",
     "update.banner": "DJSync {version} est disponible.",
     "update.later": "Plus tard",
+    # 1.4.0-rc.4 (B82, B83)
+    "error.browser_cookies": "Impossible de lire votre connexion SoundCloud dans le navigateur (Chrome et Edge bloquent cette lecture sous Windows). Collez votre jeton SoundCloud dans Paramètres ▸ SoundCloud, ou choisissez Firefox. Le flux habituel a été téléchargé à la place quand c'était possible.",
+    "error.sc_private": "Son SoundCloud privé ou introuvable. Pour un son privé, utilisez son lien de partage privé (il contient « /s-… »).",
+    "sc.settings_browser_unreliable": "Connecté avec {name} (peu fiable sous Windows : préférez le jeton)",
+    "slsk.state_connecting": "Connexion au pair…",
+    "slsk.state_queued_at": "En file chez le pair (place {n})",
+    "slsk.state_queued": "En file chez le pair",
+    "slsk.state_same_user": "En attente : même pair",
+    "slsk.state_next_peer": "Pair suivant…",
+    "slsk.state_research": "Nouvelle recherche Soulseek…",
+    "slsk.gave_up": "Aucun pair n'a envoyé ce son. Réessayez plus tard ou choisissez une autre version.",
+    "slsk.no_router": "Aucun routeur UPnP trouvé : les autres utilisateurs ne peuvent pas se connecter à vous, beaucoup de sources resteront muettes. VPN actif ? UPnP désactivé sur la box ?",
+    "slsk.share_off": "Partage désactivé : beaucoup d'utilisateurs ne servent pas les comptes qui ne partagent rien.",
 }

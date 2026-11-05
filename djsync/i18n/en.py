@@ -1565,4 +1565,17 @@ STRINGS = {
     "welcome.yt_later": "You can change it any time in Settings ▸ Download.",
     "update.banner": "DJSync {version} is available.",
     "update.later": "Later",
+    # 1.4.0-rc.4 (B82, B83)
+    "error.browser_cookies": "Can't read your SoundCloud login from the browser (Chrome and Edge block this on Windows). Paste your SoundCloud token in Settings ▸ SoundCloud, or choose Firefox. The regular stream was downloaded instead when possible.",
+    "error.sc_private": "SoundCloud track is private or not found. For a private track, use its private share link (it contains “/s-…”).",
+    "sc.settings_browser_unreliable": "Signed in with {name} (unreliable on Windows: prefer the token)",
+    "slsk.state_connecting": "Connecting to peer…",
+    "slsk.state_queued_at": "Queued at peer (position {n})",
+    "slsk.state_queued": "Queued at peer",
+    "slsk.state_same_user": "Waiting: same peer",
+    "slsk.state_next_peer": "Next peer…",
+    "slsk.state_research": "Searching Soulseek again…",
+    "slsk.gave_up": "No peer sent this track. Try again later or pick another version.",
+    "slsk.no_router": "No UPnP router found: other users can't connect to you, many sources will stay silent. VPN on? UPnP off on your router?",
+    "slsk.share_off": "Sharing is off: many users don't serve accounts that share nothing.",
 }

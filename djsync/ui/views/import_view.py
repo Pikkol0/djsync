@@ -106,6 +106,7 @@ class ImportView(View):
         self.sp_table = TrackTable(self, spotify_cols, click_columns=("chk",))
         self.dl_table = TrackTable(self, result_columns(with_check=True, with_download=False), click_columns=("chk",))
         for table in (self.sp_table, self.dl_table):
+            table.fit_content = True                         # 1.4.0-rc.4 (C150)
             table.on_cell_click = lambda iid, _k, tb=table: self._toggle(tb, iid)
             table.on_select = lambda _i: self._refresh_buttons()
             table.on_double = lambda _i: self._preview()
