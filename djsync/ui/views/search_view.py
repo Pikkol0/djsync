@@ -67,6 +67,7 @@ class SearchView(View):
         self.root.addLayout(info_row)
 
         self.table = TrackTable(self, result_columns(), loader=loader, show_covers=True, click_columns=("dl",))
+        self.table.fit_content = True                    # 1.4.0-rc.4 (C150)
         self.remember_layout(self.table, "search")
         self.table.set_empty("search", t("search.empty_title"))
         self.table.on_double = self._play
@@ -133,6 +134,11 @@ class SearchView(View):
             state["free"] = True
             show()
 
+        def got_free_part(rs: List[TrackResult]) -> None:   # 1.4.0-rc.4 (B78) : source par source
+            if not state["free"]:
+                free[:] = rs
+                show()
+
         def got_slsk(rs: List[Any], final: bool) -> None:
             slsk[:] = [track_of(r) for r in rs]
             if final:
@@ -140,7 +146,7 @@ class SearchView(View):
             show()
 
         self.info.setText(t("search.hq_running", n=0))
-        self.ctrl.free_search(query, got_free)
+        self.ctrl.free_search(query, got_free, got_free_part)
         if self.ctrl.slsk_ready:
             self.ctrl.slsk_search(query, lambda rs: got_slsk(rs, True), lambda rs: got_slsk(rs, False))
 

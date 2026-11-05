@@ -8,6 +8,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -390,7 +391,12 @@ class SettingsView(View):
         self.yt_best_var.setChecked(s.youtube_best)
         self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
         card.addWidget(self.yt_best_var)
-        card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        # 1.4.0-rc.4 (C146) : l'avertissement sur le poids n'apparaît que si le meilleur flux est choisi
+        self.yt_best_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
+        self.yt_best_warn.setStyleSheet(f"color: {theme.WARN};")
+        self.yt_best_warn.setVisible(s.youtube_best)
+        self.yt_best_var.toggled.connect(self.yt_best_warn.setVisible)
+        card.addWidget(self.yt_best_warn)
         # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
         card.addWidget(label(t("quality.real_title")))
         # 1.4.0-rc.3 (B69, C143) : vraie grille à cases tracées, hauteur fixe (le texte HTML tremblait au
@@ -423,7 +429,10 @@ class SettingsView(View):
         from ...core.soundcloud import BROWSERS
 
         self._sc_browsers = {"": t("sc.settings_no_account")}
-        self._sc_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
+        # 1.4.0-rc.4 (B82) : Chrome et Edge chiffrent leurs cookies sous Windows : lecture presque impossible
+        self._sc_browsers.update({b: t("sc.settings_browser_unreliable" if sys.platform == "win32"
+                                       and b in ("chrome", "edge", "brave", "opera", "vivaldi", "chromium")
+                                       else "sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
         self.sc_browser = QComboBox()
         self.sc_browser.addItems(list(self._sc_browsers.values()))
         self.sc_browser.setCurrentText(self._sc_browsers.get(s.soundcloud_browser, self._sc_browsers[""]))
@@ -1553,7 +1562,8 @@ class SettingsView(View):
         s.soundcloud_token = self.sc_token.text().strip()
         s.youtube_best = self.yt_best_var.isChecked()
         s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
-        s.watch_folder = self.watch_folder.text().strip()
+        _w = self.watch_folder.text().strip()
+        s.watch_folder = str(Path(_w)) if _w else ""            # 1.4.0-rc.4 (B77) : chemin normalisé
         s.soulseek_enabled = self.slsk_var.isChecked() and s.soulseek_accepted
         s.soulseek_user = self.slsk_user.text().strip()
         s.soulseek_password = self.slsk_password.text()

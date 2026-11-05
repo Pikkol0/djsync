@@ -236,7 +236,11 @@ def test_update_offer_in_the_app(demo, monkeypatch):
     ctrl = demo.ctrl
     monkeypatch.setattr(updates, "_http_get", _releases(("v9.0.0", False, False)))
     ctrl.settings.last_update_check = 0
+    ctrl.settings.welcome_done = True
     ctrl.app_update_check()
+    # 1.4.0-rc.4 (C155) : d'abord un bandeau ; « Mettre à jour » ouvre la question
+    assert pump(demo, 4, lambda: getattr(demo, "update_bar", None) is not None and demo.update_bar.isVisibleTo(demo))
+    demo.update_go.click()
     assert pump(demo, 4, lambda: find(demo, ConfirmDialog) is not None)
     dlg = find(demo, ConfirmDialog)
     assert dlg.windowTitle() == "New version of DJSync"

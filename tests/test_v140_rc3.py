@@ -21,7 +21,7 @@ def test_b68_explorer_command_quotes_only_the_path():
 def test_b69_quality_grid_has_cells_and_fixed_height(demo):  # noqa: F811
     v = demo.views["settings"]
     grid = v.quality_table
-    assert len(grid.cells) == 18 and grid.cells[0].text().startswith("Source")
+    assert len(grid.cells) == 24 and grid.cells[0].text().startswith("Source")   # rc.4 (B75) : 4 colonnes
     assert grid.minimumHeight() == grid.maximumHeight() > 0
 
 
@@ -110,7 +110,7 @@ def test_b67_youtube_source_never_lossless():
     from djsync.core.quality import AudioInfo
 
     wav = AudioInfo(codec="wav", sample_rate=44100, cutoff=22000, source="YouTube")
-    assert wav.real_kbps == 320 and wav.fake and not wav.real_lossless
+    assert wav.real_kbps == 192 and wav.fake and not wav.real_lossless   # rc.4 (B75) : plafond YouTube
     sc = AudioInfo(codec="wav", sample_rate=44100, cutoff=22000, source="SoundCloud")   # original possible
     assert sc.real_kbps == LOSSLESS
 

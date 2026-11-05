@@ -140,6 +140,53 @@ class Metrics:
     bytes_in: int = 0
     bytes_out: int = 0
     shared_files: int = 0
+    routers: int = -1               # 1.4.0-rc.4 (B83) : routeurs UPnP trouvés (-1 = pas encore su)
+
+
+class _QuietPeers(logging.Filter):
+    """1.4.0-rc.4 (B83) : la bibliothèque Soulseek écrivait des centaines de lignes par minute (connexions
+    aux pairs, coupures) qui chassaient les lignes de DJSync des journaux envoyés. On garde l'UPnP, les
+    avertissements utiles et les erreurs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:   # noqa: A003
+        name = record.name
+        if name.startswith("aioslsk.network.upnp"):
+            return True
+        msg = str(record.msg).lower()
+        if "upnp" in msg:
+            return True
+        if name.startswith("aioslsk.network.connection") or "connecttopeer" in msg:
+            return record.levelno >= logging.ERROR
+        return record.levelno >= logging.WARNING
+
+
+class _RouterWatch(logging.Handler):
+    """Lit « found N IGD devices » (aioslsk) pour savoir si un routeur UPnP a répondu."""
+
+    def __init__(self, metrics: "Metrics") -> None:
+        super().__init__(logging.INFO)
+        self.metrics = metrics
+
+    def emit(self, record: logging.LogRecord) -> None:
+        m = re.search(r"found (\d+) (?:igd )?devices", record.getMessage().lower())
+        if m:
+            self.metrics.routers = max(int(m.group(1)), 0) if self.metrics.routers <= 0 else self.metrics.routers
+
+
+def quiet_library_logs() -> None:
+    """Filtre posé sur les sorties du journal (une seule fois par sortie)."""
+    for h in logging.getLogger().handlers:
+        if not any(isinstance(f, _QuietPeersFor) for f in h.filters):
+            h.addFilter(_QuietPeersFor("aioslsk"))
+
+
+class _QuietPeersFor(_QuietPeers):
+    def __init__(self, prefix: str) -> None:
+        super().__init__()
+        self.prefix = prefix
+
+    def filter(self, record: logging.LogRecord) -> bool:   # noqa: A003
+        return not record.name.startswith(self.prefix) or super().filter(record)
 
 
 class SoulseekError(RuntimeError):
@@ -216,6 +263,14 @@ class SoulseekClient:
         if self.port:
             settings.network.listening.port = self.port
             settings.network.listening.obfuscated_port = self.port + 1
+        quiet_library_logs()
+        self.metrics.routers = -1
+        upnp_log = logging.getLogger("aioslsk.network.upnp")
+        for h in [h for h in upnp_log.handlers if isinstance(h, _RouterWatch)]:
+            upnp_log.removeHandler(h)
+        upnp_log.addHandler(_RouterWatch(self.metrics))
+        if upnp_log.level == logging.NOTSET or upnp_log.level > logging.INFO:
+            upnp_log.setLevel(logging.INFO)
         client = SoulSeekClient(settings)
         try:
             await client.start()

@@ -82,8 +82,10 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     real = info.real_kbps
     if real:
         out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
-        if info.source in LOSSY_SOURCES and lossless:          # 1.4.0-rc.3 (B67) : WAV tiré de YouTube
-            out["real"] += f" · {info.source}"
+        if info.source in LOSSY_SOURCES:          # 1.4.0-rc.3 (B67), rc.4 (B75) : tout son tiré de YouTube
+            out["real"] += " · YouTube"
+        elif info.opus_signature and real <= 192:
+            out["real"] += " · Opus"
         out["real__color"] = levels.color(levels.audio_quality(info.effective_kbps, info.real_lossless))
     tier = None if info.fake else ("gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None))
     if tier:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QObject, QSize, Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from . import theme
@@ -126,3 +126,27 @@ class CamelotPill(QLabel):
         else:
             self.setText("")
             self.hide()
+
+
+class _ClickFilter(QObject):
+    """1.4.0-rc.4 (C153) : rend un cadre cliquable (clic gauche relâché dessus)."""
+
+    def __init__(self, widget: Any, action: Any) -> None:
+        super().__init__(widget)
+        self._action = action
+
+    def eventFilter(self, obj: Any, e: Any) -> bool:   # noqa: N802 (API Qt)
+        from PySide6.QtCore import QEvent
+
+        if e.type() == QEvent.MouseButtonRelease and e.button() == Qt.LeftButton \
+                and obj.rect().contains(e.position().toPoint()):
+            self._action()
+            return True
+        return False
+
+
+def clickable(widget: Any, action: Any) -> Any:
+    """Le clic n'importe où sur le cadre lance l'action ; curseur main."""
+    widget.installEventFilter(_ClickFilter(widget, action))
+    widget.setCursor(Qt.PointingHandCursor)
+    return widget

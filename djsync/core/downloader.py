@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from ..models import DownloadedTrack, DownloadProgress, TrackResult
 from .audio_post import finalize
@@ -42,6 +42,13 @@ _READABLE = (".m4a", ".mp3", ".flac", ".wav", ".aiff")  # lisibles par Rekordbox
 def sanitize_filename(name: str, max_len: int = 150) -> str:
     name = _FORBIDDEN.sub("_", name).strip(" .")
     return name[:max_len] or "sans_titre"
+
+
+def cookie_error(exc: Any) -> bool:
+    """1.4.0-rc.4 (B82) : connexion du navigateur illisible (Chrome verrouille et chiffre ses cookies)."""
+    text = str(exc).lower()
+    return "cookie" in text and any(k in text for k in ("could not copy", "failed to decrypt", "could not find",
+                                                         "permission", "database", "dpapi"))
 
 
 class Downloader:
@@ -99,7 +106,14 @@ class Downloader:
                     extra.update(self.soundcloud_auth)
                     if track.want_original:      # C10.1 : fichier d'origine d'abord, sinon le flux
                         extra["format"] = f"download/{native}"
-                path, fmt = self._run(track, dest, base, extra, notify)
+                try:
+                    path, fmt = self._run(track, dest, base, extra, notify)
+                except Exception as exc:  # noqa: BLE001 - 1.4.0-rc.4 (B82) : cookies du navigateur illisibles
+                    if track.source != "soundcloud" or not cookie_error(exc):
+                        raise
+                    log.warning("SoundCloud login unreadable (%s): downloading the stream instead.", exc)
+                    notify(DownloadProgress("downloading", 0.0, "SoundCloud login unreadable: stream instead"))
+                    path, fmt = self._run(track, dest, base, {"format": native}, notify)
                 original = fmt == "download"
                 # 1.4.0 (C45) : fichier sans perte d'une source libre (Internet Archive) : jamais transcodé
                 if track.source in ("archive", "audius") and path.suffix.lower() in (".flac", ".wav", ".aiff", ".aif"):

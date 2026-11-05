@@ -18,7 +18,7 @@ class MiniRing(QWidget):
         self.value = 0.0                      # 0..1
         self.color = theme.ACCENT
         self.on_click = on_click
-        side = theme.px(32)
+        side = theme.px(26)                   # 1.4.0-rc.4 (B76) : tient dans la colonne repliée, jamais coupé
         self.setFixedSize(QSize(side, side))
         if on_click is not None:
             self.setCursor(Qt.PointingHandCursor)
@@ -41,7 +41,7 @@ class MiniRing(QWidget):
 
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w = theme.px(3)
+        w = max(2, theme.px(2.5))
         r = QRectF(w, w, self.width() - 2 * w, self.height() - 2 * w)
         p.setPen(QPen(QColor(theme.BORDER), w))
         p.drawEllipse(r)
@@ -50,7 +50,7 @@ class MiniRing(QWidget):
             pen.setCapStyle(Qt.RoundCap)
             p.setPen(pen)
             p.drawArc(r, 90 * 16, -int(360 * 16 * self.value))
-        s = theme.px(14)
-        pix = qicon(self.icon, 14, theme.DIM).pixmap(QSize(s, s))
+        s = theme.px(12)
+        pix = qicon(self.icon, 12, theme.DIM).pixmap(QSize(s, s))
         p.drawPixmap((self.width() - s) // 2, (self.height() - s) // 2, pix)
         p.end()

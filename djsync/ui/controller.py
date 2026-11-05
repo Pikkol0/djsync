@@ -77,6 +77,10 @@ def known_error(exc: Any) -> str:
         return "error.drm"
     if "banned" in text and "soulseek" in text:
         return "error.slsk_banned"
+    if "cookie" in text and ("could not copy" in text or "decrypt" in text):     # 1.4.0-rc.4 (B82)
+        return "error.browser_cookies"
+    if "soundcloud" in text and ("http error 404" in text or "404: not found" in text):
+        return "error.sc_private"
     return ""
 
 
@@ -765,14 +769,24 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.dispatcher.submit(probe, ok, err, pool="net")
 
     # ---------------------------------------------------------------- recherche
-    def free_search(self, query: str, ok: Callback) -> None:
-        """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués."""
+    def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None) -> None:
+        """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués.
+        1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source."""
         from ..core import freesources
 
         sources = list(self.settings.free_sources or [])
+        got: list = []
+
+        def part(_name: str, rs: Any) -> None:
+            if partial is None:
+                return
+            dup = getattr(self.service, "_duplicates", None)
+            got.extend(dup.annotate(rs) if dup is not None else rs)
+            snapshot = list(got)
+            self.dispatcher.post(partial, snapshot)              # depuis le fil de la source
 
         def work() -> Any:
-            found = freesources.search_all(query, sources)
+            found = freesources.search_all(query, sources, partial=part)
             dup = getattr(self.service, "_duplicates", None)
             return dup.annotate(found) if dup is not None else found
 

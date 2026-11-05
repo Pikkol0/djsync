@@ -11,6 +11,7 @@ le jeton « oauth_token » de son compte. Sans compte, le flux habituel (m4a / m
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 log = logging.getLogger(__name__)
@@ -30,22 +31,32 @@ def auth_options(browser: str = "", token: str = "") -> Dict[str, Any]:
 
 
 # 1.4.0 (C45) : services de « Free Download » (téléchargement gratuit contre un abonnement ou un like)
-FREE_GATES = ("hypeddit.com", "toneden.io", "gate.fm", "fanlink.to", "show.co", "edmdistrict", "click.dj",
-              "lnk.to", "dropbox.com", "drive.google.com", "wetransfer.com", "we.tl", "bandcamp.com")
-_FREE_WORDS = ("free", "gratuit", "download", "dl", "telecharg")   # titre comparé sans accents
+# 1.4.0-rc.4 (B81) : sans les liens « intelligents » des maisons de disques (lnk.to, ffm.to, Fanlink,
+# Show.co…) qui renvoient vers Spotify, iTunes ou Amazon : « download » y veut dire acheter.
+FREE_GATES = ("hypeddit.com", "toneden.io", "gate.fm", "edmdistrict", "click.dj", "dropbox.com",
+              "drive.google.com", "wetransfer.com", "we.tl", "mediafire.com", "mega.nz")
+SMART_LINKS = ("lnk.to", "ffm.to", "fanlink.to", "show.co", "smarturl.it", "found.ee", "linktr.ee",
+               "song.link", "odesli.co", "hyperfollow", "orcd.co", "push.fm", "feature.fm")
+_FREE_WORDS = re.compile(r"\b(free|gratuit|gratis|freedl|free\s*dl|free\s*download)\b")
+
+
+def _plain(text: str) -> str:
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", (text or "").lower())
+    return "".join(c for c in text if not unicodedata.combining(c))
 
 
 def free_download(info: Dict[str, Any]) -> Optional[str]:
     """Lien « Free Download » mis par l'artiste dans le bouton d'achat du morceau (purchase_url), ou None
-    s'il s'agit d'un vrai lien d'achat (Beatport, iTunes…)."""
+    s'il s'agit d'un vrai lien d'achat (Beatport, iTunes…) ou d'un lien « intelligent » de maison de
+    disques. « download » seul ne suffit plus (B81) : il faut un service de téléchargement connu, ou un
+    titre qui parle de gratuit."""
     url = str(info.get("purchase_url") or "").strip()
-    if not url.lower().startswith(("http://", "https://")):
+    low = url.lower()
+    if not low.startswith(("http://", "https://")) or any(s in low for s in SMART_LINKS):
         return None
-    import unicodedata
-
-    title = unicodedata.normalize("NFKD", str(info.get("purchase_title") or "").lower())
-    title = "".join(c for c in title if not unicodedata.combining(c))
-    if any(w in title for w in _FREE_WORDS) or any(g in url.lower() for g in FREE_GATES):
+    if any(g in low for g in FREE_GATES) or _FREE_WORDS.search(_plain(str(info.get("purchase_title") or ""))):
         return url
     return None
 

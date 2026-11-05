@@ -78,6 +78,11 @@ class P2PPanel(QWidget):
         lay.addWidget(self.graph)
         self.stats = label("", "dim", wrap=True)
         lay.addWidget(self.stats)
+        # 1.4.0-rc.4 (B83) : pourquoi des sources restent muettes (pas de routeur UPnP, partage coupé)
+        self.warn = label("", "dim", wrap=True)
+        self.warn.setStyleSheet(f"color: {theme.WARN};")
+        self.warn.hide()
+        lay.addWidget(self.warn)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(1000)
@@ -101,6 +106,13 @@ class P2PPanel(QWidget):
             self.stats.setText("")
             return
         self.graph.set_data(m.down, m.up)
+        warns = []
+        if connected and getattr(m, "routers", -1) == 0:
+            warns.append(t("slsk.no_router"))
+        if connected and not self.ctrl.settings.soulseek_share:
+            warns.append(t("slsk.share_off"))
+        self.warn.setText("\n".join(warns))
+        self.warn.setVisible(bool(warns))
         down = m.down[-1] if m.down else 0.0
         up = m.up[-1] if m.up else 0.0
         share = t("slsk.sharing_on") if self.ctrl.settings.soulseek_share else t("slsk.sharing_off")

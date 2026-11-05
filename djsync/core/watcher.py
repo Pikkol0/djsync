@@ -23,10 +23,20 @@ PARTIAL = (".part", ".crdownload", ".download", ".tmp", ".djsync-part")
 MIN_AGE = 3.0          # secondes sans changement avant import
 
 
+def same_folder(a: "Path | str", b: "Path | str") -> bool:
+    """1.4.0-rc.4 (B77) : même dossier, quelle que soit l'écriture (« C:/x » ou « C:\\x », casse
+    sous Windows, barre finale)."""
+    def norm(p: "Path | str") -> str:
+        s = os.path.normpath(str(p).replace("\\", "/") if os.sep == "/" else str(p))
+        return os.path.normcase(s.rstrip("/\\") or s)
+    return norm(a) == norm(b)
+
+
 class FolderWatch:
     def __init__(self, folder: Path) -> None:
         self.folder = Path(folder)
         self._seen: Dict[str, Tuple[int, float]] = {}
+        self.last_seen: List[str] = []
 
     def _candidates(self) -> List[Path]:
         out: List[Path] = []
@@ -55,6 +65,7 @@ class FolderWatch:
             if st.st_size > 0 and self._seen.get(str(p)) == sig and now - st.st_mtime >= MIN_AGE:
                 ready.append(p)
         self._seen = current
+        self.last_seen = list(current)
         return ready
 
     def take(self, path: Path) -> Path:

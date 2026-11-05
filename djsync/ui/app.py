@@ -193,8 +193,13 @@ class DJSyncApp(QMainWindow):
         self._drive_changed()
         self._splash = splash
         QTimer.singleShot(150, self.ctrl.startup)
+        # 1.4.0-rc.4 (C155) : fenêtres de démarrage l'une après l'autre (accueil d'abord)
+        self._startup_queue: list = []
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setInterval(400)
+        self._startup_timer.timeout.connect(self._pump_startup)
         if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
-            QTimer.singleShot(400, self._welcome)          # 1.3.2 (C54) : tout premier lancement
+            self.queue_startup("welcome", self._welcome)    # 1.3.2 (C54) : tout premier lancement
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:
@@ -242,6 +247,12 @@ class DJSyncApp(QMainWindow):
         from .splash import close_native
 
         close_native()
+        # 1.4.0-rc.4 (B76) : volet replié refait une fois la fenêtre à sa taille et son zoom définitifs
+        # (au lancement, la mise en forme était faite trop tôt : icônes serrées jusqu'à déplier / replier)
+        def relayout() -> None:
+            self._compact = None
+            self._update_compact()
+        QTimer.singleShot(0, relayout)
         if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
             self._light_checked = True
             from ..core.machine import light_active, machine_info, should_offer
@@ -250,7 +261,40 @@ class DJSyncApp(QMainWindow):
             log.info("Machine: %s, light mode %s (%s)", info.describe(),
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
             if should_offer(self.ctrl.settings, info):
-                QTimer.singleShot(1500, lambda: self.offer_light_mode(info))
+                self.queue_startup("light_mode", lambda: self.offer_light_mode(info))
+
+    # ----------------------------------------------------- fenêtres de démarrage (C155)
+    def queue_startup(self, name: str, show: Any) -> None:
+        """1.4.0-rc.4 (C155) : une fenêtre de démarrage attend son tour : jamais deux en même temps,
+        jamais par-dessus une fenêtre déjà ouverte ; l'accueil passe toujours en premier."""
+        if any(n == name for n, _f in self._startup_queue):
+            return
+        item = (name, show)
+        if name == "welcome":
+            self._startup_queue.insert(0, item)
+        else:
+            self._startup_queue.append(item)
+        if not self._startup_timer.isActive():
+            self._startup_timer.start()
+
+    def startup_dialog_open(self) -> bool:
+        """Une fenêtre (accueil, question, page de dialogue) est-elle ouverte ?"""
+        from .dialogs import BaseDialog
+
+        if self.qapp.activeModalWidget() is not None:
+            return True
+        return any(isinstance(w, BaseDialog) and w.isVisible() and not getattr(w, "_closed", False)
+                   and w.window() is not self for w in self.qapp.topLevelWidgets())
+
+    def _pump_startup(self) -> None:
+        if not self._startup_queue:
+            self._startup_timer.stop()
+            return
+        if not self.isVisible() or self.startup_dialog_open():
+            return
+        name, show = self._startup_queue.pop(0)
+        log.info("Startup window: %s", name)
+        show()
 
     def offer_light_mode(self, info: Any) -> Any:
         """1.4.0 (C65) : une fois, sur un PC modeste : explique le mode léger (gardé ou désactivé)."""
@@ -287,6 +331,7 @@ class DJSyncApp(QMainWindow):
     def _build(self) -> None:
         central = QWidget()
         outer = vbox(central, spacing=0)
+        self._outer = outer                                  # 1.4.0-rc.4 (C155) : bandeau de mise à jour
         body = hbox(spacing=0)
         outer.addLayout(body, 1)
         self.sidebar = self._build_sidebar()
@@ -373,14 +418,23 @@ class DJSyncApp(QMainWindow):
         self.dl_bar.setRange(0, 1000)
         self.dl_bar.setTextVisible(False)
         al.addWidget(self.dl_bar)
-        self.an_open = icon_button("go", lambda: self.ctrl._emit("show_unanalysed"), t("lib.unanalysed"), size=12)
+        # 1.4.0-rc.4 (C153) : la carte, sa flèche et son anneau ouvrent Téléchargements et analyse
+        self.an_open = icon_button("go", lambda: self.show_view("downloads"), t("nav.open_activity"), size=12)
         ah.insertWidget(1, self.an_open)
         # 1.4.0-rc.3 (B73) : en volet replié, un anneau centré à la place des barres coupées
         from .mini_ring import MiniRing
 
-        self.an_ring = MiniRing("wave", lambda: self.ctrl._emit("show_unanalysed"))
+        self.an_ring = MiniRing("wave", lambda: self.show_view("downloads"))
         al.addWidget(self.an_ring, 0, Qt.AlignHCenter)
         self.an_ring.hide()
+        # 1.4.0-rc.4 (B76) : un second anneau pour les téléchargements quand les deux tournent
+        self.dl_ring = MiniRing("download", lambda: self.show_view("downloads"))
+        al.addWidget(self.dl_ring, 0, Qt.AlignHCenter)
+        self.dl_ring.hide()
+        from .widgets import clickable
+
+        clickable(an, lambda: self.show_view("downloads"))
+        an.setToolTip(t("nav.open_activity"))
         an.hide()
         lay.addWidget(an)
 
@@ -490,7 +544,8 @@ class DJSyncApp(QMainWindow):
         both = q.running and downloading
         for w in (self.an_bar, self.an_stop, self.an_open):
             w.setVisible(q.running and not compact)
-        self.an_ring.setVisible(compact)                                   # B73
+        self.an_ring.setVisible(compact and q.running)                     # B73, rc.4 (B76)
+        self.dl_ring.setVisible(compact and downloading)
         self.an_title.setVisible(not compact)
         self.an_label.setVisible(q.running and not compact)
         self.dl_bar.setVisible(downloading and not compact)
@@ -504,14 +559,11 @@ class DJSyncApp(QMainWindow):
         if downloading:
             self.dl_bar.setValue(int(1000 * frac))
             self.dl_label.setText(t("nav.downloading") + f" {b_done} / {b_total}")
-        if compact:                                                        # B73 : anneau + info-bulle
-            parts = []
+        if compact:                                                        # B73, B76 : un anneau par activité
             if q.running:
-                parts.append(t("nav.analysing") + f" {q.done} / {q.total}")
+                self.an_ring.set(q.done / max(1, q.total), "wave", t("nav.analysing") + f" {q.done} / {q.total}")
             if downloading:
-                parts.append(t("nav.downloading") + f" {b_done} / {b_total}")
-            value = q.done / max(1, q.total) if q.running else frac
-            self.an_ring.set(value, "wave" if q.running else "download", " · ".join(parts))
+                self.dl_ring.set(frac, "download", t("nav.downloading") + f" {b_done} / {b_total}")
         if compact:
             title = ""
         elif both:
@@ -533,7 +585,7 @@ class DJSyncApp(QMainWindow):
         labels = {k: l for k, l, *_ in TABS}
         # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
         square = "padding: 0px; text-align: center;" if compact else ""
-        side = theme.px(SIDEBAR_COMPACT - 20)
+        side = theme.px(SIDEBAR_COMPACT - 12)          # 1.4.0-rc.4 (B76) : un peu plus d'air entre les icônes
         for key, b in self._nav.items():
             b.setText("" if compact else self._nav_text(key, labels[key]))
             b.setToolTip(t(labels[key]) if compact else "")
@@ -985,6 +1037,34 @@ class DJSyncApp(QMainWindow):
                       detail=t("engine.offer_detail", current=current or "?"))
 
     def _app_update(self, update: Any, current: str) -> None:
+        """1.4.0-rc.4 (C155) : nouvelle version annoncée par un bandeau discret (plus de fenêtre au
+        démarrage), affiché seulement après l'accueil ; « Mettre à jour » ouvre la question habituelle."""
+        if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
+            QTimer.singleShot(2000, lambda: self._app_update(update, current))
+            return
+        bar = getattr(self, "update_bar", None)
+        if bar is None:
+            from .widgets import panel
+
+            bar = self.update_bar = panel(role="banner")
+            row = hbox(bar, margins=theme.px(8), spacing=theme.px(8))
+            row.addWidget(icon_label("download", 16, theme.ACCENT))
+            self.update_text = label("", wrap=True)
+            row.addWidget(self.update_text, 1)
+            self.update_go = button(t("update.install"), lambda: None, kind="primary")
+            row.addWidget(self.update_go)
+            row.addWidget(button(t("update.later"), bar.hide, kind="flat"))
+            self._outer.insertWidget(0, bar)
+        self.update_text.setText(t("update.banner", version=update.version))
+        try:
+            self.update_go.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self.update_go.clicked.connect(lambda: (bar.hide(), self._app_update_dialog(update, current)))
+        log.info("Update banner: %s", update.version)
+        bar.show()
+
+    def _app_update_dialog(self, update: Any, current: str) -> None:
         """Nouvelle version : 1.2.0-rc.4, installée depuis l'application quand c'est possible."""
         from .dialogs import ConfirmDialog
 

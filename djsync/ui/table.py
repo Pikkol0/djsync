@@ -41,6 +41,7 @@ class Column:
     min_width: int = 40
     on_header: Optional[Callable[[], None]] = None  # clic sur l'en-tête (ex. tout cocher)
     priority: int = 0                                # 0 = toujours visible ; plus grand = masqué d'abord
+    tip: str = ""                                    # 1.4.0-rc.4 (C152) : bulle de l'en-tête
 
 
 @dataclass
@@ -127,6 +128,15 @@ class _Model(QAbstractTableModel):
         if orientation != Qt.Horizontal or not 0 <= section < len(self.table.columns):
             return None
         col = self.table.columns[section]
+        if col.key == "chk" and col.on_header:                   # 1.4.0-rc.4 (C148) : case « tout cocher »
+            if role == Qt.DecorationRole:
+                return check_pixmap(self.table.header_check_state(), theme.px(15))
+            if role == Qt.ToolTipRole:
+                return t("table.check_all")
+            if role == Qt.DisplayRole:
+                return ""
+        if role == Qt.ToolTipRole and col.tip:
+            return col.tip
         if role == Qt.DisplayRole:
             mark = ""
             if col.key == self.table._sort_key:
@@ -273,6 +283,70 @@ class _ButtonDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+CHECK_ON, CHECK_OFF, CHECK_MIXED = "■", "□", "◩"      # valeurs de la colonne « chk » (views/common.py)
+
+
+def check_pixmap(state: str, size: int, hover: bool = False) -> Any:
+    """1.4.0-rc.4 (C148) : case à cocher dessinée comme celles du thème (QCheckBox::indicator) :
+    cadre arrondi, remplie de la couleur d'accent avec une coche quand elle est cochée, un tiret si mixte."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QPainterPath, QPen, QPixmap
+
+    ratio = 2.0
+    pm = QPixmap(int(size * ratio), int(size * ratio))
+    pm.setDevicePixelRatio(ratio)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    box = QRectF(0.5, 0.5, size - 1, size - 1)
+    radius = max(2.0, size * 0.22)
+    if state in (CHECK_ON, CHECK_MIXED):
+        p.setPen(QPen(QColor(theme.ACCENT), 1))
+        p.setBrush(QColor(theme.ACCENT))
+        p.drawRoundedRect(box, radius, radius)
+        pen = QPen(QColor(theme.ON_ACCENT or "#0E0E10"), max(1.5, size / 8))
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        if state == CHECK_ON:
+            path = QPainterPath(QPointF(size * 0.25, size * 0.52))
+            path.lineTo(QPointF(size * 0.43, size * 0.70))
+            path.lineTo(QPointF(size * 0.76, size * 0.33))
+            p.drawPath(path)
+        else:
+            p.drawLine(QPointF(size * 0.28, size * 0.5), QPointF(size * 0.72, size * 0.5))
+    else:
+        p.setPen(QPen(QColor(theme.ACCENT if hover else theme.FAINT), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(box, radius, radius)
+    p.end()
+    return pm
+
+
+class _CheckDelegate(QStyledItemDelegate):
+    """1.4.0-rc.4 (C148) : la colonne « chk » montre une vraie case, comme le reste de l'app."""
+
+    def __init__(self, table: "TrackTable") -> None:
+        super().__init__(table)
+        self.table = table
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        opt = type(option)(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        value = index.data(Qt.DisplayRole) or ""
+        if value not in (CHECK_ON, CHECK_OFF, CHECK_MIXED):
+            return
+        size = theme.px(15)
+        hover = bool(option.state & QStyle.State_MouseOver)
+        r = option.rect
+        painter.drawPixmap(r.x() + (r.width() - size) // 2, r.y() + (r.height() - size) // 2,
+                           check_pixmap(value, size, hover))
+
+
 class _KeyDelegate(QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
@@ -310,6 +384,7 @@ class TrackTable(QTableView):
                  badges: bool = False) -> None:
         super().__init__(parent)
         self.columns = list(columns)
+        self.fit_content = False              # 1.4.0-rc.4 (C150) : colonnes ajustées au contenu
         # V1.0.0 : petite pochette devant le titre (recherche), chargée seulement pour les lignes
         # affichées (Qt ne demande l'icône que des lignes visibles), gardée en mémoire (≈ 4 Ko chacune)
         self.loader = loader
@@ -403,6 +478,8 @@ class TrackTable(QTableView):
                 self.setItemDelegateForColumn(i, _ProgressDelegate(self))
             if col.key == "title" and self.show_covers:
                 self.setItemDelegateForColumn(i, _CoverDelegate(self))
+            if col.key == "chk":                                     # 1.4.0-rc.4 (C148) : vraies cases
+                self.setItemDelegateForColumn(i, _CheckDelegate(self))
             if col.key in ICON_COLUMNS:                              # 1.3.2 (C58) : vrais boutons
                 self.setItemDelegateForColumn(i, _ButtonDelegate(self, col.key))
         self._hover_cell: Any = None
@@ -459,10 +536,29 @@ class TrackTable(QTableView):
             floor = theme.px(col.min_width) if col.stretch else theme.px(24)
             return max(theme.px(self._user_widths[col.key]), floor)
         base = max(theme.px(col.min_width if col.stretch else col.width), title)
+        if self.fit_content and not col.stretch and col.key not in ICON_COLUMNS and col.key != "chk" \
+                and self._rows:
+            # 1.4.0-rc.4 (C150) : largeur ajustée au contenu (plafonnée), une colonne vide se réduit à son titre
+            base = max(title, min(self._content_width(col.key), theme.px(max(col.width * 2, 320))))
         if col.key == "pos":                  # 1.2.1 : « 735 » entier dans la colonne #
             digits = len(str(max(1, len(self._rows))))
             base = max(base, self.fontMetrics().horizontalAdvance("8" * digits) + theme.px(22))
         return base
+
+    def _content_width(self, key: str) -> int:
+        """1.4.0-rc.4 (C150) : largeur du plus long texte de la colonne (500 premières lignes)."""
+        cache = self.__dict__.setdefault("_content_cache", {})
+        if key not in cache:
+            fm = self.fontMetrics()
+            widest = 0
+            for i, iid in enumerate(self._order):
+                if i >= 500:
+                    break
+                v = self._rows[iid].values.get(key)
+                if v not in (None, ""):
+                    widest = max(widest, fm.horizontalAdvance(str(v)))
+            cache[key] = widest + theme.px(22) if widest else 0
+        return cache[key]
 
     def _fit_columns(self) -> None:
         avail = self.viewport().width()
@@ -498,6 +594,10 @@ class TrackTable(QTableView):
                 if col.stretch and scroll and not overflow:
                     head.setSectionResizeMode(i, QHeaderView.Interactive)
                     rest = avail - sum(self._width(cols[k]) for k in visible if k != col.key)
+                    if self.fit_content and self._rows and col.key not in self._user_widths:
+                        # 1.4.0-rc.4 (C150) : jamais plus large que son plus long titre ; le reste va
+                        # à la dernière colonne (Source…), qui n'est plus coupée
+                        rest = min(rest, max(self._content_width(col.key), theme.px(col.min_width)))
                     width = self._width(col) if col.key in self._user_widths else max(self._width(col), rest)
                     self.setColumnWidth(i, width)
                 elif col.stretch and overflow:          # titre à sa largeur normale, le tableau défile
@@ -661,7 +761,8 @@ class TrackTable(QTableView):
         grew = len(str(len(rows))) != len(str(len(self._rows)))
         self._rows = {r.iid: r for r in rows}
         self._order = [r.iid for r in rows]
-        if grew:                              # nombre de chiffres de « # » changé
+        self.__dict__.pop("_content_cache", None)
+        if grew or self.fit_content:          # nombre de chiffres de « # » changé ; (C150) contenu nouveau
             self._fit_columns()
         if reset_sort:
             self._sort_key, self._sort_desc = None, False
@@ -672,6 +773,13 @@ class TrackTable(QTableView):
         self._rows, self._order, self._shown = {}, [], []
         self._model.refresh()
         self._show_empty(t("common.loading"), "", "")
+
+    def header_check_state(self) -> str:
+        """1.4.0-rc.4 (C148) : état de la case d'en-tête : tout coché, rien, ou mélangé."""
+        vals = [r.values.get("chk") for r in self._rows.values() if r.values.get("chk") in (CHECK_ON, CHECK_OFF)]
+        if vals and all(v == CHECK_ON for v in vals):
+            return CHECK_ON
+        return CHECK_MIXED if any(v == CHECK_ON for v in vals) else CHECK_OFF
 
     def row(self, iid: str) -> Optional[Row]:
         return self._rows.get(iid)
@@ -690,6 +798,8 @@ class TrackTable(QTableView):
         r = self._index_of(iid)
         if r >= 0:
             self._model.dataChanged.emit(self._model.index(r, 0), self._model.index(r, len(self.columns) - 1))
+        if "chk" in values:                                      # 1.4.0-rc.4 (C148) : case d'en-tête
+            self._model.headerDataChanged.emit(Qt.Horizontal, 0, len(self.columns) - 1)
 
     def set_tags(self, iid: str, *tags: str) -> None:
         row = self._rows.get(iid)

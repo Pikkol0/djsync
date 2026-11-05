@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QPlainTextEdit
 
 from ...core.matcher import apply_preference
@@ -105,10 +106,16 @@ class ImportView(View):
         self.sp_table = TrackTable(self, spotify_cols, click_columns=("chk",))
         self.dl_table = TrackTable(self, result_columns(with_check=True, with_download=False), click_columns=("chk",))
         for table in (self.sp_table, self.dl_table):
+            table.fit_content = True                         # 1.4.0-rc.4 (C150)
             table.on_cell_click = lambda iid, _k, tb=table: self._toggle(tb, iid)
             table.on_select = lambda _i: self._refresh_buttons()
             table.on_double = lambda _i: self._preview()
             table.menu_builder = self._menu
+            from PySide6.QtGui import QKeySequence, QShortcut
+
+            sc = QShortcut(QKeySequence(Qt.Key_Space), table)       # 1.4.0-rc.4 (C148)
+            sc.setContext(Qt.WidgetShortcut)
+            sc.activated.connect(lambda tb=table: self._toggle_selected(tb))
             self.root.addWidget(table, 1)
         # 1.4.0-rc.2 (B65) : colonnes réglables et retenues, comme dans Rechercher
         self.remember_layout(self.sp_table, "import_match")
@@ -122,7 +129,14 @@ class ImportView(View):
         actions.addWidget(self.preview_btn)
         self.other_btn = button(t("import.other_match"), self._cycle, icon="refresh")
         actions.addWidget(self.other_btn)
+        # 1.4.0-rc.4 (C151) : bouton visible pour le « Free Download » de l'artiste
+        self.free_btn = button(t("sc.free_button"), self._open_free, icon="download")
+        self.free_btn.setToolTip(t("sc.free_open_tip"))
+        self.free_btn.hide()
+        actions.addWidget(self.free_btn)
         actions.addStretch(1)
+        self.count_lbl = label("", "dim")                           # 1.4.0-rc.4 (C148) : « 12 / 200 cochés »
+        actions.addWidget(self.count_lbl)
         self.dl_btn = button(t("import.download_selection"), self._download, kind="primary", icon="download")
         actions.addWidget(self.dl_btn)
         self.root.addLayout(actions)
@@ -407,13 +421,38 @@ class ImportView(View):
         self._apply_direct_checks(tracks)
 
     # -------------------------------------------------------------- cases
+    def _checkable(self, table: TrackTable, iid: str) -> bool:
+        return not (table is self.sp_table and self.matches[int(iid)].candidate is None)
+
     def _toggle(self, table: TrackTable, iid: str) -> None:
         row = table.row(iid)
-        if row is None:
+        if row is None or not self._checkable(table, iid):
+            return                                                   # rien à cocher
+        target = UNCHECKED if row.values.get("chk") == CHECKED else CHECKED
+        ids = [iid]
+        last = getattr(table, "_last_check", None)
+        from PySide6.QtWidgets import QApplication
+
+        # 1.4.0-rc.4 (C148) : Maj + clic coche (ou décoche) toute la plage depuis la dernière case
+        if last and QApplication.keyboardModifiers() & Qt.ShiftModifier:
+            shown = table.displayed_iids()
+            if last in shown and iid in shown:
+                a, b = sorted((shown.index(last), shown.index(iid)))
+                ids = shown[a:b + 1]
+        for i in ids:
+            if self._checkable(table, i):
+                table.update_values(i, chk=target)
+        table._last_check = iid                                     # type: ignore[attr-defined]
+        self._refresh_buttons()
+
+    def _toggle_selected(self, table: TrackTable) -> None:
+        """1.4.0-rc.4 (C148) : Espace coche ou décoche les lignes sélectionnées."""
+        ids = [i for i in table.selected_iids() if self._checkable(table, i)]
+        if not ids:
             return
-        if table is self.sp_table and self.matches[int(iid)].candidate is None:
-            return  # rien à cocher
-        table.update_values(iid, chk=UNCHECKED if row.values.get("chk") == CHECKED else CHECKED)
+        target = UNCHECKED if all(table.row(i).values.get("chk") == CHECKED for i in ids) else CHECKED
+        for i in ids:
+            table.update_values(i, chk=target)
         self._refresh_buttons()
 
     def _toggle_all(self, table: TrackTable) -> None:
@@ -422,6 +461,21 @@ class ImportView(View):
         for r in rows:
             table.update_values(r.iid, chk=target)
         self._refresh_buttons()
+
+    def _free_urls(self) -> List[str]:
+        """1.4.0-rc.4 (C151) : liens « Free Download » des lignes sélectionnées (sans fichier d'origine)."""
+        if self.mode != "direct":
+            return []
+        out = []
+        for i in self.dl_table.selected_iids():
+            tr = self._tracks.get(i)
+            if tr is not None and tr.free_download_url and tr.free_download_url not in out:
+                out.append(tr.free_download_url)
+        return out
+
+    def _open_free(self) -> None:
+        for url in self._free_urls()[:10]:
+            self.ctrl._emit("open_url", url)
 
     def _checked_tracks(self) -> List[TrackResult]:
         if self.mode == "spotify":
@@ -439,7 +493,12 @@ class ImportView(View):
         n = len(self._checked_tracks()) if self.mode else 0
         self.dl_btn.setText(t("import.download_selection_n", n=n) if n else t("import.download_selection"))
         self.dl_btn.setEnabled(bool(n))
+        total = sum(1 for r in self.table.all_rows() if self._checkable(self.table, r.iid)) if self.mode else 0
+        self.count_lbl.setText(t("import.checked_count", n=n, total=total) if total else "")
         sel = self.table.selected_iids() if self.mode else []
+        free = self._free_urls()
+        self.free_btn.setVisible(bool(free))
+        self.free_btn.setText(t("sc.free_button_n", n=len(free)) if len(free) > 1 else t("sc.free_button"))
         self.preview_btn.setEnabled(bool(sel))
         self.other_btn.setEnabled(bool(sel) and self.mode == "spotify")
 

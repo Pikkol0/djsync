@@ -228,6 +228,9 @@ QHeaderView::section {{ background: {SURFACE}; color: {FAINT}; border: 0; border
 QHeaderView::section:horizontal {{ border-right: 1px solid {BORDER}; }}
 QHeaderView::section:horizontal:hover {{ border-right: 1px solid {FAINT}; }}
 QHeaderView::section:hover {{ color: {TEXT}; }}
+/* 1.4.0-rc.4 (B80): header corners follow the rounded frame */
+QHeaderView::section:horizontal:first {{ border-top-left-radius: {max(0, r8 - 1)}px; }}
+QHeaderView::section:horizontal:last {{ border-top-right-radius: {max(0, r8 - 1)}px; }}
 QTableCornerButton::section {{ background: {SURFACE}; border: 0; }}
 
 QProgressBar {{ background: {BORDER}; border: 0; border-radius: {p(3)}px; max-height: {p(6)}px; min-height: {p(6)}px; }}
