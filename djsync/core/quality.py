@@ -28,6 +28,9 @@ MIN_OTHER = 128
 MIN_SAMPLE_RATE = 44100
 LOSSLESS = {"flac", "wav", "aiff", "alac"}
 LOSSY_SOURCES = {"YouTube", "YouTube Music"}   # 1.4.0-rc.3 (B67) : flux toujours avec perte
+# 1.4.0-rc.4 (B75) : plafond réaliste d'un son tiré de YouTube : l'Opus sans Premium (≈ 138 kb/s mesurés)
+# coupe vers 20 kHz comme un MP3 320, mais ne vaut qu'un MP3 160-192 environ
+YOUTUBE_CEILING = 192
 
 # Mentions qui trahissent une mauvaise source, où qu'elles soient dans le titre
 _STRONG = [
@@ -64,9 +67,16 @@ class AudioInfo:
 
         real = estimate(self.cutoff, self.sample_rate) if self.cutoff else 0
         # 1.4.0-rc.3 (B67) : un flux YouTube n'est jamais sans perte, même enregistré en WAV / FLAC
-        if real and self.source in LOSSY_SOURCES:
-            real = min(real, 320)
+        # 1.4.0-rc.4 (B75) : et jamais plus de ≈ 192 ; même plafond pour la signature de l'Opus (48 kHz et
+        # mur net vers 20 kHz), quand la source n'est pas connue (fichier tiré d'un convertisseur en ligne)
+        if real and (self.source in LOSSY_SOURCES or self.opus_signature):
+            real = min(real, YOUTUBE_CEILING)
         return real
+
+    @property
+    def opus_signature(self) -> bool:
+        """1.4.0-rc.4 (B75) : 48 kHz et coupure entre 19,5 et 21 kHz : profil d'un flux Opus de YouTube."""
+        return self.sample_rate == 48000 and 19500 <= self.cutoff < 21000 and self.codec != "mp3"
 
     @property
     def fake(self) -> bool:

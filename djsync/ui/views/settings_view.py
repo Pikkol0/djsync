@@ -391,7 +391,12 @@ class SettingsView(View):
         self.yt_best_var.setChecked(s.youtube_best)
         self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
         card.addWidget(self.yt_best_var)
-        card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        # 1.4.0-rc.4 (C146) : l'avertissement sur le poids n'apparaît que si le meilleur flux est choisi
+        self.yt_best_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
+        self.yt_best_warn.setStyleSheet(f"color: {theme.WARN};")
+        self.yt_best_warn.setVisible(s.youtube_best)
+        self.yt_best_var.toggled.connect(self.yt_best_warn.setVisible)
+        card.addWidget(self.yt_best_warn)
         # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
         card.addWidget(label(t("quality.real_title")))
         # 1.4.0-rc.3 (B69, C143) : vraie grille à cases tracées, hauteur fixe (le texte HTML tremblait au

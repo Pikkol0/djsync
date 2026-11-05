@@ -193,8 +193,13 @@ class DJSyncApp(QMainWindow):
         self._drive_changed()
         self._splash = splash
         QTimer.singleShot(150, self.ctrl.startup)
+        # 1.4.0-rc.4 (C155) : fenêtres de démarrage l'une après l'autre (accueil d'abord)
+        self._startup_queue: list = []
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setInterval(400)
+        self._startup_timer.timeout.connect(self._pump_startup)
         if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
-            QTimer.singleShot(400, self._welcome)          # 1.3.2 (C54) : tout premier lancement
+            self.queue_startup("welcome", self._welcome)    # 1.3.2 (C54) : tout premier lancement
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:
@@ -250,7 +255,40 @@ class DJSyncApp(QMainWindow):
             log.info("Machine: %s, light mode %s (%s)", info.describe(),
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
             if should_offer(self.ctrl.settings, info):
-                QTimer.singleShot(1500, lambda: self.offer_light_mode(info))
+                self.queue_startup("light_mode", lambda: self.offer_light_mode(info))
+
+    # ----------------------------------------------------- fenêtres de démarrage (C155)
+    def queue_startup(self, name: str, show: Any) -> None:
+        """1.4.0-rc.4 (C155) : une fenêtre de démarrage attend son tour : jamais deux en même temps,
+        jamais par-dessus une fenêtre déjà ouverte ; l'accueil passe toujours en premier."""
+        if any(n == name for n, _f in self._startup_queue):
+            return
+        item = (name, show)
+        if name == "welcome":
+            self._startup_queue.insert(0, item)
+        else:
+            self._startup_queue.append(item)
+        if not self._startup_timer.isActive():
+            self._startup_timer.start()
+
+    def startup_dialog_open(self) -> bool:
+        """Une fenêtre (accueil, question, page de dialogue) est-elle ouverte ?"""
+        from .dialogs import BaseDialog
+
+        if self.qapp.activeModalWidget() is not None:
+            return True
+        return any(isinstance(w, BaseDialog) and w.isVisible() and not getattr(w, "_closed", False)
+                   and w.window() is not self for w in self.qapp.topLevelWidgets())
+
+    def _pump_startup(self) -> None:
+        if not self._startup_queue:
+            self._startup_timer.stop()
+            return
+        if not self.isVisible() or self.startup_dialog_open():
+            return
+        name, show = self._startup_queue.pop(0)
+        log.info("Startup window: %s", name)
+        show()
 
     def offer_light_mode(self, info: Any) -> Any:
         """1.4.0 (C65) : une fois, sur un PC modeste : explique le mode léger (gardé ou désactivé)."""
@@ -287,6 +325,7 @@ class DJSyncApp(QMainWindow):
     def _build(self) -> None:
         central = QWidget()
         outer = vbox(central, spacing=0)
+        self._outer = outer                                  # 1.4.0-rc.4 (C155) : bandeau de mise à jour
         body = hbox(spacing=0)
         outer.addLayout(body, 1)
         self.sidebar = self._build_sidebar()
@@ -990,6 +1029,34 @@ class DJSyncApp(QMainWindow):
                       detail=t("engine.offer_detail", current=current or "?"))
 
     def _app_update(self, update: Any, current: str) -> None:
+        """1.4.0-rc.4 (C155) : nouvelle version annoncée par un bandeau discret (plus de fenêtre au
+        démarrage), affiché seulement après l'accueil ; « Mettre à jour » ouvre la question habituelle."""
+        if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
+            QTimer.singleShot(2000, lambda: self._app_update(update, current))
+            return
+        bar = getattr(self, "update_bar", None)
+        if bar is None:
+            from .widgets import panel
+
+            bar = self.update_bar = panel(role="banner")
+            row = hbox(bar, margins=theme.px(8), spacing=theme.px(8))
+            row.addWidget(icon_label("download", 16, theme.ACCENT))
+            self.update_text = label("", wrap=True)
+            row.addWidget(self.update_text, 1)
+            self.update_go = button(t("update.install"), lambda: None, kind="primary")
+            row.addWidget(self.update_go)
+            row.addWidget(button(t("update.later"), bar.hide, kind="flat"))
+            self._outer.insertWidget(0, bar)
+        self.update_text.setText(t("update.banner", version=update.version))
+        try:
+            self.update_go.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self.update_go.clicked.connect(lambda: (bar.hide(), self._app_update_dialog(update, current)))
+        log.info("Update banner: %s", update.version)
+        bar.show()
+
+    def _app_update_dialog(self, update: Any, current: str) -> None:
         """Nouvelle version : 1.2.0-rc.4, installée depuis l'application quand c'est possible."""
         from .dialogs import ConfirmDialog
 

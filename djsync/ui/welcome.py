@@ -88,6 +88,9 @@ class WelcomeDialog(BaseDialog):
             foot.addWidget(self.validate_btn)
             self.body.addLayout(foot)
             return
+        if self._step == 3:
+            self._build_quality()
+            return
         from ..credits import thanks_text
 
         # 1.3.2-rc.3 (C128) : hiérarchie de tailles (titre, accroche, trois points avec une icône chacun,
@@ -120,8 +123,47 @@ class WelcomeDialog(BaseDialog):
         foot = hbox(spacing=theme.px(8))
         foot.addWidget(button(t("welcome.first_steps"), self._first_steps, kind="flat", icon="help"))
         foot.addStretch(1)
-        foot.addWidget(button(t("welcome.start"), self._finish, icon="go"))
+        foot.addWidget(button(t("welcome.next"), self._to_quality, icon="go"))
         self.body.addLayout(foot)
+
+    def _to_quality(self) -> None:
+        box = getattr(self, "shortcut", None)
+        self._shortcut_wanted = bool(box is not None and box.isChecked() and box.isEnabled())
+        self._step = 3
+        self._build()
+
+    def _build_quality(self) -> None:
+        """1.4.0-rc.4 (C146) : qualité des téléchargements YouTube, M4A recommandé ; le meilleur flux
+        affiche son compromis (poids, conversion)."""
+        self._logo_row(t("welcome.yt_title"))
+        self.body.addWidget(label(t("welcome.yt_sub"), "dim", wrap=True))
+        self.yt_buttons = {}
+        for key, title, sub in (("m4a", t("welcome.yt_m4a"), t("welcome.yt_m4a_sub")),
+                                ("best", t("welcome.yt_best"), t("welcome.yt_best_sub"))):
+            b = button(f"{title}\n{sub}", lambda k=key: self._pick_yt(k), kind="tile")
+            b.setCheckable(True)
+            b.setMinimumHeight(theme.px(64))
+            self.body.addWidget(b)
+            self.yt_buttons[key] = b
+        self.yt_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
+        self.yt_warn.setStyleSheet(f"color: {theme.WARN};")
+        self.body.addWidget(self.yt_warn)
+        self.body.addWidget(label(t("welcome.yt_later"), "faint", wrap=True))
+        self._pick_yt("best" if self.ctrl.settings.youtube_best else "m4a")
+        self.body.addStretch(1)
+        foot = hbox(spacing=theme.px(8))
+        foot.addStretch(1)
+        foot.addWidget(button(t("welcome.start"), self._finish, kind="primary", icon="go"))
+        self.body.addLayout(foot)
+
+    def _pick_yt(self, key: str) -> None:
+        self._yt = key
+        for k, b in self.yt_buttons.items():
+            b.setChecked(k == key)
+            b.setProperty("kind", "primary" if k == key else "tile")
+            b.style().unpolish(b)
+            b.style().polish(b)
+        self.yt_warn.setVisible(key == "best")
 
     def _pick(self, code: str) -> None:
         """1.3.2-rc.2 (B44) : un clic choisit la langue ; « Valider » passe à la suite."""
@@ -152,8 +194,13 @@ class WelcomeDialog(BaseDialog):
         s = self.ctrl.settings
         s.welcome_done = True
         box = getattr(self, "shortcut", None)
-        if box is not None and box.isChecked() and box.isEnabled():
+        wanted = getattr(self, "_shortcut_wanted", None)
+        if wanted is None:
+            wanted = bool(box is not None and box.isChecked() and box.isEnabled())
+        if wanted:
             s.start_menu_shortcut = True
             self.ctrl.refresh_shortcut()
+        if getattr(self, "_yt", None):                      # 1.4.0-rc.4 (C146)
+            s.youtube_best = self._yt == "best"
         s.save()
         self.close()
