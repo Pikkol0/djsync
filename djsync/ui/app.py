@@ -375,6 +375,12 @@ class DJSyncApp(QMainWindow):
         al.addWidget(self.dl_bar)
         self.an_open = icon_button("go", lambda: self.ctrl._emit("show_unanalysed"), t("lib.unanalysed"), size=12)
         ah.insertWidget(1, self.an_open)
+        # 1.4.0-rc.3 (B73) : en volet replié, un anneau centré à la place des barres coupées
+        from .mini_ring import MiniRing
+
+        self.an_ring = MiniRing("wave", lambda: self.ctrl._emit("show_unanalysed"))
+        al.addWidget(self.an_ring, 0, Qt.AlignHCenter)
+        self.an_ring.hide()
         an.hide()
         lay.addWidget(an)
 
@@ -398,6 +404,9 @@ class DJSyncApp(QMainWindow):
         self.usb_free = label("", "dim", wrap=True)
         for w in (self.usb_label, self.usb_bar, self.usb_free):
             ul.addWidget(w)
+        self.usb_ring = MiniRing("usb", lambda: self.show_view("settings"))   # B73
+        ul.addWidget(self.usb_ring, 0, Qt.AlignHCenter)
+        self.usb_ring.hide()
         lay.addSpacing(theme.px(6))
         lay.addWidget(usb)
 
@@ -480,9 +489,11 @@ class DJSyncApp(QMainWindow):
         compact = bool(self._compact)
         both = q.running and downloading
         for w in (self.an_bar, self.an_stop, self.an_open):
-            w.setVisible(q.running)
+            w.setVisible(q.running and not compact)
+        self.an_ring.setVisible(compact)                                   # B73
+        self.an_title.setVisible(not compact)
         self.an_label.setVisible(q.running and not compact)
-        self.dl_bar.setVisible(downloading)
+        self.dl_bar.setVisible(downloading and not compact)
         self.dl_label.setVisible(downloading and not compact)
         if q.running:
             self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
@@ -493,6 +504,14 @@ class DJSyncApp(QMainWindow):
         if downloading:
             self.dl_bar.setValue(int(1000 * frac))
             self.dl_label.setText(t("nav.downloading") + f" {b_done} / {b_total}")
+        if compact:                                                        # B73 : anneau + info-bulle
+            parts = []
+            if q.running:
+                parts.append(t("nav.analysing") + f" {q.done} / {q.total}")
+            if downloading:
+                parts.append(t("nav.downloading") + f" {b_done} / {b_total}")
+            value = q.done / max(1, q.total) if q.running else frac
+            self.an_ring.set(value, "wave" if q.running else "download", " · ".join(parts))
         if compact:
             title = ""
         elif both:
@@ -512,9 +531,17 @@ class DJSyncApp(QMainWindow):
             return
         self._compact = compact
         labels = {k: l for k, l, *_ in TABS}
+        # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
+        square = "padding: 0px; text-align: center;" if compact else ""
+        side = theme.px(SIDEBAR_COMPACT - 20)
         for key, b in self._nav.items():
             b.setText("" if compact else self._nav_text(key, labels[key]))
             b.setToolTip(t(labels[key]) if compact else "")
+            b.setStyleSheet(square)
+            b.setFixedHeight(side) if compact else b.setMinimumHeight(0)
+            b.setMaximumHeight(side if compact else 16777215)
+        for b in (self.help_btn, self.fold_btn):
+            b.setStyleSheet(square)
         width = theme.px(SIDEBAR_COMPACT)
         if not compact:          # au moins le plus long libellé (langue, zoom)
             width = max([theme.px(SIDEBAR_WIDTH)] + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
@@ -524,8 +551,11 @@ class DJSyncApp(QMainWindow):
         self.fold_btn.setIcon(qicon("go" if compact else "back", 18, theme.DIM))
         self.fold_btn.setText("" if compact else t("nav.collapse"))
         self.fold_btn.setToolTip(t("nav.expand") if compact else "")
-        for w in (self.usb_title, self.usb_label, self.usb_free):
+        for w in (self.usb_title, self.usb_label, self.usb_free, self.usb_icon):
             w.setVisible(not compact)
+        self.usb_ring.setVisible(compact)                                  # B73
+        self.usb_box.layout().setContentsMargins(*([theme.px(2 if compact else 10)] * 4))
+        self.an_box.layout().setContentsMargins(*([theme.px(2 if compact else 10)] * 4))
         self._analysis_changed()
         self._drive_changed()
 
@@ -594,9 +624,12 @@ class DJSyncApp(QMainWindow):
             self.usb_label.setProperty("role", "dim")
         restyle(self.usb_label)
         self.eject_btn.setVisible(bool(drive) and not local and not self._compact)
-        self.usb_bar.setVisible(show_bar)
+        self.usb_bar.setVisible(show_bar and not self._compact)
         self.usb_free.setVisible(show_bar and not self._compact)
         self.usb_box.setToolTip(str(drive) if drive else self.usb_label.text())
+        tip = self.usb_label.text() + (f" · {self.usb_free.text()}" if show_bar else "")      # B73
+        self.usb_ring.set(self.usb_bar.value() / 1000 if show_bar else 0.0,
+                          "computer" if local else "usb", tip)
         search = self.views.get("search")
         if search is not None:
             search.refresh_duplicates()

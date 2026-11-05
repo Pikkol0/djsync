@@ -60,3 +60,20 @@ def test_b71_same_usage_is_not_redrawn():
     rows = list(card._rows)
     card._show(u, target)
     assert card._rows == rows                                   # mêmes widgets, pas recréés
+
+
+# ------------------------------------------------------------------ B70 / B73 : volet replié
+def test_b70_b73_compact_sidebar_centred_and_rings(demo):  # noqa: F811
+    demo.ctrl.settings.sidebar_compact = "on"
+    demo._compact = None
+    demo._update_compact()
+    pump(demo, 0.3)
+    b = demo._nav["settings"]
+    assert "text-align: center" in b.styleSheet() and b.text() == ""
+    assert demo.usb_ring.isVisibleTo(demo.usb_box) and not demo.usb_bar.isVisibleTo(demo.usb_box)
+    assert demo.usb_ring.toolTip()
+    demo.ctrl.settings.sidebar_compact = "off"
+    demo._compact = None
+    demo._update_compact()
+    assert b.styleSheet() == "" and b.text()
+    assert not demo.usb_ring.isVisibleTo(demo.usb_box)
