@@ -264,7 +264,7 @@ def test_b60_stalled_peer_switches_to_another(demo, monkeypatch, tmp_path):  # n
     class C:
         connected = True
 
-        def download(self, result, progress=None, should_stop=None, stall=0.0):
+        def download(self, result, progress=None, should_stop=None, stall=0.0, **kw):     # rc.3 : reach…
             tried.append((result.username, stall))
             if result.username == "slow":
                 raise SoulseekStalled("no data for 60 s")

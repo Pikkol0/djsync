@@ -367,7 +367,7 @@ STRINGS = {
     "slsk.queue": "queue {n}",
     "slsk.no_preview": "Soulseek files cannot be played before they are downloaded.",
     "slsk.download_failed": "Soulseek: {detail}",
-    "slsk.state_queued": "waiting in the peer's queue",
+    "slsk.state_queued": "connecting to the other user…",
     "slsk.state_initializing": "connecting to the peer",
     "slsk.state_downloading": "",
     "slsk.fake": "\"{title}\" was announced as {claimed} but its real quality is {real}. Search another source?",
@@ -1542,4 +1542,8 @@ STRINGS = {
     # 1.4.0-rc.3 (B69, C143) : tableau à cases
     "quality.real_rows": "Source | ≈ MP3 equivalent | Highs cut at\nYouTube (default) | MP3 160–192 | ≈ 16 kHz\nYouTube, best stream, no Premium | MP3 224–256 | ≈ 20 kHz\nYouTube, best stream, Premium | MP3 320 | ≈ 19–20 kHz\nSoundCloud stream | MP3 128–160 | ≈ 16 kHz\nSoundCloud original, High quality | MP3 320 or lossless | 20 kHz +",
     "quality.real_note": "The bitrate written in the file (and shown by Rekordbox) is that of the conversion, not the real quality: the “Real quality” column measures it. Converting never restores what was lost.",
+    # 1.4.0-rc.3 (B72)
+    "slsk.queued_at": "queued at the other user (position {n})",
+    "slsk.queued_remote": "queued at the other user",
+    "slsk.same_user": "waiting: another download from the same user is in progress",
 }

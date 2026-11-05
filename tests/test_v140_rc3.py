@@ -113,3 +113,99 @@ def test_b67_youtube_source_never_lossless():
     assert wav.real_kbps == 320 and wav.fake and not wav.real_lossless
     sc = AudioInfo(codec="wav", sample_rate=44100, cutoff=22000, source="SoundCloud")   # original possible
     assert sc.real_kbps == LOSSLESS
+
+
+# ------------------------------------------------------------------ B72 : Soulseek, un transfert par pair
+def _r(user, path="x\\Bicep - Glue.flac"):
+    from djsync.core.soulseek import SlskResult
+
+    return SlskResult(user, path, 9_000_000, "flac", free_slot=True)
+
+
+def test_b72_one_transfer_per_user_others_go_elsewhere(demo):  # noqa: F811
+    from djsync.models import DownloadJob
+    from djsync.ui.ctrl.soulseek import track_of
+
+    ctrl = demo.ctrl
+    a1, b1 = _r("pack"), _r("other")
+    j1, j2 = DownloadJob(id=1, track=track_of(a1)), DownloadJob(id=2, track=track_of(a1))
+    first = ctrl._slsk_claim(j1, a1, [], lambda p, s: None)
+    assert first.username == "pack"
+    others = [b1]
+    second = ctrl._slsk_claim(j2, a1, others, lambda p, s: None)   # « pack » déjà pris : autre pair
+    assert second.username == "other" and j2.track.slsk.username == "other" and others == [a1]
+    ctrl._slsk_release("pack")
+    ctrl._slsk_release("other")
+
+
+def test_b72_unreachable_user_then_next_and_muted(demo):  # noqa: F811
+    from djsync.core.soulseek import SoulseekStalled
+    from djsync.models import DownloadJob
+    from djsync.ui.ctrl.soulseek import track_of
+
+    ctrl = demo.ctrl
+    calls = []
+
+    class C:
+        connected = True
+
+        def download(self, result, progress=None, should_stop=None, stall=0.0, reach=0.0, queue_wait=0.0):
+            calls.append((result.username, reach, queue_wait))
+            if result.username == "mute":
+                raise SoulseekStalled("no answer from the user in 20 s")
+            return "ok"
+
+    ctrl.slsk = C()
+    job = DownloadJob(id=9, track=track_of(_r("mute")))
+    ctrl._slsk_alts = {9: [_r("good")]}
+    assert ctrl._slsk_download_any(job, _r("mute"), lambda p, s: None) == "ok"
+    assert calls[0] == ("mute", 20.0, 60.0) and calls[1][0] == "good"
+    assert [r.username for r in ctrl.slsk_order([_r("mute"), _r("x")])] == ["x", "mute"]
+    assert not ctrl._slsk_busy()                                        # pairs rendus
+
+
+def test_b72_improve_lot_gets_spare_users(demo, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+
+    from djsync.models import DownloadJob
+    from djsync.ui.ctrl.soulseek import track_of
+
+    ctrl = demo.ctrl
+    best, spare = track_of(_r("pack")), track_of(_r("other"))
+    monkeypatch.setattr(ctrl, "replace_with_download",
+                        lambda tr, old: DownloadJob(id=77, track=tr))
+    w = SimpleNamespace(best=best, finds=[best, spare], track=None)
+    ctrl._slsk_alts = {}
+    assert ctrl.improve_apply([w]) == 1
+    assert [r.username for r in ctrl._slsk_alts[77]] == ["other"]
+
+
+def test_b72_download_reach_and_queue_rules(monkeypatch):
+    pytest.importorskip("aioslsk")
+    from aioslsk.transfer.state import TransferState
+
+    from djsync.core import soulseek as S
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr(S.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(S.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+
+    def run(remote, place=None):
+        tr = type("T", (), {})()
+        tr.state = type("St", (), {"VALUE": TransferState.QUEUED})()
+        tr.filesize, tr.bytes_transfered, tr.local_path = 100, 0, None
+        tr.fail_reason = tr.abort_reason = None
+        tr.remotely_queued, tr.place_in_queue = remote, place
+        c = S.SoulseekClient("u", "p", ".")
+        c._client = type("X", (), {"transfers": type("Y", (), {"download": lambda *a: tr, "abort": lambda *a: None})()})()
+        c._call = lambda coro, timeout: coro
+        clock["t"] = 0.0
+        seen = []
+        with pytest.raises(S.SoulseekStalled) as e:
+            c.download(_r("u"), lambda p, s: seen.append(s), stall=60, reach=20, queue_wait=60)
+        return str(e.value), clock["t"], seen
+
+    msg, at, _ = run(remote=False)                       # pas de réponse : abandon vers 20 s
+    assert "no answer" in msg and 20 <= at <= 21
+    msg, at, seen = run(remote=True, place=4)            # en file chez le pair : attente jusqu'à 60 s
+    assert "queued" in msg and 60 <= at <= 61 and "queued_at:4" in seen

@@ -367,7 +367,7 @@ STRINGS = {
     "slsk.queue": "file {n}",
     "slsk.no_preview": "Les fichiers Soulseek ne peuvent pas être écoutés avant d'être téléchargés.",
     "slsk.download_failed": "Soulseek : {detail}",
-    "slsk.state_queued": "en attente chez l'autre utilisateur",
+    "slsk.state_queued": "connexion à l'autre utilisateur…",
     "slsk.state_initializing": "connexion à l'autre utilisateur",
     "slsk.state_downloading": "",
     "slsk.fake": "« {title} » était annoncé en {claimed} mais sa vraie qualité est {real}. Chercher une autre source ?",
@@ -1548,4 +1548,8 @@ STRINGS = {
     # 1.4.0-rc.3 (B69, C143) : tableau à cases
     "quality.real_rows": "Source | ≈ équivalent MP3 | Aigus coupés vers\nYouTube (par défaut) | MP3 160–192 | ≈ 16 kHz\nYouTube, meilleur flux, sans Premium | MP3 224–256 | ≈ 20 kHz\nYouTube, meilleur flux, Premium | MP3 320 | ≈ 19–20 kHz\nFlux SoundCloud | MP3 128–160 | ≈ 16 kHz\nOriginal SoundCloud, Haute qualité | MP3 320 ou sans perte | 20 kHz et +",
     "quality.real_note": "Le débit écrit dans le fichier (et affiché par Rekordbox) est celui de la conversion, pas la vraie qualité : la colonne « Qualité réelle » la mesure. Convertir ne rend jamais ce qui a été perdu.",
+    # 1.4.0-rc.3 (B72)
+    "slsk.queued_at": "en file chez l'autre utilisateur (place {n})",
+    "slsk.queued_remote": "en file chez l'autre utilisateur",
+    "slsk.same_user": "en attente : un autre téléchargement chez le même utilisateur est en cours",
 }
