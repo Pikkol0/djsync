@@ -157,6 +157,8 @@ class UiDispatcher:
 
     def _collect(self, now: Optional[float] = None) -> Optional[int]:
         """1.3.2-rc.5 (B50) : ramassage selon l'horloge ; renvoie la génération ramassée (ou None)."""
+        if self._closed:                    # 1.4.0-rc.2 (B56) : plus rien après la fermeture (pas de gel tardif)
+            return None
         now = time.monotonic() if now is None else now
         gen: Optional[int] = None
         since_full = now - self._gc_at[2]

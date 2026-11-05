@@ -118,7 +118,8 @@ class Settings:
     soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
     soulseek_user: str = ""
     soulseek_password: str = ""
-    soulseek_share: bool = False       # partager le dossier musique de la bibliothèque ouverte (rien par défaut)
+    # 1.4.0-rc.2 (B60) : partagé par défaut : beaucoup de pairs refusent (« Banned ») ceux qui ne partagent rien
+    soulseek_share: bool = True        # partager le dossier musique de la bibliothèque ouverte
     soulseek_port: int = 0             # 0 = port par défaut d'aioslsk
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Importés »

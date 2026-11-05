@@ -326,7 +326,7 @@ STRINGS = {
     "sc.settings_token": "Or account token",
     "sc.settings_token_ph": "oauth_token (optional)",
     "sc.settings_token_tip": "In your browser, signed in to soundcloud.com: developer tools ▸ Storage / Application ▸ Cookies ▸ value of oauth_token. Kept on this computer only.",
-    "yt.settings_best": "Best YouTube stream (AAC 256 instead of AAC ~128)",
+    "yt.settings_best": "Best YouTube stream (≈ MP3 256 without Premium, ≈ MP3 320 with it)",
     "yt.settings_best_tip": "Takes the Opus stream (~160 kbps) and converts it to AAC 256, or the AAC 256 stream of a YouTube Premium account. Needs FFmpeg.",
     "yt.settings_best_hint": "Small gain, about twice the file size: off by default.",
     "yt.settings_account": "YouTube account",
@@ -377,7 +377,7 @@ STRINGS = {
     "slsk.state_on": "connected as {user}",
     "slsk.state_off": "not connected",
     "slsk.sharing_on": "sharing the music of the open library",
-    "slsk.sharing_off": "sharing nothing",
+    "slsk.sharing_off": "sharing nothing: some users will refuse you (Settings ▸ Download)",
     "slsk.stats": "↓ {down} · ↑ {up} · {peers} peers · {dl} downloading · {ul} uploading · queue {queued} · received {received} · sent {sent} · {share}",
     "unit.bps": "{n} B/s",
     "unit.kbps_s": "{n} kB/s",
@@ -1113,7 +1113,7 @@ STRINGS = {
     "settings.auto_cue_hint": "Players can jump straight to the first beat of a bar. Tracks that already have cues are not changed.",
     "settings.format": "File format",
     "settings.format_m4a": "M4A / AAC (original quality, recommended)",
-    "settings.format_mp3": "MP3 320 kbps (older players)",
+    "settings.format_mp3": "MP3 (file format for older players; does not restore lost quality)",
     "settings.normalize": "Same volume for every download",
     "settings.normalize_hint": "Measures the loudness and applies a fixed gain (no compression, peaks kept under -1 dBTP). The file is re-encoded.",
     # ---- V1.0.0
@@ -1522,4 +1522,22 @@ STRINGS = {
     "err_report.mode_ask": "Ask each time",
     "err_report.mode_always": "Always send",
     "err_report.mode_never": "Never send",
+    # 1.4.0-rc.2 (C139)
+    "reveal.explorer": "Show in Explorer",
+    "reveal.finder": "Show in Finder",
+    # 1.4.0-rc.2 (B64, B66, B60)
+    "error.youtube_bot": "YouTube asks to confirm you are not a robot (common with a VPN). Turn off the VPN or change server, or choose the browser where YouTube is open (Settings ▸ Download), then retry.",
+    "error.youtube_bot_action": "Choose the browser",
+    "error.drm": "This track is protected (DRM) on SoundCloud and no other version was found on YouTube Music.",
+    "error.slsk_banned": "Soulseek: this user refused you (banned). Many users refuse people who share nothing: share your download folder (Settings ▸ Download).",
+    "sc.protected_short": "protected: YouTube Music version",
+    "sc.protected_one": "1 track protected on SoundCloud: its YouTube Music version will be used",
+    "sc.protected_many": "{n} tracks protected on SoundCloud: their YouTube Music versions will be used",
+    # 1.4.0-rc.2 (B60)
+    "slsk.next_peer": "{reason}: trying another user",
+    "unit.mbps_short": "MB/s",
+    # 1.4.0-rc.2 (C137) : vraie qualité
+    "quality.mp3_warning": "From YouTube, converting to MP3 adds a little loss and a bigger file, for no gain: the real quality stays that of the source.",
+    "quality.real_title": "What quality do I really get?",
+    "quality.real_table": "<table cellspacing='2'><tr><td><b>Source</b></td><td><b>≈ MP3 equivalent</b></td><td><b>Highs cut at</b></td></tr><tr><td>YouTube (default)</td><td>MP3 160–192</td><td>≈ 16 kHz</td></tr><tr><td>YouTube, best stream, no Premium</td><td>MP3 224–256</td><td>≈ 20 kHz</td></tr><tr><td>YouTube, best stream, Premium</td><td>MP3 320</td><td>≈ 19–20 kHz</td></tr><tr><td>SoundCloud stream</td><td>MP3 128–160</td><td>≈ 16 kHz</td></tr><tr><td>SoundCloud original, High quality</td><td>MP3 320 or lossless</td><td>20 kHz +</td></tr></table>The bitrate written in the file (and shown by Rekordbox) is that of the conversion, not the real quality: the “Real quality” column measures it. Converting never restores what was lost.",
 }

@@ -455,7 +455,9 @@ class TrackTable(QTableView):
         fm = self.horizontalHeader().fontMetrics()
         title = fm.horizontalAdvance(col.title) + theme.px(18)
         if col.key in self._user_widths:
-            return max(theme.px(self._user_widths[col.key]), theme.px(24))
+            # 1.4.0-rc.2 (B61) : le Titre ne descend jamais sous sa largeur minimale (« Bitc… »)
+            floor = theme.px(col.min_width) if col.stretch else theme.px(24)
+            return max(theme.px(self._user_widths[col.key]), floor)
         base = max(theme.px(col.min_width if col.stretch else col.width), title)
         if col.key == "pos":                  # 1.2.1 : « 735 » entier dans la colonne #
             digits = len(str(max(1, len(self._rows))))
@@ -510,7 +512,12 @@ class TrackTable(QTableView):
             # elle ne doit pas s'élargir pour combler le reste (grand vide sans contenu à droite, Recherche) :
             # c'est le Titre qui prend la place restante, même s'il a une largeur choisie plus petite.
             last = self._last_visible_section()
-            if scroll and not overflow and 0 <= last < len(self.columns) and self.columns[last].key in ICON_COLUMNS:
+            # 1.4.0-rc.2 (B61) : de même pour une dernière colonne étroite (Heure, Durée…) : pas de grande
+            # colonne vide en bout de ligne (Téléchargements), le Titre prend la place.
+            narrow = 0 <= last < len(self.columns) and (self.columns[last].key in ICON_COLUMNS
+                                                         or (not self.columns[last].stretch
+                                                             and self.columns[last].width <= 80))
+            if scroll and not overflow and narrow:
                 for i, col in enumerate(self.columns):
                     if col.stretch and col.key in visible:
                         others = sum(self._width(self.columns[j]) if j == last else head.sectionSize(j)

@@ -43,6 +43,15 @@ class ImproveDialog(BaseDialog):
                 Column("found", t("improve.found"), 260, priority=1),
                 Column("gain", t("improve.gain"), 150)]
         self.table = TrackTable(self, cols)
+
+        def _save() -> None:
+            try:
+                controller.settings.save()
+            except OSError:
+                pass
+
+        # 1.4.0-rc.2 (B65) : colonnes réglables et retenues, comme partout
+        self.table.enable_layout("improve", lambda: controller.settings.table_layouts, _save)
         self.table.set_empty("search", t("improve.empty"))
         self.table.on_select = lambda _ids: self._refresh()
         self.table.menu_builder = self._menu

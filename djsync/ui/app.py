@@ -122,7 +122,7 @@ def qt_app() -> QApplication:
     return app  # type: ignore[return-value]
 
 
-DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog")   # 1.3.1 (C41)
+DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog", "ImproveDialog")   # 1.3.1 (C41), B58
 
 
 class DJSyncApp(QMainWindow):
@@ -179,6 +179,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("app_update", self._app_update)
         self.ctrl.on("app_update_ready", self._app_update_ready)
         self.ctrl.on("open_url", self._open_url)
+        self.ctrl.on("open_settings_section", self._open_settings_section)        # 1.4.0-rc.2 (B66)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
         self.ctrl.on("quit", self.close)
@@ -710,6 +711,10 @@ class DJSyncApp(QMainWindow):
         self.show_view(getattr(self, "_uni_return", None) or "library")
 
     # ------------------------------------------------- 1.3.1 (C41/C43) : Diagnostic en onglets
+    def _open_settings_section(self, section: str) -> None:
+        self.show_view("settings")
+        self.views["settings"].show_section(section)
+
     def open_diagnostic(self, tab: Optional[str] = None, from_page: Optional[QWidget] = None) -> None:
         """Ouvre un onglet du Diagnostic. `from_page` : l'onglet quitté (fermé sans revenir à la vue
         d'origine ; le bouton Retour du nouvel onglet y ramène). 1.3.2-rc.3 (C127) : sans onglet précis
@@ -720,7 +725,9 @@ class DJSyncApp(QMainWindow):
         s = self.ctrl.settings
         if tab is None:
             tab = getattr(s, "diag_tab", "") or "missing"
-        if tab not in ("missing", "dup", "quality", "uniformize"):
+        from .diag_tabs import TABS
+
+        if tab not in TABS:                 # 1.4.0-rc.2 (B58) : une seule liste, « improve » compris
             tab = "missing"
         if getattr(s, "diag_tab", None) != tab:
             s.diag_tab = tab
@@ -734,15 +741,16 @@ class DJSyncApp(QMainWindow):
                 return
             if tab == "dup":
                 from .duplicates_dialog import DuplicatesDialog as page_cls
-
-                if self.reopen_dialog_page(page_cls) is not None:      # 1.3.2 (C95) : reprise, pas de zéro
-                    return
             elif tab == "quality":
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
             elif tab == "improve":                          # 1.4.0 (C47)
                 from .improve_dialog import ImproveDialog as page_cls
             else:
                 from .missing_dialog import MissingFilesDialog as page_cls
+            # 1.3.2 (C95), étendu à tous les onglets en 1.4.0-rc.2 (B63) : une page encore ouverte revient
+            # telle quelle, avec la tâche qui a continué en arrière-plan, au lieu d'être recréée de zéro.
+            if self.reopen_dialog_page(page_cls) is not None:
+                return
             page_cls(self, self.ctrl)
 
         self.ctrl.diag_quick_counts()
@@ -776,9 +784,10 @@ class DJSyncApp(QMainWindow):
     def _diag_pages(self) -> List[QWidget]:
         from .diagnostic_dialog import DiagnosticDialog
         from .duplicates_dialog import DuplicatesDialog
+        from .improve_dialog import ImproveDialog
         from .missing_dialog import MissingFilesDialog
 
-        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog)
+        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog, ImproveDialog)   # B58 : Améliorer
         return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
 
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages

@@ -1154,8 +1154,11 @@ class LibraryView(View):
         tracks = self._selected_tracks()
         entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave")]
         if len(tracks) == 1:
+            from ..reveal import reveal_entry
+
             entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
-                        (t("action.edit_metadata"), self._edit_metadata, "edit")]
+                        (t("action.edit_metadata"), self._edit_metadata, "edit"),
+                        reveal_entry(self.ctrl, tracks[0])]                       # 1.4.0-rc.2 (C139)
             if tracks[0].camelot:
                 entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
                                 "key"))

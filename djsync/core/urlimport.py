@@ -141,10 +141,34 @@ def entry_to_track(entry: Dict[str, Any], kind: UrlKind) -> Optional[TrackResult
         views=int(views) if isinstance(views, (int, float)) else None,
         source=source_of(kind),
         source_url=url,
+        protected=bool(entry.get("drm")),
     )
 
 
 # ------------------------------------------------------------------ résolution (yt-dlp)
+def _complete_soundcloud(entries: List[Dict[str, Any]],
+                         details: Optional[Callable[[List[str]], Dict[str, Dict[str, Any]]]]) -> List[Dict[str, Any]]:
+    """1.4.0-rc.2 (B64) : dans une playlist SoundCloud, la liste rapide ne donne le détail que des premiers
+    sons ; les autres n'ont que leur numéro (« Untitled », « Inconnu », 0:00). On demande le reste par lots,
+    avec, pour chacun, s'il est protégé (DRM). Le lien du son et l'ordre de la playlist sont gardés."""
+    if details is None:
+        from .soundcloud import tracks_details as details
+    ids = [str(e.get("id") or "") for e in entries]
+    try:
+        found = details([i for i in ids if i])
+    except Exception:  # noqa: BLE001 - au pire, la liste reste telle quelle
+        found = {}
+    out = []
+    for e, i in zip(entries, ids):
+        extra = found.get(i)
+        if extra:
+            e = {**e, **{k: v for k, v in extra.items() if v not in (None, "")}}
+            if not str(e.get("webpage_url") or "").startswith("http"):
+                e["webpage_url"] = e.get("url")
+        out.append(e)
+    return out
+
+
 def _single_video_of_playlist_url(url: str) -> bool:
     """watch?v=X&list=Y : l'utilisateur veut la vidéo X (pas toute la liste Y)."""
     query = parse_qs(urlparse(url if "://" in url else f"https://{url}").query)
@@ -156,6 +180,7 @@ def resolve_direct(
     kind: Optional[UrlKind] = None,
     limit: int = MAX_ENTRIES,
     extractor: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+    details: Optional[Callable[[List[str]], Dict[str, Dict[str, Any]]]] = None,
 ) -> ResolvedUrl:
     """Liste les morceaux d'une URL YouTube/SoundCloud (1 vidéo ou toute une playlist).
 
@@ -189,6 +214,8 @@ def resolve_direct(
 
     is_playlist = info.get("_type") == "playlist" or "entries" in info
     entries: List[Dict[str, Any]] = [e for e in (info.get("entries") or []) if e] if is_playlist else [info]
+    if kind == UrlKind.SOUNDCLOUD and is_playlist and (details is not None or extractor is None):
+        entries = _complete_soundcloud(entries, details)
     tracks = [t for t in (entry_to_track(e, kind) for e in entries) if t]
     if not tracks:
         raise UrlImportError("No playable track (private, deleted or empty content).")

@@ -69,7 +69,8 @@ def main(tag: str) -> int:
     if base != current:
         print(f"Tag {tag} does not match djsync.__version__ = {current}", file=sys.stderr)
         return 1
-    changes = as_list(history_row(current)) or "See the README version history."
+    # 1.4.0-rc.2 : la ligne de la rc elle-même (« 1.4.0-rc.2 ») si elle existe, sinon celle de la version
+    changes = as_list(history_row(wanted) or history_row(current)) or "See the README version history."
     title = "Pre-release" if "-" in wanted else "Release"
     thanks = ""
     try:                                         # 1.3.1 (C55) : remerciements, même texte que le README

@@ -110,6 +110,9 @@ class ImportView(View):
             table.on_double = lambda _i: self._preview()
             table.menu_builder = self._menu
             self.root.addWidget(table, 1)
+        # 1.4.0-rc.2 (B65) : colonnes réglables et retenues, comme dans Rechercher
+        self.remember_layout(self.sp_table, "import_match")
+        self.remember_layout(self.dl_table, "import")
         self.sp_table.columns[0].on_header = lambda: self._toggle_all(self.sp_table)
         self.dl_table.columns[0].on_header = lambda: self._toggle_all(self.dl_table)
         self.dl_table.set_empty("import", t("import.empty_title"), t("import.empty_sub", names=source_names()))
@@ -350,6 +353,9 @@ class ImportView(View):
         extra = [resolved.note] if resolved.note else []
         if resolved.truncated:
             extra.append(t("import.truncated"))
+        protected = sum(1 for tr in resolved.tracks if tr.protected)         # 1.4.0-rc.2 (B64)
+        if protected:
+            extra.append(plural("sc.protected_one", "sc.protected_many", protected))
         tail = ("  ·  " + "  ·  ".join(extra)) if extra else ""
         self.info.setText(t("import.direct_info", source=source, name=resolved.name,
                             tracks=plural("lib.tracks_one", "lib.tracks_many", len(resolved.tracks))) + tail)

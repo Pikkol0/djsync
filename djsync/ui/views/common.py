@@ -128,6 +128,8 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         if r.lossless or r.bitrate >= 300:
             values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
+        if r.speed:                            # 1.4.0-rc.2 (B60) : repérer les pairs rapides
+            values["type"] += f" · {r.speed / 1e6:.1f} " + t("unit.mbps_short")
         values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
     elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
         from .. import theme
@@ -137,6 +139,11 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
             values["source__color"] = theme.GOLD
         elif "320" in track.quality:
             values["source__color"] = theme.SILVER
+    elif track.protected:                      # 1.4.0-rc.2 (B64) : DRM : la version YouTube Music sera prise
+        from .. import theme
+
+        values["source"] = f"{track.source_label} · {t('sc.protected_short')}"
+        values["source__color"] = theme.WARN
     elif track.original_available:             # 1.4.0 (C10.1) : fichier d'origine SoundCloud, en doré
         from .. import theme
 

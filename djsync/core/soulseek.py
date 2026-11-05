@@ -146,6 +146,27 @@ class SoulseekError(RuntimeError):
     pass
 
 
+class SoulseekStalled(SoulseekError):
+    """1.4.0-rc.2 (B60) : téléchargement à 0 o/s trop longtemps (pair lent, file d'attente, port fermé)."""
+
+
+STALL_S = 60.0
+
+
+def alternatives(chosen: SlskResult, pool: Sequence[SlskResult], limit: int = 5) -> List[SlskResult]:
+    """1.4.0-rc.2 (B60) : même fichier chez d'autres pairs (même nom et même format), place libre et
+    rapides d'abord ; utilisés quand le pair choisi bloque ou refuse."""
+    name, ext = _plain(chosen.stem), chosen.ext
+    same = [r for r in pool if r.username != chosen.username and r.ext == ext and _plain(r.stem) == name]
+    same.sort(key=lambda r: (not r.free_slot, r.queue, -r.speed))
+    out, users = [], set()
+    for r in same:
+        if r.username not in users:
+            users.add(r.username)
+            out.append(r)
+    return out[:limit]
+
+
 class SoulseekClient:
     """Client Soulseek dans un fil à part. Toutes les méthodes publiques sont BLOQUANTES."""
 
@@ -260,24 +281,34 @@ class SoulseekClient:
         """Résultats classés (voir `rank`) après `seconds` ; `on_partial` reçoit les résultats au fil de l'eau."""
         if self._client is None:
             raise SoulseekError("Soulseek is not connected.")
-        request = self._call(self._client.searches.search(query), 15)
-        end = time.monotonic() + seconds
-        seen = 0
-        while time.monotonic() < end:
-            time.sleep(0.5)
-            results = list(request.results)
-            if on_partial and len(results) != seen:
-                seen = len(results)
-                on_partial(rank([x for r in results for x in from_aioslsk(r)], query, duration))
-        try:
-            self._client.searches.remove_request(request)
-        except Exception:  # noqa: BLE001
-            pass
-        return rank([x for r in list(request.results) for x in from_aioslsk(r)], query, duration)
+        # 1.4.0-rc.2 (B59) : juste après la connexion, le serveur ne relaie pas toujours la première
+        # recherche ; sans aucune réponse, elle est renvoyée une fois au lieu d'afficher « Aucun résultat ».
+        started = time.monotonic()
+        for attempt in (1, 2):
+            request = self._call(self._client.searches.search(query), 15)
+            end = time.monotonic() + seconds
+            seen = 0
+            while time.monotonic() < end:
+                time.sleep(0.5)
+                results = list(request.results)
+                if on_partial and len(results) != seen:
+                    seen = len(results)
+                    on_partial(rank([x for r in results for x in from_aioslsk(r)], query, duration))
+            try:
+                self._client.searches.remove_request(request)
+            except Exception:  # noqa: BLE001
+                pass
+            found = list(request.results)
+            log.info("Soulseek search %r: %d answers in %.1f s (attempt %d)", query, len(found),
+                     time.monotonic() - started, attempt)
+            if found:
+                break
+        return rank([x for r in found for x in from_aioslsk(r)], query, duration)
 
     # ------------------------------------------------------------------ téléchargement
     def download(self, result: SlskResult, progress: Optional[Callable[[float, str], None]] = None,
-                 should_stop: Optional[Callable[[], bool]] = None, timeout: float = 1800.0) -> Path:
+                 should_stop: Optional[Callable[[], bool]] = None, timeout: float = 1800.0,
+                 stall: float = 0.0) -> Path:
         """Télécharge et renvoie le fichier local. progress(pourcentage, état) ; lève SoulseekError."""
         if self._client is None:
             raise SoulseekError("Soulseek is not connected.")
@@ -285,16 +316,24 @@ class SoulseekClient:
 
         transfer = self._call(self._client.transfers.download(result.username, result.path), 30)
         start = time.monotonic()
+        moved_at, last_bytes = start, 0
         while True:
             state = transfer.state.VALUE
             size = transfer.filesize or result.size or 1
+            done = transfer.bytes_transfered or 0
             if progress:
-                progress(min(100.0, 100.0 * (transfer.bytes_transfered or 0) / size), state.name.lower())
+                progress(min(100.0, 100.0 * done / size), state.name.lower())
             if state == TransferState.COMPLETE and transfer.local_path:
                 return Path(transfer.local_path)
             if state in (TransferState.FAILED, TransferState.ABORTED):
                 raise SoulseekError(transfer.fail_reason or transfer.abort_reason or state.name.lower())
-            if (should_stop and should_stop()) or time.monotonic() - start > timeout:
+            now = time.monotonic()
+            if done != last_bytes:
+                moved_at, last_bytes = now, done
+            if stall and now - moved_at > stall:          # 1.4.0-rc.2 (B60) : rien reçu depuis trop longtemps
+                self._call(self._client.transfers.abort(transfer), 10)
+                raise SoulseekStalled(f"no data for {int(stall)} s")
+            if (should_stop and should_stop()) or now - start > timeout:
                 self._call(self._client.transfers.abort(transfer), 10)
                 raise SoulseekError("cancelled")
             time.sleep(0.5)

@@ -76,6 +76,10 @@ class DownloadsMixin:
             job.percent = p.percent
             self.dispatcher.post(self._job_changed, job)
 
+        if getattr(self, "_youtube_paused", False) and job.track.source in ("youtube", "ytmusic"):   # B66 : pause
+            job.status, job.message, job.reason = "error", t("error.youtube_bot"), "error.youtube_bot"
+            self.dispatcher.post(self._job_changed, job)
+            return
         if job.track.source == "soulseek":              # 1.4.0 (C10.2)
             self._run_slsk_job(job)
             return
@@ -129,6 +133,7 @@ class DownloadsMixin:
                 self._finish_replace(job, lib)
             self._genre_after_change(lib)             # 1.2.2 : playlists par genre tenues à jour
             job.status = "done"
+            self._bot_streak = 0                      # 1.4.0-rc.2 (B66) : YouTube répond de nouveau
             if lib.last_problems:
                 self.dispatcher.post(self.message, "warn", t("msg.added_with_problems", title=track.title,
                                                              detail=" ; ".join(lib.last_problems)[:200]))
@@ -137,11 +142,15 @@ class DownloadsMixin:
                 self.dispatcher.post(self.message, "warn", warning)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
             log.warning("Download %s failed: %s", job.track.video_id, exc)
-            from ..controller import is_offline_error
+            from ..controller import is_offline_error, known_error
 
-            job.status, job.message = "error", (t("error.offline") if is_offline_error(exc)
-                                                else str(exc).replace("ERROR: ", "")[:300])
-            self.dispatcher.post(self.engine_failure, job.message)
+            key = "error.offline" if is_offline_error(exc) else known_error(exc)
+            job.status, job.message = "error", (t(key) if key else str(exc).replace("ERROR: ", "")[:300])
+            job.reason = key                                       # 1.4.0-rc.2 (B66)
+            if key == "error.youtube_bot":
+                self.dispatcher.post(self._youtube_bot, job)
+            else:
+                self.dispatcher.post(self.engine_failure, job.message)
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":
             self.dispatcher.post(self._emit, "library")
@@ -157,6 +166,31 @@ class DownloadsMixin:
         if not (s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb):
             return
         self.analyze([job.content_id], quiet=True)
+
+    # ---------------------------------------------------------------- 1.4.0-rc.2 (B66) : YouTube « robot »
+    BOT_PAUSE_AFTER = 3
+
+    def _youtube_bot(self, job: DownloadJob) -> None:
+        """YouTube demande de prouver qu'on n'est pas un robot (souvent un VPN) : message clair, bouton vers
+        le réglage du navigateur ; après plusieurs échecs d'affilée, les sons YouTube en attente sont mis de
+        côté (en erreur, même raison) pour ne pas aggraver le blocage."""
+        self._bot_streak = getattr(self, "_bot_streak", 0) + 1
+        if self._bot_streak == 1 or self._bot_streak == self.BOT_PAUSE_AFTER:
+            self.message("error", t("error.youtube_bot"))
+            self._emit("message_action", t("error.youtube_bot_action"),
+                       lambda: self._emit("open_settings_section", "download"))
+        if self._bot_streak >= self.BOT_PAUSE_AFTER:
+            self._youtube_paused = True
+
+    def youtube_paused(self, job: DownloadJob) -> bool:
+        return bool(getattr(self, "_youtube_paused", False)) and job.track.source in ("youtube", "ytmusic")
+
+    def retry_bot_failures(self) -> None:
+        """Navigateur choisi : on relance les sons refusés pour cette raison."""
+        self._bot_streak, self._youtube_paused = 0, False
+        for job in list(self.jobs):
+            if job.status == "error" and getattr(job, "reason", "") == "error.youtube_bot":
+                self.retry(job)
 
     def retry(self, job: DownloadJob) -> None:
         if job.status != "error" or self.library is None:

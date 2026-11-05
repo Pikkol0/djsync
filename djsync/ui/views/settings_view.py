@@ -8,7 +8,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -350,6 +350,13 @@ class SettingsView(View):
         row.addWidget(self.format_menu)
         row.addStretch(1)
         card.addLayout(row)
+        # 1.4.0-rc.2 (C137) : convertir en MP3 ne rend pas la qualité perdue ; on le dit au moment du choix
+        self.format_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
+        self.format_warn.setStyleSheet(f"color: {theme.WARN};")
+        card.addWidget(self.format_warn)
+        self.format_menu.currentTextChanged.connect(
+            lambda txt: self.format_warn.setVisible(txt == self._format_labels["mp3"]))
+        self.format_warn.setVisible(s.audio_format == "mp3")
         self.normalize_var = QCheckBox(t("settings.normalize"))
         self.normalize_var.setChecked(s.normalize_volume)
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
@@ -359,6 +366,11 @@ class SettingsView(View):
         self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
         card.addWidget(self.yt_best_var)
         card.addWidget(label(t("yt.settings_best_hint"), "dim", wrap=True))
+        # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
+        card.addWidget(label(t("quality.real_title")))
+        self.quality_table = label(t("quality.real_table"), "dim", wrap=True)
+        self.quality_table.setTextFormat(Qt.RichText)
+        card.addWidget(self.quality_table)
         row = hbox()
         row.addWidget(self._fixed(label(t("yt.settings_account"))))
         from ...core.soundcloud import BROWSERS as _YT_BROWSERS
@@ -527,6 +539,7 @@ class SettingsView(View):
         self.page.addStretch(1)
         self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
         self.show_section(start, remember=False)
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
@@ -892,6 +905,7 @@ class SettingsView(View):
         if key not in dict(SECTIONS):
             return
         self._set_nav(key)
+        self._start_section = key                        # 1.4.0-rc.2 (B57) : défilement refait à l'affichage
         if self.search.text():
             self.search.blockSignals(True)
             self.search.clear()
@@ -1020,6 +1034,19 @@ class SettingsView(View):
         if not self._versions_loaded:                       # 1.3.2-rc.2 (C96) : une fois, à la première visite
             QTimer.singleShot(0, self.load_versions)
         QTimer.singleShot(0, self._space_if_shown)
+        QTimer.singleShot(0, self._sync_nav)
+
+    def _sync_nav(self) -> None:
+        """1.4.0-rc.2 (B57) : à la construction, la page n'a pas encore sa taille et ne peut pas défiler
+        jusqu'à la section retenue : le sommaire surlignait « DJSync » alors que la page était en haut
+        (Général). Au premier affichage, on défile pour de bon, puis le sommaire suit ce qui est visible."""
+        start, self._start_section = getattr(self, "_start_section", None), None
+        if start and not self.search.text().split():
+            self._scroll_to(start)
+        self._current_section = ""                       # force le recalcul
+        self._on_scroll()
+        if not self._current_section:
+            self._set_nav("general")
 
     # --------------------------------------------------------------- apparence
     def _language_changed(self, text: str) -> None:

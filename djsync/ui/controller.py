@@ -67,6 +67,19 @@ _OFFLINE = ("max retries exceeded", "failed to establish a new connection", "get
             "connection refused", "urlopen error", "errno 11001")
 
 
+# 1.4.0-rc.2 (B64, B66, B60) : erreurs fréquentes des sources, dites avec ce qu'il faut faire
+def known_error(exc: Any) -> str:
+    """Clé de traduction d'une erreur connue de téléchargement ("" sinon)."""
+    text = str(exc).lower()
+    if "confirm you" in text and "not a bot" in text:
+        return "error.youtube_bot"
+    if type(exc).__name__ == "ProtectedTrackError" or "drm protected" in text:
+        return "error.drm"
+    if "banned" in text and "soulseek" in text:
+        return "error.slsk_banned"
+    return ""
+
+
 def is_offline_error(exc: Any) -> bool:
     """Pas d'Internet (ou serveur injoignable) : message clair plutôt que la trace technique."""
     try:
@@ -254,6 +267,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         les autres langues, les autres restent en anglais."""
         if is_offline_error(exc):
             return t("error.offline")
+        if known_error(exc):
+            return t(known_error(exc))
         low = str(exc).lower()
         if self.is_local and ("malformed" in low or "file is not a database" in low):
             return t("error.local_db_unreadable")        # V1.2.0 : retour testeur macOS
@@ -918,6 +933,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             from ..core.soundcloud import auth_options
 
             self.service.set_youtube(self.settings.youtube_best, auth_options(self.settings.youtube_browser))
+            retry = getattr(self, "retry_bot_failures", None)                 # 1.4.0-rc.2 (B66)
+            if retry is not None and self.settings.youtube_browser:
+                retry()
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:

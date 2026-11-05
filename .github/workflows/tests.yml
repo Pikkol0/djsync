@@ -63,7 +63,7 @@ jobs:
           MARKERS: ${{ (inputs.full || startsWith(github.ref_name, 'ci/full/')) && 'slow or not slow' || 'not slow' }}
         shell: bash
         run: |
-          python -m pytest -q -rfE -n auto --dist loadfile -m "$MARKERS" --junitxml=pytest.xml || code=$?
+          python -m pytest -q -rfE -n auto --dist loadfile -m "$MARKERS" -o faulthandler_timeout=300 --junitxml=pytest.xml || code=$?
           python packaging/ci_annotate.py pytest.xml --durations
           exit ${code:-0}
 
@@ -102,6 +102,6 @@ jobs:
           MARKERS: ${{ (inputs.full || startsWith(github.ref_name, 'ci/full/')) && 'slow or not slow' || 'not slow' }}
         shell: bash
         run: |
-          python -m pytest -q -rfE -n auto --dist loadfile -m "$MARKERS" --junitxml=pytest.xml || code=$?
+          python -m pytest -q -rfE -n auto --dist loadfile -m "$MARKERS" -o faulthandler_timeout=300 --junitxml=pytest.xml || code=$?
           python packaging/ci_annotate.py pytest.xml --durations
           exit ${code:-0}
