@@ -95,3 +95,16 @@ Livrés en **1.3.2** (décision de l'auteur, 28/10) : scénarios dans `docs/TEST
 | REG-1 | (**B57**) Aller dans Paramètres ▸ DJSync, quitter, revenir dans Paramètres (en haut de la page). | Le sommaire surligne la section réellement affichée. |
 | EXP-1 | (**C139**) Bibliothèque : clic droit sur un son ▸ **Afficher dans l'explorateur** (« dans le Finder » sur Mac). | Le dossier s'ouvre avec le fichier sélectionné ; fichier absent : message clair. |
 | CI-1 | (**B56**) GitHub Actions du build v1.4.0-rc.2. | Plus d'échec du test du ramasse-miettes ; build marqué vert si rien d'autre ne casse. |
+
+## rc.3 — retours de tests de la rc.2
+| # | Étapes | Attendu |
+|---|---|---|
+| EXP-2 | (**B68**) Bibliothèque : clic droit sur un son dont le chemin contient des espaces ▸ **Afficher dans l'explorateur**. | L'Explorateur s'ouvre dans le dossier du son, fichier sélectionné (plus Documents). |
+| QLT-2 | (**B69**) Paramètres ▸ Téléchargement : faire défiler lentement autour du tableau « Quelle qualité j'obtiens vraiment ? ». | Tableau en cases tracées ; les lignes ne bougent plus. |
+| ESP-5 | (**B71**) Paramètres : faire défiler de haut en bas plusieurs fois autour de la carte Espace occupé. | La carte ne se redessine pas et garde sa hauteur ; « Mesurer à nouveau » remesure. |
+| NAV-1 | (**B70**) Paramètres ▸ Général ▸ Barre latérale : icônes seules. Cliquer sur chaque page. | Le fond du bouton actif est centré sous l'icône, aligné sur le logo. |
+| NAV-2 | (**B73**) Barre latérale en icônes seules, pendant une analyse ou un téléchargement. | Bibliothèque active et Activité : une icône centrée dans un anneau de progression ; survol : texte complet (« Cet ordinateur · … libres »…) ; clic : ouvre la page. |
+| QUA-3 | (**B67**) Ouvrir la Bibliothèque après la mise à jour (les mesures sont refaites), colonne Qualité réelle, sur un WAV tiré de YouTube (ex. « Désaccordé »). | Plus « Sans perte » : « ≈ 320 kbps · YouTube » en orange ; un vrai WAV / FLAC reste « Sans perte ». |
+| SLK-5 | (**B72**) Améliorer ▸ Remplacer tout avec plusieurs sons trouvés chez le même utilisateur Soulseek. | Un seul téléchargement à la fois chez lui ; les autres partent chez d'autres pairs ou affichent « en attente : un autre téléchargement chez le même utilisateur » ; beaucoup moins d'échecs. |
+| SLK-6 | (**B72**) Télécharger depuis un pair qui ne répond pas, puis depuis un pair qui a une file d'attente. | Pair muet : « connexion à l'autre utilisateur… » puis autre pair en ~20 s ; pair avec file : « en file chez l'autre utilisateur (place n) », attente sans coupure à 60 s. |
+| SLK-7 | (**B72**) Retours ▸ Envoyer mes logs après une connexion à Soulseek. | Le journal contient « Soulseek listening on port … UPnP on, sharing on ». |
