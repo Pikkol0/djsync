@@ -77,3 +77,39 @@ def test_b70_b73_compact_sidebar_centred_and_rings(demo):  # noqa: F811
     demo._update_compact()
     assert b.styleSheet() == "" and b.text()
     assert not demo.usb_ring.isVisibleTo(demo.usb_box)
+
+
+# ------------------------------------------------------------------ B67 : faux sans perte (YouTube en WAV)
+def _signal(sr, wall_hz, floor_db):
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    n = sr * 8
+    spec = np.fft.rfft(rng.standard_normal(n))
+    f = np.fft.rfftfreq(n, 1 / sr)
+    spec[f > wall_hz] = 0
+    x = np.fft.irfft(spec, n)
+    x /= np.abs(x).max()
+    if floor_db is not None:                                    # plancher de bruit plat (dither) jusqu'en haut
+        x = x + rng.standard_normal(n) * 10 ** (floor_db / 20)
+    return x.astype("float32")
+
+
+def test_b67_brick_wall_with_flat_noise_floor_is_not_lossless():
+    from djsync.analysis.spectrum import LOSSLESS, cutoff_of, estimate
+
+    yt = _signal(48000, 20000, -85)                             # mur à 20 kHz, bruit plat au-dessus
+    c = cutoff_of(yt, 48000)
+    assert 19500 <= c <= 20600 and estimate(c, 48000) != LOSSLESS
+    real = _signal(44100, 22050, None)                          # vrai large bande jusqu'à Nyquist
+    assert estimate(cutoff_of(real, 44100), 44100) == LOSSLESS
+
+
+def test_b67_youtube_source_never_lossless():
+    from djsync.analysis.spectrum import LOSSLESS
+    from djsync.core.quality import AudioInfo
+
+    wav = AudioInfo(codec="wav", sample_rate=44100, cutoff=22000, source="YouTube")
+    assert wav.real_kbps == 320 and wav.fake and not wav.real_lossless
+    sc = AudioInfo(codec="wav", sample_rate=44100, cutoff=22000, source="SoundCloud")   # original possible
+    assert sc.real_kbps == LOSSLESS

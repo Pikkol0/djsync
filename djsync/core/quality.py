@@ -27,6 +27,7 @@ MIN_AAC = 112
 MIN_OTHER = 128
 MIN_SAMPLE_RATE = 44100
 LOSSLESS = {"flac", "wav", "aiff", "alac"}
+LOSSY_SOURCES = {"YouTube", "YouTube Music"}   # 1.4.0-rc.3 (B67) : flux toujours avec perte
 
 # Mentions qui trahissent une mauvaise source, où qu'elles soient dans le titre
 _STRONG = [
@@ -50,6 +51,7 @@ class AudioInfo:
     bitrate: int = 0                # kbit/s (0 = inconnu)
     sample_rate: int = 0
     cutoff: int = 0                 # 1.4.0 (C46) : coupure du spectre mesurée (Hz), 0 = pas encore mesurée
+    source: str = ""                # 1.4.0-rc.3 (B67) : « YouTube », « YouTube Music »… (source_from_url)
 
     @property
     def lossless(self) -> bool:
@@ -60,7 +62,11 @@ class AudioInfo:
         """Débit équivalent d'après le spectre (128…320, spectrum.LOSSLESS), 0 si pas mesuré."""
         from ..analysis.spectrum import estimate
 
-        return estimate(self.cutoff, self.sample_rate) if self.cutoff else 0
+        real = estimate(self.cutoff, self.sample_rate) if self.cutoff else 0
+        # 1.4.0-rc.3 (B67) : un flux YouTube n'est jamais sans perte, même enregistré en WAV / FLAC
+        if real and self.source in LOSSY_SOURCES:
+            real = min(real, 320)
+        return real
 
     @property
     def fake(self) -> bool:

@@ -66,7 +66,31 @@ def cutoff_of(x: np.ndarray, sr: int) -> Optional[int]:
     if above.size == 0:
         return None
     top = int(above[-1])
+    wall = _brick_wall(smooth, freqs, ref)
+    if wall is not None and wall < freqs[top]:
+        return wall
     return int(min(freqs[top], sr / 2))
+
+
+def _brick_wall(smooth: np.ndarray, freqs: np.ndarray, ref: float) -> Optional[int]:
+    """1.4.0-rc.3 (B67) : coupure nette d'un codec (chute de plus de 30 dB en moins de 1 kHz) suivie d'un
+    plancher plat (bruit, pas de musique) jusqu'en haut : ce plancher n'est pas du contenu. Ex. : flux
+    YouTube (Opus) enregistré en WAV 48 kHz : mur à 20 kHz, bruit plat à ≈ −80 dB jusqu'à 24 kHz."""
+    step = max(1, int(round(1000 / (freqs[1] - freqs[0]))))      # nombre de cases pour 1 kHz
+    for i in range(len(freqs) - 2 * step - 1, 0, -1):
+        if freqs[i] < 14000:
+            break
+        j = i + step
+        if smooth[i] < ref - 60 or smooth[i] - smooth[j] < 30:
+            continue
+        floor = smooth[j:]
+        if floor.size >= step and float(np.std(floor)) < 3.0 and float(np.mean(floor)) < ref - 60:
+            # bord du mur : dernier point encore à moins de 20 dB sous le niveau d'avant la chute
+            k = i
+            while k + 1 < j and smooth[k + 1] > smooth[i] - 20:
+                k += 1
+            return int(freqs[k])
+    return None
 
 
 def measure(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
@@ -133,7 +157,8 @@ def _file() -> Path:
         return _store_path
     from ..settings import settings_dir
 
-    return settings_dir() / "quality.json"
+    # 1.4.0-rc.3 (B67) : nouveau fichier : les mesures d'avant (mur + bruit pris pour du sans perte) sont refaites
+    return settings_dir() / "quality-2.json"
 
 
 def use_store(path: Optional[Path]) -> None:
