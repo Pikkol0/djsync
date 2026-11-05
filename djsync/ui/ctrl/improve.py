@@ -71,9 +71,20 @@ class ImproveMixin:
     def improve_apply(self, weaks: Sequence[Any]) -> int:
         """Remplace chaque son par sa meilleure trouvaille (téléchargement, puis remplacement)."""
         n = 0
+        alts = self.__dict__.setdefault("_slsk_alts", {})
         for w in weaks:
-            if w.best is not None and self.replace_with_download(w.best, [w.track]) is not None:
-                n += 1
+            if w.best is None:
+                continue
+            job = self.replace_with_download(w.best, [w.track])
+            if job is None:
+                continue
+            n += 1
+            if getattr(w.best, "slsk", None) is not None:
+                # 1.4.0-rc.3 (B72) : les autres trouvailles Soulseek du son servent de pairs de secours
+                # (avant : une seule, et tout le lot chez le même pair, coupé au bout de 60 s)
+                spare = [f.slsk for f in (getattr(w, "finds", None) or [])
+                         if getattr(f, "slsk", None) is not None and f.slsk is not w.best.slsk]
+                alts.setdefault(job.id, []).extend(self.slsk_order(spare))
         if n:
             self.message("info", t("improve.started", n=n))
         return n

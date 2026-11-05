@@ -115,7 +115,7 @@ def test_c139_reveal_command_per_system(tmp_path):
 
     f = tmp_path / "a b.m4a"
     f.write_bytes(b"x")
-    assert reveal_command(f, "win32") == ["explorer", f"/select,{f}"]
+    assert reveal_command(f, "win32").startswith("explorer /select,")      # B68 (rc.3) : chaîne
     assert reveal_command(f, "darwin") == ["open", "-R", str(f)]
     assert reveal_command(f, "linux") is None
     assert reveal(tmp_path / "absent.m4a") is False
@@ -264,7 +264,7 @@ def test_b60_stalled_peer_switches_to_another(demo, monkeypatch, tmp_path):  # n
     class C:
         connected = True
 
-        def download(self, result, progress=None, should_stop=None, stall=0.0):
+        def download(self, result, progress=None, should_stop=None, stall=0.0, **kw):     # rc.3 : reach…
             tried.append((result.username, stall))
             if result.username == "slow":
                 raise SoulseekStalled("no data for 60 s")
@@ -335,7 +335,7 @@ def test_c137_settings_explain_real_quality_and_warn_on_mp3(demo):  # noqa: F811
     from djsync.i18n import t
 
     v = demo.views["settings"]
-    assert "MP3 160" in v.quality_table.text()
+    assert any("MP3 160" in c.text() for c in v.quality_table.cells)      # rc.3 : grille (B69)
     v.format_menu.setCurrentText(v._format_labels["mp3"])
     assert not v.format_warn.isHidden()
     v.format_menu.setCurrentText(v._format_labels["m4a"])

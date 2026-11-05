@@ -367,7 +367,7 @@ STRINGS = {
     "slsk.queue": "queue {n}",
     "slsk.no_preview": "Soulseek files cannot be played before they are downloaded.",
     "slsk.download_failed": "Soulseek: {detail}",
-    "slsk.state_queued": "waiting in the peer's queue",
+    "slsk.state_queued": "connecting to the other user…",
     "slsk.state_initializing": "connecting to the peer",
     "slsk.state_downloading": "",
     "slsk.fake": "\"{title}\" was announced as {claimed} but its real quality is {real}. Search another source?",
@@ -1539,5 +1539,11 @@ STRINGS = {
     # 1.4.0-rc.2 (C137) : vraie qualité
     "quality.mp3_warning": "From YouTube, converting to MP3 adds a little loss and a bigger file, for no gain: the real quality stays that of the source.",
     "quality.real_title": "What quality do I really get?",
-    "quality.real_table": "<table cellspacing='2'><tr><td><b>Source</b></td><td><b>≈ MP3 equivalent</b></td><td><b>Highs cut at</b></td></tr><tr><td>YouTube (default)</td><td>MP3 160–192</td><td>≈ 16 kHz</td></tr><tr><td>YouTube, best stream, no Premium</td><td>MP3 224–256</td><td>≈ 20 kHz</td></tr><tr><td>YouTube, best stream, Premium</td><td>MP3 320</td><td>≈ 19–20 kHz</td></tr><tr><td>SoundCloud stream</td><td>MP3 128–160</td><td>≈ 16 kHz</td></tr><tr><td>SoundCloud original, High quality</td><td>MP3 320 or lossless</td><td>20 kHz +</td></tr></table>The bitrate written in the file (and shown by Rekordbox) is that of the conversion, not the real quality: the “Real quality” column measures it. Converting never restores what was lost.",
+    # 1.4.0-rc.3 (B69, C143) : tableau à cases
+    "quality.real_rows": "Source | ≈ MP3 equivalent | Highs cut at\nYouTube (default) | MP3 160–192 | ≈ 16 kHz\nYouTube, best stream, no Premium | MP3 224–256 | ≈ 20 kHz\nYouTube, best stream, Premium | MP3 320 | ≈ 19–20 kHz\nSoundCloud stream | MP3 128–160 | ≈ 16 kHz\nSoundCloud original, High quality | MP3 320 or lossless | 20 kHz +",
+    "quality.real_note": "The bitrate written in the file (and shown by Rekordbox) is that of the conversion, not the real quality: the “Real quality” column measures it. Converting never restores what was lost.",
+    # 1.4.0-rc.3 (B72)
+    "slsk.queued_at": "queued at the other user (position {n})",
+    "slsk.queued_remote": "queued at the other user",
+    "slsk.same_user": "waiting: another download from the same user is in progress",
 }

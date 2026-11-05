@@ -4,14 +4,18 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 
-def reveal_command(path: Path, platform: Optional[str] = None) -> Optional[List[str]]:
+def reveal_command(path: Path, platform: Optional[str] = None) -> Union[str, List[str], None]:
     """Commande qui ouvre le dossier avec le fichier sélectionné ; None : ouvrir simplement le dossier."""
     platform = platform or sys.platform
     if platform.startswith("win"):
-        return ["explorer", f"/select,{path}"]
+        # 1.4.0-rc.3 (B68) : passée telle quelle (chaîne) ; avec une liste, Python mettait des guillemets
+        # autour de « /select,C:\… … » dès qu'il y avait un espace, et l'Explorateur ouvrait Documents.
+        import ntpath
+
+        return f'explorer /select,"{ntpath.normpath(str(path))}"'
     if platform == "darwin":
         return ["open", "-R", str(path)]
     return None

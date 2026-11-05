@@ -69,17 +69,21 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit) ; (C46) jamais
     # pour un fichier dont le spectre trahit une qualité inférieure (colonne « Qualité réelle »)
     from ...analysis.spectrum import lookup
-    from ...core.quality import AudioInfo
+    from ...core.quality import LOSSY_SOURCES, AudioInfo
+    from ...models import source_from_url
     from .. import levels
 
     suffix = Path(x.path).suffix.lower()
     lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
     codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
     info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
-                     cutoff=lookup(Path(x.path).name, x.file_size) or 0)
+                     cutoff=lookup(Path(x.path).name, x.file_size) or 0,
+                     source=source_from_url(getattr(x, "source_url", "")))
     real = info.real_kbps
     if real:
         out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
+        if info.source in LOSSY_SOURCES and lossless:          # 1.4.0-rc.3 (B67) : WAV tiré de YouTube
+            out["real"] += f" · {info.source}"
         out["real__color"] = levels.color(levels.audio_quality(info.effective_kbps, info.real_lossless))
     tier = None if info.fake else ("gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None))
     if tier:

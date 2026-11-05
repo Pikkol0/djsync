@@ -151,6 +151,8 @@ class SoulseekStalled(SoulseekError):
 
 
 STALL_S = 60.0
+REACH_S = 20.0                      # 1.4.0-rc.3 (B72) : pas de réponse du pair en 20 s : injoignable
+QUEUE_WAIT_S = 300.0                # en file chez le pair : on attend (5 min au plus, 60 s s'il y a d'autres pairs)
 
 
 def alternatives(chosen: SlskResult, pool: Sequence[SlskResult], limit: int = 5) -> List[SlskResult]:
@@ -226,6 +228,10 @@ class SoulseekClient:
             raise
         self._client = client
         self.metrics.connected = True
+        net = settings.network                   # 1.4.0-rc.3 (B72) : port d'écoute dans le journal
+        log.info("Soulseek listening on port %s (obfuscated %s), UPnP %s, sharing %s", net.listening.port,
+                 net.listening.obfuscated_port, "on" if net.upnp.enabled else "off",
+                 "on" if self.share_dir else "off")
         self._sampler = asyncio.ensure_future(self._sample())
 
     def stop(self) -> None:
@@ -308,7 +314,7 @@ class SoulseekClient:
     # ------------------------------------------------------------------ téléchargement
     def download(self, result: SlskResult, progress: Optional[Callable[[float, str], None]] = None,
                  should_stop: Optional[Callable[[], bool]] = None, timeout: float = 1800.0,
-                 stall: float = 0.0) -> Path:
+                 stall: float = 0.0, reach: float = 0.0, queue_wait: float = 0.0) -> Path:
         """Télécharge et renvoie le fichier local. progress(pourcentage, état) ; lève SoulseekError."""
         if self._client is None:
             raise SoulseekError("Soulseek is not connected.")
@@ -330,9 +336,23 @@ class SoulseekClient:
             now = time.monotonic()
             if done != last_bytes:
                 moved_at, last_bytes = now, done
-            if stall and now - moved_at > stall:          # 1.4.0-rc.2 (B60) : rien reçu depuis trop longtemps
+            # 1.4.0-rc.3 (B72) : trois cas distincts au lieu d'une seule limite de 60 s
+            queued = bool(getattr(transfer, "remotely_queued", False)) and not done
+            if queued and progress:                       # le pair a répondu : on est dans sa file
+                place = getattr(transfer, "place_in_queue", None)
+                progress(0.0, f"queued_at:{place}" if place else "queued_remote")
+            reason = ""
+            if reach and not done and not queued and now - start > reach:
+                reason = f"no answer from the user in {int(reach)} s"         # injoignable : vite au suivant
+            elif queued and queue_wait and now - start > queue_wait:
+                reason = f"still queued at the user after {int(queue_wait)} s"
+            elif stall and not queued and done and now - moved_at > stall:
+                reason = f"no data for {int(stall)} s"                        # B60 : transfert figé
+            elif stall and not queued and not reach and not done and now - moved_at > stall:
+                reason = f"no data for {int(stall)} s"
+            if reason:
                 self._call(self._client.transfers.abort(transfer), 10)
-                raise SoulseekStalled(f"no data for {int(stall)} s")
+                raise SoulseekStalled(reason)
             if (should_stop and should_stop()) or now - start > timeout:
                 self._call(self._client.transfers.abort(transfer), 10)
                 raise SoulseekError("cancelled")

@@ -6,8 +6,10 @@ import hashlib
 import logging
 import re
 import shutil
+import threading
+import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ...i18n import t
 from ...models import DownloadJob, TrackResult
@@ -113,30 +115,88 @@ class SoulseekMixin:
         jobs = self.enqueue([track_of(r) for r in results], playlist_ids)
         for job in jobs or []:
             if job.track.slsk is not None:               # 1.4.0-rc.2 (B60) : même fichier chez d'autres pairs
-                alts[job.id] = alternatives(job.track.slsk, pool)
+                alts.setdefault(job.id, []).extend(self.slsk_order(alternatives(job.track.slsk, pool)))
         return jobs
 
     # ------------------------------------------------------------------ téléchargement (fil « dl »)
     def _slsk_download_any(self, job: DownloadJob, result: Any, progress: Callable[[float, str], None]) -> Any:
-        """1.4.0-rc.2 (B60) : si le pair bloque (rien reçu en 60 s), refuse ou bannit, on passe tout seul au
-        même fichier chez un autre pair, en le disant dans la ligne du téléchargement."""
+        """1.4.0-rc.2 (B60) : si le pair bloque, refuse ou bannit, on passe tout seul au même fichier chez un
+        autre pair. 1.4.0-rc.3 (B72) : un seul transfert à la fois par pair (un pair n'envoie qu'un ou deux
+        fichiers à la fois par personne : les autres attendaient dans sa file et étaient coupés à 60 s) ;
+        pair injoignable abandonné en 20 s ; en file chez le pair, on attend (moins longtemps s'il y a
+        d'autres pairs)."""
         from dataclasses import replace
 
-        from ...core.soulseek import STALL_S, SoulseekError
+        from ...core.soulseek import QUEUE_WAIT_S, REACH_S, STALL_S, SoulseekError
 
-        others = list(self.__dict__.get("_slsk_alts", {}).pop(job.id, []))
+        # liste partagée : remplie par slsk_enqueue / improve_apply, même si le travail a déjà démarré
+        others = self.__dict__.setdefault("_slsk_alts", {}).setdefault(job.id, [])
         while True:
+            result = self._slsk_claim(job, result, others, progress)
+            claimed = result.username
             try:
-                return self.slsk.download(result, progress, stall=STALL_S)
+                wait = 60.0 if others else QUEUE_WAIT_S
+                return self.slsk.download(result, progress, stall=STALL_S, reach=REACH_S, queue_wait=wait)
             except SoulseekError as exc:
+                self._slsk_mute(result.username, str(exc))
                 if not others or str(exc) == "cancelled":
                     raise
-                log.info("Soulseek: %s from %s (%s); trying %s", result.name, result.username, exc,
-                         others[0].username)
+                log.info("Soulseek: %s from %s (%s); trying another user", result.name, result.username, exc)
                 result = others.pop(0)
                 job.track = replace(job.track, slsk=result)
                 job.message = t("slsk.next_peer", reason=str(exc)[:60])
                 self.dispatcher.post(self._job_changed, job)
+            finally:
+                self._slsk_release(claimed)
+
+    def slsk_order(self, results: List[Any]) -> List[Any]:
+        """B72 : pairs restés muets pendant la session en dernier."""
+        muted = self.__dict__.get("_slsk_muted", set())
+        return sorted(results, key=lambda r: r.username in muted)
+
+    # ---------------------------------------------------------------- B72 : un transfert par pair
+    def _slsk_busy(self) -> Dict[str, int]:
+        return self.__dict__.setdefault("_slsk_users", {})
+
+    def _slsk_claim(self, job: DownloadJob, result: Any, others: List[Any],
+                    progress: Callable[[float, str], None]) -> Any:
+        """Réserve le pair de `result` ; s'il est déjà pris par un autre téléchargement, prend un autre pair
+        libre qui a le même fichier, sinon attend son tour (« en attente : même pair »)."""
+        from dataclasses import replace
+
+        lock = self.__dict__.setdefault("_slsk_lock", threading.Lock())
+        waited = False
+        while True:
+            with lock:
+                busy = self._slsk_busy()
+                if not busy.get(result.username):
+                    busy[result.username] = job.id
+                    return result
+                free = next((r for r in others if not busy.get(r.username)), None)
+                if free is not None:
+                    others.remove(free)
+                    others.append(result)                    # gardé en secours
+                    busy[free.username] = job.id
+                    job.track = replace(job.track, slsk=free)
+                    return free
+            if not waited:
+                waited = True
+                progress(0.0, "same_user")
+            if job.status == "cancelled":
+                from ...core.soulseek import SoulseekError
+
+                raise SoulseekError("cancelled")
+            time.sleep(1.0)
+
+    def _slsk_release(self, username: str) -> None:
+        lock = self.__dict__.setdefault("_slsk_lock", threading.Lock())
+        with lock:
+            self._slsk_busy().pop(username, None)
+
+    def _slsk_mute(self, username: str, reason: str) -> None:
+        """Pairs restés muets pendant la session : mis en bas des choix suivants."""
+        if "no answer" in reason or "no data" in reason:
+            self.__dict__.setdefault("_slsk_muted", set()).add(username)
 
     def _run_slsk_job(self, job: DownloadJob) -> None:
         """Téléchargement Soulseek -> fichier temporaire -> import (copie / conversion pour les platines,
@@ -150,7 +210,12 @@ class SoulseekMixin:
         def progress(pct: float, state: str) -> None:
             job.status = "downloading"
             job.percent = pct
-            job.message = t(f"slsk.state_{state}") if state in ("queued", "initializing", "downloading") else ""
+            if state.startswith("queued_at:"):                       # 1.4.0-rc.3 (B72) : file chez le pair
+                job.message = t("slsk.queued_at", n=state.split(":", 1)[1])
+            elif state in ("same_user", "queued_remote"):
+                job.message = t(f"slsk.{state}")
+            else:
+                job.message = t(f"slsk.state_{state}") if state in ("queued", "initializing", "downloading") else ""
             self.dispatcher.post(self._job_changed, job)
 
         try:

@@ -200,6 +200,8 @@ class SpaceCard:
 
     # ---------------------------------------------------------------- affichage
     def _show(self, usage: space.Usage, target: Dict[str, Any]) -> None:
+        if usage is getattr(self, "usage", None) and self._rows:   # 1.4.0-rc.3 (B71) : déjà affiché tel quel
+            return
         self.usage = usage
         self.refresh_btn.setEnabled(True)
         self.busy.setVisible(False)
