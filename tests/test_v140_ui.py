@@ -225,7 +225,7 @@ def test_improve_page_search_and_confirmed_replace(demo, monkeypatch):  # noqa: 
 
     from djsync.core.quality import search_terms
 
-    def free_search(query, ok):
+    def free_search(query, ok, partial=None):
         x = next(t for t in lib_tracks if " ".join(reversed(search_terms(t))).strip() == query)
         ok([TrackResult(video_id=f"archive:{x.content_id}", title=x.title, artist=x.artist or "",
                         duration_seconds=x.duration_seconds, source="archive", quality="FLAC")])

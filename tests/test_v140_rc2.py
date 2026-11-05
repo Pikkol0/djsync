@@ -319,7 +319,7 @@ def test_b59_hq_search_shows_searching_not_no_result(demo, monkeypatch):  # noqa
     view = demo.views["search"]
     ctrl = demo.ctrl
     monkeypatch.setattr(type(ctrl), "slsk_ready", property(lambda self: True))
-    monkeypatch.setattr(ctrl, "free_search", lambda q, ok: ok([]))
+    monkeypatch.setattr(ctrl, "free_search", lambda q, ok, partial=None: ok([]))
     monkeypatch.setattr(ctrl, "slsk_search", lambda q, ok, partial=None: partial([]))
     skel = []
     monkeypatch.setattr(view.table, "show_skeleton", lambda: skel.append(1))
