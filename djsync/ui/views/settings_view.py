@@ -539,8 +539,8 @@ class SettingsView(View):
         self.page.addStretch(1)
         self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
         start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
         self.show_section(start, remember=False)
-        self._start_section: Optional[str] = start       # 1.4.0-rc.2 (B57) : refait au premier affichage
 
         controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
         controller.on("drive", self._backups_state)
@@ -905,6 +905,7 @@ class SettingsView(View):
         if key not in dict(SECTIONS):
             return
         self._set_nav(key)
+        self._start_section = key                        # 1.4.0-rc.2 (B57) : défilement refait à l'affichage
         if self.search.text():
             self.search.blockSignals(True)
             self.search.clear()

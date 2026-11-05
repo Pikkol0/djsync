@@ -76,7 +76,7 @@ class DownloadsMixin:
             job.percent = p.percent
             self.dispatcher.post(self._job_changed, job)
 
-        if self.youtube_paused(job):                    # 1.4.0-rc.2 (B66) : en pause après plusieurs refus
+        if getattr(self, "_youtube_paused", False) and job.track.source in ("youtube", "ytmusic"):   # B66 : pause
             job.status, job.message, job.reason = "error", t("error.youtube_bot"), "error.youtube_bot"
             self.dispatcher.post(self._job_changed, job)
             return
