@@ -8,6 +8,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -1553,7 +1554,8 @@ class SettingsView(View):
         s.soundcloud_token = self.sc_token.text().strip()
         s.youtube_best = self.yt_best_var.isChecked()
         s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
-        s.watch_folder = self.watch_folder.text().strip()
+        _w = self.watch_folder.text().strip()
+        s.watch_folder = str(Path(_w)) if _w else ""            # 1.4.0-rc.4 (B77) : chemin normalisé
         s.soulseek_enabled = self.slsk_var.isChecked() and s.soulseek_accepted
         s.soulseek_user = self.slsk_user.text().strip()
         s.soulseek_password = self.slsk_password.text()

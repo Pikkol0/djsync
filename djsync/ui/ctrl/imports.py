@@ -66,15 +66,24 @@ class ImportsMixin:
     def watch_tick(self) -> None:
         """Appelé toutes les quelques secondes par la fenêtre : importe les fichiers prêts du dossier
         surveillé dans la bibliothèque ouverte (rien si aucune n'est ouverte ou si un import tourne)."""
-        folder = (getattr(self.settings, "watch_folder", "") or "").strip()
-        if not folder or self.library is None or getattr(self, "_importing", False) \
-                or getattr(self, "_watch_busy", False):
-            return
-        from ...core.watcher import FolderWatch
+        from ...core.watcher import FolderWatch, same_folder
 
+        folder = (getattr(self.settings, "watch_folder", "") or "").strip()
+        skip = ("" if not folder else "no library open" if self.library is None
+                else "import running" if getattr(self, "_importing", False)
+                else "busy" if getattr(self, "_watch_busy", False) else "")
+        if not folder or skip:
+            if skip and skip != getattr(self, "_watch_skip", ""):      # 1.4.0-rc.4 (B77) : raison notée
+                log.info("Watched folder skipped: %s", skip)
+            self._watch_skip = skip
+            return
+        self._watch_skip = ""
         w = getattr(self, "_watch", None)
-        if w is None or str(w.folder) != folder:
+        # 1.4.0-rc.4 (B77) : sous Windows, le réglage garde « C:/… » et Path donne « C:\… » : la
+        # comparaison en texte recréait le surveillant à chaque passage, qui oubliait tout.
+        if w is None or not same_folder(w.folder, folder):
             w = self._watch = FolderWatch(Path(folder))
+            log.info("Watching folder %s", w.folder)
         self._watch_busy = True
 
         def work() -> List[Path]:
@@ -88,6 +97,10 @@ class ImportsMixin:
 
         def done(moved: List[Path]) -> None:
             self._watch_busy = False
+            seen = (len(w.last_seen), len(moved))
+            if seen != getattr(self, "_watch_counts", None):
+                self._watch_counts = seen
+                log.info("Watched folder: %d file(s) seen, %d taken", *seen)
             if moved:
                 name = t("watch.playlist") if self.settings.watch_playlist else ""
                 self.message("info", plural("watch.found_one", "watch.found_many", len(moved)))
@@ -97,7 +110,7 @@ class ImportsMixin:
             self._watch_busy = False
             log.warning("Watched folder: %s", exc)
 
-        self.dispatcher.submit(work, done, failed, pool="tools")
+        self.dispatcher.submit(work, done, failed, pool="watch")   # 1.4.0-rc.4 (B77) : jamais derrière les outils
 
     def _import_done(self, report: Any, lib: Any, quiet: bool) -> None:
         added = len(report.added)

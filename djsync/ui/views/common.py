@@ -101,7 +101,7 @@ def result_columns(with_check: bool = False, with_download: bool = True) -> List
         Column("title", t("track.title"), 300, stretch=True, min_width=170),
         Column("artist", t("track.artist"), 190, priority=1),
         Column("type", t("track.type"), 70, "center", priority=4),
-        Column("views", t("track.views"), 80, "e", priority=3,
+        Column("views", t("track.views"), 80, "e", priority=3, tip=t("track.views_tip"),
                sort=lambda r: r.data.views if r.data and r.data.views is not None else None),
         Column("duration", t("track.duration"), 64, "e", priority=2,
                sort=lambda r: r.data.duration_seconds if r.data else 0),

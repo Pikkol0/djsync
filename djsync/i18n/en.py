@@ -866,7 +866,7 @@ STRINGS = {
     "settings.pdb_growth": "Allow export.pdb to grow when a table is full (recommended)",
     "settings.check": "Check",
     "settings.sync_now": "Synchronise now",
-    "settings.fetch_views": "Load the view count of songs (extra background requests)",
+    "settings.fetch_views": "Load the YouTube view count of songs (extra requests in the background)",
     "settings.fetch_metadata": "Complete album, year, genre, label and track number when downloading (Deezer)",
     "action.undo": "Undo",
     "settings.reset": "Default settings",
@@ -1546,4 +1546,12 @@ STRINGS = {
     "slsk.queued_at": "queued at the other user (position {n})",
     "slsk.queued_remote": "queued at the other user",
     "slsk.same_user": "waiting: another download from the same user is in progress",
+    # 1.4.0-rc.4 (C148, C151, C152, C153)
+    "table.check_all": "Check / uncheck all",
+    "import.checked_count": "{n} / {total} checked",
+    "sc.free_button": "Artist's Free Download",
+    "sc.free_button_n": "Artists' Free Downloads ({n})",
+    "sc.free_open_tip": "Opens the artist's page in your browser. The artist often asks for something in return (follow, like…). The file is imported if it lands in the watched folder.",
+    "track.views_tip": "YouTube views (plays for SoundCloud)",
+    "nav.open_activity": "Open Downloads and analysis",
 }

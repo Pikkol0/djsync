@@ -373,14 +373,19 @@ class DJSyncApp(QMainWindow):
         self.dl_bar.setRange(0, 1000)
         self.dl_bar.setTextVisible(False)
         al.addWidget(self.dl_bar)
-        self.an_open = icon_button("go", lambda: self.ctrl._emit("show_unanalysed"), t("lib.unanalysed"), size=12)
+        # 1.4.0-rc.4 (C153) : la carte, sa flèche et son anneau ouvrent Téléchargements et analyse
+        self.an_open = icon_button("go", lambda: self.show_view("downloads"), t("nav.open_activity"), size=12)
         ah.insertWidget(1, self.an_open)
         # 1.4.0-rc.3 (B73) : en volet replié, un anneau centré à la place des barres coupées
         from .mini_ring import MiniRing
 
-        self.an_ring = MiniRing("wave", lambda: self.ctrl._emit("show_unanalysed"))
+        self.an_ring = MiniRing("wave", lambda: self.show_view("downloads"))
         al.addWidget(self.an_ring, 0, Qt.AlignHCenter)
         self.an_ring.hide()
+        from .widgets import clickable
+
+        clickable(an, lambda: self.show_view("downloads"))
+        an.setToolTip(t("nav.open_activity"))
         an.hide()
         lay.addWidget(an)
 
