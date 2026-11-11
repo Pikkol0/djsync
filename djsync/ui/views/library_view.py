@@ -25,7 +25,7 @@ from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
 from ..table import MIME_IDS, camelot_sort, popup_menu
 from ..icons import qicon
 from ..widgets import (
-    Column, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
+    Column, FitBar, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
 )
 from .common import focus_list, View
 
@@ -206,7 +206,7 @@ class LibraryView(View):
             Column("year", t("track.year"), 52, "e", sort=lambda r: r.data.year or None if r.data else None),
             Column("label", t("track.label"), 120),
             Column("bitrate", t("track.bitrate"), 78, "e", sort=lambda r: r.data.bitrate or None if r.data else None),
-            Column("real", t("track.real_quality"), 96, "e"),               # 1.4.0 (C46)
+            Column("real", t("track.real_quality"), 96, "e", tip=t("track.real_quality_tip")),   # C46, C162
             Column("rate", t("track.sample_rate"), 78, "e",
                    sort=lambda r: r.data.sample_rate or None if r.data else None),
             Column("rating", t("track.rating"), 76, "center", sort=lambda r: r.data.rating or None if r.data else None),
@@ -263,7 +263,9 @@ class LibraryView(View):
         head.addWidget(self.filter, 0, Qt.AlignTop)
         mv.addLayout(head)
 
-        bar = hbox(spacing=theme.px(6))
+        # 1.4.0-rc.5 (B85) : barre qui s'adapte à la largeur (boutons secondaires en icône, puis dans ☰),
+        # boutons à leur largeur naturelle : plus de texte coupé ni de boutons qui se chevauchent
+        self.bar = bar = FitBar(spacing=theme.px(6))
         self.add_btn = button(t("lib.add_to"), self._add_to, icon="plus")
         self.move_btn = button(t("lib.move_to"), self._move_to, icon="move")
         self.remove_btn = button(t("lib.remove"), self._remove, icon="close")
@@ -277,25 +279,25 @@ class LibraryView(View):
         self.analysis_bar.setFixedWidth(theme.px(140))
         for w in (self.add_btn, self.move_btn, self.remove_btn, self.up_btn, self.down_btn, self.save_btn,
                   self.analyse_btn, self.analysis_bar):
-            bar.addWidget(w)
-        bar.addStretch(1)
+            bar.add(w)
+        bar.add_stretch()
         self.import_btn = button(t("import_files.button"), self._import_files, icon="folder",
                                  tooltip=t("import_files.tip"))              # 1.4.0 (C26)
-        bar.addWidget(self.import_btn)
+        bar.add(self.import_btn, secondary=True)
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
-        bar.addWidget(self.harm_btn)
+        bar.add(self.harm_btn, secondary=True)
         self.sug_btn = button(t("sug.title"), lambda: self.show_suggestions(self.sug_btn.isChecked()),
                               icon="playlist", tooltip=t("sug.tip"))           # 1.3.1 (C30)
         self.sug_btn.setCheckable(True)
-        bar.addWidget(self.sug_btn)
+        bar.add(self.sug_btn, secondary=True)
         self.cols_btn = button(t("table.columns"), self._columns_menu, icon="columns", tooltip=t("lib.columns_tip"))
-        bar.addWidget(self.cols_btn)
+        bar.add(self.cols_btn, secondary=True)
         self.tools_btn = icon_button("menu", self._tools_menu, t("lib.tools"))
-        bar.addWidget(self.tools_btn)
+        bar.add(self.tools_btn)
         self.delete_btn = button("", self._delete, kind="danger", icon="trash", tooltip=t("lib.delete"))
-        bar.addWidget(self.delete_btn)
-        mv.addLayout(bar)
+        bar.add(self.delete_btn)
+        mv.addWidget(bar)
 
         self.banner = panel(role="banner")
         bl = hbox(self.banner, margins=theme.px(8), spacing=theme.px(8))
@@ -344,6 +346,7 @@ class LibraryView(View):
         controller.on("analysis", self._analysis_changed)
         controller.on("missing_files", self._missing_changed)          # 1.3.2-rc.3 (C124)
         controller.on("show_unanalysed", self.show_unanalysed)
+        controller.on("open_playlist_named", self._goto_named)         # 1.4.0-rc.5 (C160)
         controller.on("import_progress", self._import_progress)
         self._refresh_buttons()
         if controller.settings.suggestions_open:
@@ -494,7 +497,8 @@ class LibraryView(View):
         def add(parent: Any, parent_id: int) -> None:
             for p in sorted(children.get(parent_id, []), key=lambda q: (q.sequence, q.name.lower())):
                 iid = f"p{p.playlist_id}"
-                it = item(parent, iid, p.name, icon="folder" if p.is_folder else "playlist",
+                it = item(parent, iid, p.name, icon="folder" if p.is_folder else
+                          "watch" if self._is_watch_playlist(p) else "playlist",       # 1.4.0-rc.5 (C160)
                           count="" if p.is_folder else p.track_count)
                 if p.is_folder:
                     add(it, p.playlist_id)
@@ -533,6 +537,18 @@ class LibraryView(View):
                           confirm_text=t("lib.unsaved_leave"), danger=True)
             return
         self._goto(new)
+
+    @staticmethod
+    def _is_watch_playlist(p: Optional[PlaylistInfo]) -> bool:
+        """1.4.0-rc.5 (C160) : la playlist où le dossier surveillé range ses sons."""
+        return p is not None and not p.is_folder and p.name == t("watch.playlist")
+
+    def _goto_named(self, name: str) -> None:
+        """Ouvre une playlist par son nom (lien du message « 1 son ajouté depuis le dossier surveillé »)."""
+        found = next((p for p in self.playlists if p.name == name and not p.is_folder), None)
+        if found is not None:
+            self.ctrl._emit("navigate", "library")
+            self._goto(f"p{found.playlist_id}")
 
     def _goto(self, iid: str) -> None:
         self.current = iid
@@ -659,13 +675,26 @@ class LibraryView(View):
     def _unanalysed_count(self) -> int:
         return len(self._unanalysed())
 
+    def _source_values(self, x: LibraryTrack) -> Dict[str, str]:
+        """Source d'un son ; 1.4.0-rc.5 (C160) : « Dossier surveillé » avec l'œil et une bulle (dossier, date)."""
+        src = source_from_url(x.source_url)
+        if src:
+            return {"source": src}
+        from ...core import watched
+
+        info = watched.lookup_track(x)
+        if not info:
+            return {"source": ""}
+        return {"source": t("watch.source"), "source__icon": "watch",
+                "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=info.get("date", ""))}
+
     def _track_row(self, x: LibraryTrack, pos: bool) -> Row:
         return Row(
             str(x.content_id),
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
-             "source": source_from_url(x.source_url), "grid": "1" if x.is_analysed else "", **extra_values(x),
+             **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
              **self._playlist_values(x), "_tip": self._missing_tip(x.content_id)},
             ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
@@ -684,7 +713,8 @@ class LibraryView(View):
             self.ctrl._emit("open_grid", x)
 
     def _columns_menu(self) -> None:
-        self.table.columns_menu(self.cols_btn.mapToGlobal(self.cols_btn.rect().bottomLeft()))
+        b = self.cols_btn if self.cols_btn.isVisible() else self.tools_btn     # 1.4.0-rc.5 (B85) : bouton replié
+        self.table.columns_menu(b.mapToGlobal(b.rect().bottomLeft()))
 
     def _fill_table(self) -> None:
         self._show_header()
@@ -715,7 +745,12 @@ class LibraryView(View):
         def ok(tracks: List[LibraryTrack]) -> None:
             if token != self.current or self._dirty or not self.winfo_exists():
                 return
-            self.table.set_empty("playlist", t("lib.empty_playlist_title"))
+            if self._is_watch_playlist(self.playlist):            # 1.4.0-rc.5 (C160) : à quoi elle sert
+                folder = self.ctrl.settings.watch_folder
+                self.table.set_empty("watch", t("watch.empty_title"),
+                                     t("watch.empty_on", folder=folder) if folder else t("watch.empty_off"))
+            else:
+                self.table.set_empty("playlist", t("lib.empty_playlist_title"))
             self._apply_rows(tracks, pos=True)
 
         self.ctrl.playlist_tracks(pid, ok)
@@ -884,9 +919,9 @@ class LibraryView(View):
         editable = playlist and bool(self.playlist and self.playlist.is_editable)
         todo = self.current == TODO
         for w in (self.move_btn, self.remove_btn):
-            w.setVisible(playlist)
-        for w in (self.up_btn, self.down_btn, self.save_btn):
-            w.setVisible(bool(editable))
+            self.bar.setVisibleItem(w, playlist)
+        for w in (self.up_btn, self.down_btn):
+            self.bar.setVisibleItem(w, bool(editable))
         has = bool(sel) and self.ctrl.has_library
         self.add_btn.setEnabled(has)
         self.delete_btn.setEnabled(has)
@@ -897,29 +932,33 @@ class LibraryView(View):
         self.down_btn.setEnabled(can_move)
         can_save = editable and not self.table.filter_active and (self._dirty or self.table.sort_active)
         self.save_btn.setEnabled(bool(can_save))
-        self.save_btn.setText(t("lib.save_order") + (" •" if self._dirty else ""))
+        # 1.4.0-rc.5 (B85) : « Enregistrer l'ordre » seulement quand l'ordre a changé (ou est trié)
+        self.bar.setVisibleItem(self.save_btn, bool(editable and (self._dirty or self.table.sort_active)))
+        self.bar.set_text(self.save_btn, t("lib.save_order") + (" •" if self._dirty else ""))
+        self.delete_btn.setToolTip(self._delete_label())
         self.rename_btn.setEnabled(self.playlist is not None and (self.playlist.is_editable or self.playlist.is_folder))
         self.harm_btn.setChecked(self._harmonic is not None)
         # « Non analysés » : lancer / arrêter l'analyse en arrière-plan
         q = self.ctrl.analysis
-        self.analyse_btn.setVisible(todo)
-        self.analysis_bar.setVisible(todo and q.running)
+        self.bar.setVisibleItem(self.analyse_btn, todo)
+        self.bar.setVisibleItem(self.analysis_bar, todo and q.running)
         if todo:
             if q.running:
-                self.analyse_btn.setText(t("lib.analyse_stop"))
+                self.bar.set_text(self.analyse_btn, t("lib.analyse_stop"))
                 self.analyse_btn.setProperty("kind", "danger")
                 self.analyse_btn.setIcon(qicon("stop", 16, theme.ERR))
                 self.analyse_btn.setEnabled(not q.cancelled)
                 self.analysis_bar.setValue(int(1000 * q.done / max(1, q.total)))
             else:
                 n = self._unanalysed_count()
-                self.analyse_btn.setText(t("lib.analyse_all", n=n))
+                self.bar.set_text(self.analyse_btn, t("lib.analyse_all", n=n))
                 self.analyse_btn.setProperty("kind", "primary")
                 self.analyse_btn.setIcon(qicon("wave", 16, theme.ON_ACCENT))
                 self.analyse_btn.setEnabled(bool(n) and self.ctrl.has_library)
             restyle(self.analyse_btn)
         tip = t("lib.hint_clear_filter") if self.table.filter_active else ""
-        for b, base in ((self.up_btn, t("lib.up")), (self.down_btn, t("lib.down")), (self.save_btn, "")):
+        for b, base in ((self.up_btn, t("lib.up")), (self.down_btn, t("lib.down")),
+                        (self.save_btn, "" if self.save_btn.text() else t("lib.save_order"))):   # B85 : icône seule
             b.setToolTip(tip or base)
 
     def _ids(self) -> List[int]:
@@ -984,9 +1023,16 @@ class LibraryView(View):
         names = [r.values["title"] for r in self.table.selected_rows()][:3]
         what = t("fmt.quoted", text=names[0]) if len(ids) == 1 else t("lib.delete_many", n=len(ids),
                                                                        names=", ".join(names))
-        ConfirmDialog(self, t("lib.delete_title"), t("lib.delete_msg", what=what),
-                      lambda: self.ctrl.delete_tracks(ids, True), confirm_text=t("action.delete"), danger=True,
-                      detail=t("lib.delete_detail"))
+        local = self.ctrl.is_local              # 1.4.0-rc.5 (B86) : sur l'ordinateur, on retire de la collection
+        ConfirmDialog(self, t("lib.delete_local_title" if local else "lib.delete_title"),
+                      t("lib.delete_local_msg" if local else "lib.delete_msg", what=what),
+                      lambda: self.ctrl.delete_tracks(ids, True),
+                      confirm_text=t("action.remove" if local else "action.delete"), danger=True,
+                      detail=t("lib.delete_local_detail" if local else "lib.delete_detail"))
+
+    def _delete_label(self) -> str:
+        """1.4.0-rc.5 (B86) : « Supprimer de la clé » ou, sur l'ordinateur, « Retirer de la collection Rekordbox »."""
+        return t("lib.delete_local" if self.ctrl.is_local else "lib.delete")
 
     def _create_playlist(self) -> None:
         parent = self.playlist.playlist_id if self.playlist is not None and self.playlist.is_folder else 0
@@ -1146,8 +1192,22 @@ class LibraryView(View):
         target = sel or None
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
+        entries += self._overflow_entries()
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
+
+    def _overflow_entries(self) -> list:
+        """1.4.0-rc.5 (B85) : boutons sortis de la barre faute de place, repris dans le menu ☰."""
+        out = self.bar.overflow
+        if not out:
+            return []
+        actions = {self.import_btn: (t("import_files.button"), self._import_files, "folder"),
+                   self.harm_btn: (t("lib.harmonic"), self._toggle_harmonic, "key"),
+                   self.sug_btn: (t("sug.title"), lambda: (self.sug_btn.toggle(),
+                                                            self.show_suggestions(self.sug_btn.isChecked())),
+                                  "playlist"),
+                   self.cols_btn: (t("table.columns"), self._columns_menu, "columns")}
+        return [None] + [actions[w] for w in out if w in actions and w.isEnabled()]
 
     # ---------------------------------------------------------------- menus contextuels
     def _menu(self, iids: List[str]) -> list:
@@ -1179,7 +1239,7 @@ class LibraryView(View):
             from .common import buy_entry
 
             entries.append(buy_entry(self.ctrl, tracks[0].artist, tracks[0].title))
-        entries += [None, (t("lib.delete") + "…", self._delete, "trash")]
+        entries += [None, (self._delete_label() + "…", self._delete, "trash")]
         return entries
 
     def _complete_metadata(self, tracks: Any) -> None:
@@ -1216,6 +1276,13 @@ class LibraryView(View):
         if p is None:
             return
         entries: list = []
+        if self._is_watch_playlist(p):                                  # 1.4.0-rc.5 (C160)
+            folder = self.ctrl.settings.watch_folder
+            if folder:
+                entries.append((t("watch.open_folder"), lambda f=folder: self.ctrl._emit("open_url", Path(f).as_uri()), "folder"))
+            entries.append((t("watch.open_settings"), lambda: self.ctrl._emit("open_settings_section", "libraries"),
+                            "settings"))
+            entries.append(None)
         if p.is_editable:
             for name, target in self.ctrl.copy_targets():
                 entries.append((t("copy.to", target=name) + "…",

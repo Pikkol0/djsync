@@ -66,9 +66,16 @@ class SearchView(View):
         info_row.addWidget(self.info, 1)
         self.root.addLayout(info_row)
 
-        self.table = TrackTable(self, result_columns(), loader=loader, show_covers=True, click_columns=("dl",))
+        self.table = TrackTable(self, result_columns(with_size=True), loader=loader, show_covers=True,
+                                click_columns=("dl",))
         self.table.fit_content = True                    # 1.4.0-rc.4 (C150)
         self.remember_layout(self.table, "search")
+        self._show_mode_columns()                        # 1.4.0-rc.5 (B92)
+        self._views_timer = QTimer(self)                 # 1.4.0-rc.5 (B90) : vues des lignes qui apparaissent
+        self._views_timer.setSingleShot(True)
+        self._views_timer.setInterval(200)
+        self._views_timer.timeout.connect(self._enrich_visible)
+        self.table.verticalScrollBar().valueChanged.connect(lambda _v: self._views_timer.start())
         self.table.set_empty("search", t("search.empty_title"))
         self.table.on_double = self._play
         self.table.on_select = lambda _ids: self._refresh_buttons()
@@ -92,7 +99,13 @@ class SearchView(View):
     def hq(self) -> bool:
         return not self.mode.isHidden() and self.mode.currentIndex() == 1
 
+    def _show_mode_columns(self) -> None:
+        """1.4.0-rc.5 (B92) : Haute qualité : colonne Taille, pas de Vues ; recherche classique : l'inverse."""
+        hidden = "views" if self.hq else "size"
+        self.table.set_display_columns([c.key for c in self.table.columns if c.key != hidden])
+
     def _mode_changed(self, _i: int) -> None:
+        self._show_mode_columns()
         self._last_query = ""
         self.entry.setPlaceholderText(t("search.placeholder_hq") if self.hq else t("search.placeholder"))
         self.filter_btn.setEnabled(not self.hq)
@@ -283,7 +296,14 @@ class SearchView(View):
                               + self._filter_summary() + tail)
         self._refresh_buttons()
         if not self.hq:
-            self.ctrl.enrich_views([x for x in results if not x.is_album], self._on_views)
+            QTimer.singleShot(0, self._enrich_visible)
+
+    def _enrich_visible(self) -> None:
+        """1.4.0-rc.5 (B90) : vues chargées seulement pour les lignes à l'écran (puis au défilement)."""
+        if self.hq or not self.winfo_exists():
+            return
+        rows = [self._tracks.get(i) for i in self.table.visible_iids(margin=3)]
+        self.ctrl.enrich_views([x for x in rows if x is not None and not x.is_album], self._on_views)
 
     # --------------------------------------------------------- albums (1.2.1, C09)
     def _open_album(self, album: TrackResult) -> None:

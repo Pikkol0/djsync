@@ -37,6 +37,8 @@ class DownloadsMixin:
             created.append(job)
             self.dispatcher.submit(lambda j=job: self._run_job(j), pool="dl")
         self._emit("downloads")
+        if created and self._auto_analysis():          # 1.4.0-rc.5 (C161) : l'analyse compte tout le lot d'emblée
+            self.analyze([], quiet=True, expect=[j.id for j in created])
         where = (t("msg.queued_to", names=", ".join(names.get(p, "?") for p in playlist_ids)) if playlist_ids
                  else t("msg.queued_library"))
         self.message("info", plural("msg.queued_one", "msg.queued_many", len(created), where=where))
@@ -61,7 +63,13 @@ class DownloadsMixin:
         self.dispatcher.submit(work, ok, lambda _e: None, pool="net")
 
     def _job_changed(self, job: DownloadJob) -> None:
+        if job.status == "error" and self.analysis.drop(job.id):    # 1.4.0-rc.5 (C161) : retiré du total
+            self._emit("analysis")
         self._emit("download_update", job)
+
+    def _auto_analysis(self) -> bool:
+        s = self.settings
+        return bool(s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb)
 
     def _run_job(self, job: DownloadJob) -> None:
         """Thread « dl » : téléchargement natif -> tags -> ajout en base (+ backup) -> playlists."""
@@ -160,11 +168,17 @@ class DownloadsMixin:
         """1.3.0-rc.3 (C32) : son téléchargé mis dans la file d'analyse en arrière-plan (le téléchargement
         suivant n'attend pas). Réglage séparé pour la clé et pour la bibliothèque de l'ordinateur ; rien
         si l'utilisateur a changé de bibliothèque entre-temps."""
-        if not job.content_id or job.library is None or job.library is not self.library:
+        q = self.analysis
+        if job.id in q.stopped:                  # 1.4.0-rc.5 (C161) : analyse arrêtée : pas de relance
             return
-        s = self.settings
-        if not (s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb):
+        if not job.content_id or job.library is None or job.library is not self.library or not self._auto_analysis():
+            if q.drop(job.id):
+                self._emit("analysis")
             return
+        if q.running and q.fulfil(job.id, job.content_id):         # attendu : déjà compté dans le total
+            self._emit("analysis")
+            return
+        q.drop(job.id)
         self.analyze([job.content_id], quiet=True)
 
     # ---------------------------------------------------------------- 1.4.0-rc.2 (B66) : YouTube « robot »

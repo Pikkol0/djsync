@@ -2,11 +2,13 @@
   <img src="docs/logos/djsync-violet_light.png" width="96" alt="DJSync logo">
 </p>
 
-<h1 align="center">DJSync</h1>
+<h1 align="center">DJSync — free Rekordbox USB export for Pioneer CDJs, without Rekordbox</h1>
 
 <p align="center">
   Find music, put it on your Rekordbox USB drive, ready for Pioneer CDJs — without going through Rekordbox.<br>
-  One file on your USB drive, any computer: Windows, macOS, Linux.
+  One file on your USB drive, any computer: Windows, macOS, Linux.<br>
+  <a href="README.fr.md">Version française</a> · <a href="https://pikkol0.github.io/djsync/">Website</a> ·
+  <a href="https://github.com/Pikkol0/djsync/releases/latest">Download</a>
 </p>
 
 <p align="center">
@@ -23,6 +25,19 @@
 </p>
 
 ---
+
+## Why DJSync?
+
+- **How do I export music to a USB drive without Rekordbox?** DJSync writes the drive's Rekordbox library
+  itself (`exportLibrary.db` for recent players, `export.pdb` for older ones, ANLZ waveforms), from a
+  portable app that runs straight from the drive.
+- **Is there a free Rekordbox alternative for CDJ / XDJ?** For preparing a USB drive: yes. DJSync is free
+  and open source (GPL-3.0), with no account, no subscription and no server.
+- **How do I get YouTube or SoundCloud tracks into Rekordbox?** Search or paste a link (YouTube, SoundCloud,
+  Spotify or Deezer playlists): DJSync downloads, tags, analyses (BPM, key, beat grid, cues) and adds the
+  tracks to the drive or to the Rekordbox collection of your computer.
+- **Can I analyse BPM, key and beat grid without Rekordbox?** Yes, locally, and you can fix the grid and
+  set hot cues, loops and memories in DJSync.
 
 ## What DJSync does
 
@@ -73,7 +88,7 @@ Click a picture to play the video. Demo library with made-up artists; regenerate
 
 | Library | Beat grid editor |
 |---|---|
-| ![Library](docs/captures/library.png) | ![Grid](docs/captures/grid.png) |
+| ![DJSync library: playlists on the left, tracks with key, BPM and source, built-in player with waveform](docs/captures/library.png) | ![DJSync beat grid editor: Rekordbox-style waveform, downbeats, hot cue pads A–H and loops](docs/captures/grid.png) |
 
 ## Download
 
@@ -236,6 +251,7 @@ Screenshot tool (no display needed): `python tools/ui_screenshots.py shots --siz
 
 | Version | Changes |
 |---|---|
+| **1.4.0-rc.5** | Fixes after the rc.4 tests. **Playlists**: tracks can be reordered by dragging again (a line shows where they will land, the list scrolls near the edges); the button bar adapts to the window width (secondary buttons become icons, then move to the ☰ menu: no more cut-off text); *Save order* only shows when the order changed; on the computer, *Remove from the Rekordbox collection* instead of *Delete from drive*. **Watched folder**: its playlist is called *Watched folder* (with an eye icon), tracks that came from it show an eye in the Source column, the setting says what it is for, and the first import says so with a link. **Settings** reorganised: the big *Downloads* card split into *Search*, *Format and quality* (quality table folded) and *YouTube*; watched folder in *Libraries*, audio delay in *Analysis and playback*, light mode in *Performance*, *DJSync* split into *Updates*, *About* and *This installation*; labels and buttons aligned. **Download engine**: *Check for an update* no longer makes the page jump and says when it checked; *Back to the built-in version* instead of a button that did nothing. **Search**: faster when typing quickly (search has its own queue, view counts only for the visible rows, older ones dropped); *Size* column in the high-quality search (the *Views* column showed the size). **Also**: *Estimated quality* (instead of *Real quality*: it is an estimate from the spectrum); analysis after a batch of downloads counts the whole batch from the start (no more going back to zero); collapsed sidebar a little bigger; checkboxes no longer cut at 125–150 % display scaling; *Track page* button and menu for SoundCloud imports (free download links hidden in the description); fewer harmless pyrekordbox lines in the logs; builds pinned to the PySide6 version the tests ran with. |
 | **1.4.0-rc.4** | Fixes after the rc.3 tests. **Watched folder**: files dropped in it are imported again on Windows (the folder was compared as text and the watcher reset itself at every check). **Soulseek**: the State column shows what really happens (connecting, queued at the peer with your position, next peer, new search) instead of "Downloading 0 %"; when no spare peer is left, one new search is made before giving up with a clear message; a warning when no UPnP router answers (VPN, router setting) or when sharing is off; far fewer library lines in the logs. **Real quality**: tracks from YouTube (and the Opus signature) are capped at about 192; the quality table shows the measured bitrates. **First launch**: a YouTube quality step (M4A recommended, best stream with its size trade-off); startup windows open one after the other, and a new version is announced by a banner. **Import from a link**: real checkboxes (header box, Shift + click, Space), a visible *Free Download* button, record-label smart links (ffm.to, lnk.to…) no longer shown as free downloads, columns fitted to their content. **High-quality search**: faster (Internet Archive pages in parallel, results as each source answers), archive.org order and relevance kept. **SoundCloud**: clear messages for unreadable browser logins and private tracks, the stream is downloaded instead. **Sidebar**: when collapsed, laid out correctly at launch, rings no longer cut, one ring per activity; the activity card opens Downloads. |
 | **1.4.0-rc.3** | Fixes after the rc.2 tests. **Soulseek**: only one download at a time from the same user (users send one or two files at a time: the others waited in their queue and were cut after 60 s), the other tracks go to another user who has the same file or wait their turn; *Improve ▸ Replace all* now keeps the other users found as spares; a user who never answers is left after 20 s, a user who has you in their queue is waited for, with your position shown; the listening port is written in the log. **Real quality**: a codec cut-off with a flat noise floor above it (a YouTube stream saved as WAV) is no longer taken for lossless, and a track from YouTube is never shown lossless; measurements are redone once. **Settings**: the real-quality table has drawn cells and no longer jitters when scrolling; the *Space used* card is no longer rebuilt while scrolling. **Sidebar**: when collapsed, the active button is centred and the library and activity cards become a centred icon with a progress ring. **Also**: *Show in Explorer* opens the track's folder (it opened Documents when the path had spaces). |
 | **1.4.0-rc.2** | Fixes after the rc.1 tests. **SoundCloud playlists**: every track now shows its title, artist and duration (only the first ones did: « Untitled · 0:00 »); tracks protected by SoundCloud (DRM, frequent for label releases) are marked and their YouTube Music version is used to listen and download. **Soulseek**: a download stuck at 0 B/s for 60 s, refused or banned switches by itself to the same file at another user; your download folder is shared by default (many users refuse people who share nothing) and the panel says so; results show each user's speed; a search with no answer just after connecting is sent again, and « No results » is no longer shown while searching. **YouTube**: « confirm you are not a robot » (common with a VPN) now gives a clear message with a button to choose the browser where YouTube is open; failed tracks are retried once it is chosen, and YouTube downloads pause after several refusals. **Real quality explained**: Settings ▸ Download shows what each source really gives in MP3 equivalent; MP3 is no longer labelled « 320 » and a warning says converting does not restore lost quality. **Diagnostic**: the *Improve* tab opens (it showed *Missing files*); a page left with a task running (real quality, duplicates…) comes back as it was. **Columns**: *Import URL* and *Improve* remember column widths like *Search*; in *Downloads* the Title no longer shrinks to 3 letters behind a huge empty column. **Also**: right-click a track ▸ *Show in Explorer / Finder*; *Space used*: other files on the left of the bar, caches in their own colour; Settings: the side panel highlights the section actually shown. |

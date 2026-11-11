@@ -13,10 +13,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QByteArray, QMimeData, QModelIndex, QPoint, Qt
-from PySide6.QtCore import QRectF, QSize
-from PySide6.QtGui import QColor, QDrag, QIcon, QPainter
+from PySide6.QtCore import QRectF, QSize, QTimer
+from PySide6.QtGui import QColor, QDrag, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QTableView, QWidget,
+    QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QTableView, QToolTip,
+    QWidget,
 )
 
 from ..i18n import t
@@ -129,8 +130,6 @@ class _Model(QAbstractTableModel):
             return None
         col = self.table.columns[section]
         if col.key == "chk" and col.on_header:                   # 1.4.0-rc.4 (C148) : case « tout cocher »
-            if role == Qt.DecorationRole:
-                return check_pixmap(self.table.header_check_state(), theme.px(15))
             if role == Qt.ToolTipRole:
                 return t("table.check_all")
             if role == Qt.DisplayRole:
@@ -165,6 +164,9 @@ class _Model(QAbstractTableModel):
 
             if col.key in ICON_COLUMNS and row.values.get(col.key):
                 return qicon(ICON_COLUMNS[col.key][0], 16, theme.ACCENT)
+            icon = row.values.get(col.key + "__icon")         # 1.4.0-rc.5 (C160) : icône dans une cellule
+            if icon:
+                return qicon(icon, 14, theme.ACCENT)
             hexa = row.values.get(col.key + "__dot")          # 1.3.1 (C37) : pastille de couleur
             if hexa:
                 return _dot(hexa, theme.px(10))
@@ -286,19 +288,24 @@ class _ButtonDelegate(QStyledItemDelegate):
 CHECK_ON, CHECK_OFF, CHECK_MIXED = "■", "□", "◩"      # valeurs de la colonne « chk » (views/common.py)
 
 
-def check_pixmap(state: str, size: int, hover: bool = False) -> Any:
+def check_pixmap(state: str, size: int, hover: bool = False, ratio: float = 2.0) -> Any:
     """1.4.0-rc.4 (C148) : case à cocher dessinée comme celles du thème (QCheckBox::indicator) :
-    cadre arrondi, remplie de la couleur d'accent avec une coche quand elle est cochée, un tiret si mixte."""
+    cadre arrondi, remplie de la couleur d'accent avec une coche quand elle est cochée, un tiret si mixte.
+    1.4.0-rc.5 (B80) : dessinée à la densité réelle de l'écran (`ratio`, ex. 1,25 ou 1,5 sous Windows) et
+    en pixels entiers, avec une marge : à 125 / 150 %, l'image (faite pour 200 %) était réduite et le bord
+    droit ou bas de la case tombait entre deux pixels (case « légèrement coupée »)."""
     from PySide6.QtCore import QPointF
-    from PySide6.QtGui import QPainterPath, QPen, QPixmap
+    from PySide6.QtGui import QPainterPath, QPixmap
 
-    ratio = 2.0
-    pm = QPixmap(int(size * ratio), int(size * ratio))
-    pm.setDevicePixelRatio(ratio)
+    ratio = max(1.0, float(ratio or 1.0))
+    phys = int(round(size * ratio))
+    pm = QPixmap(phys, phys)
+    pm.setDevicePixelRatio(phys / size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    box = QRectF(0.5, 0.5, size - 1, size - 1)
+    inset = 0.5 + 1.0 / (phys / size)        # demi-trait (1 px logique) + un pixel physique de marge
+    box = QRectF(inset, inset, size - 2 * inset, size - 2 * inset)
     radius = max(2.0, size * 0.22)
     if state in (CHECK_ON, CHECK_MIXED):
         p.setPen(QPen(QColor(theme.ACCENT), 1))
@@ -324,6 +331,24 @@ def check_pixmap(state: str, size: int, hover: bool = False) -> Any:
     return pm
 
 
+class _Header(QHeaderView):
+    """1.4.0-rc.5 (B80) : la case « tout cocher » est dessinée par nous, centrée et de la même taille que
+    celles des lignes (en icône d'en-tête, Qt l'agrandissait et la décalait à gauche)."""
+
+    def paintSection(self, painter: QPainter, rect: Any, logical: int) -> None:   # noqa: N802
+        painter.save()
+        super().paintSection(painter, rect, logical)
+        painter.restore()
+        table = self.parent()
+        cols = getattr(table, "columns", [])
+        if not 0 <= logical < len(cols) or cols[logical].key != "chk" or not cols[logical].on_header:
+            return
+        size = theme.px(16)
+        painter.drawPixmap(rect.x() + (rect.width() - size) // 2, rect.y() + (rect.height() - size) // 2,
+                           check_pixmap(table.header_check_state(), size, False,
+                                        painter.device().devicePixelRatioF()))
+
+
 class _CheckDelegate(QStyledItemDelegate):
     """1.4.0-rc.4 (C148) : la colonne « chk » montre une vraie case, comme le reste de l'app."""
 
@@ -340,11 +365,11 @@ class _CheckDelegate(QStyledItemDelegate):
         value = index.data(Qt.DisplayRole) or ""
         if value not in (CHECK_ON, CHECK_OFF, CHECK_MIXED):
             return
-        size = theme.px(15)
+        size = theme.px(16)
         hover = bool(option.state & QStyle.State_MouseOver)
         r = option.rect
         painter.drawPixmap(r.x() + (r.width() - size) // 2, r.y() + (r.height() - size) // 2,
-                           check_pixmap(value, size, hover))
+                           check_pixmap(value, size, hover, painter.device().devicePixelRatioF()))
 
 
 class _KeyDelegate(QStyledItemDelegate):
@@ -424,6 +449,13 @@ class TrackTable(QTableView):
         self._save_pending = False
         self._empty_title = ""
         self._empty_sub = ""
+        # 1.4.0-rc.5 (B87) : glisser interne géré entièrement par DJSync (Qt refusait l'événement après nous)
+        self._drag_ids: Optional[List[str]] = None   # lignes glissées depuis ce tableau (pendant le glisser)
+        self._drop_at: Optional[Tuple[Optional[str], bool]] = None   # (son visé, après ?) : ligne d'insertion
+        self._scroll_step = 0
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setInterval(40)
+        self._scroll_timer.timeout.connect(self._auto_scroll)
 
         self._model = _Model(self)
         self.setModel(self._model)
@@ -443,6 +475,7 @@ class TrackTable(QTableView):
         self.setDropIndicatorShown(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context)
+        self.setHorizontalHeader(_Header(Qt.Horizontal, self))          # 1.4.0-rc.5 (B80)
         head = self.horizontalHeader()
         head.setSectionsClickable(True)
         head.setHighlightSections(False)
@@ -861,6 +894,16 @@ class TrackTable(QTableView):
     def displayed_iids(self) -> List[str]:
         return list(self._shown)
 
+    def visible_iids(self, margin: int = 0) -> List[str]:
+        """1.4.0-rc.5 (B90) : lignes à l'écran (plus `margin` lignes au-dessus et au-dessous)."""
+        if not self._shown:
+            return []
+        top = self.rowAt(0)
+        bottom = self.rowAt(max(0, self.viewport().height() - 1))
+        top = 0 if top < 0 else top
+        bottom = len(self._shown) - 1 if bottom < 0 else bottom
+        return self._shown[max(0, top - margin):min(len(self._shown), bottom + 1 + margin)]
+
     def displayed_rows(self) -> List[Row]:
         return [self._rows[i] for i in self._shown]
 
@@ -1052,7 +1095,12 @@ class TrackTable(QTableView):
                 mime = QMimeData()
                 mime.setData(MIME_IDS, QByteArray(",".join(ids).encode()))
                 drag.setMimeData(mime)
-                drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.MoveAction)
+                self._drag_ids = ids
+                try:
+                    drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.MoveAction)
+                finally:
+                    self._drag_ids = None
+                    self._end_drop_hint()
                 return
         super().mouseMoveEvent(e)
 
@@ -1063,22 +1111,86 @@ class TrackTable(QTableView):
         return (self.on_files_dropped is not None and e.source() is None and m.hasUrls()
                 and any(u.isLocalFile() for u in m.urls()))
 
+    def _internal(self, e: Any) -> bool:
+        """Lignes de CE tableau glissées sur lui-même (1.4.0-rc.5, B87 : aussi reconnu sans `source()`)."""
+        return e.mimeData().hasFormat(MIME_IDS) and (e.source() is self or self._drag_ids is not None)
+
+    def drop_position(self, pos: QPoint) -> Tuple[Optional[str], bool]:
+        """Son devant / derrière lequel les lignes seraient posées (moitié haute : avant, basse : après)."""
+        index = self.indexAt(pos)
+        if index.isValid():
+            rect = self.visualRect(index)
+            return self._shown[index.row()], pos.y() > rect.center().y()
+        return (self._shown[-1], True) if self._shown else (None, True)
+
     def dragEnterEvent(self, e: Any) -> None:    # noqa: N802
-        if (e.source() is self and self.can_reorder and e.mimeData().hasFormat(MIME_IDS)) or self._external_files(e):
+        if self._internal(e) or self._external_files(e):
             e.acceptProposedAction()
         else:
             e.ignore()
 
     def dragMoveEvent(self, e: Any) -> None:     # noqa: N802
+        """1.4.0-rc.5 (B87) : plus d'appel au traitement de Qt, qui refusait l'événement après notre
+        acceptation (type de données maison, lignes sans « dépôt autorisé ») : le glisser ne marchait plus."""
         if self._external_files(e):
             e.setDropAction(Qt.CopyAction)
             e.accept()
             return
-        if e.source() is self and self.can_reorder:
-            e.acceptProposedAction()
-            super().dragMoveEvent(e)
-        else:
+        if not self._internal(e):
             e.ignore()
+            return
+        pos = e.position().toPoint()
+        if not self.can_reorder:
+            self._end_drop_hint()
+            QToolTip.showText(self.viewport().mapToGlobal(pos), t("table.reorder_blocked"), self.viewport())
+            e.ignore()
+            return
+        self._drop_at = self.drop_position(pos)
+        edge = theme.px(24)
+        h = self.viewport().height()
+        self._scroll_step = (-theme.px(8) if pos.y() < edge else theme.px(8) if pos.y() > h - edge else 0)
+        if self._scroll_step and not self._scroll_timer.isActive():
+            self._scroll_timer.start()
+        elif not self._scroll_step:
+            self._scroll_timer.stop()
+        self.viewport().update()
+        e.setDropAction(Qt.CopyAction)        # jamais de suppression automatique par Qt
+        e.accept()
+
+    def dragLeaveEvent(self, e: Any) -> None:    # noqa: N802
+        self._end_drop_hint()
+        e.accept()
+
+    def _auto_scroll(self) -> None:
+        """Défilement près des bords pendant le glisser (Qt le faisait dans son propre traitement)."""
+        bar = self.verticalScrollBar()
+        if not self._scroll_step or self._drop_at is None:
+            self._scroll_timer.stop()
+            return
+        bar.setValue(bar.value() + self._scroll_step)
+        self.viewport().update()
+
+    def _end_drop_hint(self) -> None:
+        self._scroll_timer.stop()
+        self._scroll_step = 0
+        if self._drop_at is not None:
+            self._drop_at = None
+            self.viewport().update()
+
+    def paintEvent(self, e: Any) -> None:        # noqa: N802
+        super().paintEvent(e)
+        if self._drop_at is None or self._drop_at[0] is None:
+            return
+        target, after = self._drop_at
+        row = self._index_of(target)
+        if row < 0:
+            return
+        rect = self.visualRect(self._model.index(row, 0))
+        y = rect.bottom() if after else rect.top()
+        p = QPainter(self.viewport())
+        p.setPen(QPen(QColor(theme.ACCENT), max(2, theme.px(2))))
+        p.drawLine(0, y, self.viewport().width(), y)
+        p.end()
 
     def dropEvent(self, e: Any) -> None:         # noqa: N802
         if self._external_files(e):
@@ -1086,17 +1198,12 @@ class TrackTable(QTableView):
             e.accept()
             self.on_files_dropped([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
             return
-        if e.source() is not self or not self.can_reorder:
+        self._end_drop_hint()
+        if not self._internal(e) or not self.can_reorder:
             e.ignore()
             return
         ids = bytes(e.mimeData().data(MIME_IDS)).decode().split(",")
-        index = self.indexAt(e.position().toPoint())
-        if index.isValid():
-            target = self._shown[index.row()]
-            rect = self.visualRect(index)
-            after = e.position().toPoint().y() > rect.center().y()
-        else:
-            target, after = (self._shown[-1], True) if self._shown else (None, True)
+        target, after = self.drop_position(e.position().toPoint())
         e.setDropAction(Qt.CopyAction)        # jamais de suppression automatique par Qt
         e.accept()
         if target is not None and target not in ids:

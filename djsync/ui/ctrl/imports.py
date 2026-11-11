@@ -10,11 +10,14 @@ from ...i18n import plural, t
 
 log = logging.getLogger(__name__)
 
+# 1.4.0-rc.5 (C160) : anciens noms de la playlist du dossier surveillé, repris et renommés
+OLD_WATCH_PLAYLISTS = ("Importés", "Imported")
+
 
 class ImportsMixin:
     def import_files(self, paths: Sequence[Any], playlist_ids: Sequence[int] = (),
                      ok: Optional[Callable[[Any], None]] = None, quiet: bool = False,
-                     playlist_name: str = "") -> bool:
+                     playlist_name: str = "", watched_from: str = "") -> bool:
         """Ajoute les fichiers (ou dossiers) à la bibliothèque ouverte, dans le fil « db ». Les sons
         ajoutés sont analysés ensuite si le réglage « analyser après téléchargement » est coché."""
         from ...core import importer
@@ -36,9 +39,8 @@ class ImportsMixin:
             self.dispatcher.post(self._emit, "import_progress", i, n)
 
         def work() -> Any:
-            if playlist_name:                                 # dossier surveillé : playlist « Importés »
-                found = next((p for p in lib.list_playlists() if p.name == playlist_name and p.is_editable), None)
-                pids.append((found or lib.create_playlist(playlist_name)).playlist_id)
+            if playlist_name:                                 # dossier surveillé : sa playlist
+                pids.append(self._watch_playlist(lib, playlist_name))
             fmt = "" if self.is_local else (self.settings.player_format or "")
             report = importer.import_files(lib, files, pids, progress, player_format=fmt,
                                            ffmpeg=self.settings.ffmpeg_location or None)
@@ -47,6 +49,8 @@ class ImportsMixin:
 
         def done(report: Any) -> None:
             self._importing = False
+            if watched_from:                                  # 1.4.0-rc.5 (C160)
+                self._watched_done(report, lib, watched_from)
             self._emit("library")
             self._emit("import_progress", 0, 0)
             self._import_done(report, lib, quiet)
@@ -104,13 +108,55 @@ class ImportsMixin:
             if moved:
                 name = t("watch.playlist") if self.settings.watch_playlist else ""
                 self.message("info", plural("watch.found_one", "watch.found_many", len(moved)))
-                self.import_files([str(p) for p in moved], quiet=True, playlist_name=name)
+                self.import_files([str(p) for p in moved], quiet=True, playlist_name=name, watched_from=str(w.folder))
 
         def failed(exc: BaseException) -> None:
             self._watch_busy = False
             log.warning("Watched folder: %s", exc)
 
         self.dispatcher.submit(work, done, failed, pool="watch")   # 1.4.0-rc.4 (B77) : jamais derrière les outils
+
+    # ------------------------------------------------------------- 1.4.0-rc.5 (C160)
+    @staticmethod
+    def _watch_playlist(lib: Any, name: str) -> int:
+        """Playlist du dossier surveillé (fil « db ») : la reprend, ou renomme l'ancienne « Importés »,
+        ou la crée."""
+        playlists = [p for p in lib.list_playlists() if p.is_editable]
+        found = next((p for p in playlists if p.name == name), None)
+        if found is None:
+            old = next((p for p in playlists if p.name in OLD_WATCH_PLAYLISTS and p.name != name), None)
+            if old is not None:
+                lib.rename_playlist(old.playlist_id, name)
+                log.info("Watched folder playlist renamed: %r -> %r", old.name, name)
+                return old.playlist_id
+            return lib.create_playlist(name).playlist_id
+        return found.playlist_id
+
+    def _watched_done(self, report: Any, lib: Any, folder: str) -> None:
+        """Retient les sons arrivés par le dossier surveillé (colonne Source) ; au tout premier, un message
+        avec un lien vers la playlist."""
+        from datetime import date
+
+        from ...core import watched
+
+        files = []
+        for x in report.added:
+            name = str(getattr(x, "path", "") or "").replace("\\", "/").rsplit("/", 1)[-1]
+            size = int(getattr(x, "file_size", 0) or 0)
+            if not size:
+                try:
+                    size = lib.absolute_path(x).stat().st_size
+                except (OSError, AttributeError, TypeError):
+                    size = 0
+            files.append((name, size))
+        watched.record(files, folder, date.today().isoformat())
+        if report.added and not self.settings.watch_first_done:
+            self.settings.watch_first_done = True
+            self.save_settings_quiet()
+            self.message("ok", plural("watch.first_one", "watch.first_many", len(report.added)))
+            if self.settings.watch_playlist:
+                self._emit("message_action", t("watch.open_playlist"),
+                           lambda: self._emit("open_playlist_named", t("watch.playlist")))
 
     def _import_done(self, report: Any, lib: Any, quiet: bool) -> None:
         added = len(report.added)

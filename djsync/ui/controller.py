@@ -211,6 +211,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._preview_files: Dict[str, str] = {}
         self._polling = False
         self._views_inflight: Set[str] = set()
+        self._views_gen = 0                               # 1.4.0-rc.5 (B90) : génération des requêtes de vues
         self._local_offered = False
         self._rekordbox_warned = False
         self._init_playback()
@@ -803,10 +804,16 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             extra["field"] = self.settings.search_field
         if self.settings.search_max_minutes:
             extra["max_seconds"] = self.settings.search_max_minutes * 60
-        self.dispatcher.submit(
-            lambda: self.service.search(query, limit=20, mode=mode, exclude=exclude, **extra),
-            ok, err or self._on_error, pool="net",
-        )
+        self._views_gen += 1                    # 1.4.0-rc.5 (B90) : les vues de la recherche précédente sont abandonnées
+
+        def work() -> Any:
+            start = time.monotonic()
+            found = self.service.search(query, limit=20, mode=mode, exclude=exclude, **extra)
+            log.info("Search %r (%s): %d results in %.1f s", query, mode.value, len(found or []),
+                     time.monotonic() - start)
+            return found
+
+        self.dispatcher.submit(work, ok, err or self._on_error, pool="search")
 
     def feedback_client_id(self) -> str:
         """1.2.1 (C18) : identifiant aléatoire de cet ordinateur pour les limites d'envoi des retours
@@ -822,12 +829,14 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         return self.settings.feedback_id
 
     def album_tracks(self, browse_id: str, ok: Callback, err: Optional[Callback] = None) -> None:
-        self.dispatcher.submit(lambda: self.service.album_tracks(browse_id), ok, err or self._on_error, pool="net")
+        self.dispatcher.submit(lambda: self.service.album_tracks(browse_id), ok, err or self._on_error, pool="search")
 
     def enrich_views(self, tracks: Sequence[TrackResult], on_views: Callable[[str, int], None], max_items: int = 30) -> None:
-        """Charge en arrière-plan les vues des Titres (absentes de la recherche)."""
+        """Charge en arrière-plan les vues des Titres (absentes de la recherche).
+        1.4.0-rc.5 (B90) : file à part ; une nouvelle recherche abandonne les requêtes pas encore parties."""
         if not self.settings.fetch_views:
             return
+        gen = self._views_gen
         for track in [t for t in tracks if t.views is None][:max_items]:
             if track.video_id in self._views_inflight or track.source != "ytmusic":
                 continue
@@ -838,10 +847,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 if views is not None:
                     on_views(vid, views)
 
-            self.dispatcher.submit(
-                lambda vid=track.video_id: self.service.fetch_views(vid), done,
-                lambda _e, vid=track.video_id: self._views_inflight.discard(vid), pool="net",
-            )
+            def work(vid: str = track.video_id) -> Optional[int]:
+                if gen != self._views_gen:          # recherche remplacée entre-temps : requête abandonnée
+                    return None
+                return self.service.fetch_views(vid)
+
+            self.dispatcher.submit(work, done, lambda _e, vid=track.video_id: self._views_inflight.discard(vid),
+                                   pool="views")
 
     def reannotate(self, tracks: Sequence[TrackResult], ok: Callback) -> None:
         """Re-marque les doublons (après un téléchargement ou un changement de clé)."""

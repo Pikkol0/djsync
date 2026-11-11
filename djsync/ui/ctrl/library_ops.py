@@ -119,10 +119,52 @@ class AnalysisQueue(TaskHandle):
         self.problems: List[str] = []
         self.on_done: List[Callable[[Any], None]] = []
         self.on_progress: List[Callable[[int, int, Optional[LibraryTrack], str], None]] = []
+        # 1.4.0-rc.5 (C161) : téléchargements en cours dont le son sera analysé : comptés dès le départ
+        self.expected: set = set()       # identifiants des téléchargements attendus
+        self.stopped: set = set()        # téléchargements d'une analyse arrêtée : ne la relancent pas
 
     @property
     def running(self) -> bool:
         return not self.finished
+
+    @property
+    def waiting(self) -> bool:
+        """Plus rien à analyser pour l'instant, mais des téléchargements attendus."""
+        with self._lock:
+            return bool(self.expected) and not self.pending
+
+    def expect(self, job_ids: Sequence[int]) -> int:
+        """Téléchargements dont le son viendra dans cette session (le total grandit tout de suite)."""
+        with self._lock:
+            new = [j for j in dict.fromkeys(job_ids) if j not in self.expected]
+            self.expected.update(new)
+            self.total += len(new)
+            return len(new)
+
+    def fulfil(self, job_id: int, content_id: int, force: bool = False) -> bool:
+        """Un téléchargement attendu est arrivé : son son prend sa place (déjà compté). False s'il n'était pas
+        attendu. Un son déjà dans la file (doublon) est retiré du total."""
+        with self._lock:
+            if job_id not in self.expected:
+                return False
+            self.expected.discard(job_id)
+            if content_id in self.ids:
+                self.total -= 1
+                return True
+            self.pending.append(content_id)
+            self.ids.add(content_id)
+            if force:
+                self.forced.add(content_id)
+            return True
+
+    def drop(self, job_id: int) -> bool:
+        """Téléchargement attendu en échec ou annulé : retiré du total (la progression ne recule pas)."""
+        with self._lock:
+            if job_id not in self.expected:
+                return False
+            self.expected.discard(job_id)
+            self.total -= 1
+            return True
 
     def add(self, ids: Sequence[int], force: bool) -> int:
         with self._lock:
@@ -153,11 +195,15 @@ class AnalysisQueue(TaskHandle):
             self.batch = []
             self.cancelled, self.current = False, ""
             self.on_done, self.on_progress = [], []
+            self.expected = set()
 
     def cancel(self) -> None:
         self.cancelled = True
         with self._lock:
             self.pending.clear()
+            self.stopped |= self.expected          # C161 : ces téléchargements continuent sans relancer l'analyse
+            self.total -= len(self.expected)
+            self.expected = set()
 
 
 class LibraryOpsMixin:
@@ -418,9 +464,11 @@ class LibraryOpsMixin:
 
     def analyze(self, content_ids: Sequence[int], force: bool = False,
                 on_progress: Optional[Callable[[int, int, Optional[LibraryTrack], str], None]] = None,
-                on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False) -> Optional[TaskHandle]:
+                on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False,
+                expect: Sequence[int] = ()) -> Optional[TaskHandle]:
         """Met des sons dans la file d'analyse (BPM / grille / tonalité / formes d'onde) et la lance si
-        elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés."""
+        elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés.
+        `expect` (1.4.0-rc.5, C161) : téléchargements dont le son sera analysé, comptés tout de suite."""
         lib = self.library
         if lib is None:
             self.message("error", t("msg.no_drive"))
@@ -433,6 +481,7 @@ class LibraryOpsMixin:
         if on_progress:
             q.on_progress.append(on_progress)
         added = q.add(content_ids, force)
+        added += q.expect(expect)
         if q.running:
             if added and not quiet:       # quiet : analyse après téléchargement (C32), pas de message par son
                 self.message("info", plural("msg.analysis_queued_one", "msg.analysis_queued_many", added))
@@ -457,6 +506,12 @@ class LibraryOpsMixin:
                 if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
                     self._wait_while_playing(q)
                 batch = q.take(1 if light else None)
+                if not batch and q.waiting and not q.cancelled:     # 1.4.0-rc.5 (C161) : même session
+                    if q.current != t("analysis.waiting_downloads"):
+                        q.current = t("analysis.waiting_downloads")
+                        self.dispatcher.post(self._emit, "analysis")
+                    time.sleep(0.3)
+                    continue
                 if not batch or q.cancelled:
                     break
                 batch = self._skip_missing(lib, q, batch)        # 1.3.2-rc.3 (B49)

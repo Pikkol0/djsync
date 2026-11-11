@@ -19,6 +19,16 @@ def _quality_register(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _watched_register(tmp_path_factory):
+    """1.4.0-rc.5 (C160) : registre du dossier surveillé dans un dossier de test."""
+    from djsync.core import watched
+
+    watched.use_store(tmp_path_factory.mktemp("watched") / "watched.json")
+    yield
+    watched.use_store(None)
+
+
+@pytest.fixture(autouse=True)
 def _strong_machine(monkeypatch):
     """1.4.0 (C65) : les tests voient une machine « normale » (pas de mode léger ni de fenêtre au démarrage),
     quelle que soit la machine de test ; les tests du mode léger simulent la leur."""

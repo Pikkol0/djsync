@@ -33,6 +33,11 @@ SIDEBAR_MODES = ("auto", "on", "off")
 # 1.3.1 (C28) : volet des sections (clé, icône)
 SECTIONS = (("general", "settings"), ("libraries", "library"), ("download", "download"), ("analysis", "key"),
             ("privacy", "info"), ("djsync", "refresh"), ("advanced", "menu"))     # 1.3.1 (C89) : Avancé
+# 1.4.0-rc.5 (C165) : ordre des cartes nommées dans leur section (le dossier surveillé avant les platines)
+CARD_ORDER = ("card_drive", "card_local", "card_watch", "card_pdb", "card_backups", "card_space",
+              "card_search", "card_format", "card_youtube", "card_soundcloud", "card_soulseek",
+              "card_updates", "card_about", "card_install")
+FIELD_PX = 360           # 1.4.0-rc.5 (C165) : largeur des champs de texte courts (nom, mot de passe, jeton)
 NARROW_PX = 760          # en dessous (à 100 %), le volet devient une liste déroulante
 
 
@@ -163,7 +168,7 @@ class SettingsView(View):
         card.addLayout(row)
 
         row = hbox()
-        row.addWidget(self._fixed(label(t("settings.theme"))), 0, Qt.AlignTop)
+        row.addWidget(self._fixed(label(t("settings.theme"))))         # C165 : aligné comme les autres
         # 1.4.0 (C50) : une pastille (la couleur actuelle) ; un clic ouvre un petit menu avec les couleurs
         from PySide6.QtWidgets import QMenu
 
@@ -196,7 +201,7 @@ class SettingsView(View):
         self.zoom_val.setAlignment(Qt.AlignCenter)
         row.addWidget(self.zoom_val)
         row.addWidget(icon_button("plus", lambda: self._zoom_step(1), t("settings.zoom_in")))
-        row.addWidget(button(t("settings.zoom_reset"), lambda: self._zoom_step(0), kind="flat", icon="refresh"))
+        row.addWidget(button(t("settings.zoom_reset"), lambda: self._zoom_step(0), icon="refresh"))
         row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("settings.zoom_keys", mod="⌘" if sys.platform == "darwin" else "Ctrl"), "faint",
@@ -213,9 +218,10 @@ class SettingsView(View):
         row.addWidget(self.sidebar_menu)
         row.addStretch(1)
         card.addLayout(row)
-        # 1.4.0 (C65) : mode léger pour les PC modestes
+        # 1.4.0 (C65) : mode léger pour les PC modestes ; 1.4.0-rc.5 (C165) : sa propre carte
         from ...core.machine import MODES, light_active, machine_info
 
+        card = self._card(t("settings.performance"), "wave", t("settings.light_tip"))
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.light"))))
         self._light_labels = {m: t(f"settings.light_{m}") for m in MODES}
@@ -233,7 +239,7 @@ class SettingsView(View):
 
         # ---- clé USB
         self._section = "libraries"
-        card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"))
+        card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"), key="drive")
         row = hbox()
         self.drive_menu = QComboBox()
         self.drive_menu.setMinimumWidth(theme.px(280))
@@ -263,7 +269,7 @@ class SettingsView(View):
         # ---- Rekordbox de cet ordinateur (V0.4.0)
         from ...db.local_library import default_music_dir
 
-        card = self._card(t("settings.local"), "computer", t("settings.local_hint"))
+        card = self._card(t("settings.local"), "computer", t("settings.local_hint"), key="local")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.local_db"))))
         self.local_db = QLineEdit(s.local_db_dir)
@@ -329,7 +335,7 @@ class SettingsView(View):
         # ---- anciennes platines : export.pdb (1.3.1, C90 : état et synchronisation dans Bibliothèques,
         # les deux options techniques dans Avancé)
         self._section = "libraries"
-        card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"))
+        card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"), key="pdb")
         self.pdb_card = self._cards[-1][1]
         row = hbox()
         row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
@@ -359,14 +365,17 @@ class SettingsView(View):
         card.addWidget(self.pdb_growth_var)
 
         # ---- recherche
+        # 1.4.0-rc.5 (C165) : l'ancienne carte « Téléchargements » (14 réglages mêlés) coupée en trois :
+        # Recherche, Format et qualité, YouTube
         self._section = "download"
-        card = self._card(t("settings.downloads"), "download")
+        card = self._card(t("settings.search_card"), "search", key="search")
         self.views_var = QCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
         self.meta_var = QCheckBox(t("settings.fetch_metadata"))
         self.meta_var.setChecked(s.fetch_metadata)
         card.addWidget(self.views_var)
         card.addWidget(self.meta_var)
+        card = self._card(t("settings.format_card"), "download", key="format")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.format"))))
         self._format_labels = {"m4a": t("settings.format_m4a"), "mp3": t("settings.format_mp3")}
@@ -387,6 +396,28 @@ class SettingsView(View):
         self.normalize_var.setChecked(s.normalize_volume)
         self.normalize_var.setToolTip(t("settings.normalize_hint"))
         card.addWidget(self.normalize_var)
+        # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3 ; rc.5 (C165) : replié
+        self.quality_toggle = QToolButton()
+        self.quality_toggle.setText(t("quality.real_title"))
+        self.quality_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.quality_toggle.setArrowType(Qt.RightArrow)
+        self.quality_toggle.setAutoRaise(True)
+        self.quality_toggle.setCheckable(True)
+        self.quality_toggle.setCursor(Qt.PointingHandCursor)
+        card.addWidget(self.quality_toggle)
+        self.quality_box = QWidget()
+        qlay = vbox(self.quality_box, spacing=theme.px(6))
+        # 1.4.0-rc.3 (B69, C143) : vraie grille à cases tracées, hauteur fixe (le texte HTML tremblait au
+        # défilement : sa hauteur était recalculée à chaque redessin)
+        self.quality_table = quality_grid(t("quality.real_rows"))
+        qlay.addWidget(self.quality_table)
+        qlay.addWidget(label(t("quality.real_note"), "dim", wrap=True))
+        self.quality_box.hide()
+        card.addWidget(self.quality_box)
+        self.quality_toggle.toggled.connect(lambda on: (self.quality_box.setVisible(on),
+                                                        self.quality_toggle.setArrowType(
+                                                            Qt.DownArrow if on else Qt.RightArrow)))
+        card = self._card("YouTube", "download", key="youtube")
         self.yt_best_var = QCheckBox(t("yt.settings_best"))          # 1.4.0 (C48), désactivé par défaut
         self.yt_best_var.setChecked(s.youtube_best)
         self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
@@ -397,13 +428,6 @@ class SettingsView(View):
         self.yt_best_warn.setVisible(s.youtube_best)
         self.yt_best_var.toggled.connect(self.yt_best_warn.setVisible)
         card.addWidget(self.yt_best_warn)
-        # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3
-        card.addWidget(label(t("quality.real_title")))
-        # 1.4.0-rc.3 (B69, C143) : vraie grille à cases tracées, hauteur fixe (le texte HTML tremblait au
-        # défilement : sa hauteur était recalculée à chaque redessin)
-        self.quality_table = quality_grid(t("quality.real_rows"))
-        card.addWidget(self.quality_table)
-        card.addWidget(label(t("quality.real_note"), "dim", wrap=True))
         row = hbox()
         row.addWidget(self._fixed(label(t("yt.settings_account"))))
         from ...core.soundcloud import BROWSERS as _YT_BROWSERS
@@ -419,7 +443,7 @@ class SettingsView(View):
         card.addLayout(row)
 
         # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
-        card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"))
+        card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"), key="soundcloud")
         self.sc_original_var = QCheckBox(t("sc.settings_original"))
         self.sc_original_var.setChecked(s.soundcloud_original)
         self.sc_original_var.setToolTip(t("sc.settings_original_tip"))
@@ -446,11 +470,13 @@ class SettingsView(View):
         self.sc_token.setEchoMode(QLineEdit.Password)
         self.sc_token.setPlaceholderText(t("sc.settings_token_ph"))
         self.sc_token.setToolTip(t("sc.settings_token_tip"))
+        self.sc_token.setMaximumWidth(theme.px(FIELD_PX))                # C165 : champs de même largeur
         row.addWidget(self.sc_token, 1)
+        row.addStretch(1)
         card.addLayout(row)
 
         # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
-        card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"))
+        card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"), key="soulseek")
         self.slsk_var = QCheckBox(t("slsk.settings_enable"))
         self.slsk_var.setChecked(s.soulseek_enabled)
         self.slsk_var.toggled.connect(self._slsk_toggled)
@@ -459,13 +485,17 @@ class SettingsView(View):
         row.addWidget(self._fixed(label(t("slsk.settings_user"))))
         self.slsk_user = QLineEdit(s.soulseek_user)
         self.slsk_user.setPlaceholderText(t("slsk.settings_user_ph"))
+        self.slsk_user.setMaximumWidth(theme.px(FIELD_PX))
         row.addWidget(self.slsk_user, 1)
+        row.addStretch(1)
         card.addLayout(row)
         row = hbox()
         row.addWidget(self._fixed(label(t("slsk.settings_password"))))
         self.slsk_password = QLineEdit(s.soulseek_password)
         self.slsk_password.setEchoMode(QLineEdit.Password)
+        self.slsk_password.setMaximumWidth(theme.px(FIELD_PX))
         row.addWidget(self.slsk_password, 1)
+        row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("slsk.settings_account_hint"), "faint", wrap=True))
         self.slsk_share_var = QCheckBox(t("slsk.settings_share"))
@@ -475,14 +505,16 @@ class SettingsView(View):
         card.addWidget(label(t("slsk.settings_warning_short"), "warn", wrap=True))
 
         # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
-        card = self._card(t("watch.settings_title"), "folder", t("watch.settings_hint"))
+        self._section = "libraries"                  # 1.4.0-rc.5 (C165) : il alimente la bibliothèque
+        card = self._card(t("watch.settings_title"), "watch", t("watch.settings_hint"), show_hint=True,
+                          key="watch")                # C160 : à quoi il sert, écrit en clair
         row = hbox()
         self.watch_folder = QLineEdit(s.watch_folder)
         self.watch_folder.setPlaceholderText(t("watch.settings_off"))
         self.watch_folder.setReadOnly(True)
         row.addWidget(self.watch_folder, 1)
         row.addWidget(button(t("watch.settings_browse"), lambda: self._browse_into(self.watch_folder), icon="folder"))
-        row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), kind="flat"))
+        row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), icon="close"))
         card.addLayout(row)
         self.watch_playlist_var = QCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
         self.watch_playlist_var.setChecked(s.watch_playlist)
@@ -508,7 +540,7 @@ class SettingsView(View):
 
         # ---- sauvegardes
         self._section = "libraries"
-        card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"))
+        card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"), key="backups")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.backups_keep"))))
         self.keep = QComboBox()
@@ -540,13 +572,13 @@ class SettingsView(View):
         # 1.3.1 (C27) : espace occupé (calculé à l'ouverture de la section)
         from ..space_card import SpaceCard
 
-        self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"))
+        self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"), key="space")
         self.space = SpaceCard(self._space_box_layout, controller)
         self.space_box = self._cards[-1][1]
         self._build_about(s)
         # ---- 1.3.1 (C89) : réglages techniques peu utilisés (Avancé)
         self._section = "advanced"
-        card = self._card(t("settings.tech"), "menu", t("settings.tech_hint"))
+        card = self._card(t("settings.tech"), "usb", t("settings.tech_hint"))
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.forced_drive_short"))))
         self.forced = QLineEdit(s.forced_drive)
@@ -556,8 +588,11 @@ class SettingsView(View):
         row.addWidget(self.forced)
         row.addStretch(1)
         card.addLayout(row)
+        # 1.4.0-rc.5 (C165) : le décalage audio rejoint « Analyse et lecture » (carte Lecture)
+        self._section = "analysis"
+        card = self._card(t("settings.playback"), "play", t("settings.audio_latency_tip"))
         row = hbox()                                                         # 1.3.0-rc.3 (C39)
-        row.addWidget(label(t("settings.audio_latency")))
+        row.addWidget(self._fixed(label(t("settings.audio_latency"))))
         self.latency_box = QSpinBox()
         self.latency_box.setRange(-200, 2000)                                # 1.3.0-rc.4 : Bluetooth ~1 s
         self.latency_box.setSingleStep(10)
@@ -596,19 +631,18 @@ class SettingsView(View):
         from ... import full_version
 
         self._section = "djsync"
-        card = self._card(t("about.title"), "refresh", t("about.hint"))
+        # 1.4.0-rc.5 (C165) : trois cartes au lieu d'une (Mises à jour, À propos, Cette installation) ;
+        # la version et « Rechercher » sur la même ligne
+        card = self._card(t("about.updates"), "refresh", t("about.hint"), key="updates")
         row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
-        row.addWidget(self.version_lbl)
+        row.addWidget(self._fixed(self.version_lbl))
         self.update_state = label("", "dim", wrap=True)
-        row.addWidget(self.update_state, 1)
-        card.addLayout(row)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 1000)
         self.update_bar.setTextVisible(False)
         self.update_bar.hide()
         card.addWidget(self.update_bar)
-        row = hbox()
         self.update_check_btn = button(t("update.check"), lambda: self.ctrl.app_update_check(manual=True),
                                        icon="search")
         row.addWidget(self.update_check_btn)
@@ -622,7 +656,7 @@ class SettingsView(View):
                                          icon="refresh")
         self.update_restart_btn.hide()
         row.addWidget(self.update_restart_btn)
-        row.addStretch(1)
+        row.addWidget(self.update_state, 1)
         card.addLayout(row)
         row = hbox()
         self.update_var = QCheckBox(t("update.auto"))
@@ -637,7 +671,7 @@ class SettingsView(View):
 
         # 1.3.2-rc.2 (C96, test MAJ-1) : sur une ligne, la liste des versions à gauche de la case, le bouton
         # d'installation à droite (plus de fenêtre « Choisir une version… »)
-        row.addWidget(label(t("update.pick_label")))
+        row.addWidget(self._fixed(label(t("update.pick_label"))))
         self.version_menu = QComboBox()
         self.version_menu.setMinimumWidth(theme.px(260))
         self.version_menu.addItem(t("update.pick_loading"))
@@ -656,16 +690,21 @@ class SettingsView(View):
         card.addLayout(row)
         self._versions: list = []
         self._versions_loaded = False
+        card = self._card(t("about.card"), "info", key="about")
+        about_card = card
+        card = self._card(t("about.install"), "computer", key="install")
+        install_card = card
         row = hbox()                                    # 1.3.1 (C88) : désinstaller, toujours visible
-        self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="flat", icon="trash")
+        self.app_uninstall_btn = button(t("uninstall.app_open"), self._open_app_uninstall, kind="danger", icon="trash")
         mode = self.ctrl.uninstall_mode()
         self.app_uninstall_btn.setEnabled(mode != "source")
         self.app_uninstall_btn.setToolTip(t("uninstall.app_source") if mode == "source"
                                           else t("uninstall.app_tip_drive") if mode == "drive"
                                           else t("uninstall.app_tip_computer"))
+        uninstall_row = row
         row.addWidget(self.app_uninstall_btn)
         row.addStretch(1)
-        card.addLayout(row)
+        card = about_card
         card.addWidget(label(t("about.credits"), "dim", wrap=True))
         # 1.3.1 (C55) : remerciements
         from ...credits import thanks_text
@@ -678,17 +717,16 @@ class SettingsView(View):
         # « Retours et confidentialité », créée juste avant)
         row = hbox()
         row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
-                             kind="flat", icon="go"))
-        row.addWidget(button(t("about.license"), lambda: self._show_text("LICENSE", t("about.license")), kind="flat",
-                             icon="info"))
+                             icon="go"))
+        row.addWidget(button(t("about.license"), lambda: self._show_text("LICENSE", t("about.license")), icon="info"))
         row.addWidget(button(t("about.third_party"),
-                             lambda: self._show_text("THIRD_PARTY_NOTICES.md", t("about.third_party")), kind="flat",
-                             icon="info"))
+                             lambda: self._show_text("THIRD_PARTY_NOTICES.md", t("about.third_party")), icon="info"))
         row.addStretch(1)
         card.addLayout(row)
         # 1.3.2 (C70) : lancer DJSync depuis la recherche du système ; (C54) revoir l'accueil
         from ...core import shortcut as _sc
 
+        card = install_card
         self.shortcut_var = QCheckBox(t("settings.shortcut"))
         self.shortcut_var.setChecked(bool(s.start_menu_shortcut))
         self.shortcut_var.setEnabled(_sc.target() is not None)
@@ -696,12 +734,13 @@ class SettingsView(View):
         self.shortcut_var.toggled.connect(self._shortcut_toggled)
         card.addWidget(self.shortcut_var)
         row = hbox()
-        row.addWidget(button(t("settings.welcome_again"), self._welcome_again, kind="flat", icon="info"))
+        row.addWidget(button(t("settings.welcome_again"), self._welcome_again, icon="info"))
         row.addStretch(1)
         card.addLayout(row)
+        card.addLayout(uninstall_row)                   # en dernier : l'action qui retire tout
         # 1.3.1 (C28) : rapports d'erreur et journal dans « Retours et confidentialité »
         self._section = "privacy"
-        card = self._card(t("settings.section_privacy"), "info")
+        card = self._card(t("settings.reports_card"), "info")       # C165 : plus le même titre que la section
         row = hbox()                                   # 1.2.3 : rapports d'erreur
         row.addWidget(self._fixed(label(t("err_report.setting"))))
         self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
@@ -714,7 +753,7 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         row = hbox()
-        row.addWidget(button(t("settings.open_log"), self._open_log, kind="flat", icon="folder"))
+        row.addWidget(button(t("settings.open_log"), self._open_log, icon="folder"))
         row.addStretch(1)
         card.addLayout(row)
         self.ctrl.on("app_update_state", self._update_state)
@@ -852,10 +891,14 @@ class SettingsView(View):
         text = path.read_text(encoding="utf-8", errors="replace") if path else t("about.missing", name=name)
         TextDialog(self, title, text)
 
-    def _card(self, title: str, icon: str = "", hint: str = "", fold: bool = False) -> Any:
+    def _card(self, title: str, icon: str = "", hint: str = "", fold: bool = False, show_hint: bool = False,
+              key: str = "") -> Any:
         """Carte de réglages : icône + titre ; l'explication éventuelle est une info-bulle (ⓘ).
-        1.3.1 (C89) : `fold` = repliable (flèche + une ligne d'état), repliée tant que tout va bien."""
+        1.3.1 (C89) : `fold` = repliable (flèche + une ligne d'état), repliée tant que tout va bien.
+        1.4.0-rc.5 (C165) : `show_hint` = l'explication écrite sous le titre (réglage dont l'utilité ne se
+        devine pas) ; `key` = place de la carte dans sa section (CARD_ORDER)."""
         box = panel()
+        box.setObjectName(f"card_{key}" if key else "")
         lay = vbox(box, margins=theme.px(14), spacing=theme.px(8))
         head = hbox(spacing=theme.px(8))
         arrow = None
@@ -869,7 +912,7 @@ class SettingsView(View):
         if icon:
             head.addWidget(icon_label(icon, 18, theme.ACCENT))
         head.addWidget(label(title, "h2"))
-        if hint:
+        if hint and not show_hint:
             info = icon_label("info", 14, theme.FAINT)
             info.setToolTip(hint)
             head.addWidget(info)
@@ -879,6 +922,8 @@ class SettingsView(View):
             head.addWidget(summary, 1)
         head.addStretch(1)
         lay.addLayout(head)
+        if hint and show_hint:
+            lay.addWidget(label(hint, "dim", wrap=True))
         self.page.addWidget(box)
         self._cards.append((self._section, box))
         if not fold:
@@ -908,6 +953,12 @@ class SettingsView(View):
         titre ; le volet de gauche ne fait plus que défiler jusqu'à la section (et suit le défilement)."""
         for _sec, box in self._cards:
             self.page.removeWidget(box)
+        # 1.4.0-rc.5 (C165) : cartes rangées par usage (CARD_ORDER) dans leur section, les autres dans l'ordre
+        # de création ; la liste elle-même est rangée (sections, recherche et tests la lisent)
+        rank = {key: i for i, (key, _icon) in enumerate(SECTIONS)}
+        order = list(self._cards)
+        self._cards.sort(key=lambda sb: (rank.get(sb[0], 99), CARD_ORDER.index(sb[1].objectName())
+                                         if sb[1].objectName() in CARD_ORDER else 99, order.index(sb)))
         self._heads: Dict[str, QLabel] = {}
         for key, _icon in SECTIONS:
             boxes = [box for sec, box in self._cards if sec == key]
@@ -1242,16 +1293,27 @@ class SettingsView(View):
         f = self._folds.get(getattr(self, "engine_card", None))
         if f is not None:                                            # C89 : ligne d'état de la carte repliée
             f[2].setText(t("engine.short", version=version))
-        self.engine_back_btn.setEnabled(bool(engine.engine_dir().exists()))
+        # 1.4.0-rc.5 (B88) : plus de bouton sans effet : « Version précédente » s'il y en a une, sinon
+        # « Revenir à la version intégrée » après une mise à jour, sinon rien (déjà la version intégrée)
+        target = engine.rollback_target()
+        self.engine_back_btn.setVisible(bool(target))
+        self.engine_back_btn.setText(t("engine.rollback") if target == "prev" else t("engine.back_to_bundled",
+                                                                                      version=engine.bundled_version()))
 
     def _engine_check(self) -> None:
-        self.engine_check_btn.setEnabled(False)
+        # 1.4.0-rc.5 (B88) : le bouton n'est plus désactivé pendant la recherche : il avait le focus, Qt le
+        # donnait au réglage suivant et la page défilait jusqu'à lui (saut vers le haut)
+        if getattr(self, "_engine_busy", False):
+            return
+        self._engine_busy = True
+        self.engine_check_btn.setText(t("engine.checking"))
         self._engine_show(t("engine.checking"))
 
         def done(release: Any, current: str, error: Any) -> None:
+            self._engine_busy = False
             if not self.winfo_exists():
                 return
-            self.engine_check_btn.setEnabled(True)
+            self.engine_check_btn.setText(t("engine.check"))
             if error:
                 self._engine_show(t("engine.check_failed", error=str(error)[:160]))
             elif release is not None and release.newer_than(current):
@@ -1262,7 +1324,9 @@ class SettingsView(View):
                 self._engine_show(t("engine.available", version=release.version))
             else:
                 self.engine_install_btn.hide()
-                self._engine_show(t("engine.up_to_date"))
+                from datetime import datetime
+
+                self._engine_show(t("engine.up_to_date_at", time=datetime.now().strftime(t("engine.time_format"))))
 
         self.ctrl.engine_check(done)
 

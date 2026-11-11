@@ -42,7 +42,7 @@ from .widgets import button, hbox, icon_button, icon_label, label, panel, restyl
 log = logging.getLogger(__name__)
 
 SIDEBAR_WIDTH = 190
-SIDEBAR_COMPACT = 52
+SIDEBAR_COMPACT = 56          # 1.4.0-rc.5 (C161) : 52 → 56, anneaux et icônes un peu plus gros
 COMPACT_BELOW = 1000            # largeur (pixels logiques) sous laquelle la barre latérale passe en icônes
 MIN_W, MIN_H = 760, 500
 DEFAULT_W, DEFAULT_H = 1240, 780
@@ -592,6 +592,8 @@ class DJSyncApp(QMainWindow):
             b.setStyleSheet(square)
             b.setFixedHeight(side) if compact else b.setMinimumHeight(0)
             b.setMaximumHeight(side if compact else 16777215)
+            icon = theme.px(20 if compact else 18)                  # 1.4.0-rc.5 (C161) : un peu plus gros replié
+            b.setIconSize(QSize(icon, icon))
         for b in (self.help_btn, self.fold_btn):
             b.setStyleSheet(square)
         width = theme.px(SIDEBAR_COMPACT)
@@ -606,8 +608,8 @@ class DJSyncApp(QMainWindow):
         for w in (self.usb_title, self.usb_label, self.usb_free, self.usb_icon):
             w.setVisible(not compact)
         self.usb_ring.setVisible(compact)                                  # B73
-        self.usb_box.layout().setContentsMargins(*([theme.px(2 if compact else 10)] * 4))
-        self.an_box.layout().setContentsMargins(*([theme.px(2 if compact else 10)] * 4))
+        self.usb_box.layout().setContentsMargins(*([theme.px(1 if compact else 10)] * 4))   # C161
+        self.an_box.layout().setContentsMargins(*([theme.px(1 if compact else 10)] * 4))
         self._analysis_changed()
         self._drive_changed()
 
