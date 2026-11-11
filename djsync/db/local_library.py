@@ -56,6 +56,42 @@ from .library.metadata import BeatGrid, PlaylistStats
 
 log = logging.getLogger(__name__)
 
+
+class _PlaylistXmlNoise(logging.Filter):
+    """1.4.0-rc.5 (B91) : à chaque écriture, pyrekordbox écrivait un avertissement par ancienne playlist absente
+    de masterPlaylists6.xml (sans gravité : Rekordbox ne les y a jamais listées) ; 17 lignes par écriture,
+    des centaines pendant des téléchargements, qui chassaient les lignes de DJSync des journaux envoyés.
+    On les compte et on écrit une seule ligne quand le nombre change ; les autres avertissements restent."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.missing: set = set()
+        self.reported = 0
+
+    def filter(self, record: logging.LogRecord) -> bool:   # noqa: A003
+        msg = record.getMessage()
+        if "not found in masterPlaylists6.xml" not in msg:
+            return True
+        m = re.search(r"Playlist (\S+) not found", msg)
+        self.missing.add(m.group(1) if m else msg)
+        return False
+
+    def report(self) -> None:
+        if len(self.missing) != self.reported:
+            self.reported = len(self.missing)
+            log.info("%d playlist(s) missing from masterPlaylists6.xml (harmless, written by older Rekordbox "
+                     "versions)", self.reported)
+
+
+_XML_QUIET = _PlaylistXmlNoise()
+
+
+def quiet_playlist_xml() -> None:
+    """Pose le filtre (une fois). Après l'import de pyrekordbox, qui remet son niveau à WARNING en se chargeant."""
+    lg = logging.getLogger("pyrekordbox.masterdb.database")
+    if _XML_QUIET not in lg.filters:
+        lg.addFilter(_XML_QUIET)
+
 MASTER_DB = "master.db"
 PLAYLIST_XML = "masterPlaylists6.xml"
 ANALYSED_FLAG = 105            # valeur de djmdContent.Analysed des sons analysés (396 sur 397)
@@ -364,6 +400,7 @@ class LocalRekordboxLibrary:
             from pyrekordbox.masterdb import MasterDatabase
         except ImportError as exc:  # pragma: no cover
             raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
+        quiet_playlist_xml()                                          # 1.4.0-rc.5 (B91)
         try:
             self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
             self._db.session.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM djmdContent")).fetchall()
@@ -549,6 +586,7 @@ class LocalRekordboxLibrary:
                 self._writing -= 1
             self._file_id = self._identity()
             log.info("Computer library: change saved to master.db (size %s, -wal %s)", self._file_id[2], self._file_id[6])
+            _XML_QUIET.report()
 
     # ---------------------------------------------------------------------- sons
     @staticmethod

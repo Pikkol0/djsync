@@ -1,0 +1,36 @@
+# C157 (1.4.0-rc.5): small free website on GitHub Pages (no server to maintain), built from site/.
+# Published when site/ changes on main, when a release is published, or by hand (Actions ▸ Pages ▸ Run workflow).
+# One-time setting: Settings ▸ Pages ▸ Source: "GitHub Actions".
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

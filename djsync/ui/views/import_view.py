@@ -94,7 +94,7 @@ class ImportView(View):
         self.root.addLayout(opts)
 
         spotify_cols = [
-            Column("chk", "", 30, "center", sortable=False),
+            Column("chk", "", 36, "center", sortable=False, min_width=34),
             Column("source", t("import.col_source"), 240, stretch=True, min_width=140),
             Column("match", t("import.col_match"), 280, stretch=True, min_width=140, priority=1),
             Column("type", t("track.type"), 70, "center", priority=4),
@@ -134,6 +134,12 @@ class ImportView(View):
         self.free_btn.setToolTip(t("sc.free_open_tip"))
         self.free_btn.hide()
         actions.addWidget(self.free_btn)
+        # 1.4.0-rc.5 (B93) : la page du morceau, toujours proposée : un lien gratuit placé seulement dans la
+        # description (ou un « Buy » vers un autre site) n'est pas détecté ; l'utilisateur voit par lui-même
+        self.page_btn = button(t("sc.page_button"), self._open_pages, kind="flat", icon="go")
+        self.page_btn.setToolTip(t("sc.page_tip"))
+        self.page_btn.hide()
+        actions.addWidget(self.page_btn)
         actions.addStretch(1)
         self.count_lbl = label("", "dim")                           # 1.4.0-rc.4 (C148) : « 12 / 200 cochés »
         actions.addWidget(self.count_lbl)
@@ -473,6 +479,22 @@ class ImportView(View):
                 out.append(tr.free_download_url)
         return out
 
+    def _page_urls(self) -> List[str]:
+        """1.4.0-rc.5 (B93) : pages SoundCloud des lignes sélectionnées (import d'une adresse)."""
+        if self.mode != "direct":
+            return []
+        out = []
+        for i in self.dl_table.selected_iids():
+            tr = self._tracks.get(i)
+            url = (tr.source_url or "") if tr is not None and tr.source == "soundcloud" else ""
+            if url.startswith(("https://soundcloud.com/", "https://m.soundcloud.com/")) and url not in out:
+                out.append(url)
+        return out
+
+    def _open_pages(self) -> None:
+        for url in self._page_urls()[:10]:
+            self.ctrl._emit("open_url", url)
+
     def _open_free(self) -> None:
         for url in self._free_urls()[:10]:
             self.ctrl._emit("open_url", url)
@@ -499,6 +521,9 @@ class ImportView(View):
         free = self._free_urls()
         self.free_btn.setVisible(bool(free))
         self.free_btn.setText(t("sc.free_button_n", n=len(free)) if len(free) > 1 else t("sc.free_button"))
+        pages = self._page_urls()
+        self.page_btn.setVisible(bool(pages))
+        self.page_btn.setText(t("sc.page_button_n", n=len(pages)) if len(pages) > 1 else t("sc.page_button"))
         self.preview_btn.setEnabled(bool(sel))
         self.other_btn.setEnabled(bool(sel) and self.mode == "spotify")
 
@@ -541,6 +566,10 @@ class ImportView(View):
             if len(picked) == 1 and picked[0].free_download_url:        # 1.4.0 (C45)
                 url = picked[0].free_download_url
                 entries.append((t("sc.free_open"), lambda: self.ctrl._emit("open_url", url), "download"))
+        pages = self._page_urls()
+        if pages:                                                   # 1.4.0-rc.5 (B93)
+            entries.append((t("sc.page_button_n", n=len(pages)) if len(pages) > 1 else t("sc.page_open"),
+                            self._open_pages, "go"))
         if len(picked) == 1:
             from .common import buy_entry
 

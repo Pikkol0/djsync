@@ -1,0 +1,5 @@
+# 1.4.0-rc.5 (B87): exact Qt version used by the CI tests and the builds. requirements.txt keeps an open
+# range for people running from source; the releases only ship the version the tests ran with, so a new
+# PySide6 can no longer change the behaviour of a build without notice (the playlist drag and drop broke
+# that way). To move to a newer PySide6: change the line below, run the full tests, then build.
+PySide6-Essentials==6.12.0

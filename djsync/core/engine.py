@@ -246,6 +246,18 @@ def install(release: Release, fetch: Optional[Fetcher] = None, folder: Optional[
     return release.version
 
 
+def rollback_target(folder: Optional[Path] = None) -> str:
+    """1.4.0-rc.5 (B88) : vers quoi « revenir » mènerait : « prev » (version installée avant), « bundled »
+    (la version intégrée) ou « » (rien à faire : la version intégrée est déjà celle utilisée)."""
+    folder = folder or engine_dir()
+    previous = folder.with_name(folder.name + ".prev")
+    if not folder.exists():
+        return ""
+    if previous.exists() and override_version(previous):
+        return "prev"
+    return "bundled"
+
+
 def rollback(folder: Optional[Path] = None) -> str:
     """Revient à la version précédente (ou à la version embarquée s'il n'y en a pas)."""
     folder = folder or engine_dir()

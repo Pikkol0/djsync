@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DJSync — free Rekordbox USB export for Pioneer CDJs, without Rekordbox</title>
+<meta name="description" content="DJSync is a free, open-source app that downloads music (YouTube, SoundCloud, Spotify playlists), analyses BPM, key, beat grid and cues, and writes a Rekordbox USB drive ready for Pioneer CDJ / XDJ — without Rekordbox. Windows, macOS, Linux.">
+<meta name="keywords" content="rekordbox, rekordbox alternative, export to usb without rekordbox, pioneer cdj, xdj, dj usb, beatgrid, bpm detection, key detection, camelot, youtube to rekordbox, soundcloud to rekordbox">
+<link rel="canonical" href="https://pikkol0.github.io/djsync/">
+<link rel="icon" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="DJSync — Rekordbox USB export without Rekordbox">
+<meta property="og:description" content="Free and open source: download, analyse and write a Rekordbox USB drive for Pioneer CDJs, from any computer.">
+<meta property="og:url" content="https://pikkol0.github.io/djsync/">
+<meta property="og:image" content="https://pikkol0.github.io/djsync/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "DJSync",
+ "applicationCategory": "MultimediaApplication", "operatingSystem": "Windows, macOS, Linux",
+ "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"},
+ "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+ "url": "https://pikkol0.github.io/djsync/", "downloadUrl": "https://github.com/Pikkol0/djsync/releases/latest",
+ "description": "Free Rekordbox USB export for Pioneer CDJs, without Rekordbox."}
+</script>
+<style>
+  :root { --bg: #101014; --card: #1a1a20; --text: #ebebf0; --dim: #a0a0aa; --accent: #b79cff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 48px 24px 64px; }
+  header { display: flex; align-items: center; gap: 20px; }
+  header img { width: 72px; height: 72px; }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0; }
+  h1 span { color: var(--accent); }
+  .lead { color: var(--dim); font-size: 1.15rem; margin: 18px 0 28px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600; }
+  .btn.main { background: var(--accent); color: #101014; }
+  .btn.other { border: 1px solid #3a3a44; color: var(--text); }
+  .shot { width: 100%; border-radius: 12px; margin: 36px 0 12px; border: 1px solid #2a2a33; }
+  h2 { font-size: 1.35rem; margin: 40px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border-radius: 12px; padding: 18px 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { margin: 0; color: var(--dim); font-size: 0.97rem; }
+  details { background: var(--card); border-radius: 12px; padding: 14px 20px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { color: var(--dim); margin: 10px 0 2px; }
+  footer { color: var(--dim); font-size: 0.9rem; margin-top: 48px; border-top: 1px solid #2a2a33; padding-top: 18px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="logo.png" alt="DJSync logo">
+    <h1><span>DJSync</span> — free Rekordbox USB export for Pioneer CDJs, without Rekordbox</h1>
+  </header>
+  <p class="lead">Download music, analyse BPM, key, beat grid and cues, and write a USB drive ready for Pioneer CDJ / XDJ —
+    from a portable app that runs straight from the drive, on Windows, macOS or Linux. Free and open source, no account.</p>
+  <div class="buttons">
+    <a class="btn main" href="https://github.com/Pikkol0/djsync/releases/latest">Download the latest version</a>
+    <a class="btn other" href="https://github.com/Pikkol0/djsync">Source code on GitHub</a>
+    <a class="btn other" href="https://github.com/Pikkol0/djsync/blob/main/README.fr.md">En français</a>
+  </div>
+
+  <img class="shot" src="library.png" alt="DJSync library: playlists, tracks with key, BPM and source, built-in player with waveform">
+
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>Find and download</h3><p>YouTube Music search, links from YouTube, SoundCloud, Spotify and Deezer playlists, higher-quality sources.</p></div>
+    <div class="card"><h3>Write the USB drive</h3><p>Rekordbox library of the drive (OneLibrary and export.pdb) with waveforms, artwork and playlists.</p></div>
+    <div class="card"><h3>Analyse without Rekordbox</h3><p>BPM, beat grid, key in Camelot notation, hot cues, loops and memories you can edit.</p></div>
+    <div class="card"><h3>Your computer too</h3><p>Adds tracks to the Rekordbox collection of your computer (Rekordbox 6 / 7) while Rekordbox is closed.</p></div>
+  </div>
+
+  <h2>Questions</h2>
+  <details><summary>How do I export music to a USB drive without Rekordbox?</summary>
+    <p>Open DJSync from the drive, add tracks (download, import a link or your own files): DJSync writes the drive's library itself, ready for the players.</p></details>
+  <details><summary>Is DJSync a Rekordbox alternative for CDJ / XDJ?</summary>
+    <p>For preparing USB drives, yes: playlists, analysis, cues and waveforms. It is compatible with Rekordbox drives; it is not made by Pioneer DJ / AlphaTheta.</p></details>
+  <details><summary>Can I put YouTube or SoundCloud tracks into Rekordbox?</summary>
+    <p>Yes: search or paste a link, DJSync downloads, tags, analyses and adds the tracks to the drive or to your computer's collection.</p></details>
+  <details><summary>Is it really free?</summary>
+    <p>Yes. GPL-3.0 open source, no account, no subscription, no server.</p></details>
+
+  <footer>
+    DJSync is a personal open-source project by Pikkol0, not affiliated with Pioneer DJ / AlphaTheta. Rekordbox, CDJ and XDJ are
+    trademarks of their owners. Keep a copy of your drive and close Rekordbox while DJSync writes to it.
+  </footer>
+</main>
+</body>
+</html>

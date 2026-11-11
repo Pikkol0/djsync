@@ -93,16 +93,23 @@ class View(QWidget):
         return alive(self)
 
 
-def result_columns(with_check: bool = False, with_download: bool = True) -> List[Column]:
+def result_columns(with_check: bool = False, with_download: bool = True, with_size: bool = False) -> List[Column]:
+    """`with_size` (1.4.0-rc.5, B92) : colonne « Taille » (recherche Haute qualité) ; la vue choisit, selon le
+    mode, de montrer Vues ou Taille (`set_display_columns`)."""
     cols: List[Column] = []
     if with_check:
-        cols.append(Column("chk", "", 30, "center", sortable=False))
+        cols.append(Column("chk", "", 36, "center", sortable=False, min_width=34))
     cols += [
         Column("title", t("track.title"), 300, stretch=True, min_width=170),
         Column("artist", t("track.artist"), 190, priority=1),
         Column("type", t("track.type"), 70, "center", priority=4),
         Column("views", t("track.views"), 80, "e", priority=3, tip=t("track.views_tip"),
                sort=lambda r: r.data.views if r.data and r.data.views is not None else None),
+    ]
+    if with_size:
+        cols.append(Column("size", t("track.size"), 76, "e", priority=3, tip=t("track.size_tip"),
+                           sort=lambda r: r.data.slsk.size if r.data and r.data.slsk is not None else None))
+    cols += [
         Column("duration", t("track.duration"), 64, "e", priority=2,
                sort=lambda r: r.data.duration_seconds if r.data else 0),
         Column("lib", t("track.in_library"), 80, "center", priority=5),
@@ -130,7 +137,8 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
         if r.speed:                            # 1.4.0-rc.2 (B60) : repérer les pairs rapides
             values["type"] += f" · {r.speed / 1e6:.1f} " + t("unit.mbps_short")
-        values["views"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")
+        values["size"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")    # 1.4.0-rc.5 (B92) : plus dans « Vues »
+        values["views"] = ""
     elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
         from .. import theme
 

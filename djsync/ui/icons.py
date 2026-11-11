@@ -294,6 +294,13 @@ def _info(p: _Pen) -> None:
     p.circle(12, 7.7, 1.2, fill=True)
 
 
+def _watch(p: _Pen) -> None:
+    """1.4.0-rc.5 (C160) : œil du dossier surveillé (sons ajoutés tout seuls)."""
+    p.arc(12, 18, 11, 213, 327)
+    p.arc(12, 6, 11, 33, 147)
+    p.circle(12, 12, 3.2, fill=True)
+
+
 def _chat(p: _Pen) -> None:
     """Bulle de dialogue (onglet Retours)."""
     p.rect(3.5, 4.5, 20.5, 16, 3)
@@ -350,7 +357,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "go": _arrow_right, "edit": _edit, "music": _music, "up": _up, "down": _down, "trash": _trash,
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "unlisted": _unlisted, "warn": _warn, "info": _info, "move": _move,
-    "computer": _computer, "eject": _eject, "copy": _copy, "tag": _tag,
+    "computer": _computer, "eject": _eject, "watch": _watch, "copy": _copy, "tag": _tag,
     "diagnostic": _diagnostic, "chat": _chat, "columns": _columns,
 }
 

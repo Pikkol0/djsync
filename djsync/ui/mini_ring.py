@@ -10,6 +10,8 @@ from PySide6.QtWidgets import QWidget
 
 from . import theme
 
+RING_PX = 30            # 1.4.0-rc.5 (C161) : 26 → 30 (volet replié de 56 px, cartes à 1 px de marge)
+RING_ICON_PX = 14       # 12 → 14
 
 class MiniRing(QWidget):
     def __init__(self, icon: str, on_click: Optional[Callable[[], None]] = None, parent: Any = None) -> None:
@@ -18,7 +20,7 @@ class MiniRing(QWidget):
         self.value = 0.0                      # 0..1
         self.color = theme.ACCENT
         self.on_click = on_click
-        side = theme.px(26)                   # 1.4.0-rc.4 (B76) : tient dans la colonne repliée, jamais coupé
+        side = theme.px(RING_PX)              # 1.4.0-rc.4 (B76), rc.5 (C161) : un peu plus gros, jamais coupé
         self.setFixedSize(QSize(side, side))
         if on_click is not None:
             self.setCursor(Qt.PointingHandCursor)
@@ -50,7 +52,7 @@ class MiniRing(QWidget):
             pen.setCapStyle(Qt.RoundCap)
             p.setPen(pen)
             p.drawArc(r, 90 * 16, -int(360 * 16 * self.value))
-        s = theme.px(12)
-        pix = qicon(self.icon, 12, theme.DIM).pixmap(QSize(s, s))
+        s = theme.px(RING_ICON_PX)
+        pix = qicon(self.icon, RING_ICON_PX, theme.DIM).pixmap(QSize(s, s))
         p.drawPixmap((self.width() - s) // 2, (self.height() - s) // 2, pix)
         p.end()
