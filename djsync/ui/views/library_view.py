@@ -348,6 +348,7 @@ class LibraryView(View):
         controller.on("show_unanalysed", self.show_unanalysed)
         controller.on("open_playlist_named", self._goto_named)         # 1.4.0-rc.5 (C160)
         controller.on("import_progress", self._import_progress)
+        controller.on("quality_changed", self._quality_changed)           # 1.4.0-rc.6 (C180)
         self._refresh_buttons()
         if controller.settings.suggestions_open:
             self.show_suggestions(True, remember=False)
@@ -368,6 +369,30 @@ class LibraryView(View):
         target = playlist or (self.playlist if self.in_playlist and self.playlist is not None
                               and self.playlist.is_editable else None)
         self.ctrl.import_files(paths, [target.playlist_id] if target is not None else [])
+
+    # ------------------------------------------------------------- 1.4.0-rc.6 (C180) : qualité supposée
+    def _recompute_quality(self, tracks: List[LibraryTrack]) -> None:
+        """Relit le spectre des sons choisis (en tâche de fond, sans relancer l'analyse complète)."""
+        if not tracks:
+            return
+
+        def progress(i: int, n: int) -> None:
+            if self.winfo_exists():
+                self.sub_lbl.setText(t("quality.measuring", i=i, n=n))
+
+        def done(fakes: int) -> None:
+            if self.winfo_exists():
+                self._show_header()
+            self.ctrl.message("ok" if not fakes else "warn", t("quality.measured", n=fakes))
+
+        if not self.ctrl.measure_quality(tracks, done, progress, force=True):
+            self.ctrl.message("info", t("quality.busy"))
+            return
+        self.sub_lbl.setText(t("quality.measuring", i=0, n=len(tracks)))
+
+    def _quality_changed(self) -> None:
+        if self.winfo_exists() and not self._dirty and self.ctrl.library is not None:
+            self._fill_table()
 
     def _import_progress(self, i: int, n: int) -> None:
         if not self.winfo_exists():
@@ -497,9 +522,12 @@ class LibraryView(View):
         def add(parent: Any, parent_id: int) -> None:
             for p in sorted(children.get(parent_id, []), key=lambda q: (q.sequence, q.name.lower())):
                 iid = f"p{p.playlist_id}"
-                it = item(parent, iid, p.name, icon="folder" if p.is_folder else
-                          "watch" if self._is_watch_playlist(p) else "playlist",       # 1.4.0-rc.5 (C160)
+                watch = self._is_watch_playlist(p)                        # 1.4.0-rc.5 (C160)
+                it = item(parent, iid, p.name, icon="folder" if p.is_folder else "watch" if watch else "playlist",
                           count="" if p.is_folder else p.track_count)
+                if watch:                                                  # 1.4.0-rc.6 : œil en couleur, bulle
+                    it.setIcon(0, qicon("watch", 16, theme.ACCENT))
+                    it.setToolTip(0, t("watch.empty_title"))
                 if p.is_folder:
                     add(it, p.playlist_id)
                     it.setExpanded(True)
@@ -540,8 +568,19 @@ class LibraryView(View):
 
     @staticmethod
     def _is_watch_playlist(p: Optional[PlaylistInfo]) -> bool:
-        """1.4.0-rc.5 (C160) : la playlist où le dossier surveillé range ses sons."""
-        return p is not None and not p.is_folder and p.name == t("watch.playlist")
+        """1.4.0-rc.5 (C160) : la playlist où le dossier surveillé range ses sons.
+        1.4.0-rc.6 (C160) : son nom dans toutes les langues (créée en français, lue en anglais…) et l'ancien nom
+        (« Importés »), tant qu'elle n'a pas encore été renommée par un nouvel import."""
+        from ..ctrl.imports import old_watch_playlists, watch_playlist_names
+
+        return p is not None and not p.is_folder and p.name in watch_playlist_names() + old_watch_playlists()
+
+    def _watch_member(self, x: LibraryTrack) -> bool:
+        """1.4.0-rc.6 (C160) : son rangé dans la playlist du dossier surveillé (ajouté avant la 1.4.0-rc.5,
+        donc absent du registre)."""
+        member = getattr(self, "_member", None) or {}
+        pids = {p.playlist_id for p in self.playlists if self._is_watch_playlist(p)}
+        return bool(pids) and bool(pids & set(member.get(x.content_id, ()) or ()))
 
     def _goto_named(self, name: str) -> None:
         """Ouvre une playlist par son nom (lien du message « 1 son ajouté depuis le dossier surveillé »)."""
@@ -594,7 +633,9 @@ class LibraryView(View):
                     it.setForeground(0, _qcolor(color or theme.TEXT))
                 except RuntimeError:
                     pass
-            if not self._dirty and (self.current == ORPH or not self.table.isColumnHidden(
+            watch_rows = any(self._is_watch_playlist(p) for p in self.playlists) and not self.table.isColumnHidden(
+                self.table.column_index("source"))           # 1.4.0-rc.6 (C160) : œil des sons d'avant la rc.5
+            if not self._dirty and (self.current == ORPH or watch_rows or not self.table.isColumnHidden(
                     self.table.column_index("playlists"))):
                 self._fill_table()
             elif self.current == ALL:
@@ -677,16 +718,20 @@ class LibraryView(View):
 
     def _source_values(self, x: LibraryTrack) -> Dict[str, str]:
         """Source d'un son ; 1.4.0-rc.5 (C160) : « Dossier surveillé » avec l'œil et une bulle (dossier, date)."""
+        from ...core import watched
+
+        # 1.4.0-rc.6 (C160) : le dossier surveillé d'abord (un achat Bandcamp porte souvent une adresse dans ses
+        # tags) ; sinon un son de la playlist du dossier surveillé (ajouté avant la rc.5, pas dans le registre)
+        info = watched.lookup_track(x)
+        if info:
+            return {"source": t("watch.source"), "source__icon": "watch",
+                    "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=info.get("date", ""))}
         src = source_from_url(x.source_url)
         if src:
             return {"source": src}
-        from ...core import watched
-
-        info = watched.lookup_track(x)
-        if not info:
-            return {"source": ""}
-        return {"source": t("watch.source"), "source__icon": "watch",
-                "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=info.get("date", ""))}
+        if self._watch_member(x):
+            return {"source": t("watch.source"), "source__icon": "watch", "source__tip": t("watch.source_tip_old")}
+        return {"source": ""}
 
     def _track_row(self, x: LibraryTrack, pos: bool) -> Row:
         return Row(
@@ -1218,7 +1263,9 @@ class LibraryView(View):
         if self.in_playlist and self.playlist.is_editable:
             entries += [(t("lib.move_to"), self._move_to, "move"), (t("lib.remove"), self._remove, "close")]
         tracks = self._selected_tracks()
-        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave")]
+        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave"),
+                    (t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
+                     "wave")]                                               # 1.4.0-rc.6 (C180)
         if len(tracks) == 1:
             from ..reveal import reveal_entry
 

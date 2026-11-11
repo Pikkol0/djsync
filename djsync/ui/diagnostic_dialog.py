@@ -70,6 +70,16 @@ class DiagnosticDialog(BaseDialog):
         self.measure_btn.setToolTip(t("quality.measure_tip"))
         self.measure_btn.hide()
         head.addWidget(self.measure_btn)
+        # 1.4.0-rc.6 (C180) : relit le spectre de tous les sons, même déjà mesurés (méthode corrigée, QUA-1)
+        self.recompute_btn = button(t("quality.recompute_all"), self._recompute_all, icon="wave",
+                                    tooltip=t("quality.recompute_all_tip"))
+        head.addWidget(self.recompute_btn)
+        from PySide6.QtCore import QTimer
+
+        self._recompute_timer = QTimer(self)                  # page rouverte pendant un recalcul : suit sa fin
+        self._recompute_timer.setInterval(500)
+        self._recompute_timer.timeout.connect(self._sync_recompute)
+        self._sync_recompute()
         self.body.addLayout(head)
 
         main = hbox(spacing=theme.px(10))
@@ -113,7 +123,45 @@ class DiagnosticDialog(BaseDialog):
             self._loading = True
             self.ctrl.diagnose(self._loaded, self._progress, duplicates=False)
 
-        self.ctrl.measure_quality(self._unmeasured, done, progress)
+        if not self.ctrl.measure_quality(self._unmeasured, done, progress):      # 1.4.0-rc.6 : déjà en cours
+            self.measure_btn.setEnabled(True)
+            self.ctrl.message("info", t("quality.busy"))
+
+    def _sync_recompute(self) -> None:
+        running = bool(self.ctrl.quality_running)
+        self.recompute_btn.setText(t("quality.recompute_stop") if running else t("quality.recompute_all"))
+        if running:
+            self._recompute_timer.start()
+        else:
+            self._recompute_timer.stop()
+            self.recompute_btn.setEnabled(True)
+
+    def _recompute_all(self) -> None:
+        """1.4.0-rc.6 (C180) : « Tout recalculer » (en tâche de fond, avec progression) ; le bouton l'arrête."""
+        if self.ctrl.quality_running:
+            self.ctrl.stop_quality()
+            self.recompute_btn.setEnabled(False)
+            return
+
+        def progress(i: int, n: int) -> None:
+            if self.winfo_exists():
+                self.count.setText(t("quality.measuring", i=i, n=n))
+
+        def done(fakes: int) -> None:
+            if not self.winfo_exists():
+                return
+            self._sync_recompute()
+            self.measure_btn.setEnabled(True)
+            self.ctrl.message("ok" if not fakes else "warn", t("quality.measured", n=fakes))
+            self._loading = True
+            self.ctrl.diagnose(self._loaded, self._progress, duplicates=False)
+
+        if not self.ctrl.measure_quality(None, done, progress, force=True):
+            self.ctrl.message("info", t("quality.busy"))
+            return
+        self._sync_recompute()
+        self.measure_btn.setEnabled(False)
+        self.count.setText(t("quality.measuring", i=0, n="…"))
 
     # ------------------------------------------------------------------ chargement
     def _progress(self, i: int, n: int) -> None:

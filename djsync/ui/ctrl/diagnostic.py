@@ -163,31 +163,69 @@ class DiagnosticMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok(Diagnosis())), pool="tools")
 
-    def measure_quality(self, tracks: Sequence[LibraryTrack], ok: Callable[[int], None],
-                        progress: Optional[Callable[[int, int], None]] = None) -> None:
-        """1.4.0 (C46) : mesure la vraie qualité (spectre) des sons donnés ; `ok(nombre de faux)`."""
+    def measure_quality(self, tracks: Optional[Sequence[LibraryTrack]], ok: Callable[[int], None],
+                        progress: Optional[Callable[[int, int], None]] = None, force: bool = False) -> bool:
+        """1.4.0 (C46) : mesure la vraie qualité (spectre) des sons donnés ; `ok(nombre de faux)`.
+
+        1.4.0-rc.6 (C180) : `force` mesure de nouveau les sons déjà mesurés (« Recalculer la qualité supposée ») ;
+        `tracks=None` : toute la bibliothèque (listée dans la tâche de fond). Seul le spectre est relu (pas
+        d'analyse complète : grille, tonalité et forme d'onde ne bougent pas). Une seule mesure à la fois,
+        arrêtable (`stop_quality`) ; renvoie False si une mesure tourne déjà."""
+        import threading
+
         lib = self.library
         if lib is None:
             ok(0)
-            return
+            return False
+        if getattr(self, "_quality_stop", None) is not None:
+            return False
+        stop = self._quality_stop = threading.Event()
         ffmpeg = self.settings.ffmpeg_location or None
 
         def work() -> int:
-            from ...analysis.spectrum import measure_and_remember
+            from ...analysis.spectrum import flush, measure_and_remember
             from ...core.quality import probe
 
             fakes = 0
-            items = list(tracks)
-            for i, x in enumerate(items, start=1):
-                path = lib.absolute_path(x)
-                if path.exists():
-                    measure_and_remember(path, ffmpeg, x.duration_seconds or 0.0)
-                    fakes += probe(path).fake
-                if progress and (i % 5 == 0 or i == len(items)):
-                    self.dispatcher.post(progress, i, len(items))
+            items = list(tracks) if tracks is not None else list(lib.list_tracks())
+            try:
+                for i, x in enumerate(items, start=1):
+                    if stop.is_set():
+                        break
+                    path = lib.absolute_path(x)
+                    if path.exists():
+                        measure_and_remember(path, ffmpeg, x.duration_seconds or 0.0, force=force, save=False)
+                        fakes += probe(path).fake
+                    if i % 25 == 0:
+                        flush()
+                    if progress and (i % 5 == 0 or i == len(items)):
+                        self.dispatcher.post(progress, i, len(items))
+            finally:
+                flush()
             return fakes
 
-        self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok(0)), pool="tools")
+        def finish(fakes: int) -> None:
+            self._quality_stop = None
+            self._emit("quality_changed")
+            ok(fakes)
+
+        def failed(exc: BaseException) -> None:
+            self._quality_stop = None
+            self._on_error(exc)
+            ok(0)
+
+        self.dispatcher.submit(work, finish, failed, pool="quality")      # jamais devant les autres outils
+        return True
+
+    @property
+    def quality_running(self) -> bool:
+        return getattr(self, "_quality_stop", None) is not None
+
+    def stop_quality(self) -> None:
+        """1.4.0-rc.6 (C180) : arrête la mesure en cours (les sons déjà mesurés sont gardés)."""
+        stop = getattr(self, "_quality_stop", None)
+        if stop is not None:
+            stop.set()
 
     # ------------------------------------------------- 1.3.1 (C41/C43) : onglets du Diagnostic
     @property

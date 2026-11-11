@@ -64,6 +64,17 @@ def run(target: str) -> int:
         return {"ffmpeg": ffmpeg, "js": js_runtimes()}
 
     check("tools", tools)
+
+    def icons() -> Dict[str, Any]:
+        """1.4.0-rc.6 (C160) : toutes les icônes dessinées se dessinent dans le build (dont l'œil « watch »)."""
+        from .ui.icons import DRAW, pil_icon
+
+        empty = [name for name in DRAW if pil_icon(name, 32, "#ffffff").getbbox() is None]
+        if empty or "watch" not in DRAW:
+            raise RuntimeError(f"icons not drawn: {empty or ['watch']}")
+        return {"count": len(DRAW)}
+
+    check("icons", icons)
     if sys.platform == "darwin":                  # sortie de la « translocation » (premier lancement)
         def mac_translocation() -> str:
             import ctypes
