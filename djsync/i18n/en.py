@@ -415,6 +415,7 @@ STRINGS = {
     "watch.settings_clear": "Turn off",
     "watch.settings_playlist": "Also put them in the \"{name}\" playlist",
     "watch.playlist": "Watched folder",
+    "watch.playlist_old": "Imported",
     "watch.found_one": "Watched folder: 1 new file",
     "watch.found_many": "Watched folder: {n} new files",
     "watch.source": "Watched folder",

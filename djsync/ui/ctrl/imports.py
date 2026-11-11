@@ -10,8 +10,13 @@ from ...i18n import plural, t
 
 log = logging.getLogger(__name__)
 
-# 1.4.0-rc.5 (C160) : anciens noms de la playlist du dossier surveillé, repris et renommés
-OLD_WATCH_PLAYLISTS = ("Importés", "Imported")
+
+
+def old_watch_playlists() -> tuple:
+    """1.4.0-rc.5 (C160) : anciens noms de la playlist du dossier surveillé (toutes langues), repris et renommés."""
+    from ...i18n import en, fr
+
+    return tuple({mod.STRINGS.get("watch.playlist_old", "") for mod in (en, fr)} - {""})
 
 
 class ImportsMixin:
@@ -124,7 +129,7 @@ class ImportsMixin:
         playlists = [p for p in lib.list_playlists() if p.is_editable]
         found = next((p for p in playlists if p.name == name), None)
         if found is None:
-            old = next((p for p in playlists if p.name in OLD_WATCH_PLAYLISTS and p.name != name), None)
+            old = next((p for p in playlists if p.name in old_watch_playlists() and p.name != name), None)
             if old is not None:
                 lib.rename_playlist(old.playlist_id, name)
                 log.info("Watched folder playlist renamed: %r -> %r", old.name, name)

@@ -415,6 +415,7 @@ STRINGS = {
     "watch.settings_clear": "Désactiver",
     "watch.settings_playlist": "Les ranger aussi dans la playlist « {name} »",
     "watch.playlist": "Dossier surveillé",
+    "watch.playlist_old": "Importés",
     "watch.found_one": "Dossier surveillé : 1 nouveau fichier",
     "watch.found_many": "Dossier surveillé : {n} nouveaux fichiers",
     "watch.source": "Dossier surveillé",
