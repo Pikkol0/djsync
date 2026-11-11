@@ -13,6 +13,11 @@ from . import theme
 RING_PX = 30            # 1.4.0-rc.5 (C161) : 26 → 30 (volet replié de 56 px, cartes à 1 px de marge)
 RING_ICON_PX = 14       # 12 → 14
 
+def ring_px() -> int:
+    """1.4.0-rc.6 (B94) : côté d'un anneau (jamais plus petit qu'à 100 %)."""
+    return max(RING_PX, theme.px(RING_PX))
+
+
 class MiniRing(QWidget):
     def __init__(self, icon: str, on_click: Optional[Callable[[], None]] = None, parent: Any = None) -> None:
         super().__init__(parent)
@@ -20,10 +25,16 @@ class MiniRing(QWidget):
         self.value = 0.0                      # 0..1
         self.color = theme.ACCENT
         self.on_click = on_click
-        side = theme.px(RING_PX)              # 1.4.0-rc.4 (B76), rc.5 (C161) : un peu plus gros, jamais coupé
-        self.setFixedSize(QSize(side, side))
+        self.rescale()
         if on_click is not None:
             self.setCursor(Qt.PointingHandCursor)
+
+    def rescale(self) -> None:
+        """Taille au zoom courant (1.4.0-rc.4 B76, rc.5 C161 : un peu plus gros, jamais coupé) ;
+        1.4.0-rc.6 (B94) : jamais plus petit qu'à 100 %, et refaite à chaque changement de zoom."""
+        side = ring_px()
+        self.setFixedSize(QSize(side, side))
+        self.update()
 
     def set(self, value: float, icon: Optional[str] = None, tip: str = "", color: Optional[str] = None) -> None:
         self.value = max(0.0, min(1.0, float(value)))
@@ -52,7 +63,7 @@ class MiniRing(QWidget):
             pen.setCapStyle(Qt.RoundCap)
             p.setPen(pen)
             p.drawArc(r, 90 * 16, -int(360 * 16 * self.value))
-        s = theme.px(RING_ICON_PX)
+        s = max(RING_ICON_PX, theme.px(RING_ICON_PX))                       # B94 : borné comme l'anneau
         pix = qicon(self.icon, RING_ICON_PX, theme.DIM).pixmap(QSize(s, s))
         p.drawPixmap((self.width() - s) // 2, (self.height() - s) // 2, pix)
         p.end()

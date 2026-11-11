@@ -187,15 +187,24 @@ def known(path: Union[str, Path]) -> Optional[int]:
         return _load().get(key)
 
 
-def remember(path: Union[str, Path], cutoff: Optional[int]) -> None:
+def remember(path: Union[str, Path], cutoff: Optional[int], save: bool = True) -> None:
+    """Retient une coupure mesurée ; `save=False` : écrite plus tard par `flush()` (1.4.0-rc.6, C180 :
+    un recalcul de toute la bibliothèque n'écrit pas le fichier à chaque son)."""
     if not cutoff:
         return
     key = _key(Path(path))
     if key is None:
         return
     with _lock:
+        _load()[key] = int(cutoff)
+    if save:
+        flush()
+
+
+def flush() -> None:
+    """Écrit le registre (fichier temporaire puis remplacement : jamais à moitié écrit)."""
+    with _lock:
         data = _load()
-        data[key] = int(cutoff)
         try:
             f = _file()
             f.parent.mkdir(parents=True, exist_ok=True)
@@ -207,9 +216,13 @@ def remember(path: Union[str, Path], cutoff: Optional[int]) -> None:
 
 
 def measure_and_remember(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
-                         duration: float = 0.0) -> Optional[int]:
-    c = known(path)
+                         duration: float = 0.0, force: bool = False, save: bool = True) -> Optional[int]:
+    """Coupure du fichier : celle déjà retenue, sinon mesurée et retenue. 1.4.0-rc.6 (C180) : `force` mesure
+    de nouveau même si elle est connue (« Recalculer la qualité supposée ») ; une mesure ratée garde l'ancienne."""
+    c = None if force else known(path)
     if c is None:
         c = measure(path, ffmpeg_location, duration)
-        remember(path, c)
+        remember(path, c, save=save)
+        if c is None and force:
+            c = known(path)
     return c

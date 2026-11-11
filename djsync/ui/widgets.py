@@ -158,7 +158,14 @@ class FitBar(QWidget):
     Les boutons gardent leur largeur naturelle (jamais écrasés par Qt). Quand tout ne tient pas, par paliers :
     1) les boutons « secondaires » passent en icône seule (texte dans la bulle) ; 2) ils sortent de la barre
     (la vue les reprend dans son menu ☰ via `overflow`) ; 3) les boutons à texte restants passent aussi en
-    icône seule. La barre elle-même n'impose aucune largeur minimale à la fenêtre."""
+    icône seule. La barre elle-même n'impose aucune largeur minimale à la fenêtre.
+
+    1.4.0-rc.6 (B85) : décision stable. Les largeurs de chaque bouton (avec texte, en icône seule) sont mesurées
+    une fois (puis à chaque changement de zoom, de police ou de texte) ; le palier ne dépend plus que de la
+    largeur disponible. On ne revient à un palier plus large qu'avec une marge (`MARGIN`, hystérésis), et rien
+    n'est retouché tant que le palier ne change pas : plus de boucle de mise en page (boutons qui clignotaient)."""
+
+    MARGIN = 24            # px à 100 % : marge demandée pour revenir à un palier plus large
 
     def __init__(self, parent: Any = None, spacing: int = 6) -> None:
         super().__init__(parent)
@@ -168,6 +175,9 @@ class FitBar(QWidget):
         self.lay = hbox(self, spacing=spacing)
         self._items: list = []          # [(widget, secondaire ?, texte, bulle)]
         self.level = 0
+        self._widths: Optional[list] = None      # [(largeur avec texte, en icône seule)], dans l'ordre de _items
+        self._applied: Optional[int] = None      # palier réellement appliqué (None : décision à refaire)
+        self.applies = 0                         # nombre d'applications (tests : aucune oscillation)
         self._refit_pending = False
 
     def add(self, w: QWidget, secondary: bool = False, keep_text: bool = False) -> QWidget:
@@ -179,6 +189,7 @@ class FitBar(QWidget):
         text = w.text() if isinstance(w, QPushButton) else ""
         self._items.append((w, secondary, text, w.toolTip()))
         self.lay.addWidget(w)
+        self._invalidate()
         return w
 
     def add_stretch(self) -> None:
@@ -186,7 +197,10 @@ class FitBar(QWidget):
 
     def set_text(self, w: QWidget, text: str) -> None:
         """Change le texte d'un bouton de la barre (le palier en cours est réappliqué)."""
+        if all(txt == text for x, _s, txt, _b in self._items if x is w):
+            return                                   # inchangé : rien à remesurer
         self._items = [(x, sec, text if x is w else txt, tip) for x, sec, txt, tip in self._items]
+        self._invalidate()
         self.fit()
 
     @property
@@ -197,56 +211,121 @@ class FitBar(QWidget):
 
     def setVisibleItem(self, w: QWidget, on: bool) -> None:      # noqa: N802
         """À utiliser à la place de `setVisible` pour un bouton de la barre."""
+        if w.property("fitWanted") is not None and bool(w.property("fitWanted")) == bool(on):
+            return                                   # inchangé (appelé à chaque changement de sélection)
         w.setProperty("fitWanted", bool(on))
+        self._applied = None
         self.fit()
 
-    def _apply(self, level: int) -> int:
-        """Applique un palier ; renvoie la largeur nécessaire."""
-        need, n = 0, 0
-        for w, sec, text, tip in self._items:
-            wanted = w.property("fitWanted") is not False
-            show = wanted and not (sec and level >= 2)
-            icon_only = ((sec and level >= 1) or level >= 3) and not w.property("fitKeepText")
+    # ------------------------------------------------------------------ 1.4.0-rc.6 (B85) : mesures
+    def _invalidate(self) -> None:
+        self._widths = None
+        self._applied = None
+
+    @staticmethod
+    def _natural(w: QWidget) -> int:
+        if w.minimumWidth() == w.maximumWidth():          # largeur fixe (barre de progression)
+            return w.minimumWidth()
+        return w.sizeHint().width()
+
+    @staticmethod
+    def _can_shrink(w: QWidget, text: str) -> bool:
+        return (isinstance(w, QPushButton) and bool(text) and not w.icon().isNull()
+                and not w.property("fitKeepText"))
+
+    def _measure(self) -> list:
+        """Largeur naturelle de chaque bouton, avec son texte et en icône seule (texte remis ensuite)."""
+        widths = []
+        for w, _sec, text, _tip in self._items:
             if isinstance(w, QPushButton) and text:
-                if icon_only and not w.icon().isNull():
+                old = w.text()
+                w.setText(text)
+                full = icon = w.sizeHint().width()
+                if self._can_shrink(w, text):
                     w.setText("")
-                    w.setToolTip(tip or text.replace("&&", "&"))
-                else:
-                    w.setText(text)
-                    w.setToolTip(tip)
-            w.setVisible(show)
-            if show:
-                hint = w.sizeHint().width()
-                # largeur minimale explicite : la mise en page de Qt gardait parfois une taille d'avant le
-                # changement de zoom ou de texte et écrasait le bouton (texte coupé)
-                if w.minimumWidth() != w.maximumWidth():          # largeur fixe (barre de progression) : gardée
-                    w.setMinimumWidth(hint)
-                else:
-                    hint = w.width() or hint
-                need += hint
-                n += 1
+                    icon = w.sizeHint().width()
+                if w.text() != old:
+                    w.setText(old)
+            else:
+                full = icon = self._natural(w)
+            widths.append((full, icon))
+        return widths
+
+    def _icon_only(self, w: QWidget, sec: bool, text: str, level: int) -> bool:
+        return ((sec and level >= 1) or level >= 3) and self._can_shrink(w, text)
+
+    def _need(self, level: int) -> int:
+        """Largeur nécessaire au palier `level` (calcul seul : aucun bouton n'est touché)."""
+        need, n = 0, 0
+        for (w, sec, text, _tip), (full, icon) in zip(self._items, self._widths or []):
+            if w.property("fitWanted") is False or (sec and level >= 2):
+                continue
+            need += icon if self._icon_only(w, sec, text, level) else full
+            n += 1
         return need + n * self.lay.spacing()          # n - 1 intervalles + celui de l'espace extensible
 
+    def _choose(self, avail: int) -> int:
+        fits = next((lv for lv in range(4) if self._need(lv) <= avail), 3)
+        if self._applied is None or fits >= self.level:
+            return fits                                   # première décision, ou il faut réduire : tout de suite
+        margin = theme.px(self.MARGIN)                    # plus large : seulement avec de la marge (hystérésis)
+        return next((lv for lv in range(fits, self.level) if self._need(lv) + margin <= avail), self.level)
+
+    def _apply(self, level: int) -> None:
+        for (w, sec, text, tip), (full, icon) in zip(self._items, self._widths or []):
+            show = w.property("fitWanted") is not False and not (sec and level >= 2)
+            if isinstance(w, QPushButton) and text:
+                short = self._icon_only(w, sec, text, level)
+                if w.text() != ("" if short else text):
+                    w.setText("" if short else text)
+                w.setToolTip((tip or text.replace("&&", "&")) if short else tip)
+                # largeur minimale explicite : Qt n'écrase jamais un bouton (texte coupé)
+                w.setMinimumWidth(icon if short else full)
+            if w.isHidden() == show:
+                w.setVisible(show)
+        self.level = level
+        self._applied = level
+        self.applies += 1
+        self.lay.invalidate()
+
+    def _stale(self) -> bool:
+        """Un bouton affiché n'a plus la largeur mesurée (zoom, police, feuille de style) : à remesurer."""
+        for (w, sec, text, _tip), (full, icon) in zip(self._items, self._widths or []):
+            if w.isHidden():
+                continue
+            short = self._applied is not None and self._icon_only(w, sec, text, self._applied)
+            if self._natural(w) != (icon if short else full):
+                return True
+        return False
+
     def fit(self) -> None:
+        if self._widths is None or len(self._widths) != len(self._items):
+            self._widths = self._measure()
+            self._applied = None
         avail = self.width()
         if not self.isVisible() or avail <= 0:          # pas encore placée : textes complets, refait à l'affichage
-            self.level = 0
-            self._apply(0)
+            if self._applied != 0:
+                self._apply(0)
+            self._applied = None                        # première décision à l'affichage, sans hystérésis
             return
-        for level in range(4):
-            if self._apply(level) <= avail or level == 3:
-                self.level = level
-                break
-        self.lay.invalidate()
+        if self._applied is not None and self._stale():
+            self._widths = self._measure()
+            self._applied = None
+        level = self._choose(avail)
+        if level != self._applied:
+            self._apply(level)
 
     def resizeEvent(self, e: Any) -> None:       # noqa: N802
         super().resizeEvent(e)
         self.fit()
 
     def event(self, e: Any) -> bool:
-        """Zoom, police ou texte d'un bouton changés : le palier est recalculé (une fois, juste après)."""
+        """Zoom, police ou texte d'un bouton changés : le palier est recalculé (une fois, juste après).
+        1.4.0-rc.6 (B85) : sans changement de mesure ni de largeur, ce calcul ne touche à rien (pas de boucle)."""
         from PySide6.QtCore import QEvent, QTimer
 
+        if e.type() in (QEvent.StyleChange, QEvent.FontChange):
+            self._invalidate()
         if e.type() in (QEvent.LayoutRequest, QEvent.StyleChange, QEvent.FontChange) and not self._refit_pending:
             self._refit_pending = True
 

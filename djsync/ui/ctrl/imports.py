@@ -19,6 +19,14 @@ def old_watch_playlists() -> tuple:
     return tuple({mod.STRINGS.get("watch.playlist_old", "") for mod in (en, fr)} - {""})
 
 
+def watch_playlist_names() -> tuple:
+    """1.4.0-rc.6 (C160) : nom de la playlist du dossier surveillé dans chaque langue (langue en cours d'abord)."""
+    from ...i18n import en, fr
+
+    names = [t("watch.playlist")] + [mod.STRINGS.get("watch.playlist", "") for mod in (en, fr)]
+    return tuple(dict.fromkeys(n for n in names if n))
+
+
 class ImportsMixin:
     def import_files(self, paths: Sequence[Any], playlist_ids: Sequence[int] = (),
                      ok: Optional[Callable[[Any], None]] = None, quiet: bool = False,
@@ -128,6 +136,8 @@ class ImportsMixin:
         ou la crée."""
         playlists = [p for p in lib.list_playlists() if p.is_editable]
         found = next((p for p in playlists if p.name == name), None)
+        if found is None:      # 1.4.0-rc.6 (C160) : déjà créée dans une autre langue : reprise telle quelle
+            found = next((p for p in playlists if p.name in watch_playlist_names()), None)
         if found is None:
             old = next((p for p in playlists if p.name in old_watch_playlists() and p.name != name), None)
             if old is not None:

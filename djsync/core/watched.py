@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _cache: Optional[Dict[str, Dict[str, str]]] = None
+_names: Optional[Dict[str, Optional[Dict[str, str]]]] = None     # nom seul -> entrée (None si plusieurs tailles)
 _store_path: Optional[Path] = None
 
 
@@ -29,9 +30,9 @@ def _file() -> Path:
 
 def use_store(path: Optional[Path]) -> None:
     """Tests : registre dans un autre fichier (None = celui des réglages)."""
-    global _store_path, _cache
+    global _store_path, _cache, _names
     with _lock:
-        _store_path, _cache = (Path(path) if path else None), None
+        _store_path, _cache, _names = (Path(path) if path else None), None, None
 
 
 def _key(name: str, size: int) -> str:
@@ -51,8 +52,10 @@ def _load() -> Dict[str, Dict[str, str]]:
 
 def record(files: Iterable[Tuple[str, int]], folder: str, date: str) -> int:
     """Retient des fichiers (nom, taille) arrivés depuis `folder` le `date` (AAAA-MM-JJ)."""
+    global _names
     with _lock:
         data = _load()
+        _names = None
         n = 0
         for name, size in files:
             if name and size:
@@ -75,7 +78,24 @@ def lookup(name: str, size: int) -> Optional[Dict[str, str]]:
         return _load().get(_key(name, size))
 
 
+def lookup_name(name: str) -> Optional[Dict[str, str]]:
+    """1.4.0-rc.6 (C160) : par le nom seul, quand la taille n'est pas connue ou a changé (tags réécrits,
+    bibliothèque qui ne donne pas la taille) ; None si ce nom a été vu avec plusieurs entrées différentes."""
+    global _names
+    if not name:
+        return None
+    with _lock:
+        if _names is None:
+            names: Dict[str, Optional[Dict[str, str]]] = {}
+            for key, info in _load().items():
+                base = key.rsplit("|", 1)[0]
+                names[base] = info if base not in names or names[base] == info else None
+            _names = names
+        return _names.get(name.casefold())
+
+
 def lookup_track(track: Any) -> Optional[Dict[str, str]]:
-    """Pour un LibraryTrack (nom du fichier + taille)."""
+    """Pour un LibraryTrack (nom du fichier + taille ; 1.4.0-rc.6 : sinon le nom seul)."""
     path = str(getattr(track, "path", "") or "").replace("\\", "/")
-    return lookup(path.rsplit("/", 1)[-1], int(getattr(track, "file_size", 0) or 0))
+    name = path.rsplit("/", 1)[-1]
+    return lookup(name, int(getattr(track, "file_size", 0) or 0)) or lookup_name(name)

@@ -585,18 +585,28 @@ class DJSyncApp(QMainWindow):
         labels = {k: l for k, l, *_ in TABS}
         # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
         square = "padding: 0px; text-align: center;" if compact else ""
-        side = theme.px(SIDEBAR_COMPACT - 12)          # 1.4.0-rc.4 (B76) : un peu plus d'air entre les icônes
+        # 1.4.0-rc.6 (B94) : volet replié borné : jamais plus petit qu'à 100 % (à 80 %, anneaux coupés et
+        # boutons écrasés), marges refaites au zoom courant (elles restaient celles du lancement)
+        cpx = (lambda n: max(int(n), theme.px(n))) if compact else theme.px
+        side = cpx(SIDEBAR_COMPACT - 12)               # 1.4.0-rc.4 (B76) : un peu plus d'air entre les icônes
         for key, b in self._nav.items():
             b.setText("" if compact else self._nav_text(key, labels[key]))
             b.setToolTip(t(labels[key]) if compact else "")
             b.setStyleSheet(square)
             b.setFixedHeight(side) if compact else b.setMinimumHeight(0)
             b.setMaximumHeight(side if compact else 16777215)
-            icon = theme.px(20 if compact else 18)                  # 1.4.0-rc.5 (C161) : un peu plus gros replié
+            icon = cpx(20 if compact else 18)                       # 1.4.0-rc.5 (C161) : un peu plus gros replié
             b.setIconSize(QSize(icon, icon))
         for b in (self.help_btn, self.fold_btn):
             b.setStyleSheet(square)
-        width = theme.px(SIDEBAR_COMPACT)
+        from .mini_ring import ring_px
+
+        margin, card = cpx(10), cpx(1 if compact else 10)
+        self.sidebar.layout().setContentsMargins(margin, margin, margin, margin)
+        for ring in (self.an_ring, self.dl_ring, self.usb_ring):
+            ring.rescale()
+        # largeur : au moins un anneau dans sa carte, avec les marges (jamais coupé)
+        width = max(cpx(SIDEBAR_COMPACT), ring_px() + 2 * (margin + card))
         if not compact:          # au moins le plus long libellé (langue, zoom)
             width = max([theme.px(SIDEBAR_WIDTH)] + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
         self.sidebar.setFixedWidth(width)
@@ -608,8 +618,8 @@ class DJSyncApp(QMainWindow):
         for w in (self.usb_title, self.usb_label, self.usb_free, self.usb_icon):
             w.setVisible(not compact)
         self.usb_ring.setVisible(compact)                                  # B73
-        self.usb_box.layout().setContentsMargins(*([theme.px(1 if compact else 10)] * 4))   # C161
-        self.an_box.layout().setContentsMargins(*([theme.px(1 if compact else 10)] * 4))
+        self.usb_box.layout().setContentsMargins(*([card] * 4))                            # C161
+        self.an_box.layout().setContentsMargins(*([card] * 4))
         self._analysis_changed()
         self._drive_changed()
 
