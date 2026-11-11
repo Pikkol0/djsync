@@ -170,10 +170,12 @@ class FitBar(QWidget):
         self.level = 0
         self._refit_pending = False
 
-    def add(self, w: QWidget, secondary: bool = False) -> QWidget:
+    def add(self, w: QWidget, secondary: bool = False, keep_text: bool = False) -> QWidget:
+        """`keep_text` : action principale dont le texte reste toujours écrit (ex. « Arrêter l'analyse »)."""
         from PySide6.QtWidgets import QSizePolicy
 
         w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        w.setProperty("fitKeepText", bool(keep_text))
         text = w.text() if isinstance(w, QPushButton) else ""
         self._items.append((w, secondary, text, w.toolTip()))
         self.lay.addWidget(w)
@@ -204,7 +206,7 @@ class FitBar(QWidget):
         for w, sec, text, tip in self._items:
             wanted = w.property("fitWanted") is not False
             show = wanted and not (sec and level >= 2)
-            icon_only = (sec and level >= 1) or level >= 3
+            icon_only = ((sec and level >= 1) or level >= 3) and not w.property("fitKeepText")
             if isinstance(w, QPushButton) and text:
                 if icon_only and not w.icon().isNull():
                     w.setText("")
@@ -227,6 +229,10 @@ class FitBar(QWidget):
 
     def fit(self) -> None:
         avail = self.width()
+        if not self.isVisible() or avail <= 0:          # pas encore placée : textes complets, refait à l'affichage
+            self.level = 0
+            self._apply(0)
+            return
         for level in range(4):
             if self._apply(level) <= avail or level == 3:
                 self.level = level

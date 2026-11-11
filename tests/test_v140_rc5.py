@@ -134,12 +134,16 @@ def test_b85_save_order_only_when_changed(demo):  # noqa: F811
 
 
 def test_b85_fitbar_levels():
-    from PySide6.QtWidgets import QPushButton
+    from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+
+    _app = QApplication.instance() or QApplication([])
 
     from djsync.ui.icons import qicon
     from djsync.ui.widgets import FitBar
 
-    bar = FitBar()
+    holder = QWidget()                     # dans une fenêtre, comme dans l'app (une fenêtre seule a une largeur mini)
+    holder.resize(4200, 60)
+    bar = FitBar(holder)
     main = [QPushButton(f"Main button {i}") for i in range(3)]
     side = [QPushButton(f"Secondary {i}") for i in range(3)]
     for b in main + side:
@@ -149,16 +153,29 @@ def test_b85_fitbar_levels():
     bar.add_stretch()
     for b in side:
         bar.add(b, secondary=True)
-    bar.resize(4000, 40)
+    holder.show()
+
+    def width(w):
+        bar.resize(w, 40)
+        _app.processEvents()
+        bar.fit()
+
+    width(4000)
+    assert bar.level == 0 and side[0].text() == "Secondary 0"
+    width(sum(b.sizeHint().width() for b in main + side) - 40)
+    assert bar.level == 1 and side[0].text() == "" and side[0].toolTip() == "Secondary 0"
+    width(200)
+    assert bar.level >= 2 and not side[0].isVisibleTo(bar) and side[0] in bar.overflow
+    holder.hide()                                       # pas encore affichée : textes complets
     bar.fit()
     assert bar.level == 0 and side[0].text() == "Secondary 0"
-    full = sum(b.sizeHint().width() for b in main + side)
-    bar.resize(full - 40, 40)
-    bar.fit()
-    assert bar.level == 1 and side[0].text() == "" and side[0].toolTip() == "Secondary 0"
-    bar.resize(200, 40)
-    bar.fit()
-    assert bar.level >= 2 and not side[0].isVisibleTo(bar) and side[0] in bar.overflow
+    keep = QPushButton("Keep me")
+    keep.setIcon(qicon("plus", 16, "#ffffff"))
+    bar.add(keep, keep_text=True)
+    holder.show()
+    width(60)
+    assert bar.level == 3 and keep.text() == "Keep me" and main[0].text() == ""
+    holder.close()
 
 
 # ------------------------------------------------------------------ B86 : textes de l'ordinateur
@@ -521,8 +538,6 @@ def test_c165_no_card_repeats_its_section_title(demo):  # noqa: F811
 
 # ------------------------------------------------------------------ C157 : visibilité
 def test_c157_readme_site_and_pages_workflow():
-    import yaml
-
     readme = (ROOT / "README.md").read_text("utf-8")
     assert "free Rekordbox USB export for Pioneer CDJs, without Rekordbox" in readme
     assert "## Why DJSync?" in readme and "README.fr.md" in readme and "1.4.0-rc.5" in readme
@@ -532,5 +547,5 @@ def test_c157_readme_site_and_pages_workflow():
     assert "<title>DJSync" in page and 'property="og:image"' in page
     for name in ("logo.png", "og.png", "library.png"):
         assert (ROOT / "site" / name).is_file()
-    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "pages.yml").read_text("utf-8"))
-    assert wf["jobs"]["deploy"]["steps"][-1]["uses"].startswith("actions/deploy-pages")
+    wf = (ROOT / ".github" / "workflows" / "pages.yml").read_text("utf-8")
+    assert "actions/deploy-pages@" in wf and "path: site" in wf

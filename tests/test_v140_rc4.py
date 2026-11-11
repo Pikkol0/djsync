@@ -213,13 +213,17 @@ def test_c155_update_is_a_banner_not_a_window(demo):  # noqa: F811
 # ------------------------------------------------------------------ B76 : volet replié
 def test_b76_compact_two_rings_fit_the_column(demo):  # noqa: F811
     from djsync.ui import theme
+    from djsync.ui.app import SIDEBAR_COMPACT
 
-    assert demo.an_ring.width() <= theme.px(26) and demo.dl_ring.width() <= theme.px(26)
+    # 1.4.0-rc.5 (C161) : anneaux de 30 px dans un volet de 56 px (marges 10 + cartes 1) : toujours entiers
+    inner = theme.px(SIDEBAR_COMPACT) - 2 * theme.px(10) - 2 * theme.px(1)
+    assert demo.an_ring.width() <= inner and demo.dl_ring.width() <= inner
     demo.ctrl.settings.sidebar_compact = "on"
     demo._compact = None
     demo._update_compact()
     b = demo._nav["settings"]
-    assert b.height() == theme.px(40) or b.maximumHeight() == theme.px(40)
+    side = theme.px(SIDEBAR_COMPACT - 12)
+    assert b.height() == side or b.maximumHeight() == side
     demo.ctrl.settings.sidebar_compact = "off"
     demo._compact = None
     demo._update_compact()

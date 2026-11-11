@@ -309,8 +309,8 @@ def test_watch_tick_imports_into_the_imported_playlist(tmp_path, monkeypatch):
         assert pump(app, 3, lambda: not ctrl._watch_busy)
         ctrl.watch_tick()
         names = lambda: {p.name for p in ctrl.library.list_playlists()}  # noqa: E731
-        assert pump(app, 10, lambda: "Imported" in names() and not ctrl._importing)
-        pl = next(p for p in ctrl.library.list_playlists() if p.name == "Imported")
+        assert pump(app, 10, lambda: "Watched folder" in names() and not ctrl._importing)   # rc.5 (C160) : nom
+        pl = next(p for p in ctrl.library.list_playlists() if p.name == "Watched folder")
         tracks = ctrl.library.get_playlist_tracks(pl.playlist_id)
         assert [x.title for x in tracks] == ["Nanana"]
         assert not w.exists() and (folder / "DJSync imported" / w.name).exists()

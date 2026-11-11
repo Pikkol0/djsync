@@ -63,7 +63,8 @@ class DownloadsMixin:
         self.dispatcher.submit(work, ok, lambda _e: None, pool="net")
 
     def _job_changed(self, job: DownloadJob) -> None:
-        if job.status == "error" and self.analysis.drop(job.id):    # 1.4.0-rc.5 (C161) : retiré du total
+        q = getattr(self, "analysis", None)
+        if job.status == "error" and q is not None and q.drop(job.id):    # 1.4.0-rc.5 (C161) : retiré du total
             self._emit("analysis")
         self._emit("download_update", job)
 
@@ -168,17 +169,18 @@ class DownloadsMixin:
         """1.3.0-rc.3 (C32) : son téléchargé mis dans la file d'analyse en arrière-plan (le téléchargement
         suivant n'attend pas). Réglage séparé pour la clé et pour la bibliothèque de l'ordinateur ; rien
         si l'utilisateur a changé de bibliothèque entre-temps."""
-        q = self.analysis
-        if job.id in q.stopped:                  # 1.4.0-rc.5 (C161) : analyse arrêtée : pas de relance
+        q = getattr(self, "analysis", None)      # 1.4.0-rc.5 (C161) : file d'analyse (absente de certains tests)
+        if q is not None and job.id in q.stopped:          # analyse arrêtée : pas de relance
             return
         if not job.content_id or job.library is None or job.library is not self.library or not self._auto_analysis():
-            if q.drop(job.id):
+            if q is not None and q.drop(job.id):
                 self._emit("analysis")
             return
-        if q.running and q.fulfil(job.id, job.content_id):         # attendu : déjà compté dans le total
+        if q is not None and q.running and q.fulfil(job.id, job.content_id):   # attendu : déjà compté
             self._emit("analysis")
             return
-        q.drop(job.id)
+        if q is not None:
+            q.drop(job.id)
         self.analyze([job.content_id], quiet=True)
 
     # ---------------------------------------------------------------- 1.4.0-rc.2 (B66) : YouTube « robot »

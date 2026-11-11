@@ -279,7 +279,7 @@ class LibraryView(View):
         self.analysis_bar.setFixedWidth(theme.px(140))
         for w in (self.add_btn, self.move_btn, self.remove_btn, self.up_btn, self.down_btn, self.save_btn,
                   self.analyse_btn, self.analysis_bar):
-            bar.add(w)
+            bar.add(w, keep_text=w is self.analyse_btn)        # « Analyser / Arrêter » toujours écrit
         bar.add_stretch()
         self.import_btn = button(t("import_files.button"), self._import_files, icon="folder",
                                  tooltip=t("import_files.tip"))              # 1.4.0 (C26)
