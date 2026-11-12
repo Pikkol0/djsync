@@ -429,6 +429,8 @@ STRINGS = {
     "watch.empty_off": "No folder chosen: Settings ▸ Libraries ▸ Watched folder (right-click this playlist).",
     "watch.open_folder": "Open the watched folder",
     "watch.open_settings": "Watched folder settings…",
+    "watch.caught_up_one": "1 track put back in the \"{name}\" playlist",
+    "watch.caught_up_many": "{n} tracks put back in the \"{name}\" playlist",
     "buy.menu": "Buy (WAV / FLAC)",
     "sc.original_short": "original",
     "sc.originals_one": "{n} original file available",

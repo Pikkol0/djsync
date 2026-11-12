@@ -124,6 +124,7 @@ class Settings:
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Dossier surveillé »
     watch_first_done: bool = False     # 1.4.0-rc.5 (C160) : message du tout premier son importé déjà montré
+    watch_scanned: str = ""            # 1.4.1 (B95) : dossier (et bibliothèque) déjà rattrapés à l'activation
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
     soundcloud_token: str = ""         # ou jeton « oauth_token » du compte

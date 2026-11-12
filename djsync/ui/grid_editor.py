@@ -39,6 +39,16 @@ VIEW_CHOICES = (0.5, 1, 2, 4, 8, 16, 32, 64, 120)   # 1.3.2 (B53) : 0,5 s à 2 m
 WHEEL_STEP = 120          # 1.3.2 (B53) : un palier de zoom par cran de molette (pavé tactile : par cumul)
 
 
+# 1.4.1 (C177) : numéro affiché de la première mesure. 0 et non 1 : les débuts de phrase tombent sur les
+# multiples de 8 (0, 8, 16…). Affichage seulement : rien de ce qui est écrit (grille, cues) n'en dépend.
+FIRST_BAR = 0
+
+
+def bar_label(downbeats: int) -> str:
+    """Numéro affiché de la mesure dont le premier temps est le `downbeats`-ième de la grille (1 = le premier)."""
+    return str(FIRST_BAR + downbeats - 1)
+
+
 def view_label(v: float) -> str:
     return f"{v:g} s"
 # Couleurs de la forme d'onde 3 bandes de Rekordbox (basses, médiums, aigus), quel que soit le thème
@@ -505,7 +515,7 @@ class GridEditor(QWidget):
         self._label_top, self._label_bottom = row, row + fm.height() + theme.px(4)
         time_text = format_duration(int(max(0.0, self.start_ms) / 1000))
         time_left = w - theme.px(6) - fm.horizontalAdvance(time_text) - theme.px(6)
-        bar_no = 0
+        bar_no = 0                                             # premiers temps rencontrés
         for i, (n, _tempo, ms) in enumerate(self.beats):
             if n == 1:
                 bar_no += 1
@@ -516,8 +526,8 @@ class GridEditor(QWidget):
             color = QColor(theme.ACCENT if down else theme.mix(theme.SURFACE, theme.TEXT, 0.55))
             p.setPen(QPen(color, theme.px(2.5) if down else 1))
             p.drawLine(QPointF(x, row), QPointF(x, h))
-            if down and x + 4 + fm.horizontalAdvance(str(bar_no)) < time_left:
-                p.drawText(QPointF(x + 4, fm.ascent() + 1), str(bar_no))
+            if down and x + 4 + fm.horizontalAdvance(bar_label(bar_no)) < time_left:
+                p.drawText(QPointF(x + 4, fm.ascent() + 1), bar_label(bar_no))   # 1.4.1 (C177) : à partir de 0
             if i == self.selected:
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(theme.WARN))

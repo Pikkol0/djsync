@@ -252,6 +252,37 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
     return report
 
 
+def find_in_library(lib: Any, files: Iterable[Path], player_format: str = "") -> "tuple[List[Any], List[Path]]":
+    """1.4.1 (B95) : parmi `files`, les sons DÉJÀ dans la bibliothèque (même règle de rangement que
+    `import_files`), sans rien copier ni rien ajouter. Sert à rattacher à sa playlist ce que le dossier
+    surveillé a déjà importé. Renvoie (sons trouvés, fichiers absents de la bibliothèque) ; un fichier
+    illisible n'est dans aucune des deux listes."""
+    from ..core import players
+
+    try:
+        before = {x.path.casefold(): x for x in lib.list_tracks()}
+    except Exception:  # noqa: BLE001
+        return [], []
+    found: List[Any] = []
+    missing: List[Path] = []
+    seen = set()
+    for f in files:
+        try:
+            dest = destination(lib, read_info(f))
+            if not getattr(lib, "is_local", False) and players.needs(f, player_format):
+                dest = players.target_path(dest, player_format)
+            track = before.get(_db_key(lib, dest))
+        except Exception as exc:  # noqa: BLE001 - un fichier illisible n'arrête pas les autres
+            log.info("Watched file not matched (%s): %s", f, exc)
+            continue
+        if track is None:
+            missing.append(f)
+        elif track.content_id not in seen:
+            seen.add(track.content_id)
+            found.append(track)
+    return found, missing
+
+
 def _prune(folder: Path, stop: Path) -> None:
     """Retire les dossiers vides laissés par une copie annulée (jusqu'à `stop`, exclu)."""
     try:

@@ -429,6 +429,8 @@ STRINGS = {
     "watch.empty_off": "Aucun dossier choisi : Paramètres ▸ Bibliothèques ▸ Dossier surveillé (clic droit sur cette playlist).",
     "watch.open_folder": "Ouvrir le dossier surveillé",
     "watch.open_settings": "Réglages du dossier surveillé…",
+    "watch.caught_up_one": "1 son remis dans la playlist « {name} »",
+    "watch.caught_up_many": "{n} sons remis dans la playlist « {name} »",
     "buy.menu": "Acheter (WAV / FLAC)",
     "sc.original_short": "original",
     "sc.originals_one": "{n} fichier d'origine disponible",
