@@ -378,13 +378,13 @@ class DiagnosticDialog(BaseDialog):
         from html import escape
 
         kind = t("track.song") if c.track.is_song else t("track.video")
-        exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+        exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "download_quality", "") or "original")
         info = [escape(c.track.artist or ""), format_duration(c.track.duration_seconds), escape(kind),
                 levels.html(t("diag.match", score=f"{c.score:.0f}"), levels.match_score(c.score)),
                 levels.html(exp, lvl)]
         line = label("  ·  ".join(i for i in info if i), "dim")
         line.setTextFormat(Qt.RichText)
-        line.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "audio_format", "m4a")))
+        line.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "download_quality", "") or "original"))
         text.addWidget(line)
         lay.addLayout(text, 1)
         lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))

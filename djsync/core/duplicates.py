@@ -369,3 +369,31 @@ def carry_cues(lib: Any, src_id: int, dst_id: int, fingerprint_of: Any) -> Tuple
     ok_cues = [c for c in cues if m.verdict == "same" or matches_at(a, b, m.shift_ms, c.ms)]
     moved, lost = shift_cues(ok_cues, m.shift_ms, int(dst.duration_seconds or 0) * 1000)
     return moved, lost + len(cues) - len(ok_cues)
+
+
+# ------------------------------------------------------------------ 1.4.1 (C173) : fichiers introuvables
+VERSION_TOLERANCE_S = 3
+
+
+def version_key(track: Any) -> Tuple[str, str]:
+    """(titre, artiste) normalisés (casse, accents, « feat. », parenthèses) pour rapprocher deux entrées."""
+    title, artist = split_display(getattr(track, "title", "") or "", getattr(track, "artist", "") or "")
+    return normalize(title), normalize(artist)
+
+
+def existing_versions(track: Any, present: Iterable[Any]) -> List[Any]:
+    """Entrées de la même bibliothèque, au fichier présent, qui sont le même son qu'une entrée introuvable :
+    même titre et même artiste normalisés et, si les deux durées sont connues, à ± 3 s."""
+    key = version_key(track)
+    if not key[0]:
+        return []
+    dur = int(getattr(track, "duration_seconds", 0) or 0)
+    out = []
+    for y in present:
+        if getattr(y, "content_id", None) == getattr(track, "content_id", None) or version_key(y) != key:
+            continue
+        other = int(getattr(y, "duration_seconds", 0) or 0)
+        if dur and other and abs(dur - other) > VERSION_TOLERANCE_S:
+            continue
+        out.append(y)
+    return out

@@ -41,6 +41,16 @@ FIELD_PX = 360           # 1.4.0-rc.5 (C165) : largeur des champs de texte court
 NARROW_PX = 760          # en dessous (à 100 %), le volet devient une liste déroulante
 
 
+# 1.4.1 (C143) : débit annoncé de chaque choix, pour la taille approximative par minute
+QUALITY_KBPS = {"original": 128, "yt_best": 256, "mp3_320": 320, "mp3_256": 256, "mp3_192": 192, "mp3_128": 128}
+
+
+def quality_label(q: str) -> str:
+    """« M4A · AAC ≈ 128 kbps, sans conversion  —  ≈ 1 Mo/min » : vrai format, puis taille par minute."""
+    mb = QUALITY_KBPS.get(q, 128) * 60 / 8 / 1000
+    return t(f"settings.quality_{q}") + "  —  " + t("settings.quality_per_min", mb=f"{mb:.1f}")
+
+
 def quality_grid(rows_text: str) -> QWidget:
     """Tableau « Quelle qualité j'obtiens vraiment ? » : lignes séparées par des retours, cases par « | »."""
     from PySide6.QtWidgets import QFrame, QGridLayout, QLabel
@@ -378,10 +388,16 @@ class SettingsView(View):
         card = self._card(t("settings.format_card"), "download", key="format")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.format"))))
-        self._format_labels = {"m4a": t("settings.format_m4a"), "mp3": t("settings.format_mp3")}
+        # 1.4.1 (C143, D15) : une seule liste de six choix ; chaque ligne dit le vrai format obtenu, une seule
+        # porte « (meilleur flux) » ; taille par minute à côté. « Même volume » retiré (décision du 05/11).
+        from ...settings import DOWNLOAD_QUALITIES
+
+        self._format_labels = {q: quality_label(q) for q in DOWNLOAD_QUALITIES}
         self.format_menu = QComboBox()
-        self.format_menu.addItems(list(self._format_labels.values()))
-        self.format_menu.setCurrentText(self._format_labels.get(s.audio_format, self._format_labels["m4a"]))
+        for i, q in enumerate(DOWNLOAD_QUALITIES):
+            self.format_menu.addItem(self._format_labels[q], q)
+            self.format_menu.setItemData(i, t(f"settings.quality_{q}_tip"), Qt.ToolTipRole)
+        self.format_menu.setCurrentText(self._format_labels.get(s.download_quality, self._format_labels["original"]))
         row.addWidget(self.format_menu)
         row.addStretch(1)
         card.addLayout(row)
@@ -389,13 +405,12 @@ class SettingsView(View):
         self.format_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
         self.format_warn.setStyleSheet(f"color: {theme.WARN};")
         card.addWidget(self.format_warn)
-        self.format_menu.currentTextChanged.connect(
-            lambda txt: self.format_warn.setVisible(txt == self._format_labels["mp3"]))
-        self.format_warn.setVisible(s.audio_format == "mp3")
-        self.normalize_var = QCheckBox(t("settings.normalize"))
-        self.normalize_var.setChecked(s.normalize_volume)
-        self.normalize_var.setToolTip(t("settings.normalize_hint"))
-        card.addWidget(self.normalize_var)
+        # 1.4.0-rc.4 (C146) : fichiers plus lourds avec le meilleur flux (affiché seulement s'il est choisi)
+        self.yt_best_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
+        self.yt_best_warn.setStyleSheet(f"color: {theme.WARN};")
+        card.addWidget(self.yt_best_warn)
+        self.format_menu.currentIndexChanged.connect(lambda _i: self._format_hints())
+        self._format_hints()
         # 1.4.0-rc.2 (C137) : ce que donne vraiment chaque source, en équivalent MP3 ; rc.5 (C165) : replié
         self.quality_toggle = QToolButton()
         self.quality_toggle.setText(t("quality.real_title"))
@@ -417,17 +432,7 @@ class SettingsView(View):
         self.quality_toggle.toggled.connect(lambda on: (self.quality_box.setVisible(on),
                                                         self.quality_toggle.setArrowType(
                                                             Qt.DownArrow if on else Qt.RightArrow)))
-        card = self._card("YouTube", "download", key="youtube")
-        self.yt_best_var = QCheckBox(t("yt.settings_best"))          # 1.4.0 (C48), désactivé par défaut
-        self.yt_best_var.setChecked(s.youtube_best)
-        self.yt_best_var.setToolTip(t("yt.settings_best_tip"))
-        card.addWidget(self.yt_best_var)
-        # 1.4.0-rc.4 (C146) : l'avertissement sur le poids n'apparaît que si le meilleur flux est choisi
-        self.yt_best_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
-        self.yt_best_warn.setStyleSheet(f"color: {theme.WARN};")
-        self.yt_best_warn.setVisible(s.youtube_best)
-        self.yt_best_var.toggled.connect(self.yt_best_warn.setVisible)
-        card.addWidget(self.yt_best_warn)
+        card = self._card("YouTube", "download", key="youtube")     # 1.4.1 (C143) : meilleur flux dans la liste
         row = hbox()
         row.addWidget(self._fixed(label(t("yt.settings_account"))))
         from ...core.soundcloud import BROWSERS as _YT_BROWSERS
@@ -986,6 +991,12 @@ class SettingsView(View):
             w.blockSignals(True)
             w.setCurrentRow(idx) if w is self.sections else w.setCurrentIndex(idx)
             w.blockSignals(False)
+
+    def _format_hints(self) -> None:
+        """C137 : avertissement des conversions MP3 ; C146 : poids du meilleur flux (1.4.1, C143 : une liste)."""
+        q = self.format_menu.currentData() or "original"
+        self.format_warn.setVisible(q.startswith("mp3"))
+        self.yt_best_warn.setVisible(q == "yt_best")
 
     def show_section(self, key: str, remember: bool = True) -> None:
         """Fait défiler jusqu'à une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »).
@@ -1619,12 +1630,10 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
-        s.audio_format = next((k for k, v in self._format_labels.items() if v == self.format_menu.currentText()), "m4a")
-        s.normalize_volume = self.normalize_var.isChecked()
+        s.download_quality = self.format_menu.currentData() or "original"            # 1.4.1 (C143)
         s.soundcloud_original = self.sc_original_var.isChecked()
         s.soundcloud_browser = next((k for k, v in self._sc_browsers.items() if v == self.sc_browser.currentText()), "")
         s.soundcloud_token = self.sc_token.text().strip()
-        s.youtube_best = self.yt_best_var.isChecked()
         s.youtube_browser = next((k for k, v in self._yt_browsers.items() if v == self.yt_browser.currentText()), "")
         _w = self.watch_folder.text().strip()
         s.watch_folder = str(Path(_w)) if _w else ""            # 1.4.0-rc.4 (B77) : chemin normalisé

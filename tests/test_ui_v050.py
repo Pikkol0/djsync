@@ -70,14 +70,13 @@ def test_settings_engine_offer_and_copy_menu(env, tmp_path):
         app.show_view("settings")
         view = app.views["settings"]
         assert "yt-dlp" in view.engine_state.text() and not view.eject_btn.isEnabled()   # PC : rien à éjecter
-        view.format_menu.setCurrentText(view._format_labels["mp3"])
-        view.normalize_var.setChecked(True)
+        view.format_menu.setCurrentText(view._format_labels["mp3_320"])     # 1.4.1 (C143) : une seule liste
         view.cue_var.setChecked(False)
         view._save()
-        assert (ctrl.settings.audio_format, ctrl.settings.normalize_volume, ctrl.settings.auto_cue) == ("mp3", True, False)
+        assert (ctrl.settings.download_quality, ctrl.settings.auto_cue) == ("mp3_320", False)
         assert ctrl.library.auto_cue is False
         loaded = Settings.load()
-        assert loaded.audio_format == "mp3" and loaded.normalize_volume
+        assert loaded.download_quality == "mp3_320" and loaded.audio_format == "mp3"
         # ---- vérification manuelle : nouvelle version proposée
         monkeypatch.setattr(engine, "latest", lambda fetch=None: engine.Release("2099.1.1", {}))
         view.show_section("advanced")                                # 1.3.1 (C89) : carte du moteur dans Avancé

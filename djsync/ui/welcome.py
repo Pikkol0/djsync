@@ -149,7 +149,7 @@ class WelcomeDialog(BaseDialog):
         self.yt_warn.setStyleSheet(f"color: {theme.WARN};")
         self.body.addWidget(self.yt_warn)
         self.body.addWidget(label(t("welcome.yt_later"), "faint", wrap=True))
-        self._pick_yt("best" if self.ctrl.settings.youtube_best else "m4a")
+        self._pick_yt("best" if self.ctrl.settings.download_quality == "yt_best" else "m4a")
         self.body.addStretch(1)
         foot = hbox(spacing=theme.px(8))
         foot.addStretch(1)
@@ -201,6 +201,9 @@ class WelcomeDialog(BaseDialog):
             s.start_menu_shortcut = True
             self.ctrl.refresh_shortcut()
         if getattr(self, "_yt", None):                      # 1.4.0-rc.4 (C146)
-            s.youtube_best = self._yt == "best"
+            # 1.4.1 (C143) : un MP3 déjà choisi est gardé ; sinon flux standard ou meilleur flux
+            if not s.download_quality.startswith("mp3"):
+                s.download_quality = "yt_best" if self._yt == "best" else "original"
+            s.youtube_best = s.download_quality == "yt_best"
         s.save()
         self.close()

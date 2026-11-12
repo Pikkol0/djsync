@@ -335,8 +335,8 @@ def test_c137_settings_explain_real_quality_and_warn_on_mp3(demo):  # noqa: F811
 
     v = demo.views["settings"]
     assert any("MP3 160" in c.text() for c in v.quality_table.cells)      # rc.3 : grille (B69)
-    v.format_menu.setCurrentText(v._format_labels["mp3"])
+    v.format_menu.setCurrentText(v._format_labels["mp3_320"])         # 1.4.1 (C143) : une seule liste
     assert not v.format_warn.isHidden()
-    v.format_menu.setCurrentText(v._format_labels["m4a"])
+    v.format_menu.setCurrentText(v._format_labels["original"])
     assert v.format_warn.isHidden()
-    assert "320" not in t("settings.format_mp3")             # plus de « 320 » trompeur
+    assert "does not bring back" in t("settings.quality_mp3_320_tip").lower()

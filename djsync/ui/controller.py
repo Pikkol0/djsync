@@ -1050,8 +1050,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._emit("settings_saved")
 
     def _apply_output(self) -> None:
-        if hasattr(self.service, "set_output"):
-            self.service.set_output(self.settings.audio_format, self.settings.normalize_volume)
+        if hasattr(self.service, "set_quality"):                          # 1.4.1 (C143)
+            self.service.set_quality(self.settings.download_quality)
         if hasattr(self.service, "set_soundcloud_auth"):                  # 1.4.0 (C10.1)
             from ..core.soundcloud import auth_options
 
@@ -1060,7 +1060,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         if hasattr(self.service, "set_youtube"):                          # 1.4.0 (C48)
             from ..core.soundcloud import auth_options
 
-            self.service.set_youtube(self.settings.youtube_best, auth_options(self.settings.youtube_browser))
+            self.service.set_youtube(auth_options(self.settings.youtube_browser))
             retry = getattr(self, "retry_bot_failures", None)                 # 1.4.0-rc.2 (B66)
             if retry is not None and self.settings.youtube_browser:
                 retry()

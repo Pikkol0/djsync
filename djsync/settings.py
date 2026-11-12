@@ -44,6 +44,11 @@ def clamp_zoom(value: object) -> int:
         return ZOOM_DEFAULT
 
 
+# 1.4.1 (C143) : qualité des téléchargements (une seule liste) ; réglages remplacés, plus jamais écrits
+DOWNLOAD_QUALITIES = ("original", "yt_best", "mp3_320", "mp3_256", "mp3_192", "mp3_128")
+RETIRED = ("audio_format", "youtube_best", "normalize_volume")
+
+
 @dataclass
 class Settings:
     first_run = False               # 1.3.2 (C54) : attribut de classe, jamais enregistré (pas un champ)
@@ -83,8 +88,11 @@ class Settings:
     local_db_dir: str = ""             # dossier de master.db ; vide = emplacement standard de Rekordbox
     local_music_dir: str = ""          # dossier des sons téléchargés ; vide = Musique/DJSync
     # ---- V0.5.0
-    audio_format: str = "m4a"          # m4a (flux d'origine, sans perte) | mp3 (MP3 320, ré-encodé)
-    normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
+    # 1.4.1 (C143) : `download_quality` remplace les trois réglages ci-dessous, lus une version encore pour la
+    # reprise, puis plus jamais écrits (« Même volume » retiré : décision du 05/11).
+    download_quality: str = ""         # original | yt_best | mp3_320 | mp3_256 | mp3_192 | mp3_128
+    audio_format: str = "m4a"          # ancien : m4a | mp3 (lu pour la reprise, puis déduit de download_quality)
+    normalize_volume: bool = False     # ancien : ignoré
     merge_undo_s: int = 10             # 1.3.2 (C82) : délai pour annuler une fusion de doublons (5, 10, 30 s)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
@@ -179,6 +187,13 @@ class Settings:
             self.analyze_after_download_usb = self.analyze_after_download_local = True
             self.settings_version = 2
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
+        if self.download_quality not in DOWNLOAD_QUALITIES:          # 1.4.1 (C143) : reprise, sans question
+            self.download_quality = ("mp3_320" if self.audio_format == "mp3"
+                                     else "yt_best" if self.youtube_best else "original")
+        # anciens réglages déduits du nouveau (lus ailleurs : qualité attendue, accueil) ; jamais écrits
+        self.audio_format = "mp3" if self.download_quality.startswith("mp3") else "m4a"
+        self.youtube_best = self.download_quality == "yt_best"
+        self.normalize_volume = False
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"
         self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
@@ -227,7 +242,8 @@ class Settings:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+            data = {k: v for k, v in asdict(self).items() if k not in RETIRED}     # 1.4.1 (C143)
+            tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)
