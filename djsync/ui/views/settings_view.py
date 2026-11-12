@@ -328,6 +328,18 @@ class SettingsView(View):
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
         card.addWidget(self.cue_var)
+        card.addWidget(label(t("settings.reanalyse_rekordbox")))                  # 1.4.1 (C131, D20)
+        row = hbox()
+        self.reanalyse_vars = {}
+        for part in ("grid", "key", "waves"):
+            box = QCheckBox(t(f"reanalyse.part_{part}"))
+            box.setChecked(part in s.reanalyze_rekordbox)
+            box.setToolTip(t(f"reanalyse.hint_{part}"))
+            row.addWidget(box)
+            self.reanalyse_vars[part] = box
+        row.addStretch(1)
+        card.addLayout(row)
+        card.addWidget(label(t("settings.reanalyse_rekordbox_hint"), "faint", wrap=True))
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.key_notation"))))
         self._notation_labels = {k: t(f"settings.notation_{k}") for k in KEY_NOTATIONS}
@@ -1630,6 +1642,9 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        parts = [p for p, box in self.reanalyse_vars.items() if box.isChecked()]
+        if parts != s.reanalyze_rekordbox:                  # 1.4.1 (C131) : changer le choix, c'est l'avoir fait
+            s.reanalyze_rekordbox, s.reanalyze_rekordbox_asked = parts, True
         s.download_quality = self.format_menu.currentData() or "original"            # 1.4.1 (C143)
         s.soundcloud_original = self.sc_original_var.isChecked()
         s.soundcloud_browser = next((k for k, v in self._sc_browsers.items() if v == self.sc_browser.currentText()), "")

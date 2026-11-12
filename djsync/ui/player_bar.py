@@ -407,6 +407,14 @@ class PlayerBar(QWidget):
 
         self._with_track(go)
 
+    def _analyse_track(self, track: Any) -> None:
+        if track.is_analysed:                    # 1.4.1 (C131) : choix demandé pour un son de Rekordbox
+            from .reanalyse import analyse_again
+
+            analyse_again(self, self.ctrl, [track.content_id])
+        else:
+            self.ctrl.analyze([track.content_id])
+
     def _track_menu(self) -> None:
         def show(track: Any) -> None:
             entries: list = []
@@ -414,7 +422,7 @@ class PlayerBar(QWidget):
                 entries.append((t("lib.edit_grid"), self._edit_grid, "grid"))
             entries.append((t("action.edit_metadata"), lambda: self._edit_metadata(track), "edit"))
             entries.append((t("player.analyse_again") if track.is_analysed else t("action.analyse"),
-                            lambda: self.ctrl.analyze([track.content_id], force=track.is_analysed), "wave"))
+                            lambda: self._analyse_track(track), "wave"))
             if track.camelot:
                 entries += [None, (t("lib.show_compatible", code=track.camelot), lambda: self._compatible(track), "key")]
             entries += [None, (t("player.show_in_library"), lambda: self._show_in_library(track), "library")]

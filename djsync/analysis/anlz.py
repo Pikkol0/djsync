@@ -192,6 +192,10 @@ def _write_atomic(target: Path, data: bytes) -> None:
     os.replace(tmp, target)
 
 
+class CuesUnreadable(ValueError):
+    """1.4.1 (B96) : les cues de l'analyse existante ne se relisent pas ; rien n'est réécrit."""
+
+
 def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, int, int]], wf: Waveforms,
                 total_samples: int = 0, rel_dir: Optional[str] = None, memory_cues: Sequence[int] = (),
                 previous: Optional[str] = None) -> str:
@@ -215,8 +219,10 @@ def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, in
 
             kept = read_cues(old_dat.read_bytes(), old_ext.read_bytes() if old_ext.is_file() else None)
             cues = kept or None
-        except (OSError, ValueError):
-            cues = None
+        except (OSError, ValueError, struct.error, IndexError) as exc:
+            # 1.4.1 (B96) : avant, les cues étaient perdus sans message ; le son n'est plus réécrit
+            raise CuesUnreadable(f"cues of the existing analysis could not be read ({old_dat.name}: {exc}); "
+                                 "track left untouched") from exc
         break
     dat = build_dat(track_path, beats, wf, total_samples, memory_cues, cues)
     ext = build_ext(track_path, wf, memory_cues, cues)
@@ -302,6 +308,96 @@ def replace_beats(data: bytes, beats: Sequence[Tuple[int, int, int]]) -> bytes:
 def drop_extended_grid(data: bytes) -> bytes:
     """Retire PQT2 (grille étendue, .EXT/.2EX) : sinon les platines récentes garderaient l'ancienne."""
     return rebuild(data, {"PQT2": None}) if "PQT2" in parse(data) else data
+
+
+# ------------------------------------------- 1.4.1 (C131, D20) : greffe dans une analyse de Rekordbox
+CUE_TAGS = ("PCOB", "PCO2")
+GRID_EXTRAS = ("PQT2", "PSSI")           # grille étendue et phrases : calées sur l'ancienne grille, retirées
+
+
+def cue_tags(data: bytes) -> List[bytes]:
+    """Balises de cues (octets bruts, dans l'ordre du fichier)."""
+    return [raw for code, raw in iter_tags(data) if code in CUE_TAGS]
+
+
+def _wave_tags(suffix: str, wf: Waveforms) -> Dict[str, Optional[bytes]]:
+    if suffix == ".DAT":
+        return {"PWAV": _pwav(b"PWAV", wf.preview), "PWV2": _pwav(b"PWV2", wf.tiny_preview)}
+    if suffix == ".EXT":
+        n = wf.detail_count
+        return {"PWV3": _pwv(b"PWV3", 1, n, 0x00960000, wf.detail),
+                "PWV5": _pwv(b"PWV5", 2, n, 0x00960305, wf.color_detail),
+                "PWV4": _pwv(b"PWV4", 6, len(wf.color_preview) // 6, 0, wf.color_preview)}
+    if suffix == ".2EX" and wf.band_detail:
+        return {"PWV7": _pwv(b"PWV7", 3, len(wf.band_detail) // 3, 0x00960000, wf.band_detail),
+                "PWV6": _tag(b"PWV6", struct.pack(">II", 3, len(wf.band_preview) // 3), wf.band_preview),
+                "PWVC": _tag(b"PWVC", b"\x00\x00", struct.pack(">HHH", *wf.band_norm))}
+    return {}
+
+
+def graft(files: Dict[str, bytes], beats: Optional[Sequence[Tuple[int, int, int]]] = None,
+          wf: Optional[Waveforms] = None) -> Dict[str, bytes]:
+    """Greffe dans les fichiers d'analyse d'un son ({".DAT": …, ".EXT": …, ".2EX": …}) sans les
+    reconstruire : `beats` remplace PQTZ (PQT2 et PSSI retirés), `wf` remplace les balises de forme
+    d'onde déjà présentes. Tout le reste (PPTH, PVBR, cues…) est recopié à l'octet près. Renvoie
+    seulement les fichiers qui changent. ValueError si un fichier est illisible, si le .DAT manque
+    ou si les cues ne ressortent pas identiques (rien n'est alors à écrire)."""
+    from .cues import read_cues
+
+    if ".DAT" not in files:
+        raise ValueError("no .DAT analysis file")
+    try:
+        read_cues(files[".DAT"], files.get(".EXT"))          # cues relisibles, sinon on ne touche à rien
+    except (struct.error, IndexError) as exc:
+        raise ValueError(f"unreadable cues: {exc}") from exc
+    out: Dict[str, bytes] = {}
+    for suffix, data in files.items():
+        new = data
+        if beats is not None:
+            if suffix == ".DAT":
+                new = replace_beats(new, beats)
+            present = {code for code, _raw in iter_tags(new)}
+            drop = {code: None for code in GRID_EXTRAS if code in present}
+            if drop:
+                new = rebuild(new, drop)
+        if wf is not None:
+            present = {code for code, _raw in iter_tags(new)}
+            swap = {code: raw for code, raw in _wave_tags(suffix, wf).items() if code in present}
+            if swap:
+                new = rebuild(new, swap)
+        if cue_tags(new) != cue_tags(data):
+            raise ValueError(f"cues would change in {suffix}")
+        if new != data:
+            out[suffix] = new
+    return out
+
+
+def with_cues_of(original: bytes, current: bytes) -> bytes:
+    """`original` avec les cues de `current` (« Rétablir l'analyse de Rekordbox » : les cues posés
+    depuis sont gardés). Cues identiques : `original` rendu à l'octet près."""
+    now: Dict[str, List[bytes]] = {}
+    for code, raw in iter_tags(current):
+        if code in CUE_TAGS:
+            now.setdefault(code, []).append(raw)
+    if cue_tags(original) == cue_tags(current):
+        return original
+    len_header = struct.unpack(">I", original[4:8])[0]
+    body, seen = [], set()
+    for code, raw in iter_tags(original):
+        if code not in CUE_TAGS:
+            body.append(raw)
+        elif code not in seen:
+            seen.add(code)
+            body += now.get(code, [])
+    for code in CUE_TAGS:                                 # listes absentes de l'original : à la fin
+        if code not in seen:
+            body += now.get(code, [])
+    blob = b"".join(body)
+    head = bytearray(original[:len_header])
+    struct.pack_into(">I", head, 8, len_header + len(blob))
+    out = bytes(head) + blob
+    parse(out)
+    return out
 
 
 def read_overview(dat: Optional[bytes] = None, ext: Optional[bytes] = None) -> List[Tuple[float, str]]:

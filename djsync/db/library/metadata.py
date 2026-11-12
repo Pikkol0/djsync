@@ -20,6 +20,88 @@ def prune_folders(folder: Path, keep: int) -> None:
         shutil.rmtree(old, ignore_errors=True)
 
 
+# ------------------------------------------- 1.4.1 (C131, D20) : analyse d'origine de Rekordbox
+REKORDBOX_ORIGINALS = "anlz-rekordbox"      # dossier à part, jamais purgé, un seul original par son
+NATIVE_PARTS = ("grid", "key", "waves")
+ANLZ_SUFFIXES = (".DAT", ".EXT", ".2EX")
+
+
+def anlz_set(dat: Path) -> Dict[str, Path]:
+    """{".DAT": chemin, ".EXT": …, ".2EX": …} des fichiers d'analyse présents."""
+    out = {s: dat.with_suffix(s) for s in ANLZ_SUFFIXES}
+    return {s: f for s, f in out.items() if f.is_file()}
+
+
+def keep_rekordbox_original(folder: Path, files: Dict[str, bytes], info: Dict[str, Any]) -> None:
+    """Copie l'analyse d'origine (le PREMIER état seulement : un dossier complet n'est jamais
+    réécrit). `info.json`, écrit en dernier, marque une copie complète. OSError si la copie échoue."""
+    import json
+
+    marker = folder / "info.json"
+    if marker.is_file():
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    for suffix, data in files.items():
+        target = folder / f"ANLZ{suffix}"
+        target.write_bytes(data)
+        if target.read_bytes() != data:
+            raise OSError(f"copy of {target.name} does not match")
+    marker.write_text(json.dumps(info), encoding="utf-8")
+
+
+def read_rekordbox_original(folder: Path) -> Tuple[Dict[str, bytes], Dict[str, Any]]:
+    """(fichiers d'origine par suffixe, infos). LibraryError s'il n'y a pas de copie complète."""
+    import json
+
+    try:
+        info = json.loads((folder / "info.json").read_text(encoding="utf-8"))
+        files = {s: (folder / f"ANLZ{s}").read_bytes() for s in ANLZ_SUFFIXES if (folder / f"ANLZ{s}").is_file()}
+    except (OSError, ValueError) as exc:
+        raise LibraryError("No Rekordbox analysis kept for this track.") from exc
+    if ".DAT" not in files:
+        raise LibraryError("No Rekordbox analysis kept for this track.")
+    return files, info
+
+
+def restored_files(current: Dict[str, Path], stored: Dict[str, bytes], dat: Path) -> Tuple[Dict[Path, bytes], Dict[Path, bytes]]:
+    """(à écrire, état actuel pour le retour arrière) : fichiers d'origine, avec les cues actuels."""
+    from ...analysis.anlz import with_cues_of
+
+    originals: Dict[Path, bytes] = {}
+    new: Dict[Path, bytes] = {}
+    try:
+        for suffix, data in stored.items():
+            target = current.get(suffix) or dat.with_suffix(suffix)
+            if target.is_file():
+                originals[target] = target.read_bytes()
+                data = with_cues_of(data, originals[target])
+            if originals.get(target) != data:
+                new[target] = data
+    except (OSError, ValueError) as exc:
+        raise LibraryError(f"Unreadable analysis file: {exc}") from exc
+    return new, originals
+
+
+def write_or_roll_back(new: Dict[Path, bytes], originals: Dict[Path, bytes], commit: Callable[[], None]) -> None:
+    """Écrit les fichiers puis `commit()` (la base) ; au moindre échec, les fichiers d'origine sont remis."""
+    from ...analysis.anlz import _write_atomic
+
+    try:
+        for f, data in new.items():
+            _write_atomic(f, data)
+        commit()
+    except BaseException:
+        for f in new:
+            try:
+                if f in originals:
+                    _write_atomic(f, originals[f])
+                else:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                log.error("Could not restore %s", f)
+        raise
+
+
 @dataclass(frozen=True)
 class PlaylistStats:
     """Nombre de sons, durée totale et date du dernier ajout (« modifiée le ») d'une playlist."""
@@ -363,4 +445,71 @@ class MetadataMixin:
                 except OSError:
                     log.error("Could not restore %s (copy in %s)", f, backup)
             raise
+        return self.get_track(content_id)
+
+    # ----------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
+    def native_ids(self, content_ids: Sequence[int]) -> set:
+        """Parmi ces sons, ceux dont l'analyse vient de Rekordbox (masterDbId renseigné)."""
+        ids = [int(i) for i in content_ids]
+        out: set = set()
+        for k in range(0, len(ids), 500):
+            part = ids[k:k + 500]
+            out.update(int(r[0]) for r in self._read(
+                "SELECT content_id FROM content WHERE masterDbId IS NOT NULL AND analysisDataFilePath IS NOT NULL "
+                f"AND content_id IN ({','.join('?' * len(part))})", part))
+        return out
+
+    def _rekordbox_original_dir(self, content_id: int) -> Path:
+        rows = self._read("SELECT masterDbId FROM content WHERE content_id = ?", (content_id,))
+        if not rows:
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
+        return self.backup_dir / REKORDBOX_ORIGINALS / f"{content_id}-{rows[0][0]}"
+
+    def has_rekordbox_original(self, content_id: int) -> bool:
+        """Une analyse d'origine est gardée pour ce son (« Rétablir l'analyse de Rekordbox »)."""
+        try:
+            return (self._rekordbox_original_dir(content_id) / "info.json").is_file()
+        except LibraryError:
+            return False
+
+    def rekordbox_originals(self) -> set:
+        """Sons dont l'analyse d'origine de Rekordbox est gardée (menu « Rétablir… »)."""
+        folder = self.backup_dir / REKORDBOX_ORIGINALS
+        out: set = set()
+        try:
+            for d in folder.iterdir():
+                head = d.name.split("-", 1)[0]
+                if head.isdigit() and (d / "info.json").is_file():
+                    out.add(int(head))
+        except OSError:
+            pass
+        return {c for c in out if self.has_rekordbox_original(c)}
+
+    def restore_rekordbox_analysis(self, content_id: int) -> LibraryTrack:
+        """Remet l'analyse d'origine de Rekordbox (grille, phrases, formes d'onde, BPM, tonalité). Les
+        cues actuels sont gardés ; la copie d'origine reste en place."""
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        stored, info = read_rekordbox_original(self._rekordbox_original_dir(content_id))
+        rows = self._read("SELECT analysisDataFilePath FROM content WHERE content_id = ?", (content_id,))
+        if not rows or not rows[0][0]:
+            raise LibraryError("This track is not analysed yet: run the analysis first.")
+        dat = self.absolute_path(rows[0][0])
+        new, originals = restored_files(anlz_set(dat), stored, dat)
+
+        def commit() -> None:
+            with self._write() as conn:
+                row = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
+                cols: Dict[str, Any] = {"bpmx100": int(info.get("bpmx100") or 0)}
+                key_id = info.get("key_id")
+                if key_id is None or (self._has_key and conn.execute(
+                        "SELECT 1 FROM key WHERE key_id = ?", (key_id,)).fetchone()):
+                    cols["key_id"] = key_id
+                conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)}, "
+                             "analysisDataUpdateCount = COALESCE(analysisDataUpdateCount,0) + 1 WHERE content_id = ?",
+                             (*cols.values(), content_id))
+                if row and row[0]:
+                    self._pdb_mark(TRACK_FIELDS, row[0])
+
+        write_or_roll_back(new, originals, commit)
         return self.get_track(content_id)

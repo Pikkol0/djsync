@@ -388,7 +388,9 @@ class DownloadsView(View):
         if new:
             self.ctrl.analyze(new)
         if again:
-            self.ctrl.analyze(again, force=True)
+            from ..reanalyse import analyse_again
+
+            analyse_again(self, self.ctrl, again)             # 1.4.1 (C131)
 
     def _edit_grid(self, x: LibraryTrack) -> None:
         if x.is_analysed:
@@ -401,7 +403,12 @@ class DownloadsView(View):
         if key == "grid" and x is not None and x.is_analysed:
             self._edit_grid(x)
         elif key == "an" and x is not None:                       # 1.3.2 (C58) : (ré)analyser ce son
-            self.ctrl.analyze([x.content_id], force=x.is_analysed)
+            if x.is_analysed:
+                from ..reanalyse import analyse_again
+
+                analyse_again(self, self.ctrl, [x.content_id])        # 1.4.1 (C131)
+            else:
+                self.ctrl.analyze([x.content_id])
 
     def _play_track(self, iid: str) -> None:
         shown = [r.data for r in self.an_table.displayed_rows() if r.data is not None]

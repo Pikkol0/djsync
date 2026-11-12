@@ -95,6 +95,10 @@ class Settings:
     normalize_volume: bool = False     # ancien : ignoré
     merge_undo_s: int = 10             # 1.3.2 (C82) : délai pour annuler une fusion de doublons (5, 10, 30 s)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
+    # 1.4.1 (C131, D20) : ce que « Analyser à nouveau » refait sur un son analysé par Rekordbox
+    # (grid, key, waves) ; tant que le choix n'a pas été fait (fenêtre ou Paramètres), ces sons sont laissés tels quels.
+    reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
+    reanalyze_rekordbox_asked: bool = False
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
@@ -208,7 +212,14 @@ class Settings:
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         if self.merge_undo_s not in (5, 10, 30):
             self.merge_undo_s = 10
+        parts = self.reanalyze_rekordbox if isinstance(self.reanalyze_rekordbox, list) else ["grid"]
+        self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
         return self
+
+    def native_parts(self) -> tuple:
+        """1.4.1 (C131, D20) : ce qu'une réanalyse refait sur un son de Rekordbox ; rien tant que le choix
+        n'a pas été fait."""
+        return tuple(self.reanalyze_rekordbox) if self.reanalyze_rekordbox_asked else ()
 
     # 1.3.2 (C57) : « Rétablir les réglages par défaut ». Jamais touchés : ce qui n'est pas un réglage mais
     # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).

@@ -49,8 +49,9 @@ Linux computer, nothing to install — that works on a drive exported by Rekordb
 - **Write directly into the drive's library**: `exportLibrary.db` (OneLibrary, recent players) **and**
   `export.pdb` (older players), with date added and artwork.
 - **Analyse tracks** without Rekordbox: BPM, beat grid, key (shown in Camelot notation), Pioneer waveforms
-  (ANLZ files), in the background (Library ▸ *Not analysed*). Tracks already analysed by Rekordbox are never
-  changed.
+  (ANLZ files), in the background (Library ▸ *Not analysed*). Tracks already analysed by Rekordbox are only
+  changed when you ask for it (*Analyse again*: you choose beat grid and BPM, key, waveforms; cues are never
+  touched and Rekordbox's analysis is kept, *Restore Rekordbox's analysis*).
 - **Manage the library** like a mini Rekordbox: playlists and folders, drag and drop, track order,
   harmonic filter, built-in player with waveform.
 - **Fix** a shifted beat grid (also straight from the player) and **set hot cues, loops and memories**

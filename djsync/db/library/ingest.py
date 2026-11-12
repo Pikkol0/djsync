@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
+from .metadata import NATIVE_PARTS, REKORDBOX_ORIGINALS, anlz_set, keep_rekordbox_original, write_or_roll_back
 
 
 class IngestMixin:
@@ -56,6 +57,10 @@ class IngestMixin:
                 log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
                          ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
             except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
+                from ...analysis.anlz import CuesUnreadable
+
+                if isinstance(exc, CuesUnreadable):     # 1.4.1 (B96) : rien de réécrit, ni fichiers ni base
+                    ex.analysis = None
                 log.warning("Analysis failed (%s): %s", file_path.name, exc)
                 ex.problems.append(f"analysis: {exc}")
         if self.artwork and cover and self._has_image:
@@ -326,7 +331,13 @@ class IngestMixin:
         if not row:
             raise TrackNotFoundError(f"Track not found (id {content_id}).")
         db_path, anlz, image_id, master, album_id, ftype, rate = row[0]
-        if master is not None or (anlz and not force):
+        if master is not None:            # 1.4.1 (C131, D20) : son de Rekordbox, greffe de ce qui est demandé
+            self.last_problems = []
+            parts = tuple(p for p in getattr(self, "native_parts", ()) if p in NATIVE_PARTS) if force else ()
+            if not parts or not anlz:
+                return None
+            return content_id, self._native_job(content_id, db_path, anlz, master, parts), album_id
+        if anlz and not force:
             self.last_problems = []
             return None
         file_path = self.absolute_path(db_path)
@@ -339,12 +350,78 @@ class IngestMixin:
             ex.replaced = anlz          # 1.3.0-rc.6 : ancien emplacement, effacé une fois la base à jour
         self.last_problems = list(ex.problems)
         if ex.analysis is None and not ex.jpegs:
+            if force and anlz and ex.problems:       # 1.4.1 (B96) : réanalyse refusée, l'erreur est dite
+                raise LibraryError(ex.problems[0])
             return None
         return content_id, ex, album_id
+
+    def _native_job(self, content_id: int, db_path: str, anlz: str, master: Any, parts: Tuple[str, ...]) -> _Extras:
+        """1.4.1 (C131, D20) : réanalyse d'un son de Rekordbox. Les fichiers d'analyse ne sont pas
+        reconstruits : la grille et / ou les formes d'onde y sont greffées, les cues n'y bougent pas.
+        Fichier illisible ou copie de l'original impossible : LibraryError, rien n'est écrit."""
+        from ...analysis import analyze_file
+        from ...analysis.anlz import graft
+
+        file_path = self.absolute_path(db_path)
+        if not file_path.is_file():
+            raise LibraryError(f"File not found: {file_path}")
+        dat = self.absolute_path(anlz)
+        paths = anlz_set(dat)
+        try:
+            files = {s: f.read_bytes() for s, f in paths.items()}
+            graft(files)                                  # contrôle : tout se relit, cues compris
+        except (OSError, ValueError) as exc:
+            raise LibraryError(f"Unreadable analysis file, track not re-analysed: {exc}") from exc
+        row = self._read("SELECT COALESCE(bpmx100,0), key_id FROM content WHERE content_id = ?", (content_id,))[0]
+        try:
+            keep_rekordbox_original(self.backup_dir / REKORDBOX_ORIGINALS / f"{content_id}-{master}", files,
+                                    {"path": db_path, "bpmx100": int(row[0] or 0), "key_id": row[1],
+                                     "kept": datetime.now().isoformat(timespec="seconds")})
+        except OSError as exc:
+            raise LibraryError(f"Rekordbox's analysis could not be kept, track not re-analysed: {exc}") from exc
+        try:
+            analysis = analyze_file(file_path, self.ffmpeg_location)
+            new = graft(files, beats=analysis.pqtz_beats() if "grid" in parts else None,
+                        wf=analysis.waveforms if "waves" in parts else None)
+        except LibraryError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - décodage, grille vide… : rien n'est écrit
+            raise LibraryError(f"analysis: {exc}") from exc
+        ex = _Extras(analysis=analysis, native_parts=parts)
+        ex.graft = {paths[s]: data for s, data in new.items()}
+        ex.originals = {paths[s]: files[s] for s in new}
+        log.info("Re-analysis of a Rekordbox track %s (%s): %.2f BPM, %s", file_path.name, ", ".join(parts),
+                 analysis.bpm, analysis.key.name)
+        return ex
+
+    def _apply_native(self, content_id: int, ex: _Extras) -> None:
+        """Greffe écrite avec la base (retour arrière des fichiers si la base refuse). masterDbId, cues
+        et chemin de l'analyse ne changent pas."""
+        def commit() -> None:
+            with self._write() as conn:
+                cols: Dict[str, Any] = {}
+                if "grid" in ex.native_parts and ex.analysis.bpm > 0:
+                    cols["bpmx100"] = ex.analysis.bpmx100
+                if "key" in ex.native_parts and ex.analysis.key.name:
+                    kid = self._key_id_for(conn, ex.analysis.key.name)
+                    if kid is not None:
+                        cols["key_id"] = kid
+                if not cols and not ex.graft:
+                    return
+                sets = [f"{k} = ?" for k in cols] + ["analysisDataUpdateCount = COALESCE(analysisDataUpdateCount,0) + 1"]
+                conn.execute(f"UPDATE content SET {', '.join(sets)} WHERE content_id = ?", (*cols.values(), content_id))
+                path = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
+                if path and path[0]:
+                    self._pdb_mark(TRACK_FIELDS, path[0])
+
+        write_or_roll_back(ex.graft or {}, ex.originals, commit)
 
     def _apply_analysis(self, job: Tuple[int, _Extras, Any]) -> None:
         """Phase courte (transaction) : colonnes de la base + miroir export.pdb."""
         content_id, ex, album_id = job
+        if ex.graft is not None:                     # 1.4.1 (C131) : son de Rekordbox
+            self._apply_native(content_id, ex)
+            return
         try:
             with self._write() as conn:
                 extra = self._extra_columns(conn, ex, album_id)
@@ -411,7 +488,8 @@ class IngestMixin:
         """Analyse (ou réanalyse avec force=True) un son déjà présent : BPM, tonalité, ANLZ, pochette.
 
         Sans `force`, un son déjà analysé (par Rekordbox ou DJSync) n'est pas modifié. Avec `force`,
-        seuls les sons ajoutés par DJSync (masterDbId vide) sont réanalysés : jamais un son natif.
+        un son de DJSync est réanalysé en entier ; un son de Rekordbox (masterDbId renseigné) seulement
+        pour les parties de `native_parts` (1.4.1, D20 : vide = laissé tel quel), greffées dans ses fichiers.
         Toujours exécutée, même si l'analyse à l'ajout est désactivée (demande explicite)."""
         job = self._analysis_job(content_id, force)
         if job is not None:

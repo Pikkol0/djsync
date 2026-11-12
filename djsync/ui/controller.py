@@ -620,6 +620,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                     ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
+                lib.native_parts = self.settings.native_parts()
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -632,6 +633,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
+            lib.native_parts = self.settings.native_parts()
             try:                                      # 1.3.0 (T01) : utile pour les retours « platine »
                 from ..db.usb import drive_filesystem
 
@@ -656,6 +658,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._emit("drive")
             self._rekordbox_warned = False
             self._repair_pdb(self.library)
+            self.refresh_rekordbox_originals()
 
         def err(exc: BaseException) -> None:
             self._connecting = False
@@ -1042,6 +1045,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation
             self.library.auto_cue = s.auto_cue
+            self.library.native_parts = s.native_parts()
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         s.save()

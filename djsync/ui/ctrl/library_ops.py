@@ -494,7 +494,8 @@ class LibraryOpsMixin:
                 on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False,
                 expect: Sequence[int] = ()) -> Optional[TaskHandle]:
         """Met des sons dans la file d'analyse (BPM / grille / tonalité / formes d'onde) et la lance si
-        elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés.
+        elle ne tourne pas. Renvoie la file (annulable). Avec `force`, les sons analysés par Rekordbox suivent
+        le choix mémorisé (1.4.1, D20) : passer par ui.reanalyse.analyse_again pour le demander.
         `expect` (1.4.0-rc.5, C161) : téléchargements dont le son sera analysé, comptés tout de suite."""
         lib = self.library
         if lib is None:
@@ -577,6 +578,8 @@ class LibraryOpsMixin:
             q.finished, q.current = True, ""
             if self.library is lib:
                 self.service.refresh_library()
+                if q.forced:
+                    self.refresh_rekordbox_originals()      # 1.4.1 (C131)
             if result is not None:
                 ok_n, skipped, failed = result
                 text = t("msg.analysis_done", done=ok_n, skipped=skipped, failed=failed)
@@ -708,6 +711,50 @@ class LibraryOpsMixin:
             self.analysis.cancel()
             self.message("info", t("analysis.stopping"))
             self._emit("analysis")
+
+    # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
+    def native_ids(self, content_ids: Sequence[int], ok: Callable[[set], None]) -> None:
+        """ok(sons de la liste dont l'analyse vient de Rekordbox)."""
+        lib = self.library
+        if lib is None or not hasattr(lib, "native_ids"):
+            ok(set())
+            return
+        ids = list(content_ids)
+        self.dispatcher.submit(lambda: lib.native_ids(ids), ok, lambda _e: ok(set()), pool="db")
+
+    def set_native_parts(self, parts: Sequence[str]) -> None:
+        """Choix « que réanalyser sur les sons analysés par Rekordbox » : mémorisé et appliqué."""
+        s = self.settings
+        s.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]
+        s.reanalyze_rekordbox_asked = True
+        s.save()
+        if self.library is not None:
+            self.library.native_parts = s.native_parts()
+
+    @property
+    def rekordbox_originals(self) -> set:
+        """Sons dont l'analyse d'origine de Rekordbox est gardée (tenu à jour en arrière-plan)."""
+        return self.__dict__.setdefault("_rekordbox_originals", set())
+
+    def refresh_rekordbox_originals(self) -> None:
+        lib = self.library
+        if lib is None or not hasattr(lib, "rekordbox_originals"):
+            self.__dict__["_rekordbox_originals"] = set()
+            return
+
+        def done(found: Any) -> None:
+            if self.library is lib:
+                self.__dict__["_rekordbox_originals"] = set(found or ())
+
+        self.dispatcher.submit(lib.rekordbox_originals, done, lambda _e: None, pool="db")
+
+    def restore_rekordbox_analysis(self, content_id: int, ok: Optional[Callback] = None) -> None:
+        def done(result: Any) -> None:
+            self.refresh_rekordbox_originals()
+            if ok:
+                ok(result)
+
+        self._write(lambda lib: lib.restore_rekordbox_analysis(content_id), done, t("msg.rekordbox_restored"))
 
     def analyze_missing(self, ok: Optional[Callback] = None) -> None:
         """Compatibilité V1.1-A4 : analyse tous les sons DJSync non analysés."""

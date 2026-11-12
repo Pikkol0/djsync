@@ -1171,6 +1171,19 @@ class LibraryView(View):
 
         AnalysisDialog(self, self.ctrl, tracks)
 
+    def _analyse_again(self, x: LibraryTrack) -> None:
+        """1.4.1 (C131) : clic droit sur un son ; fenêtre de choix la première fois pour un son de Rekordbox."""
+        from ..reanalyse import analyse_again
+
+        analyse_again(self, self.ctrl, [x.content_id])
+
+    def _restore_rekordbox(self, x: LibraryTrack) -> None:
+        from ..dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("reanalyse.restore"), t("reanalyse.restore_confirm", title=x.title),
+                      lambda: self.ctrl.restore_rekordbox_analysis(x.content_id),
+                      confirm_text=t("reanalyse.restore"))
+
     def _analyse_all(self) -> None:
         todo = self._unanalysed()
         if todo:
@@ -1318,6 +1331,10 @@ class LibraryView(View):
         if len(tracks) == 1:
             from ..reveal import reveal_entry
 
+            if tracks[0].is_analysed:                                             # 1.4.1 (C131, D20)
+                entries.append((t("player.analyse_again"), lambda: self._analyse_again(tracks[0]), "wave"))
+                if tracks[0].content_id in self.ctrl.rekordbox_originals:
+                    entries.append((t("reanalyse.restore"), lambda: self._restore_rekordbox(tracks[0]), "back"))
             entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
                         (t("action.edit_metadata"), self._edit_metadata, "edit"),
                         reveal_entry(self.ctrl, tracks[0])]                       # 1.4.0-rc.2 (C139)

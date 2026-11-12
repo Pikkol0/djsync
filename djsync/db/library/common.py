@@ -152,6 +152,10 @@ class _Extras:
     written: List[Path] = field(default_factory=list)   # fichiers créés (supprimés si la base refuse)
     cue_ms: Optional[int] = None            # V0.5.0 : mémoire automatique (premier temps fort)
     replaced: Optional[str] = None          # 1.3.0-rc.6 : ancien …/ANLZnnnn.DAT, remplacé par anlz_path
+    # 1.4.1 (C131) : son analysé par Rekordbox, greffe dans SES fichiers (écrite avec la base)
+    native_parts: Tuple[str, ...] = ()      # parmi "grid", "key", "waves"
+    graft: Optional[Dict[Path, bytes]] = None           # fichiers à réécrire (None : pas une greffe)
+    originals: Dict[Path, bytes] = field(default_factory=dict)   # pour le retour arrière
 
 
 @dataclass
