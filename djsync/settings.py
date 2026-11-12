@@ -144,7 +144,7 @@ class Settings:
     settings_version: int = 0          # migrations des réglages enregistrés
     # ---- 1.3.2
     welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
-    diag_tab: str = "missing"          # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic
+    diag_tab: str = "one"              # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic ; 1.4.1 (C140) : « Un son »
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
 
     @classmethod

@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
+    QApplication, QFrame, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
 )
 
 from .. import i18n
@@ -38,7 +38,7 @@ from .views.import_view import ImportView
 from .views.library_view import LibraryView
 from .views.search_view import SearchView
 from .views.settings_view import SettingsView
-from .widgets import button, hbox, icon_button, icon_label, label, panel, restyle, vbox
+from .widgets import ElidedLabel, button, hbox, icon_button, icon_label, label, panel, restyle, vbox
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,18 @@ TABS = [  # (clé, clé i18n, icône, classe)
     ("settings", "tab.settings", "settings", SettingsView),
     ("feedback", "tab.feedback", "chat", FeedbackView),         # 1.2.1 (C18)
 ]
+# 1.4.1 (C140, D19) : entrées du volet ; « Diagnostic » n'est pas une vue (il ouvre ses pages, onglets en haut).
+# Les raccourcis Ctrl+1…8 restent ceux des vues (TABS) : l'entrée du Diagnostic ne décale rien.
+NAV = [(k, lbl, icon) for k, lbl, icon, _cls in TABS[:5]] + [("diagnostic", "nav.diagnostic", "diagnostic")] \
+    + [(k, lbl, icon) for k, lbl, icon, _cls in TABS[5:]]
 _ROLE = {"info": "dim", "ok": "accent", "warn": "warn", "error": "err"}
+
+
+def _safe(fn: Callable[[], Any]) -> None:
+    try:
+        fn()
+    except RuntimeError:                  # widget détruit (interface reconstruite)
+        pass
 
 
 def status_role(kind: str) -> str:
@@ -124,7 +135,7 @@ def qt_app() -> QApplication:
     return app  # type: ignore[return-value]
 
 
-DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog", "ImproveDialog")   # 1.3.1 (C41), B58
+DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog", "ImproveDialog", "OneTrackPage")   # 1.3.1 (C41), B58
 
 
 class DJSyncApp(QMainWindow):
@@ -369,6 +380,7 @@ class DJSyncApp(QMainWindow):
         outer.addWidget(self.player_bar)
         self.setCentralWidget(central)
         self._compact = None
+        self._card_lines = None                              # 1.4.1 (C140) : décidé de nouveau
         self._update_compact()
 
     def _build_sidebar(self) -> QWidget:
@@ -383,17 +395,42 @@ class DJSyncApp(QMainWindow):
         head.addWidget(self.logo_text)
         head.addStretch(1)
         lay.addLayout(head)
-        lay.addSpacing(theme.px(18))
+        lay.addSpacing(theme.px(12))                         # 1.4.1 (C140) : 18 → 12, place pour les entrées
 
-        for key, text_key, icon_name, _cls in TABS:
-            b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
+        # 1.4.1 (C140, socle du volet, D19) : les entrées sont dans une zone qui défile quand la hauteur manque
+        # (petit écran, zoom, tâches en cours) au lieu d'être écrasées ; cartes et bas du volet restent visibles.
+        from PySide6.QtWidgets import QScrollArea
+
+        area = QScrollArea()
+        area.setFrameShape(QFrame.NoFrame)
+        area.setWidgetResizable(True)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setObjectName("navArea")
+        inner = QWidget()
+        inner.setObjectName("navInner")
+        area.viewport().setObjectName("navViewport")
+        area.setStyleSheet("#navArea, #navViewport, #navInner { background: transparent; }")
+        nav_lay = vbox(inner, spacing=theme.px(3))
+        for key, text_key, icon_name in NAV:
+            if key == "diagnostic":                       # 1.4.1 (C140) : une entrée, sans sous-entrées
+                b = button(t(text_key), lambda: self.open_diagnostic(), kind="nav")
+            else:
+                b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
             b.setCheckable(True)
             b.setIcon(qicon(icon_name, 18, theme.DIM))
             b.setIconSize(QSize(theme.px(18), theme.px(18)))
             b._icon_name = icon_name  # type: ignore[attr-defined]
-            lay.addWidget(b)
+            nav_lay.addWidget(b)
             self._nav[key] = b
-        lay.addStretch(1)
+        nav_lay.addStretch(1)
+        area.setWidget(inner)
+        area.setMinimumHeight(theme.px(40))
+        from PySide6.QtWidgets import QSizePolicy
+
+        area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)  # prend la place qui reste, défile sinon
+        self.nav_area, self.nav_inner = area, inner
+        lay.addWidget(area, 1)
+        self.ctrl.on("diag_counts", self._badge)
 
         # ---- tâches longues (visible depuis tous les onglets) : 1.4.1 (C145), une carte par tâche en cours du
         # registre `ctrl.tasks` (analyse, téléchargements, Doublons, Uniformiser…), qui remplace la carte
@@ -418,6 +455,9 @@ class DJSyncApp(QMainWindow):
         uh.addWidget(self.usb_icon)
         self.usb_title = label(t("nav.active_drive").upper(), "section")
         uh.addWidget(self.usb_title, 1)
+        self.usb_line = ElidedLabel("", "accent")        # 1.4.1 (C140) : carte en une ligne (nom · libre)
+        uh.addWidget(self.usb_line, 1)
+        self.usb_line.hide()
         self.eject_btn = icon_button("eject", self.ctrl.eject, t("eject.hint"), size=12)
         self.eject_btn.hide()
         uh.addWidget(self.eject_btn)
@@ -439,12 +479,18 @@ class DJSyncApp(QMainWindow):
         self.help_btn.setIcon(qicon("help", 18, theme.DIM))
         self.help_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         lay.addSpacing(theme.px(4))
-        lay.addWidget(self.help_btn)
         # 1.2.0-rc.4 (B09) : la barre se replie seule quand la fenêtre est étroite ; ce bouton la
         # déplie ou la replie à la demande (choix retenu dans les réglages).
         self.fold_btn = button("", self._toggle_sidebar, kind="nav")
         self.fold_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
-        lay.addWidget(self.fold_btn)
+        # 1.4.1 (C140, socle) : Aide et Réduire sur une ligne (l'une sous l'autre en volet replié, faute de largeur)
+        from PySide6.QtWidgets import QBoxLayout
+
+        self.bottom_row = QBoxLayout(QBoxLayout.LeftToRight)
+        self.bottom_row.setSpacing(theme.px(3))
+        self.bottom_row.addWidget(self.help_btn, 1)
+        self.bottom_row.addWidget(self.fold_btn)
+        lay.addLayout(self.bottom_row)
         return bar
 
     def _toggle_sidebar(self) -> None:
@@ -506,6 +552,8 @@ class DJSyncApp(QMainWindow):
         strip = getattr(self, "task_strip", None)
         if strip is not None:
             strip.refresh(bool(self._compact), getattr(self, "_card_margin", None))
+            if not getattr(self, "_fitting", False):
+                QTimer.singleShot(0, self._fit_sidebar)      # C140 : une carte de plus ou de moins
 
     def _open_task_page(self, key: str) -> None:
         """→ d'une tâche du volet : une vue (Téléchargements…), la page Uniformiser en cours, ou un outil du
@@ -527,7 +575,7 @@ class DJSyncApp(QMainWindow):
         if compact == self._compact:
             return
         self._compact = compact
-        labels = {k: l for k, l, *_ in TABS}
+        labels = {k: l for k, l, _i in NAV}
         # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
         square = "padding: 0px; text-align: center;" if compact else ""
         # 1.4.0-rc.6 (B94) : volet replié borné : jamais plus petit qu'à 100 % (à 80 %, anneaux coupés et
@@ -544,10 +592,15 @@ class DJSyncApp(QMainWindow):
             b.setIconSize(QSize(icon, icon))
         for b in (self.help_btn, self.fold_btn):
             b.setStyleSheet(square)
+        from PySide6.QtWidgets import QBoxLayout
+
+        self.bottom_row.setDirection(QBoxLayout.TopToBottom if compact else QBoxLayout.LeftToRight)
         from .mini_ring import ring_px
 
         margin, card = cpx(10), cpx(1 if compact else 10)
         self.sidebar.layout().setContentsMargins(margin, margin, margin, margin)
+        # C140 : volet replié, pas de barre de défilement (elle mangerait la largeur des icônes) : molette seule
+        self.nav_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff if compact else Qt.ScrollBarAsNeeded)
         self.usb_ring.rescale()
         self.task_strip.rescale()                                          # 1.4.1 (C145) : un anneau par carte
         # largeur : au moins un anneau dans sa carte, avec les marges (jamais coupé)
@@ -558,15 +611,85 @@ class DJSyncApp(QMainWindow):
         self.logo_text.setVisible(not compact)
         self.help_btn.setText("" if compact else t("help.button").replace("&", "&&"))
         self.fold_btn.setIcon(qicon("go" if compact else "back", 18, theme.DIM))
-        self.fold_btn.setText("" if compact else t("nav.collapse"))
-        self.fold_btn.setToolTip(t("nav.expand") if compact else "")
+        self.fold_btn.setText("")                                       # C140 : icône seule, à droite de l'Aide
+        self.fold_btn.setToolTip(t("nav.expand") if compact else t("nav.collapse"))
+        self.fold_btn.setAccessibleName(t("nav.expand") if compact else t("nav.collapse"))
         for w in (self.usb_title, self.usb_label, self.usb_free, self.usb_icon):
             w.setVisible(not compact)
+        if compact:
+            self.usb_line.hide()
         self.usb_ring.setVisible(compact)                                  # B73
         self.usb_box.layout().setContentsMargins(*([card] * 4))                            # C161
         self._card_margin = card                                           # C145 : cartes des tâches
+        # C140 : les entrées gardent leur hauteur dans la zone qui défile (jamais écrasées)
+        self.nav_inner.setMinimumHeight(self.nav_inner.layout().sizeHint().height())
         self._analysis_changed()
         self._drive_changed()
+        self._badge()
+
+    # ------------------------------------------------- 1.4.1 (C140, D19) : socle du volet
+    def _sidebar_need(self) -> int:
+        """Hauteur que demanderait le volet avec toutes ses entrées et les cartes entières."""
+        lay = self.sidebar.layout()
+        m = lay.contentsMargins()
+        width = max(1, self.sidebar.width() - m.left() - m.right())
+        total, items = m.top() + m.bottom(), 0
+        for i in range(lay.count()):
+            item = lay.itemAt(i)
+            w = item.widget()
+            if w is not None and w.isHidden():
+                continue
+            if w is self.nav_area:
+                h = self.nav_inner.sizeHint().height()
+            elif item.hasHeightForWidth():
+                h = item.heightForWidth(width)
+            else:
+                h = item.sizeHint().height()
+            total += h
+            items += 1
+        return total + lay.spacing() * max(0, items - 1)
+
+    def _fit_sidebar(self) -> None:
+        """Cartes des tâches et de la bibliothèque en une ligne quand la hauteur manque (détail dans la
+        bulle) ; la zone des entrées défile ensuite si cela ne suffit pas. La décision ne dépend que de la
+        hauteur demandée par les cartes entières : aucun aller-retour d'un mode à l'autre."""
+        if getattr(self, "_fitting", False) or not self._nav or self._compact is None:
+            return
+        self._fitting = True
+        try:
+            line = False
+            if not self._compact:
+                self._set_card_lines(False)
+                line = self._sidebar_need() > self.sidebar.height()
+            self._set_card_lines(line)
+        finally:
+            self._fitting = False
+
+    def _set_card_lines(self, line: bool) -> None:
+        if line == getattr(self, "_card_lines", None):
+            return
+        self._card_lines = line
+        self.task_strip.refresh(line=line)
+        self._drive_changed()
+        self._relayout_sidebar()
+        QTimer.singleShot(0, self._relayout_sidebar)
+
+    def _relayout_sidebar(self) -> None:
+        """Tailles gardées en cache par Qt après le passage d'une forme de carte à l'autre : à refaire, sinon
+        les cartes gardent la hauteur de leur forme entière."""
+        try:
+            for w in list(self.task_strip.cards.values()) + [self.task_strip.inner, self.task_strip, self.usb_box]:
+                if w.layout() is not None:
+                    w.layout().invalidate()
+                w.updateGeometry()
+            self.sidebar.layout().invalidate()
+            self.sidebar.layout().activate()
+        except RuntimeError:                       # interface reconstruite entre-temps
+            pass
+
+    @property
+    def card_lines(self) -> bool:
+        return bool(getattr(self, "_card_lines", False))
 
     def resizeEvent(self, e: Any) -> None:     # noqa: N802
         super().resizeEvent(e)
@@ -574,13 +697,27 @@ class DJSyncApp(QMainWindow):
             self._place_toast()
         if self._nav:
             self._update_compact()
+            QTimer.singleShot(0, self._fit_sidebar)          # C140 : après la mise en page de la fenêtre
 
     # --------------------------------------------------------------------- navigation
     def _nav_text(self, key: str, text_key: str) -> str:
         text = t(text_key).replace("&", "&&")          # « & » affiché tel quel (pas de raccourci Qt)
         if key == "downloads" and self.ctrl.active_jobs:
             text += f"  ({self.ctrl.active_jobs})"
+        if key == "diagnostic":
+            n = self.diag_total()
+            if n:
+                text += f"  ({n})"
         return text
+
+    def diag_total(self) -> Optional[int]:
+        """1.4.1 (C140) : somme des compteurs déjà connus du Diagnostic (None si aucun) ; jamais de calcul
+        lancé pour ce chiffre."""
+        try:
+            known = [n for n in self.ctrl.diag_counts.values() if n is not None]
+        except Exception:  # noqa: BLE001
+            return None
+        return sum(known) if known else None
 
     def show_view(self, key: str) -> None:
         if key not in self.views:
@@ -593,6 +730,7 @@ class DJSyncApp(QMainWindow):
             b.setChecked(active)
             b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
         self.stack.setCurrentWidget(self.views[key])
+        self._reveal_nav(key)
         self.views[key].on_show()
         self._badge()
 
@@ -601,9 +739,17 @@ class DJSyncApp(QMainWindow):
         return self._current
 
     def _badge(self) -> None:
+        if "diagnostic" in self._nav:                      # 1.4.1 (C140) : compteur aussi dans la bulle (replié)
+            n = self.diag_total()
+            tip = t("nav.diagnostic") + (f" ({n})" if n else "")
+            try:
+                self._nav["diagnostic"].setToolTip(tip if self._compact else "")
+            except RuntimeError:                           # ancienne interface (changement de langue)
+                return
         if self._compact or "downloads" not in self._nav:
             return
         self._nav["downloads"].setText(self._nav_text("downloads", "tab.downloads"))
+        self._nav["diagnostic"].setText(self._nav_text("diagnostic", "nav.diagnostic"))
 
     def _drive_changed(self) -> None:
         drive = self.ctrl.drive
@@ -632,11 +778,22 @@ class DJSyncApp(QMainWindow):
             self.usb_label.setText(t("nav.no_drive"))
             self.usb_label.setProperty("role", "dim")
         restyle(self.usb_label)
+        line = self.card_lines and not self._compact                     # 1.4.1 (C140) : carte en une ligne
+        self.usb_title.setVisible(not self._compact and not line)
+        self.usb_label.setVisible(not self._compact and not line)
+        self.usb_line.setVisible(line)
+        if line:
+            free = self.usb_free.text() if show_bar else ""
+            self.usb_line.setText(self.usb_label.text() + (f"  ·  {free}" if free else ""))
+            self.usb_line.setProperty("role", self.usb_label.property("role"))
+            restyle(self.usb_line)
         self.eject_btn.setVisible(bool(drive) and not local and not self._compact)
-        self.usb_bar.setVisible(show_bar and not self._compact)
-        self.usb_free.setVisible(show_bar and not self._compact)
+        self.usb_bar.setVisible(show_bar and not self._compact and not line)
+        self.usb_free.setVisible(show_bar and not self._compact and not line)
         self.usb_box.setToolTip(str(drive) if drive else self.usb_label.text())
         tip = self.usb_label.text() + (f" · {self.usb_free.text()}" if show_bar else "")      # B73
+        if line:
+            self.usb_box.setToolTip(tip)
         self.usb_ring.set(self.usb_bar.value() / 1000 if show_bar else 0.0,
                           "computer" if local else "usb", tip)
         for key in ("search", "hq"):                   # 1.4.1 (C133) : la page Haute qualité aussi
@@ -767,11 +924,11 @@ class DJSyncApp(QMainWindow):
             return
         s = self.ctrl.settings
         if tab is None:
-            tab = getattr(s, "diag_tab", "") or "missing"
+            tab = getattr(s, "diag_tab", "") or "one"
         from .diag_tabs import TABS
 
         if tab not in TABS:                 # 1.4.0-rc.2 (B58) : une seule liste, « improve » compris
-            tab = "missing"
+            tab = "one"
         if getattr(s, "diag_tab", None) != tab:
             s.diag_tab = tab
             self.ctrl.save_settings_quiet()
@@ -788,6 +945,8 @@ class DJSyncApp(QMainWindow):
                 from .diagnostic_dialog import DiagnosticDialog as page_cls
             elif tab == "improve":                          # 1.4.0 (C47)
                 from .improve_dialog import ImproveDialog as page_cls
+            elif tab == "one":                              # 1.4.1 (C140) : « Un son »
+                from .one_track_page import OneTrackPage as page_cls
             else:
                 from .missing_dialog import MissingFilesDialog as page_cls
             # 1.3.2 (C95), étendu à tous les onglets en 1.4.0-rc.2 (B63) : une page encore ouverte revient
@@ -829,8 +988,9 @@ class DJSyncApp(QMainWindow):
         from .duplicates_dialog import DuplicatesDialog
         from .improve_dialog import ImproveDialog
         from .missing_dialog import MissingFilesDialog
+        from .one_track_page import OneTrackPage
 
-        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog, ImproveDialog)   # B58 : Améliorer
+        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog, ImproveDialog, OneTrackPage)   # B58, C140
         return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
 
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages
@@ -975,10 +1135,23 @@ class DJSyncApp(QMainWindow):
         self.show_view(target)
 
     def _show_page(self, page: QWidget) -> None:
-        for b in self._nav.values():
-            b.setChecked(False)
+        from .diag_tabs import DiagTabs
+
+        diag = page.findChild(DiagTabs) is not None        # 1.4.1 (C140) : toute page du Diagnostic
+        for k, b in self._nav.items():
+            on = diag and k == "diagnostic"
+            b.setChecked(on)
+            b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if on else theme.DIM))  # type: ignore[attr-defined]
         self.stack.setCurrentWidget(page)
+        if diag:
+            self._reveal_nav("diagnostic")
         page.setFocus()
+
+    def _reveal_nav(self, key: str) -> None:
+        """1.4.1 (C140) : l'entrée cochée reste visible dans la zone des entrées qui défile."""
+        b, area = self._nav.get(key), getattr(self, "nav_area", None)
+        if b is not None and area is not None:
+            QTimer.singleShot(0, lambda: _safe(lambda: area.ensureWidgetVisible(b, 0, theme.px(4))))
 
     def _grid_closed(self) -> None:
         ed, self.grid_editor = self.grid_editor, None

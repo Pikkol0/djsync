@@ -17,8 +17,10 @@ def test_b58_every_diagnostic_tab_opens_its_own_page(demo, monkeypatch):  # noqa
     from djsync.ui.improve_dialog import ImproveDialog
     from djsync.ui.missing_dialog import MissingFilesDialog
 
+    from djsync.ui.one_track_page import OneTrackPage
+
     kinds = {"missing": MissingFilesDialog, "dup": DuplicatesDialog, "quality": DiagnosticDialog,
-             "improve": ImproveDialog}
+             "improve": ImproveDialog, "one": OneTrackPage}                    # 1.4.1 (C140) : « Un son »
     for tab in diag_tabs.TABS:
         if tab == "uniformize":
             continue

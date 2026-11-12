@@ -17,7 +17,7 @@ from . import theme
 from .icons import qicon
 from .mini_ring import MiniRing
 from .tasks import FAILED, PAUSED, STOPPING, Task, TaskRegistry
-from .widgets import clickable, hbox, icon_button, label, restyle, vbox
+from .widgets import ElidedLabel, clickable, hbox, icon_button, label, restyle, vbox
 
 MAX_CARDS = 3                    # au-delà, la zone des cartes défile
 DEFAULT_PAGE = "downloads"       # page ouverte par une carte quand la tâche n'en donne pas
@@ -45,6 +45,15 @@ def ring_tip(task: Task) -> str:
     return (t(task.title) + " " + _counts(task)).strip() + paused
 
 
+def line_text(task: Task, title: str) -> str:
+    """1.4.1 (C140) : carte en une ligne : « 12 / 40  ANALYSE » (le chiffre d'abord : c'est lui qui bouge, et il
+    reste lisible quand le titre est coupé), « · En pause », ou l'erreur."""
+    if task.state == FAILED:
+        return f"{title.upper()}  ·  {task.error or t('task.failed')}"
+    paused = f"  ·  {t('task.paused')}" if task.state == PAUSED else ""
+    return f"{_counts(task)}  {title.upper()}".strip() + paused
+
+
 class TaskCard(QFrame):
     """Carte d'une tâche (rôle « panel », comme la carte de l'analyse d'avant)."""
 
@@ -57,6 +66,11 @@ class TaskCard(QFrame):
         head = hbox(spacing=theme.px(4))
         self.title = label("", "section", wrap=True)                    # titre long : à la ligne, jamais coupé
         head.addWidget(self.title, 1)
+        # 1.4.1 (C140, socle du volet) : carte en une ligne quand la hauteur manque (« ANALYSE  12 / 40 »),
+        # détail dans la bulle, → ⏸ ⏹ gardés
+        self.line = ElidedLabel("", "section")
+        head.addWidget(self.line, 1)
+        self.line.hide()
         self.open = icon_button("go", lambda: strip.open_task(self.task), t("task.open"), size=12)
         self.pause = icon_button("pause", self._pause, t("task.pause"), size=12)
         self.stop = icon_button("stop", self._stop, t("task.stop"), size=12)
@@ -96,17 +110,22 @@ class TaskCard(QFrame):
             self.strip.open_task(task)
 
     # ------------------------------------------------------------------ affichage
-    def update(self, task: Task, compact: bool, margin: int) -> None:
+    def update(self, task: Task, compact: bool, margin: int, line: bool = False) -> None:
         self.task = task
-        self.layout().setContentsMargins(margin, margin, margin, margin)
+        line = line and not compact
+        vm = max(1, margin * 6 // 10) if line else margin
+        self.layout().setContentsMargins(margin, vm, margin, vm)
         failed = task.state == FAILED
         full = not compact
-        self.title.setVisible(full)
-        self.label.setVisible(full)
+        self.title.setVisible(full and not line)
+        self.label.setVisible(full and not line)
+        self.line.setVisible(line)
         self.ring.setVisible(compact)
         title = t(task.stopping_title) if task.state == STOPPING else t(task.title)
         self.title.setText("" if compact else title.upper())
         self.label.setText("" if compact else card_text(task))
+        if line:
+            self.line.setText(line_text(task, title))
         role = "err" if failed else "dim"
         if role != self._role:
             self._role = role
@@ -117,7 +136,7 @@ class TaskCard(QFrame):
         else:
             self.bar.setRange(0, 1000)
             self.bar.setValue(int(1000 * task.fraction))
-        self.bar.setVisible(full and not failed)
+        self.bar.setVisible(full and not failed and not line)
         active = task.active and full
         self.open.setVisible(active and bool(task.open))
         self.pause.setVisible(active and task.can_pause)
@@ -130,7 +149,10 @@ class TaskCard(QFrame):
             self._paused_icon = paused
             self.pause.setIcon(qicon("play" if paused else "pause", 12, theme.TEXT))
         self.pause.setToolTip(t("task.resume") if paused else t("task.pause"))
-        self.setToolTip(t("task.failed_tip") if failed else t(task.open_tip if task.open else "nav.open_activity"))
+        tip = t("task.failed_tip") if failed else t(task.open_tip if task.open else "nav.open_activity")
+        if line:                                          # le détail caché passe dans la bulle
+            tip = f"{title}\n{card_text(task)}\n{tip}"
+        self.setToolTip(tip)
         if compact:
             self.ring.set(task.fraction, task.icon, ring_tip(task), theme.ERR if failed else theme.ACCENT)
 
@@ -143,6 +165,7 @@ class TaskStrip(QWidget):
         self.registry = registry
         self._opener = opener
         self.compact = False
+        self.line = False                    # 1.4.1 (C140) : cartes en une ligne (hauteur du volet trop juste)
         self.margin = theme.px(10)
         lay = vbox(self, spacing=0)
         self.inner = QWidget()
@@ -181,9 +204,12 @@ class TaskStrip(QWidget):
             self.cards_lay.insertWidget(i, c)
 
     # ------------------------------------------------------------------ affichage
-    def refresh(self, compact: Optional[bool] = None, margin: Optional[int] = None) -> None:
+    def refresh(self, compact: Optional[bool] = None, margin: Optional[int] = None,
+                line: Optional[bool] = None) -> None:
         if compact is not None:
             self.compact = bool(compact)
+        if line is not None:
+            self.line = bool(line)
         if margin is not None:
             self.margin = margin
         tasks = self.registry.tasks()
@@ -199,7 +225,7 @@ class TaskStrip(QWidget):
         self._reorder([x.key for x in tasks])
         for x in tasks:
             c = self.cards[x.key]
-            c.update(x, self.compact, self.margin)
+            c.update(x, self.compact, self.margin, self.line)
             c.show()
         self._set_scrolling(len(tasks) > MAX_CARDS)
         # volet replié : pas de barre de défilement (elle couperait les anneaux) ; molette seulement

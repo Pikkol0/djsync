@@ -125,6 +125,7 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     ctrl = demo.ctrl
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].connected)
+    ctrl.settings.diag_tab = "missing"          # 1.4.1 (C140) : sans historique, « Un son » (test_v141_c140)
     home.diagnose(home._summaries[0].drive, True)
     assert pump(demo, 2, lambda: find(demo, MissingFilesDialog) is not None)
     missing = find(demo, MissingFilesDialog)

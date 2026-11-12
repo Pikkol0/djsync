@@ -128,6 +128,36 @@ class CamelotPill(QLabel):
             self.hide()
 
 
+class ElidedLabel(QLabel):
+    """1.4.1 (C140, socle du volet) : libellé sur une seule ligne, coupé par « … » quand la place manque
+    (le texte entier reste dans `full_text`, et dans la bulle si aucune autre n'est donnée)."""
+
+    def __init__(self, text: str = "", role: str = "", parent: Any = None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QSizePolicy
+
+        if role:
+            self.setProperty("role", role)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.full_text = ""
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 (API Qt)
+        self.full_text = text or ""
+        self._elide()
+
+    def _elide(self) -> None:
+        w = max(1, self.width())
+        QLabel.setText(self, self.fontMetrics().elidedText(self.full_text, Qt.ElideRight, w))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(theme.px(20), super().minimumSizeHint().height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        self._elide()
+
+
 class _ClickFilter(QObject):
     """1.4.0-rc.4 (C153) : rend un cadre cliquable (clic gauche relâché dessus)."""
 
