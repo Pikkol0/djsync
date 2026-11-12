@@ -43,3 +43,12 @@ scénarios quand elles seront codées.
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
 | SIT-1 | Auteur | Navigateur | (**C179**) Après la fusion sur main : ouvrir https://pikkol0.github.io/djsync/ , puis `#fr`, puis le bouton de langue ; sur ordinateur et sur téléphone. | Page détaillée : fonctions, captures, installation par système, questions, limites. Navigateur en français : la page s'ouvre en français. Rien de coupé sur téléphone, liens de téléchargement justes. |
+
+## Tâches longues dans le volet (C145)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| TAC-1 | Tous | Windows, macOS, Linux | (**C145**, non-régression) Lancer une analyse, puis des téléchargements pendant qu'elle tourne ; replier le volet ; l'arrêter par ■ ; recommencer avec seulement des téléchargements. | Carte du volet strictement comme en 1.4.0 : « ANALYSE » (« 3 / 10 · son », → et ■), « ACTIVITÉ » à deux, « TÉLÉCHARGEMENTS » seuls ; volet replié : deux anneaux ; ■ → « ARRÊT… » ; la carte disparaît dès la fin. |
+| TAC-2 | Tous | Windows, macOS, Linux | (**C145**) Diagnostic ▸ Doublons sur une bibliothèque qui a plusieurs groupes : revenir à l'Accueil pendant la vérification ; ⏸, attendre, ⏸ (reprendre), puis ⏹ ; enfin → . | Ligne « Vérification des doublons 4 / 20 » dans le volet. ⏸ : le groupe en cours finit, aucun autre ne commence (« En pause ») ; reprise : ça repart. ⏹ : fin après le groupe en cours, « ✓ fini » 4 s puis la ligne part ; les groupes non vérifiés restent dans la liste (« Vérifier maintenant » marche). → rouvre la page telle quelle. |
+| TAC-3 | Tous | Windows, macOS, Linux | (**C145**) Uniformiser toute la bibliothèque ; aller sur une autre page ; ⏸, ⏸, ⏹ ; → . | Ligne « Uniformiser les infos n / m » ; même comportement que TAC-2 (son en cours toujours fini) ; → ramène sur la page Uniformiser en cours. Fermer la page fait disparaître la ligne. |
+| TAC-4 | Tous | Windows, macOS, Linux | (**C145**) Analyse + téléchargements + Doublons + Uniformiser en même temps, volet déplié puis replié ; zoom 200 % ; écran de 768 px de haut. | « ACTIVITÉ » : au plus 3 lignes visibles, les autres en défilant ; boutons de la première tâche dans l'en-tête, ceux des suivantes dans leur ligne. Replié : un anneau pour la première, un second qui cumule les autres (bulle détaillée). Rien de coupé. |

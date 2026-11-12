@@ -216,6 +216,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._rekordbox_warned = False
         self._init_playback()
         self.error_reporter = self._make_error_reporter()       # 1.2.3
+        # 1.4.1 (C145) : registre des tâches longues, affiché par le volet gauche (TaskStrip). L'analyse et
+        # les téléchargements y sont reportés à chacun de leurs évènements.
+        from .tasks import TaskRegistry
+
+        self.tasks = TaskRegistry(post=dispatcher.post, later=getattr(dispatcher, "call_later", None),
+                                  notify=lambda: self._emit("tasks"))
+        self.on("analysis", self._sync_analysis_task)
+        self.on("downloads", self._sync_download_task)
+        self.on("download_update", lambda _job: self._sync_download_task())
 
     def _make_error_reporter(self) -> Any:
         """1.2.3 : rapports d'erreur à l'auteur (demande à l'utilisateur, sauf réglage contraire)."""
@@ -254,6 +263,40 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 fn(*args)
             except Exception:  # noqa: BLE001 - une vue en erreur ne doit pas casser les autres
                 log.exception("Listener %s", event)
+
+    # ------------------------------------------------------------------ 1.4.1 (C145) : tâches du volet
+    def _sync_analysis_task(self) -> None:
+        """File d'analyse -> tâche « analysis » (mêmes textes que l'ancienne carte : « 3 / 10  ·  son »,
+        flèche vers Téléchargements et analyse, arrêt). Disparaît dès la fin, comme avant (pas de « ✓ fini »)."""
+        q = self.analysis
+        task = self.tasks.get("analysis")
+        if not q.running:
+            if task is not None and task.active:
+                task.finish()
+            return
+        if task is None or not task.active:
+            task = self.tasks.start("analysis", "nav.analysing", icon="wave", order=0, linger=0,
+                                    can_stop=True, stop=self.stop_analysis, open="downloads",
+                                    stopping_title="analysis.stopping", open_tip="nav.open_activity",
+                                    stop_tip="lib.analyse_stop")
+        if q.cancelled:
+            self.tasks.mark_stopping("analysis")
+        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
+        task.progress(q.done, q.total, detail=name, fraction=q.done / max(1, q.total))
+
+    def _sync_download_task(self) -> None:
+        """Série de téléchargements en cours -> tâche « downloads » (« Téléchargements 1 / 2 », barre à
+        l'avancement des fichiers). Ni pause ni arrêt dans le volet : la page Téléchargements les gère."""
+        b_done, b_total, frac = self.download_progress()
+        task = self.tasks.get("downloads")
+        if b_total <= 0:
+            if task is not None and task.active:
+                task.finish()
+            return
+        if task is None or not task.active:
+            task = self.tasks.start("downloads", "nav.downloading", icon="download", order=1, linger=0,
+                                    show_title="always")
+        task.progress(b_done, b_total, fraction=frac)
 
     def message(self, kind: str, text: str) -> None:
         """kind : info | ok | warn | error — affiché dans la barre d'état."""

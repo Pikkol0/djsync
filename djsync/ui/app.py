@@ -165,13 +165,11 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("drives", self._drive_changed)
         self.ctrl.on("downloads", self._badge)
         self.ctrl.on("download_update", lambda _j: self._badge())
-        self.ctrl.on("downloads", self._analysis_changed)
-        self.ctrl.on("download_update", lambda _j: self._analysis_changed())
         self.ctrl.on("library", self._library_changed)
         self.ctrl.on("rebuild_ui", self.rebuild_ui)
         self.ctrl.on("restyle", self.restyle)
         self.ctrl.on("zoom", self.restyle)
-        self.ctrl.on("analysis", self._analysis_changed)
+        self.ctrl.on("tasks", self._analysis_changed)                           # 1.4.1 (C145)
         self.ctrl.on("open_grid", self.open_grid_editor)
         self.ctrl.on("open_uniformize", self.open_uniformize)
         self.ctrl.on("error_report_ask", self._ask_error_report)
@@ -395,48 +393,21 @@ class DJSyncApp(QMainWindow):
             self._nav[key] = b
         lay.addStretch(1)
 
-        # ---- analyse en arrière-plan (visible depuis tous les onglets)
-        an = panel()
-        self.an_box = an
-        al = vbox(an, margins=theme.px(10), spacing=theme.px(4))
-        ah = hbox(spacing=theme.px(4))
-        self.an_title = label(t("nav.analysing").upper(), "section")
-        ah.addWidget(self.an_title, 1)
-        self.an_stop = icon_button("stop", self.ctrl.stop_analysis, t("lib.analyse_stop"), size=12)
-        ah.addWidget(self.an_stop)
-        al.addLayout(ah)
-        self.an_label = label("", "dim", wrap=True)
-        al.addWidget(self.an_label)
-        self.an_bar = QProgressBar()
-        self.an_bar.setRange(0, 1000)
-        self.an_bar.setTextVisible(False)
-        al.addWidget(self.an_bar)
-        # 1.2.1 (C21) : la même carte montre aussi les téléchargements en cours (« Activité »)
-        self.dl_label = label("", "dim", wrap=True)
-        al.addWidget(self.dl_label)
-        self.dl_bar = QProgressBar()
-        self.dl_bar.setRange(0, 1000)
-        self.dl_bar.setTextVisible(False)
-        al.addWidget(self.dl_bar)
-        # 1.4.0-rc.4 (C153) : la carte, sa flèche et son anneau ouvrent Téléchargements et analyse
-        self.an_open = icon_button("go", lambda: self.show_view("downloads"), t("nav.open_activity"), size=12)
-        ah.insertWidget(1, self.an_open)
-        # 1.4.0-rc.3 (B73) : en volet replié, un anneau centré à la place des barres coupées
+        # ---- tâches longues (visible depuis tous les onglets) : 1.4.1 (C145), un seul bandeau pour toutes les
+        # tâches du registre `ctrl.tasks`, qui remplace la carte « Activité » (analyse, téléchargements) sans
+        # en changer l'aspect. Les anciens noms restent : la carte, ses barres, ses boutons, ses anneaux.
         from .mini_ring import MiniRing
+        from .task_strip import TaskStrip
 
-        self.an_ring = MiniRing("wave", lambda: self.show_view("downloads"))
-        al.addWidget(self.an_ring, 0, Qt.AlignHCenter)
-        self.an_ring.hide()
-        # 1.4.0-rc.4 (B76) : un second anneau pour les téléchargements quand les deux tournent
-        self.dl_ring = MiniRing("download", lambda: self.show_view("downloads"))
-        al.addWidget(self.dl_ring, 0, Qt.AlignHCenter)
-        self.dl_ring.hide()
-        from .widgets import clickable
-
-        clickable(an, lambda: self.show_view("downloads"))
-        an.setToolTip(t("nav.open_activity"))
-        an.hide()
-        lay.addWidget(an)
+        strip = TaskStrip(self.ctrl.tasks, self._open_task_page)
+        self.task_strip = self.an_box = strip
+        ana, dl = strip.row("analysis"), strip.row("downloads")
+        self.an_title = strip.title
+        self.an_open, self.an_stop = strip.head_buttons.open, strip.head_buttons.stop
+        self.an_label, self.an_bar = ana.label, ana.bar
+        self.dl_label, self.dl_bar = dl.label, dl.bar
+        self.an_ring, self.dl_ring = strip.ring_a, strip.ring_b
+        lay.addWidget(strip)
 
         # ---- clé active + remplissage
         usb = panel()
@@ -531,48 +502,22 @@ class DJSyncApp(QMainWindow):
             self.show_view(self._current)
 
     def _analysis_changed(self) -> None:
-        """Carte « Activité » de la barre latérale : analyse et/ou téléchargements en cours
-        (1.2.1, C21 : une seule carte quand les deux tournent)."""
-        q = self.ctrl.analysis
-        b_done, b_total, frac = self.ctrl.download_progress()
-        downloading = b_total > 0
-        if not q.running and not downloading:
-            self.an_box.hide()
+        """Bandeau des tâches du volet (1.4.1, C145 ; avant : carte « Activité », 1.2.1 C21)."""
+        strip = getattr(self, "task_strip", None)
+        if strip is not None:
+            strip.refresh(bool(self._compact))
+
+    def _open_task_page(self, key: str) -> None:
+        """→ d'une tâche du volet : une vue (Téléchargements…), la page Uniformiser en cours, ou un outil du
+        Diagnostic (la page encore ouverte revient telle quelle, B63)."""
+        if key in self.views:
+            self.show_view(key)
             return
-        self.an_box.show()
-        compact = bool(self._compact)
-        both = q.running and downloading
-        for w in (self.an_bar, self.an_stop, self.an_open):
-            w.setVisible(q.running and not compact)
-        self.an_ring.setVisible(compact and q.running)                     # B73, rc.4 (B76)
-        self.dl_ring.setVisible(compact and downloading)
-        self.an_title.setVisible(not compact)
-        self.an_label.setVisible(q.running and not compact)
-        self.dl_bar.setVisible(downloading and not compact)
-        self.dl_label.setVisible(downloading and not compact)
-        if q.running:
-            self.an_bar.setValue(int(1000 * q.done / max(1, q.total)))
-            name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
-            prefix = t("nav.analysing") + " " if both else ""
-            self.an_label.setText("" if compact else prefix + f"{q.done} / {q.total}" + (f"  ·  {name}" if name else ""))
-            self.an_stop.setEnabled(not q.cancelled)
-        if downloading:
-            self.dl_bar.setValue(int(1000 * frac))
-            self.dl_label.setText(t("nav.downloading") + f" {b_done} / {b_total}")
-        if compact:                                                        # B73, B76 : un anneau par activité
-            if q.running:
-                self.an_ring.set(q.done / max(1, q.total), "wave", t("nav.analysing") + f" {q.done} / {q.total}")
-            if downloading:
-                self.dl_ring.set(frac, "download", t("nav.downloading") + f" {b_done} / {b_total}")
-        if compact:
-            title = ""
-        elif both:
-            title = t("nav.activity")
-        elif q.running:
-            title = t("analysis.stopping") if q.cancelled else t("nav.analysing")
-        else:
-            title = t("nav.downloading")
-        self.an_title.setText(title.upper())
+        page = getattr(self, "uniformize_page", None)
+        if key == "uniformize" and page is not None and page.winfo_exists():
+            self._show_page(page)
+            return
+        self.open_diagnostic(key)
 
     # --------------------------------------------------------------- barre repliable
     def _update_compact(self) -> None:

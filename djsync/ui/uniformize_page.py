@@ -472,6 +472,10 @@ class UniformizePage(QWidget):
         self._on_close = on_close
         self._closed = False
         self._cancel = False
+        self._scan_gen = 0                           # 1.4.1 (C145) : « Arrêter » du volet arrête les analyses en cours
+        self._scan_paused = False
+        self._scan_workers = 0                       # analyses lancées pas encore finies
+        self._stop_asked = False
         self.tracks: Dict[int, LibraryTrack] = {x.content_id: x for x in tracks}
         self.order: List[int] = [x.content_id for x in tracks]
         self.props: Dict[int, Proposal] = {}
@@ -639,7 +643,58 @@ class UniformizePage(QWidget):
         todo = [x for x in self.tracks.values() if self.store.state(x) not in ("applied", "ignored", "validated")]
         self._to_scan = len(todo)
         if todo:
-            self.ctrl.uniformize_scan(todo, self._scanned_one, self._scan_done, lambda: self._cancel)
+            self._scan(todo)
+
+    def _scan(self, tracks: List[LibraryTrack]) -> None:
+        gen = self._scan_gen
+        self._scan_workers += 1
+        self.ctrl.uniformize_scan(tracks, self._scanned_one, self._scan_done,
+                                  lambda: self._cancel or gen != self._scan_gen, paused=lambda: self._scan_paused)
+        self._sync_task()
+
+    # ------------------------------------------------------------------ 1.4.1 (C145) : tâche du volet
+    def _sync_task(self) -> None:
+        """Analyse des sons -> tâche « uniformize » du volet (pause, arrêt, → revient sur cette page).
+        Pause et arrêt : le son en cours finit, le suivant n'est pas commencé. Fin : tout analysé, arrêt ou
+        page fermée."""
+        tasks = getattr(self.ctrl, "tasks", None)
+        if tasks is None:
+            return
+        task = tasks.get("uniformize")
+        mine = task is not None and getattr(self, "_task", None) is task
+        if self._stop_asked:                         # arrêt : fini quand les analyses en cours ont rendu la main
+            if self._scan_workers <= 0 or self._closed:
+                self._stop_asked = False
+                if mine and task.active:
+                    task.finish()
+            return
+        if self._scanned >= self._to_scan or self._cancel or self._closed:
+            if mine and task.active:
+                task.finish()
+            return
+        if task is None or not task.active:
+            self._scan_paused = False
+            task = tasks.start("uniformize", "task.uniformize", icon="tag", open="uniformize",
+                               can_pause=True, pause=self._task_pause, resume=self._task_resume,
+                               can_stop=True, stop=self._task_stop)
+            self._task = task
+        task.progress(self._scanned, self._to_scan)
+
+    def _task_pause(self) -> None:
+        self._scan_paused = True
+
+    def _task_resume(self) -> None:
+        self._scan_paused = False
+
+    def _task_stop(self) -> None:
+        """Les analyses en cours s'arrêtent après leur son ; les sons pas encore vus restent sans proposition
+        (« Réinitialiser » un son le relance)."""
+        self._scan_gen += 1
+        self._scan_paused = False
+        self._stop_asked = True
+        self._to_scan = self._scanned
+        self._refresh_info()
+        self._sync_task()
 
     def _scanned_one(self, track: LibraryTrack, details: Dict[str, Any], prop: Proposal) -> None:
         if not self.winfo_exists():
@@ -653,6 +708,7 @@ class UniformizePage(QWidget):
             if not self._flush_timer.isActive():
                 self._flush_timer.start()
         self._refresh_info()
+        self._sync_task()
 
     def _flush_pending(self) -> None:
         if not self.winfo_exists():
@@ -700,9 +756,11 @@ class UniformizePage(QWidget):
         self._shown.append(cid)
 
     def _scan_done(self) -> None:
+        self._scan_workers = max(0, self._scan_workers - 1)
         if self.winfo_exists():
             self._scanned = self._to_scan
             self.scan_finished = True
+            self._sync_task()
             self._flush_pending()
             # sûrs d'abord, une fois tout analysé : seulement si rien n'a encore été touché et si l'ordre
             # change vraiment (B18 : sinon la liste ne bouge pas)
@@ -800,7 +858,7 @@ class UniformizePage(QWidget):
         self.store.set(self.tracks[cid], "")
         if cid not in self.props:                 # jamais analysé (validé ou ignoré à la session d'avant)
             self._to_scan += 1
-            self.ctrl.uniformize_scan([self.tracks[cid]], self._scanned_one, self._scan_done, lambda: self._cancel)
+            self._scan([self.tracks[cid]])
         self._fill()
 
     def undo(self) -> None:
@@ -895,6 +953,7 @@ class UniformizePage(QWidget):
             return False
         self._closed = True
         self._cancel = True
+        self._sync_task()                                # C145 : la tâche du volet finit avec la page
         cb, self._on_close = self._on_close, None
         if cb:
             cb()
