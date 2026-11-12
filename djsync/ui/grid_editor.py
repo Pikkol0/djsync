@@ -32,7 +32,7 @@ from . import stall, theme
 from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
-from .widgets import button, hbox, icon_button, label, restyle, vbox
+from .widgets import button, hbox, icon_button, label, panel, restyle, vbox
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
 VIEW_CHOICES = (0.5, 1, 2, 4, 8, 16, 32, 64, 120)   # 1.3.2 (B53) : 0,5 s à 2 min (avant 2 à 32 s)
@@ -48,6 +48,30 @@ MAGNET_DIVISIONS = (0, 1, 4)          # 1.4.1 (C92) : coupé, au temps, au quart
 def bar_label(downbeats: int) -> str:
     """Numéro affiché de la mesure dont le premier temps est le `downbeats`-ième de la grille (1 = le premier)."""
     return str(FIRST_BAR + downbeats - 1)
+
+
+class Zones(QWidget):
+    """1.4.1 (C59) : cartes côte à côte, l'une sous l'autre quand la place manque (fenêtre étroite, gros zoom)."""
+
+    def __init__(self, cards: List[QWidget], spacing: int = 8) -> None:
+        super().__init__()
+        from PySide6.QtWidgets import QBoxLayout
+
+        self.cards = list(cards)
+        self.box = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.box.setContentsMargins(0, 0, 0, 0)
+        self.box.setSpacing(spacing)
+        for c in self.cards:
+            self.box.addWidget(c, 1)
+
+    def resizeEvent(self, e: Any) -> None:          # noqa: N802
+        from PySide6.QtWidgets import QBoxLayout
+
+        need = sum(c.minimumSizeHint().width() for c in self.cards) + self.box.spacing() * (len(self.cards) - 1)
+        want = QBoxLayout.LeftToRight if self.width() >= need else QBoxLayout.TopToBottom
+        if self.box.direction() != want:
+            self.box.setDirection(want)
+        super().resizeEvent(e)
 
 
 def view_label(v: float) -> str:
@@ -249,33 +273,22 @@ class GridEditor(QWidget):
         self.overview.set_editor(self)
         self.body.addWidget(self.overview)
 
-        from .cue_pads import CuePanel
-
-        self.cue_panel = CuePanel(self)
-        self.body.addWidget(self.cue_panel)
-
-        tools = hbox()
+        # 1.4.1 (C59) : bas de page en zones : barre de lecture (sous la forme d'onde), hot cues, puis deux cartes
+        # « Grille » et « Tempo » côte à côte (l'une sous l'autre si la fenêtre est étroite), barre d'enregistrement
+        play = hbox(spacing=theme.px(8))
         self.play_btn = icon_button("play", self._play, t("grid.play_tip"), color=theme.ON_ACCENT)
         self.play_btn.setProperty("kind", "primary")
-        self.play_btn.setFixedSize(theme.px(34), theme.px(34))     # 1.3.2-rc.2 (B46) : rond à tout zoom
-        tools.addWidget(self.play_btn)
+        self.play_btn.setFixedSize(theme.px(40), theme.px(40))     # 1.3.2-rc.2 (B46) : rond à tout zoom
+        play.addWidget(self.play_btn)
         # 1.3.0-rc.3 (C40) : sortir de la boucle sans coupure (« Loop Exit » des platines)
         self.exit_btn = button(t("grid.loop_exit"), self.exit_loop, kind="primary", icon="next",
                                tooltip=t("grid.loop_exit_tip"))
         self.exit_btn.hide()
-        tools.addWidget(self.exit_btn)
+        play.addWidget(self.exit_btn)
         self.time_lbl = label("0:00.000", "dim")
         self.time_lbl.setMinimumWidth(theme.px(64))
-        tools.addWidget(self.time_lbl)
-        tools.addSpacing(theme.px(8))
-        tools.addWidget(label(t("grid.shift"), "dim"))
-        for ms in (-100, -10, -1, 1, 10, 100):
-            b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
-            b.setMinimumWidth(theme.px(40))
-            tools.addWidget(b)
-        tools.addSpacing(theme.px(8))
-        tools.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
-        tools.addStretch(1)
+        play.addWidget(self.time_lbl)
+        play.addStretch(1)
         # 1.4.1 (C92) : aimant (comme le Quantize de Rekordbox) : curseur et cues calés sur la grille
         self.magnet_box = QCheckBox(t("grid.magnet"))
         self.magnet_box.setToolTip(t("grid.magnet_tip"))
@@ -287,44 +300,84 @@ class GridEditor(QWidget):
         self.magnet_menu.setToolTip(t("grid.magnet_tip"))
         self.magnet_box.toggled.connect(self._magnet_changed)
         self.magnet_menu.currentIndexChanged.connect(self._magnet_changed)
-        tools.addWidget(self.magnet_box)
-        tools.addWidget(self.magnet_menu)
-        tools.addSpacing(theme.px(8))
+        play.addWidget(self.magnet_box)
+        play.addWidget(self.magnet_menu)
+        play.addSpacing(theme.px(12))
         self.fixed_box = QCheckBox(t("grid.fixed_cursor"))
         self.fixed_box.setToolTip(t("grid.fixed_cursor_tip"))
         self.fixed_box.setChecked(self.fixed_cursor)
         self.fixed_box.toggled.connect(self._set_fixed)
-        tools.addWidget(self.fixed_box)
-        self.body.addLayout(tools)
+        play.addWidget(self.fixed_box)
+        self.body.addLayout(play)
 
-        tools2 = hbox()
-        tools2.addWidget(button(t("grid.bar_here"), self._bar_here, kind="primary", icon="grid",
-                                tooltip=t("grid.bar_here_tip")))
-        tools2.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
-        tools2.addStretch(1)
-        tools2.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
-        tools2.addWidget(button(t("grid.double"), lambda: self._scale(2.0), tooltip=t("grid.double_tip")))
-        # 1.4.1 (A02) : rapport 3:2 (rap, trap : Rekordbox et DJSync peuvent lire 90 au lieu de 135)
-        tools2.addWidget(button(t("grid.two_thirds"), lambda: self._scale(2.0 / 3.0), tooltip=t("grid.two_thirds_tip")))
-        tools2.addWidget(button(t("grid.three_halves"), lambda: self._scale(1.5), tooltip=t("grid.three_halves_tip")))
-        tools2.addSpacing(theme.px(8))
-        tools2.addWidget(label("BPM", "dim"))
+        from .cue_pads import CuePanel
+
+        self.cue_panel = CuePanel(self)
+        self.body.addWidget(self.cue_panel)
+
+        # carte « Grille » : décaler (contrôle segmenté), demi-temps, premier temps
+        grid_card = panel()
+        gv = vbox(grid_card, margins=theme.px(10), spacing=theme.px(6))
+        gv.addWidget(label(t("grid.zone_grid"), "section"))
+        shift = hbox(spacing=0)
+        shift.addWidget(label(t("grid.shift"), "dim"))
+        shift.addSpacing(theme.px(8))
+        self._shift_btns = []
+        for i, ms in enumerate((-100, -10, -1, 1, 10, 100)):
+            b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
+            b.setMinimumWidth(theme.px(40))
+            b.setProperty("segment", "first" if i == 0 else "last" if i == 5 else "middle")
+            self._shift_btns.append(b)
+            shift.addWidget(b)
+        shift.addSpacing(theme.px(8))
+        shift.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
+        shift.addStretch(1)
+        gv.addLayout(shift)
+        bar_row = hbox(spacing=theme.px(6))
+        bar_row.addWidget(button(t("grid.bar_here"), self._bar_here, icon="grid", tooltip=t("grid.bar_here_tip")))
+        bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
+        bar_row.addStretch(1)
+        gv.addLayout(bar_row)
+
+        # carte « Tempo » : ÷ 2 [BPM] × 2, Appliquer ; × 2/3, × 3/2
+        tempo_card = panel()
+        tv = vbox(tempo_card, margins=theme.px(10), spacing=theme.px(6))
+        tv.addWidget(label(t("grid.zone_tempo"), "section"))
+        bpm_row = hbox(spacing=theme.px(4))
+        bpm_row.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
         self.bpm_entry = QLineEdit()
-        self.bpm_entry.setFixedWidth(theme.px(70))
+        self.bpm_entry.setFixedWidth(theme.px(78))
+        self.bpm_entry.setAlignment(Qt.AlignCenter)
+        self.bpm_entry.setToolTip(t("grid.bpm_entry_tip"))
         self.bpm_entry.returnPressed.connect(self._apply_bpm)
-        tools2.addWidget(self.bpm_entry)
-        tools2.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, icon="check", tooltip=t("grid.apply_bpm_tip")))
-        self.body.addLayout(tools2)
+        bpm_row.addWidget(self.bpm_entry)
+        bpm_row.addWidget(button(t("grid.double"), lambda: self._scale(2.0), tooltip=t("grid.double_tip")))
+        bpm_row.addSpacing(theme.px(6))
+        bpm_row.addWidget(button(t("grid.apply_bpm"), self._apply_bpm, icon="check", tooltip=t("grid.apply_bpm_tip")))
+        bpm_row.addStretch(1)
+        tv.addLayout(bpm_row)
+        ratio_row = hbox(spacing=theme.px(4))
+        # 1.4.1 (A02) : rapport 3:2 (rap, trap : Rekordbox et DJSync peuvent lire 90 au lieu de 135)
+        ratio_row.addWidget(button(t("grid.two_thirds"), lambda: self._scale(2.0 / 3.0), tooltip=t("grid.two_thirds_tip")))
+        ratio_row.addWidget(button(t("grid.three_halves"), lambda: self._scale(1.5), tooltip=t("grid.three_halves_tip")))
+        ratio_row.addStretch(1)
+        tv.addLayout(ratio_row)
 
-        bar = hbox()
-        self.reset_btn = button(t("grid.reset"), self._reset, icon="refresh")
+        self.zones = Zones([grid_card, tempo_card], spacing=theme.px(8))
+        self.body.addWidget(self.zones)
+
+        # barre d'enregistrement : à gauche l'état et « Annuler les modifications », à droite Retour et Enregistrer
+        bar = hbox(spacing=theme.px(8))
+        self.state_lbl = label("", "chip_warn")
+        self.state_lbl.hide()
+        bar.addWidget(self.state_lbl)
+        self.reset_btn = button(t("grid.reset"), self._reset, kind="flat", icon="refresh")
         bar.addWidget(self.reset_btn)
-        self.state_lbl = label("", "dim")
-        bar.addWidget(self.state_lbl, 1)
+        bar.addStretch(1)
+        bar.addWidget(button(t("grid.back"), self.close, icon="back"))
         self.save_btn = button(t("action.save"), self._save, kind="primary", icon="check")
         self.save_btn.setEnabled(False)
         bar.addWidget(self.save_btn)
-        bar.addWidget(button(t("grid.back"), self.close, icon="back"))
         self.body.addLayout(bar)
 
         for seq, fn in ((Qt.Key_Left, lambda: self._shift(-1)), (Qt.Key_Right, lambda: self._shift(1)),
@@ -773,6 +826,8 @@ class GridEditor(QWidget):
         if cues_changed:
             parts.append(t("cue.modified"))
         self.state_lbl.setText("  ·  ".join(parts))
+        self.state_lbl.setVisible(bool(parts))                  # 1.4.1 (C59) : pastille seulement s'il y a à enregistrer
+        self.reset_btn.setEnabled(bool(parts))
 
     def _original_at(self, index: int) -> int:
         """Position d'origine du temps le plus proche (pour afficher le décalage appliqué)."""
