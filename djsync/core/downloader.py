@@ -93,6 +93,18 @@ class Downloader:
 
         original = False
         try:
+            path, original = self._fetch(track, dest, base, notify)
+        except yt_dlp.utils.DownloadCancelled:
+            # 1.4.1 (C145) : arrêt demandé pendant le téléchargement : morceaux partiels effacés
+            remove_partials(dest, base)
+            raise
+        return self._finish(track, path, original, notify, tag)
+
+    def _fetch(self, track: TrackResult, dest: Path, base: str, notify: ProgressCallback) -> "tuple[Path, bool]":
+        import yt_dlp
+
+        original = False
+        try:
             try:
                 native = _YT_NATIVE if track.source in ("ytmusic", "youtube") else _ANY_NATIVE
                 extra: dict = {"format": native}
@@ -140,7 +152,10 @@ class Downloader:
         except yt_dlp.utils.DownloadError as exc:
             notify(DownloadProgress("error", message=str(exc)))
             raise
+        return path, original
 
+    def _finish(self, track: TrackResult, path: Path, original: bool, notify: ProgressCallback,
+                tag: bool) -> DownloadedTrack:
         if tag and not original and (self.normalize or self.audio_format != "m4a"):
             notify(DownloadProgress("converting", 100.0, "Converting…"))
             try:
@@ -200,3 +215,16 @@ class Downloader:
         if final is None:
             raise FileNotFoundError(f"Expected file not found in {dest}")
         return final, str((info or {}).get("format_id") or "")
+
+
+def remove_partials(dest: Path, base: str) -> None:
+    """1.4.1 (C145) : fichiers laissés par un téléchargement interrompu (« .part », « .ytdl », fragments)."""
+    import glob
+
+    for f in Path(dest).glob(glob.escape(base) + ".*"):
+        name = f.name
+        if name.endswith((".part", ".ytdl")) or ".part-Frag" in name or ".temp." in name:
+            try:
+                f.unlink()
+            except OSError:
+                pass

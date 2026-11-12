@@ -1015,6 +1015,8 @@ STRINGS = {
     "task.resume": "Reprendre",
     "task.stop": "Arrêter après l'élément en cours",
     "task.paused": "En pause",
+    "task.stop_downloads": "Arrêter les téléchargements (le fichier en cours est interrompu)",
+    "job.cancelled": "■ Arrêté",
     "task.stopping": "Arrêt…",
     "task.failed": "Échec",
     "task.failed_tip": "Cliquer pour masquer",

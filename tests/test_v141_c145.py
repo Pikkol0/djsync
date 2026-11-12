@@ -265,7 +265,7 @@ def test_c145_analysis_and_downloads_cards_pause_and_stop(demo):  # noqa: F811
         demo.an_pause.click()
         assert not q.paused and task.state == T.RUNNING
         dl = demo.task_strip.cards["downloads"]
-        assert dl.pause.isVisible() and not dl.stop.isVisible()
+        assert dl.pause.isVisible() and dl.stop.isVisible()                 # ⏸ et ⏹ (12/11)
         dl.pause.click()
         assert ctrl.downloads_paused and ctrl.tasks.get("downloads").state == T.PAUSED
         dl.pause.click()
@@ -444,3 +444,77 @@ def test_c145_uniformize_pause_and_stop_never_start_the_next_track(demo, monkeyp
         page._leaving = True
         page.close()
     assert pump(demo, 2, lambda: demo.uniformize_page is None) and not demo.errors
+
+
+# ------------------------------------------------------------------ ⏹ des téléchargements
+def test_c145_remove_partials_keeps_finished_files(tmp_path):
+    from djsync.core.downloader import remove_partials
+
+    base = "Artist - Title [x]"
+    for name in (f"{base}.m4a.part", f"{base}.m4a.ytdl", f"{base}.f140.m4a.part-Frag3", f"{base}.m4a",
+                 "Artist - Title.m4a.part", "Other.m4a"):
+        (tmp_path / name).write_bytes(b"x")
+    remove_partials(tmp_path, base)
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(["Artist - Title.m4a.part", f"{base}.m4a", "Other.m4a"])
+
+
+def test_c145_stop_interrupts_the_file_being_downloaded_and_cancels_the_queue(demo):  # noqa: F811
+    from djsync.core.downloader import DownloadProgress, TrackResult
+    from djsync.models import DownloadJob
+
+    ctrl = demo.ctrl
+    _clear(ctrl.tasks)
+    lib = ctrl.library
+    before = len(lib.list_tracks())
+    halfway, chunks = threading.Event(), []
+
+    def fake_download(track, dest, on_progress=None, tag=True):
+        for pct in range(0, 101, 5):                                # yt-dlp : la progression arrive par morceaux
+            on_progress(DownloadProgress("downloading", float(pct)))
+            chunks.append(pct)
+            if pct == 20:
+                halfway.set()
+                time.sleep(0.5)
+        raise AssertionError("never finished: the stop must interrupt it")
+
+    import time
+
+    ctrl.service.download = fake_download
+    running = DownloadJob(501, TrackResult("aaaaaaaaaaa", "Long mix", "DJ"), library=lib)
+    waiting = DownloadJob(502, TrackResult("bbbbbbbbbbb", "Next", "DJ"), library=lib)
+    adding = DownloadJob(503, TrackResult("ccccccccccc", "Almost", "DJ"), status="adding", library=lib)
+    ctrl.jobs += [running, waiting, adding]
+    th = threading.Thread(target=ctrl._run_job, args=(running,), daemon=True)
+    try:
+        th.start()
+        assert halfway.wait(5)
+        ctrl._emit("downloads")
+        task = ctrl.tasks.get("downloads")
+        card = demo.task_strip.cards["downloads"]
+        assert task.can_stop and card.stop.isVisible()
+        assert card.stop.toolTip() == "Stop the downloads (the file being downloaded is interrupted)"
+        card.stop.click()
+        assert waiting.status == "cancelled" and running.stop and not adding.stop   # une écriture n'est pas coupée
+        th.join(5)
+        assert not th.is_alive() and running.status == "cancelled" and max(chunks) < 100   # coupé en route
+        pump(demo, 0.3)
+        assert len(lib.list_tracks()) == before                     # rien d'ajouté
+        assert running.status_label == "■ Stopped" and running.is_finished
+        assert ctrl.tasks.get("downloads").state == T.STOPPING      # l'ajout en cours finit d'abord
+        adding.status = "done"
+        ctrl._emit("downloads")
+        assert ctrl.tasks.get("downloads") is None                  # tout est fini : la carte part
+        submitted = []
+        ctrl.dispatcher.submit, real = (lambda fn, *a, **k: submitted.append(fn)), ctrl.dispatcher.submit
+        try:
+            ctrl.retry(waiting)                                     # « Réessayer » relance un son arrêté
+        finally:
+            ctrl.dispatcher.submit = real
+        assert waiting.status == "queued" and not waiting.stop and len(submitted) == 1
+    finally:
+        for j in (running, waiting, adding):
+            j.status = "done"
+            if j in ctrl.jobs:
+                ctrl.jobs.remove(j)
+        ctrl._emit("downloads")
+    assert not demo.errors

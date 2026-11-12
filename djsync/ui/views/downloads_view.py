@@ -188,7 +188,7 @@ class DownloadsView(View):
         self.dl_bar.setToolTip(t("dl.batch_progress", done=b_done, n=b_total) if b_total else "")
         sel = self._selected_jobs()
         self.play_btn.setEnabled(any(j.status == "done" for j in sel))
-        self.retry_btn.setEnabled(any(j.status == "error" for j in sel))
+        self.retry_btn.setEnabled(any(j.status in ("error", "cancelled") for j in sel))   # C145 : arrêtés aussi
         self.clear_btn.setEnabled(any(j.is_finished for j in jobs))
         bad = next((j for j in sel if j.status == "error"), None)
         self.detail.setText(t("dl.error_detail", detail=bad.message) if bad and bad.message else "")

@@ -1009,6 +1009,8 @@ STRINGS = {
     "task.resume": "Resume",
     "task.stop": "Stop after the current item",
     "task.paused": "Paused",
+    "task.stop_downloads": "Stop the downloads (the file being downloaded is interrupted)",
+    "job.cancelled": "■ Stopped",
     "task.stopping": "Stopping…",
     "task.failed": "Failed",
     "task.failed_tip": "Click to hide",

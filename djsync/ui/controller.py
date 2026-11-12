@@ -290,8 +290,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     def _sync_download_task(self) -> None:
         """Série de téléchargements en cours -> tâche « downloads » (carte « TÉLÉCHARGEMENTS », « 1 / 2 », barre
-        à l'avancement des fichiers). Pause : les fichiers en cours finissent, les suivants attendent ; pas
-        d'arrêt (la page Téléchargements garde ses propres boutons)."""
+        à l'avancement des fichiers). Pause : les fichiers en cours finissent, les suivants attendent. Arrêt :
+        tout s'arrête, fichier en cours compris (sauf un ajout à la bibliothèque déjà commencé)."""
         b_done, b_total, frac = self.download_progress()
         task = self.tasks.get("downloads")
         if b_total <= 0:
@@ -302,7 +302,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             task = self.tasks.start("downloads", "nav.downloading", icon="download", order=1, linger=0,
                                     open="downloads",
                                     can_pause=True, pause=lambda: self.pause_downloads(True),
-                                    resume=lambda: self.pause_downloads(False))
+                                    resume=lambda: self.pause_downloads(False),
+                                    can_stop=True, stop=self.stop_downloads, stop_tip="task.stop_downloads")
         self.tasks.mark_paused("downloads", self.downloads_paused)
         task.progress(b_done, b_total, fraction=frac)
 

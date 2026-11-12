@@ -367,6 +367,7 @@ JOB_STATUS_LABELS = LazyLabels(lambda: {
     "adding": "job.adding",
     "done": "job.done",
     "error": "job.error",
+    "cancelled": "job.cancelled",          # 1.4.1 (C145) : arrêté depuis le volet
 })
 
 
@@ -388,10 +389,11 @@ class DownloadJob:
     replace_ids: List[int] = field(default_factory=list)   # V1.1.0 : sons remplacés une fois téléchargé
     reanalyse: bool = False                                # … et analyser le nouveau (l'ancien l'était)
     original: bool = False                                 # 1.4.0 (C10.1) : fichier d'origine SoundCloud obtenu
+    stop: bool = field(default=False, compare=False)       # 1.4.1 (C145) : arrêt demandé (volet)
 
     @property
     def is_finished(self) -> bool:
-        return self.status in ("done", "error")
+        return self.status in ("done", "error", "cancelled")
 
     @property
     def is_active(self) -> bool:
