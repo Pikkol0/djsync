@@ -12,6 +12,8 @@ du projet « cues-reference-rekordbox ») :
 """
 from __future__ import annotations
 
+import bisect
+
 import struct
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -274,6 +276,29 @@ def nearest_beat_ms(beats: Sequence[Tuple[int, int, int]], ms: float) -> int:
     if not beats:
         return int(round(ms))
     return int(min(beats, key=lambda b: abs(b[2] - ms))[2])
+
+
+def nearest_grid_ms(beats: Sequence[Tuple[int, int, int]], ms: float, division: int = 1) -> int:
+    """1.4.1 (C92) : position la plus proche sur la grille découpée en `division` parts par temps (1 = le temps,
+    4 = le quart de temps). Avant le premier ou après le dernier temps : au tempo du temps voisin."""
+    if not beats:
+        return int(round(ms))
+    division = max(1, int(division))
+    if division == 1:
+        return nearest_beat_ms(beats, ms)
+    pos = [b[2] for b in beats]
+    i = bisect.bisect_right(pos, ms) - 1
+    if i < 0:
+        i = 0
+    if i >= len(pos) - 1:
+        i = max(0, len(pos) - 2)
+    if len(pos) < 2:
+        return int(pos[0])
+    step = (pos[i + 1] - pos[i]) / division
+    if step <= 0:
+        return nearest_beat_ms(beats, ms)
+    k = round((ms - pos[i]) / step)
+    return int(round(pos[i] + k * step))
 
 
 def loop_end_ms(beats: Sequence[Tuple[int, int, int]], start_ms: int, n_beats: int) -> int:

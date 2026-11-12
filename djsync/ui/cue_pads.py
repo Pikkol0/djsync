@@ -15,9 +15,9 @@ from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QPushButton, QWidget
 
-from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, nearest_beat_ms, suggest_cues
+from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, suggest_cues
 from ..i18n import t
 from . import theme
 from .widgets import button, hbox, label, vbox
@@ -159,10 +159,9 @@ class CuePanel(QWidget):
         self.ed.cues_changed()
 
     def _position(self, exact: bool = False) -> int:
-        """Position d'un nouveau cue : temps le plus proche du curseur (Maj : exactement au curseur)."""
-        exact = exact or bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
-        ms = self.ed.cursor_ms
-        return int(round(ms)) if exact or not self.ed.beats else nearest_beat_ms(self.ed.beats, ms)
+        """Position d'un nouveau cue : temps (ou quart de temps, aimant) le plus proche du curseur ; Maj ou Alt :
+        exactement au curseur."""
+        return int(self.ed.snap_ms(self.ed.cursor_ms, exact))     # 1.4.1 (C92) : aimant (Alt : libre)
 
     # ----------------------------------------------------------------- pads
     def pad_clicked(self, slot: int) -> None:

@@ -116,3 +116,98 @@ def test_b95_no_empty_playlist_and_none_when_the_option_is_off(demo, tmp_path): 
     (folder.parent / "empty_watch").mkdir(exist_ok=True)
     _tick(demo, ctrl)
     assert _watch_pl(lib) is None
+
+
+# ------------------------------------------------------------------ C92 : aimant ; A02 : × 3/2 et × 2/3
+BEATS = [((i % 4) + 1, 12000, 1000 + 500 * i) for i in range(16)]      # 120 BPM, un temps toutes les 500 ms
+
+
+def test_c92_nearest_grid_ms_beat_and_quarter():
+    from djsync.analysis.cues import nearest_grid_ms
+
+    assert nearest_grid_ms(BEATS, 1240) == 1000                 # au temps
+    assert nearest_grid_ms(BEATS, 1260) == 1500
+    assert nearest_grid_ms(BEATS, 1240, 4) == 1250              # au quart de temps (125 ms)
+    assert nearest_grid_ms(BEATS, 1180, 4) == 1125
+    assert nearest_grid_ms(BEATS, 200, 4) == 250                # avant le premier temps : au même pas
+    assert nearest_grid_ms(BEATS, 9000, 4) == 9000              # après le dernier : prolongé
+    assert nearest_grid_ms([], 1234.4, 4) == 1234
+
+
+def _snap(magnet, ms, **kw):
+    from types import SimpleNamespace
+
+    from djsync.ui.grid_editor import GridEditor
+
+    return GridEditor.snap_ms(SimpleNamespace(beats=BEATS, magnet=magnet), ms, **kw)
+
+
+def test_c92_snap_cursor_only_with_the_magnet_and_cues_as_before_without_it(qapp=None):
+    from djsync.ui.app import qt_app
+
+    qt_app()
+    assert _snap(0, 1240.0, cursor=True) == 1240.0             # aimant coupé : curseur libre
+    assert _snap(0, 1240.0) == 1000.0                           # … et les cues calés au temps, comme avant
+    assert _snap(1, 1240.0, cursor=True) == 1000.0              # aimant au temps
+    assert _snap(4, 1240.0, cursor=True) == 1250.0              # aimant au quart
+    assert _snap(4, 1240.0) == 1250.0
+    assert _snap(4, 1240.0, exact=True) == 1240.0               # Maj / Alt : libre
+
+
+def test_a02_three_halves_and_two_thirds_keep_the_selected_beat():
+    from djsync.analysis import grid as G
+
+    beats = [((i % 4) + 1, 9000, 1000 + int(round(i * 60000 / 90))) for i in range(40)]   # 90 BPM
+    up = G.scale_tempo(beats, 1.5, 4, 40000)
+    assert abs(sorted(b[1] for b in up)[len(up) // 2] / 100 - 135) < 0.01
+    assert any(abs(b[2] - beats[4][2]) <= 1 for b in up)          # le temps sélectionné ne bouge pas
+    down = G.scale_tempo(up, 2.0 / 3.0, G.nearest(up, beats[4][2]), 40000)
+    assert abs(sorted(b[1] for b in down)[len(down) // 2] / 100 - 90) < 0.01
+
+
+def test_c92_a02_controls_translated():
+    from djsync.i18n import en, fr
+
+    for k in ("grid.magnet", "grid.magnet_tip", "grid.magnet_beat", "grid.magnet_quarter", "grid.two_thirds",
+              "grid.three_halves", "grid.two_thirds_tip", "grid.three_halves_tip", "watch.caught_up_one",
+              "watch.caught_up_many"):
+        assert en.STRINGS.get(k) and fr.STRINGS.get(k), k
+
+
+# ------------------------------------------------------------------ B84 : DJSync.exe dans Program Files
+def test_b84_moved_contents_dir_holds_settings_tools_and_is_uninstalled(tmp_path, monkeypatch):
+    from djsync import portable, uninstall
+
+    exe_dir = tmp_path / "Program Files" / "djsync"
+    moved = tmp_path / "LocalAppData" / "DJSync"
+    (moved / "app" / "tools").mkdir(parents=True)
+    exe_dir.mkdir(parents=True)
+    monkeypatch.setenv("DJSYNC_APP_DIR", str(exe_dir))
+    monkeypatch.delenv("DJSYNC_CONTENTS_DIR", raising=False)
+    assert portable.contents_dir() is None
+    assert portable.portable_data_dir() == exe_dir / ".djsync" / "data"           # cas habituel inchangé
+    monkeypatch.setenv("DJSYNC_CONTENTS_DIR", str(moved))
+    assert portable.portable_data_dir() == moved / "data"
+    assert portable.tool_dirs()[0] == moved / "app" / "tools"
+    monkeypatch.delenv("DJSYNC_HOME", raising=False)
+    from djsync.settings import settings_dir
+
+    assert settings_dir() == moved / "data"
+    assert moved in uninstall.targets(frozen=False)
+
+
+def test_b84_no_in_app_update_when_the_exe_folder_is_read_only(tmp_path, monkeypatch):
+    from djsync.core import selfupdate
+
+    exe = tmp_path / "DJSync.exe"
+    exe.write_bytes(b"MZ")
+    assert selfupdate.plan(frozen=True, platform="win32", launcher=str(exe)).kind == "windows"
+    monkeypatch.setattr(selfupdate, "_writable", lambda folder: False)
+    assert selfupdate.plan(frozen=True, platform="win32", launcher=str(exe)) is None   # page de la release
+
+
+def test_b84_launcher_falls_back_to_local_app_data():
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parent.parent / "packaging" / "launcher" / "launcher.c").read_text("utf-8")
+    assert "LOCALAPPDATA" in src and "DJSYNC_CONTENTS_DIR" in src and "writable(" in src

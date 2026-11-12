@@ -43,6 +43,8 @@ def targets(app_dir: Optional[Path] = None, frozen: Optional[bool] = None) -> Li
             out.append(exe_dir)                             # Linux : le dossier DJSync extrait du .tar.gz
     for name in (portable.CONTENTS, portable.LEGACY_DATA):
         out.append(here / name)
+    if app_dir is None and portable.contents_dir() is not None:     # 1.4.1 (B84) : %LOCALAPPDATA%\DJSync
+        out.append(portable.contents_dir())
     safe: List[Path] = []
     for p in out:
         if not p.exists() or p in safe:

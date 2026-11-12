@@ -62,8 +62,8 @@ def pytest_configure(config):
 # total) : sautés par la passe rapide de développement (-m "not slow"), gardés par la passe complète (PR
 # prête, release). Liste à revoir à partir des durées publiées par le workflow « Tests ».
 SLOW_TESTS = {
-    "test_ui_v020.py::test_zoom_is_live_and_window_size_does_not_change_it",
-    "test_ui_v020.py::test_language_rebuild",
+    "test_ui_v020_zoom.py::test_zoom_is_live_and_window_size_does_not_change_it",
+    "test_ui_v020_lang.py::test_language_rebuild",
     "test_ui_v020.py::test_dialogs_open",
     "test_ui_v020.py::test_queue_next_previous",
     "test_v130rc4.py::test_new_accent_recolors_home_tools_without_restart",

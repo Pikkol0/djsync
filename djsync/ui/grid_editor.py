@@ -21,10 +21,10 @@ from typing import Any, List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QScrollBar, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit, QScrollBar, QWidget
 
 from ..analysis import grid as G
-from ..analysis.cues import Cue, nearest_beat_ms
+from ..analysis.cues import Cue, nearest_grid_ms
 from ..audio.player import PAUSED, PLAYING
 from ..i18n import plural, t
 from ..models import LibraryTrack, format_duration
@@ -42,6 +42,7 @@ WHEEL_STEP = 120          # 1.3.2 (B53) : un palier de zoom par cran de molette 
 # 1.4.1 (C177) : numéro affiché de la première mesure. 0 et non 1 : les débuts de phrase tombent sur les
 # multiples de 8 (0, 8, 16…). Affichage seulement : rien de ce qui est écrit (grille, cues) n'en dépend.
 FIRST_BAR = 0
+MAGNET_DIVISIONS = (0, 1, 4)          # 1.4.1 (C92) : coupé, au temps, au quart de temps
 
 
 def bar_label(downbeats: int) -> str:
@@ -199,6 +200,8 @@ class GridEditor(QWidget):
         # 1.3.0-rc.3 (B17) : curseur volant par défaut (il suit la souris sur une vue fixe) ; case « Curseur
         # fixe au centre » : le son défile sous un curseur immobile, comme Rekordbox. Choix gardé.
         self.fixed_cursor = bool(getattr(controller.settings, "grid_fixed_cursor", False))
+        magnet = int(getattr(controller.settings, "grid_magnet", 0) or 0)   # 1.4.1 (C92)
+        self.magnet = magnet if magnet in MAGNET_DIVISIONS else 0
         self._label_top, self._label_bottom = 14, 32               # bande des étiquettes (B16, recalculée au dessin)
         self._lead_ms = self._timeline_lead(track)
         self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
@@ -273,6 +276,20 @@ class GridEditor(QWidget):
         tools.addSpacing(theme.px(8))
         tools.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
         tools.addStretch(1)
+        # 1.4.1 (C92) : aimant (comme le Quantize de Rekordbox) : curseur et cues calés sur la grille
+        self.magnet_box = QCheckBox(t("grid.magnet"))
+        self.magnet_box.setToolTip(t("grid.magnet_tip"))
+        self.magnet_box.setChecked(bool(self.magnet))
+        self.magnet_menu = QComboBox()
+        self.magnet_menu.addItems([t("grid.magnet_beat"), t("grid.magnet_quarter")])
+        self.magnet_menu.setCurrentIndex(1 if self.magnet == 4 else 0)
+        self.magnet_menu.setEnabled(bool(self.magnet))
+        self.magnet_menu.setToolTip(t("grid.magnet_tip"))
+        self.magnet_box.toggled.connect(self._magnet_changed)
+        self.magnet_menu.currentIndexChanged.connect(self._magnet_changed)
+        tools.addWidget(self.magnet_box)
+        tools.addWidget(self.magnet_menu)
+        tools.addSpacing(theme.px(8))
         self.fixed_box = QCheckBox(t("grid.fixed_cursor"))
         self.fixed_box.setToolTip(t("grid.fixed_cursor_tip"))
         self.fixed_box.setChecked(self.fixed_cursor)
@@ -287,6 +304,9 @@ class GridEditor(QWidget):
         tools2.addStretch(1)
         tools2.addWidget(button(t("grid.half"), lambda: self._scale(0.5), tooltip=t("grid.half_tip")))
         tools2.addWidget(button(t("grid.double"), lambda: self._scale(2.0), tooltip=t("grid.double_tip")))
+        # 1.4.1 (A02) : rapport 3:2 (rap, trap : Rekordbox et DJSync peuvent lire 90 au lieu de 135)
+        tools2.addWidget(button(t("grid.two_thirds"), lambda: self._scale(2.0 / 3.0), tooltip=t("grid.two_thirds_tip")))
+        tools2.addWidget(button(t("grid.three_halves"), lambda: self._scale(1.5), tooltip=t("grid.three_halves_tip")))
         tools2.addSpacing(theme.px(8))
         tools2.addWidget(label("BPM", "dim"))
         self.bpm_entry = QLineEdit()
@@ -430,6 +450,25 @@ class GridEditor(QWidget):
         if self.fixed_cursor:
             self.start_ms = self.cursor_ms - self.view_s * 500.0
 
+    def _magnet_changed(self, *_args: Any) -> None:
+        """1.4.1 (C92) : aimant coupé, au temps ou au quart de temps ; choix gardé."""
+        on = self.magnet_box.isChecked()
+        self.magnet_menu.setEnabled(on)
+        self.magnet = (4 if self.magnet_menu.currentIndex() == 1 else 1) if on else 0
+        try:
+            self.ctrl.settings.grid_magnet = self.magnet
+            self.ctrl.settings.save()
+        except Exception:  # noqa: BLE001 - réglage de confort
+            pass
+
+    def snap_ms(self, ms: float, exact: bool = False, cursor: bool = False) -> float:
+        """1.4.1 (C92) : position calée sur la grille. Curseur : seulement si l'aimant est mis. Cue : au temps
+        (comme avant) ou au quart de temps si l'aimant est au quart. Alt ou Maj (ou `exact`) : position libre."""
+        free = exact or bool(QApplication.keyboardModifiers() & (Qt.AltModifier | Qt.ShiftModifier))
+        if free or not self.beats or (cursor and not self.magnet):
+            return float(ms) if cursor else float(int(round(ms)))
+        return float(nearest_grid_ms(self.beats, ms, self.magnet or 1))
+
     def _set_fixed(self, on: bool) -> None:
         self.fixed_cursor = bool(on)
         try:
@@ -464,7 +503,7 @@ class GridEditor(QWidget):
         _x0, _c0, moved = self._scrub
         self._scrub = None
         if not moved:                        # simple clic : ce point vient sous le curseur
-            self._move_cursor(self._ms(x))
+            self._move_cursor(self.snap_ms(self._ms(x), cursor=True))
         self.release()
 
     def _move_cursor(self, ms: float) -> None:
@@ -598,7 +637,7 @@ class GridEditor(QWidget):
         if c is None:
             return
         ms = max(0.0, min(float(self.duration_ms), self._ms(x)))
-        ms = int(round(ms)) if exact or not self.beats else nearest_beat_ms(self.beats, ms)
+        ms = int(self.snap_ms(ms, exact))                                  # 1.4.1 (C92) : aimant
         if c.is_loop:
             c.loop_ms = ms + (c.loop_ms - c.ms)
         c.ms = ms
@@ -859,7 +898,7 @@ class GridEditor(QWidget):
         x = min(max(0.0, x), float(w))
         if not dragging:
             self.active_loop = None
-        self.cursor_ms = min(max(0.0, self._ms(x)), float(self.duration_ms))
+        self.cursor_ms = min(max(0.0, self.snap_ms(self._ms(x), cursor=True)), float(self.duration_ms))
         self._scrubbing = True
         if self.beats:
             self.selected = G.nearest(self.beats, self.cursor_ms)
