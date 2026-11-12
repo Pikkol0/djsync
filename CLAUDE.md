@@ -15,6 +15,7 @@ Réponses en français, courtes : résultat d'abord, puis ce que l'auteur doit f
 1. Branche depuis main (même convention que les PR précédentes).
 2. Code + tests ciblés en local (pytest sur les fichiers touchés).
 3. docs/TESTS-<version>.fr.md (scénarios : id, qui, plateformes, comment, attendu) + README si besoin.
-4. Pousser la branche, puis la même en ci/full/<branche> (Windows ×2 + Linux, ≈ 30 min) ;
-   ne rapporter que les échecs, en résumé.
+4. Tests complets (1.4.1, C181) : pour une rc, suite complète Windows en local sur la tour avant la PR
+   (Claude Code) ; pour une stable, pousser la même branche en ci/full/<branche> (Windows ×3 + Linux ×2,
+   macOS à la demande). L'auteur peut aussi demander ci/full pour une rc. Ne rapporter que les échecs.
 5. PR vers main : fiches traitées, tests, risques.

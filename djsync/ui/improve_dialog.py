@@ -12,6 +12,8 @@ from . import theme
 from .diag_tabs import add_tabs
 from .dialogs import BaseDialog, ConfirmDialog
 from .widgets import Column, Row, TrackTable, button, hbox, label
+from .views.cue_column import cue_column, cue_values
+from .views.cue_column import fill as cue_column_fill
 
 
 class ImproveDialog(BaseDialog):
@@ -41,8 +43,10 @@ class ImproveDialog(BaseDialog):
                 Column("artist", t("track.artist"), 160, priority=2),
                 Column("now", t("improve.now"), 110),
                 Column("found", t("improve.found"), 260, priority=1),
-                Column("gain", t("improve.gain"), 150)]
+                Column("gain", t("improve.gain"), 150),
+                cue_column()]                                          # 1.4.1 (C60) : cues placés
         self.table = TrackTable(self, cols)
+        self._cue_marks: Dict[int, Any] = {}
 
         def _save() -> None:
             try:
@@ -98,6 +102,7 @@ class ImproveDialog(BaseDialog):
                  else (t("improve.none") if w.searched else ""))
         values = {"title": w.track.title, "artist": w.track.artist or "", "now": label_of(w.info), "found": found,
                   "gain": w.gain}
+        values.update(cue_values(self._cue_marks.get(w.track.content_id)))      # 1.4.1 (C60)
         if w.gain:
             values["gain__color"] = theme.GOLD if "→ FLAC" in w.gain or "→ WAV" in w.gain or "→ AIFF" in w.gain \
                 else theme.GOOD
@@ -105,6 +110,11 @@ class ImproveDialog(BaseDialog):
 
     def _fill(self) -> None:
         self.table.set_rows([self._row(w) for w in self.weaks.values()], keep_selection=True)
+        missing = [r for r in self.table.all_rows()
+                   if r.data is not None and r.data.track.content_id not in self._cue_marks]
+        if missing:                                                     # 1.4.1 (C60) : lus une fois par son
+            cue_column_fill(self.table, self.ctrl, missing, track_of=lambda r: r.data.track,
+                            done=self._cue_marks.update)
         self._refresh()
 
     def _refresh(self) -> None:

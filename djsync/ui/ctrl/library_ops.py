@@ -442,6 +442,26 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: log.info("Playlist membership not read: %s", exc), pool="db")
 
+    def cue_marks(self, tracks: Sequence[LibraryTrack], ok: Callable[[Dict[int, Any]], None]) -> None:
+        """1.4.1 (C60) : hot cues, boucles et mémoires de chaque son (`core.cue_marks.CueMark`), hors du fil de
+        l'interface ; ok() n'est pas appelé si la bibliothèque a changé entre-temps."""
+        lib = self.library
+        items = [x for x in tracks if x is not None]
+        if lib is None or not items:
+            ok({})
+            return
+
+        def work() -> Dict[int, Any]:
+            from ...core.cue_marks import read_marks
+
+            return read_marks(lib, items, should_stop=lambda: self.library is not lib)
+
+        def done(marks: Dict[int, Any]) -> None:
+            if self.library is lib:
+                ok(marks)
+
+        self.dispatcher.submit(work, done, lambda exc: log.info("Cue marks not read: %s", exc), pool="cues")
+
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library
         if lib is None:

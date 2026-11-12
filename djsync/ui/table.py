@@ -372,6 +372,44 @@ class _CheckDelegate(QStyledItemDelegate):
                            check_pixmap(value, size, hover, painter.device().devicePixelRatioF()))
 
 
+class _CuesDelegate(QStyledItemDelegate):
+    """1.4.1 (C60) : colonne « cues » : une pastille par hot cue posé, à sa couleur ; sinon le texte (« — »)."""
+
+    def __init__(self, table: "TrackTable") -> None:
+        super().__init__(table)
+        self.table = table
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        table = self.table
+        try:
+            row = table._rows.get(table._shown[index.row()])
+        except IndexError:
+            row = None
+        dots = list((row.values.get("cues__dots") if row is not None else None) or [])
+        opt = option
+        self.initStyleOption(opt, index)
+        if dots:
+            opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        if not dots:
+            return
+        d, gap = theme.px(9), theme.px(3)
+        r = opt.rect
+        n = max(1, min(len(dots), max(1, (r.width() - theme.px(6) + gap) // (d + gap))))
+        total = n * d + (n - 1) * gap
+        x = r.center().x() - total / 2 + 0.5
+        y = r.center().y() - d / 2 + 0.5
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
+        for hexa in dots[:n]:
+            painter.setBrush(QColor(hexa))
+            painter.drawEllipse(QRectF(x, y, d, d))
+            x += d + gap
+        painter.restore()
+
+
 class _KeyDelegate(QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
@@ -507,6 +545,8 @@ class TrackTable(QTableView):
         for i, col in enumerate(self.columns):
             if col.key == "key":
                 self.setItemDelegateForColumn(i, _KeyDelegate(self))
+            if col.key == "cues":                                    # 1.4.1 (C60) : pastilles des hot cues
+                self.setItemDelegateForColumn(i, _CuesDelegate(self))
             if col.key == "state":
                 self.setItemDelegateForColumn(i, _ProgressDelegate(self))
             if col.key == "title" and self.show_covers:
@@ -833,6 +873,20 @@ class TrackTable(QTableView):
             self._model.dataChanged.emit(self._model.index(r, 0), self._model.index(r, len(self.columns) - 1))
         if "chk" in values:                                      # 1.4.0-rc.4 (C148) : case d'en-tête
             self._model.headerDataChanged.emit(Qt.Horizontal, 0, len(self.columns) - 1)
+
+    def update_many(self, values: Dict[str, Dict[str, Any]]) -> None:
+        """1.4.1 (C60) : nouvelles valeurs pour beaucoup de lignes d'un coup (un seul rafraîchissement), tri et
+        filtre en cours conservés."""
+        changed = False
+        for iid, vals in values.items():
+            row = self._rows.get(iid)
+            if row is not None:
+                row.values.update(vals)
+                changed = True
+        if changed:
+            self.viewport().update()
+            if self._sort_key in {k for v in values.values() for k in v}:
+                self.refilter()
 
     def set_tags(self, iid: str, *tags: str) -> None:
         row = self._rows.get(iid)

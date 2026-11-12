@@ -19,6 +19,8 @@ from ..icons import qicon
 from ..table import camelot_sort
 from ..widgets import Column, Row, TrackTable, button, hbox, icon_label, label, line_edit, restyle, vbox
 from .common import focus_list, View
+from .cue_column import cue_column, cue_values
+from .cue_column import fill as cue_column_fill
 
 
 class DownloadsView(View):
@@ -106,11 +108,13 @@ class DownloadsView(View):
             Column("bpm", t("track.bpm"), 56, "e", priority=1,
                    sort=lambda r: r.data.bpm or None if r.data else None),
             Column("state", t("dl.state"), 130),
+            cue_column(),                                                       # 1.4.1 (C60) : cues placés
             Column("an", "", 40, "center", sortable=False, min_width=34),      # 1.3.2 (C58) : Analyser ce son
             Column("grid", "", 40, "center", sortable=False, min_width=34),
         ]
         self.an_table = TrackTable(self, an_cols, click_columns=("grid", "an"))
-        self.remember_layout(self.an_table, "unanalysed")
+        self.remember_layout(self.an_table, "unanalysed", new_keys=("cues",))
+        self._an_marks: Dict[int, Any] = {}                                     # 1.4.1 (C60)
         self.an_table.set_empty("check", t("lib.empty_todo_title"))
         self.an_table.on_select = lambda _i: self._refresh_analysis()
         self.an_table.on_double = self._play_track
@@ -264,6 +268,7 @@ class DownloadsView(View):
         return Row(str(x.content_id), {
             "key": x.camelot or "", "title": x.title, "artist": x.artist,
             "bpm": f"{x.bpm:.0f}" if x.bpm else "—", "state": text, "grid": "1" if x.is_analysed else "", "an": "1",
+            **cue_values(self._an_marks.get(x.content_id)),
         }, tags, x)
 
     def _fill(self) -> None:
@@ -283,6 +288,9 @@ class DownloadsView(View):
                                     t("lib.empty_todo_title") if self.ctrl.has_library else t("lib.no_drive_title"))
         self.an_table.set_rows([self._an_row(x) for x in tracks], keep_selection=True)
         self.an_table.set_filter(query)
+        missing = [r for r in self.an_table.all_rows() if r.data is not None and r.data.content_id not in self._an_marks]
+        if missing:                                                      # 1.4.1 (C60) : lus une fois par son
+            cue_column_fill(self.an_table, self.ctrl, missing, done=self._an_marks.update)
         self._refresh_analysis()
 
     def _analysis_changed(self) -> None:

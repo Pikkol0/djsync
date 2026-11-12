@@ -28,12 +28,14 @@ from ..widgets import (
     Column, FitBar, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
 )
 from .common import focus_list, View
+from .cue_column import cue_values, cue_column
 
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
 ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlist
 MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
-SPECIAL = (ALL, TODO, ORPH, MISS)
+NOCUE = "nocues"           # 1.4.1 (C60) : titres sans hot cue
+SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -218,6 +220,7 @@ class LibraryView(View):
             Column("path", t("track.path"), 240),
             # 1.4.0 (C103) : playlists du son, affichée par défaut (bulle : chemin des dossiers)
             Column("playlists", t("track.playlists"), 170, sort=lambda r: r.values.get("playlists") or None),
+            cue_column(),                                                     # 1.4.1 (C60) : cues placés
             Column("grid", "", 40, "center", sortable=False, min_width=34),   # 1.3.2 (C58) : bouton Grille et cues
         ]
 
@@ -315,7 +318,7 @@ class LibraryView(View):
 
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid",))
         self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS,
-                             new_keys=EXTRA_COLUMNS)
+                             new_keys=EXTRA_COLUMNS + ("cues",))
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
@@ -449,6 +452,7 @@ class LibraryView(View):
         if not self.ctrl.has_library:
             self.playlists, self.all_tracks, self.stats, self._dirty = [], [], {}, False
             self._orphans = None
+            self._cue_marks = None
             self._loaded_for = ""
             self._fill_nav()
             self.table.set_empty("usb", t("lib.no_drive_title"))
@@ -470,6 +474,7 @@ class LibraryView(View):
             if self.current not in SPECIAL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
             self._count_orphans()
+            self._read_cue_marks()                                      # 1.4.1 (C60)
             self.ctrl.check_missing_files(self.all_tracks)              # 1.3.2-rc.3 (C124)
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
@@ -514,6 +519,8 @@ class LibraryView(View):
              count="" if orph is None else len(orph))
         miss = len(self._missing_tracks())                                                            # C124
         item(None, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
+        marks = getattr(self, "_cue_marks", None)                                                     # C60
+        item(None, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -740,9 +747,40 @@ class LibraryView(View):
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
              **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
-             **self._playlist_values(x), "_tip": self._missing_tip(x.content_id)},
+             **self._playlist_values(x), **self._cue_values(x), "_tip": self._missing_tip(x.content_id)},
             ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
+
+    def _cue_values(self, x: LibraryTrack) -> Dict[str, Any]:
+        marks = getattr(self, "_cue_marks", None)
+        return cue_values(marks.get(x.content_id) if marks else None)
+
+    # ------------------------------------------------------------------ 1.4.1 (C60) : cues placés
+    def _read_cue_marks(self) -> None:
+        """Lit (hors du fil de l'interface) les cues de tous les sons : colonne « Cues », entrée « Sans hot cue »."""
+        key, tracks = self._drive_key(), list(self.all_tracks)
+
+        def ok(marks: Dict[int, Any]) -> None:
+            if not self.winfo_exists() or key != self._drive_key():
+                return
+            self._cue_marks = dict(marks)
+            it = self._items.get(NOCUE)
+            if it is not None:
+                try:
+                    it.setText(1, str(len(self._no_cue_tracks())))
+                except RuntimeError:
+                    pass
+            if self.current == NOCUE and not self._dirty:
+                self._fill_table()
+                return
+            self.table.update_many({r.iid: cue_values(marks.get(r.data.content_id))
+                                    for r in self.table.all_rows() if r.data is not None})
+
+        self.ctrl.cue_marks(tracks, ok)
+
+    def _no_cue_tracks(self) -> List[LibraryTrack]:
+        marks = getattr(self, "_cue_marks", None) or {}
+        return [x for x in self.all_tracks if x.content_id in marks and not marks[x.content_id].hot]
 
     def _playlist_values(self, x: LibraryTrack) -> Dict[str, str]:
         if getattr(self, "_member", None) is None:
@@ -775,6 +813,13 @@ class LibraryView(View):
         if self.current == MISS:                                   # 1.3.2-rc.3 (C124)
             self.table.set_empty("check", t("lib.empty_missing_title"))
             self._apply_rows(self._missing_tracks(), pos=False)
+            return
+        if self.current == NOCUE:                                  # 1.4.1 (C60)
+            if getattr(self, "_cue_marks", None) is None:
+                self.table.show_skeleton()                         # cues en cours de lecture
+                return
+            self.table.set_empty("check", t("lib.empty_no_cues_title"))
+            self._apply_rows(self._no_cue_tracks(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
@@ -830,6 +875,10 @@ class LibraryView(View):
             if n:                                                  # 1.3.2-rc.2 (C56) : aussi sur l'ordinateur
                 parts.append(t("lib.orphans_hint_local" if self.ctrl.is_local else "lib.orphans_hint"))
             self.sub_lbl.setText("  ·  ".join(parts))
+        elif self.current == NOCUE:                                # 1.4.1 (C60)
+            self.title_lbl.setText(t("lib.no_cues"))
+            n = len(self._no_cue_tracks())
+            self.sub_lbl.setText("  ·  ".join([plural("lib.tracks_one", "lib.tracks_many", n), t("lib.no_cues_hint")]))
         elif self.current == MISS:                                 # 1.3.2-rc.3 (C124)
             self.title_lbl.setText(t("lib.missing"))
             n = len(self._missing_tracks())

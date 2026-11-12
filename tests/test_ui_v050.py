@@ -132,11 +132,14 @@ def test_usb_export_pdb_repaired_on_open_and_rekordbox_warning(tmp_path, monkeyp
         ctrl = app.ctrl
         seen = []
         ctrl.on("message", lambda kind, text: seen.append((kind, text)))
-        assert pump(app, 6, lambda: ctrl.has_library)
-        assert pump(app, 6, lambda: pdb_of(usb).has_track(added.path))          # réparé tout seul
-        assert pump(app, 2, lambda: any("export.pdb" in text for _k, text in seen))
+        # 1.4.1 (C181) : délais plus larges. Échec 1 fois sur 20 sur la tour, toujours au premier lancement de la
+        # suite (fichiers .pyc à créer, antivirus) : la réparation finissait après les 2 s attendues. Non reproduit
+        # en 12 essais sous Linux. pump() rend la main dès que la condition est vraie : rien de plus lent si tout va bien.
+        assert pump(app, 15, lambda: ctrl.has_library)
+        assert pump(app, 15, lambda: pdb_of(usb).has_track(added.path))         # réparé tout seul
+        assert pump(app, 10, lambda: any("export.pdb" in text for _k, text in seen))
         running["on"] = True
-        assert pump(app, 3, lambda: any(k == "warn" and "Rekordbox" in text for k, text in seen))
+        assert pump(app, 10, lambda: any(k == "warn" and "Rekordbox" in text for k, text in seen))
         n = len([1 for k, text in seen if "Rekordbox is open" in text])
         pump(app, 0.5)
         assert len([1 for k, text in seen if "Rekordbox is open" in text]) == n == 1     # une seule fois

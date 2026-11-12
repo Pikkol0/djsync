@@ -1400,11 +1400,32 @@ class LocalRekordboxLibrary:
     # ------------------------------------------------------------ hot cues (1.3.0, C22)
     def track_cues(self, content_id: int) -> List[Any]:
         """Cues du son tels que Rekordbox les montre : table djmdCue (Kind 0 mémoire, 1-3 A-C, 5-9 D-H)."""
-        from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
-
         rows = self._read("SELECT Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize, ActiveLoop "
                           "FROM djmdCue WHERE ContentID = :id AND COALESCE(rb_local_deleted,0) = 0",
                           {"id": str(content_id)})
+        return self._cues_from_rows(rows)
+
+    def track_cues_many(self, content_ids: Sequence[int]) -> Dict[int, List[Any]]:
+        """1.4.1 (C60) : cues de plusieurs sons en une requête (colonne « Cues » des listes)."""
+        ids = [str(int(c)) for c in content_ids]
+        if not ids:
+            return {}
+        marks = ", ".join(f":i{k}" for k in range(len(ids)))
+        rows = self._read("SELECT ContentID, Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize, ActiveLoop "
+                          f"FROM djmdCue WHERE ContentID IN ({marks}) AND COALESCE(rb_local_deleted,0) = 0",
+                          {f"i{k}": v for k, v in enumerate(ids)})
+        grouped: Dict[int, List[Any]] = {}
+        for row in rows:
+            try:
+                grouped.setdefault(int(row[0]), []).append(tuple(row[1:]))
+            except (TypeError, ValueError):
+                continue
+        return {cid: self._cues_from_rows(r) for cid, r in grouped.items()}
+
+    @staticmethod
+    def _cues_from_rows(rows: Any) -> List[Any]:
+        from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
+
         out: List[Any] = []
         for kind, in_ms, out_ms, color, comment, loop_size, active in rows:
             slot = SLOT_FOR_KIND.get(int(kind or 0))

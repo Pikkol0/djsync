@@ -181,7 +181,7 @@ def test_b84_moved_contents_dir_holds_settings_tools_and_is_uninstalled(tmp_path
     exe_dir = tmp_path / "Program Files" / "djsync"
     moved = tmp_path / "LocalAppData" / "DJSync"
     (moved / "app" / "tools").mkdir(parents=True)
-    exe_dir.mkdir(parents=True)
+    (exe_dir / ".djsync").mkdir(parents=True)        # sous Windows, sans .djsync : ancien DJSync_Data
     monkeypatch.setenv("DJSYNC_APP_DIR", str(exe_dir))
     monkeypatch.delenv("DJSYNC_CONTENTS_DIR", raising=False)
     assert portable.contents_dir() is None
@@ -211,3 +211,60 @@ def test_b84_launcher_falls_back_to_local_app_data():
 
     src = (Path(__file__).resolve().parent.parent / "packaging" / "launcher" / "launcher.c").read_text("utf-8")
     assert "LOCALAPPDATA" in src and "DJSYNC_CONTENTS_DIR" in src and "writable(" in src
+
+
+# ------------------------------------------------------------------ C60 : marqueur « cues placés »
+def test_c60_summarize_hot_cues_loops_memories():
+    from djsync.analysis.cues import Cue
+    from djsync.core.cue_marks import NONE, summarize
+
+    m = summarize([Cue(2, 1000), Cue(1, 500, rgb=(255, 0, 0), color_code=42), Cue(0, 800),
+                   Cue(0, 900, loop_ms=1900), Cue(3, 2000, loop_ms=3000)])
+    assert m.letters == "ABC" and len(m.colors) == 3 and m.colors[0] == "#FF0000"
+    assert (m.loops, m.memories) == (2, 2) and not m.empty
+    assert NONE.empty and NONE.letters == ""
+
+
+def test_c60_cue_column_values_and_tip():
+    from djsync.core.cue_marks import CueMark
+    from djsync.i18n import set_language
+    from djsync.ui.views.cue_column import cue_values
+
+    set_language("en")
+    v = cue_values(CueMark(((1, "#FF0000"), (4, "#00FF00")), 1, 2))
+    assert v["cues"] == "AD" and v["cues__dots"] == ["#FF0000", "#00FF00"]
+    assert v["cues__tip"] == "2 hot cues, 1 loop, 2 memories"
+    assert cue_values(CueMark())["cues"] == "—" and cue_values(None)["cues"] == ""
+
+
+def test_c60_library_column_and_no_hot_cue_entry(tmp_path, monkeypatch):
+    from djsync.analysis.cues import Cue
+    from djsync.ui.views.library_view import NOCUE
+
+    from .qt_util import close_window
+    from .test_ui_v024 import _app
+
+    import shutil
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg absent")
+    app = _app(tmp_path, monkeypatch, analysed_song=True)
+    try:
+        app.show_view("library")
+        lib = app.views["library"]
+        assert pump(app, 6, lambda: lib.table.total == 11)
+        target = next(x for x in lib.all_tracks if x.title == "Grid Test")
+        app.ctrl.library.save_track_cues(target.content_id, [Cue(1, 1000), Cue(2, 3000), Cue(0, 500)])
+        lib.reload()
+        assert pump(app, 6, lambda: (lib.table.row(str(target.content_id)) or None) is not None
+                    and lib.table.row(str(target.content_id)).values.get("cues") == "AB")
+        row = lib.table.row(str(target.content_id))
+        assert len(row.values["cues__dots"]) == 2 and "1 memory" in row.values["cues__tip"]
+        assert not lib.table.isColumnHidden(lib.table.column_index("cues"))       # visible par défaut
+        lib._goto(NOCUE)
+        assert pump(app, 4, lambda: lib.table.total == 10)
+        assert str(target.content_id) not in lib.table.displayed_iids()
+        assert lib._items[NOCUE].text(1) == "10"
+        assert not app.errors
+    finally:
+        close_window(app)
