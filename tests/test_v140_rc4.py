@@ -274,6 +274,8 @@ def test_b78_archive_order_relevance_and_parallel():
     out = F.archive_search("Jul", get=get)
     took = time.monotonic() - start
     assert peak[0] > 1 and took < 0.2 * 6 * 0.6               # en parallèle
+    assert [x.is_album for x in out] == [True] * 6               # 1.4.1 (C147) : un élément à 2 titres = un album
+    out = [c for x in out for c in (x.tracks or (x,))]
     assert [x.video_id.split("/")[0] for x in out][:2] == ["archive:jul0", "archive:jul0"]   # ordre d'archive.org
     assert [x.title for x in out][:2] == ["Un", "Deux"]         # ordre des pistes
     assert len(out) == 12                                       # pistes sans artiste propre trouvées par l'album

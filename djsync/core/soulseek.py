@@ -44,6 +44,7 @@ class SlskResult:
     free_slot: bool = False
     speed: int = 0             # vitesse moyenne d'envoi du pair (octets/s)
     queue: int = 0             # file d'attente chez le pair
+    vbr: bool = False          # 1.4.1 (C170) : débit variable annoncé (attribut 2 du protocole)
 
     @property
     def name(self) -> str:
@@ -71,7 +72,7 @@ class SlskResult:
             if self.sample_rate:
                 parts.append(f"{self.sample_rate / 1000:g} kHz")
         elif self.bitrate:
-            parts.append(str(self.bitrate))
+            parts.append(f"VBR ≈ {self.bitrate}" if self.vbr else str(self.bitrate))
         return " · ".join(parts)
 
 
@@ -122,7 +123,8 @@ def from_aioslsk(result: Any) -> List[SlskResult]:
             ext = name.rsplit(".", 1)[-1].lower()
         out.append(SlskResult(result.username, name, int(item.filesize or 0), ext,
                               bitrate=attrs.get(0, 0), duration=attrs.get(1, 0), sample_rate=attrs.get(4, 0),
-                              bit_depth=attrs.get(5, 0), free_slot=bool(result.has_free_slots),
+                              bit_depth=attrs.get(5, 0), vbr=attrs.get(2, 0) == 1,
+                              free_slot=bool(result.has_free_slots),
                               speed=int(result.avg_speed or 0), queue=int(result.queue_size or 0)))
     return out
 

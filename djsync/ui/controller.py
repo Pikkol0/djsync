@@ -151,6 +151,21 @@ def _note_slow_poll(base: float, drives: float, rekordbox: float, blank: float) 
                  " [%d so far]", total * 1000, base * 1000, drives * 1000, rekordbox * 1000, blank * 1000, n)
 
 
+def equivalent_query(track: TrackResult) -> Tuple[str, str]:
+    """1.4.1 (C167) : (artiste, titre) d'un résultat Soulseek, tirés du nom de fichier (« 03 - Bicep - Glue
+    (Original Mix).flac ») ; pour une autre source, ses champs."""
+    import re
+
+    r = getattr(track, "slsk", None)
+    if r is None:
+        return track.artist or "", track.title or ""
+    stem = re.sub(r"^\s*\d{1,3}\s*[-._)]\s*", "", r.stem)            # numéro de piste
+    parts = [p.strip() for p in re.split(r"\s+[-–]\s+", stem) if p.strip()]
+    if len(parts) >= 2:
+        return parts[0], " - ".join(parts[1:])
+    return (track.artist or "", parts[0] if parts else track.title or "")
+
+
 def _unprepared() -> List[Any]:
     """Clés sans bibliothèque (T02) ; jamais bloquant."""
     try:
@@ -822,15 +837,19 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.dispatcher.submit(probe, ok, err, pool="net")
 
     # ---------------------------------------------------------------- recherche
-    def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None) -> None:
+    def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None,
+                    source_done: Optional[Callable[[str], None]] = None) -> None:
         """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués.
-        1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source."""
+        1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source.
+        1.4.1 (C171) : `source_done(nom)` dans le fil de l'interface quand une source a répondu (ou échoué)."""
         from ..core import freesources
 
         sources = list(self.settings.free_sources or [])
         got: list = []
 
         def part(_name: str, rs: Any) -> None:
+            if source_done is not None:
+                self.dispatcher.post(source_done, _name)
             if partial is None:
                 return
             dup = getattr(self.service, "_duplicates", None)
@@ -844,6 +863,37 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return dup.annotate(found) if dup is not None else found
 
         self.dispatcher.submit(work, ok, lambda exc: (log.info("Free sources: %s", exc), ok([])), pool="net")
+
+    def free_sources_list(self) -> List[str]:
+        """1.4.1 (C171) : sources libres interrogées par la recherche Haute qualité."""
+        return [x for x in (self.settings.free_sources or []) if x in ("archive", "audius")]
+
+    def play_equivalent(self, track: TrackResult, ok: Optional[Callable[[Optional[TrackResult]], None]] = None) -> None:
+        """1.4.1 (C167) : un fichier Soulseek ne s'écoute pas avant d'être téléchargé : on joue la version
+        « titre officiel » trouvée sur YouTube Music (artiste + titre tirés du nom de fichier nettoyé).
+        ok(son joué) ou ok(None) si rien n'est trouvé ; n'influence pas le téléchargement."""
+        from ..core.metadata import clean_title
+
+        artist, title = equivalent_query(track)
+        query = f"{artist} {clean_title(title)}".strip()
+
+        def work() -> Optional[TrackResult]:
+            found = self.service.search(query, limit=5, mode=SearchMode.SONGS)
+            return next((x for x in found if x.is_song and not x.is_album), None)
+
+        def done(found: Optional[TrackResult]) -> None:
+            if found is None:
+                self.message("info", t("hq.equivalent_none", query=query))
+            else:
+                self.play_queue([found], 0)
+            if ok is not None:
+                ok(found)
+
+        def failed(exc: BaseException) -> None:
+            log.info("Equivalent not found: %s", exc)
+            done(None)
+
+        self.dispatcher.submit(work, done, failed, pool="search")
 
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
         try:

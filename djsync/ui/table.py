@@ -177,6 +177,8 @@ class _Model(QAbstractTableModel):
             if col.key == "title" and self.table.show_covers:
                 return self.table._cover_for(row)
             return None
+        if role == Qt.BackgroundRole and "album" in row.tags:     # 1.4.1 (C147) : un album se repère d'un coup d'œil
+            return QColor(theme.ELEV)
         if role == Qt.ForegroundRole:
             hexa = row.values.get(col.key + "__color")        # 1.3.1 (C37) : couleur imposée (couleur du son)
             if hexa:
@@ -464,6 +466,9 @@ class TrackTable(QTableView):
         self.on_sort_changed: Optional[Callable[[Optional[str], bool], None]] = None
         self.menu_builder: Optional[Callable[[List[str]], List[MenuEntry]]] = None
         self.row_filter: Optional[Callable[[Row], bool]] = None
+        # 1.4.1 (C147) : lignes enfants (titres d'un album déplié) : iid de la ligne parente, sinon None ; au
+        # tri et au filtre, elles restent juste sous leur parent, dans leur ordre d'insertion
+        self.parent_of: Optional[Callable[[Row], Optional[str]]] = None
         self.on_delete: Optional[Callable[[], None]] = None
         self.on_files_dropped: Optional[Callable[[List[str]], None]] = None   # 1.4.0 (C26)
 
@@ -1060,7 +1065,25 @@ class TrackTable(QTableView):
             empty = [i for i in ids if _sort_value(self._rows[i], col)[0] == 1]
             present.sort(key=lambda i: _sort_value(self._rows[i], col), reverse=self._sort_desc)
             ids = present + empty
+        if self.parent_of is not None:
+            ids = self._group_children(ids)
         return list(ids)
+
+    def _group_children(self, ids: List[str]) -> List[str]:
+        """C147 : chaque enfant juste sous son parent (ordre d'insertion) ; sans parent affiché, pas d'enfant."""
+        parent = {i: self.parent_of(self._rows[i]) for i in ids}
+        kept = set(ids)
+        children: Dict[str, List[str]] = {}
+        for i in self._order:
+            p = self.parent_of(self._rows[i]) if i in kept else None
+            if p is not None:
+                children.setdefault(p, []).append(i)
+        out: List[str] = []
+        for i in ids:
+            if parent[i] is None:
+                out.append(i)
+                out.extend(children.get(i, []))
+        return out
 
     def _rebuild(self, selected: set, top: int) -> None:
         self._shown = self._visible_order()

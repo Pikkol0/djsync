@@ -417,6 +417,127 @@ class PlaylistPicker(BaseDialog):
         self._on_ok(ids)
 
 
+class HqFiltersPopup(BaseDialog):
+    """1.4.1 (C134) : filtres de la page Haute qualité (sources, album ou titre, format, débit, durée, et pour
+    Soulseek place libre et vitesse). Les filtres sans objet sont masqués (Soulseek coupé : pas de pair).
+    Un seul modèle : `core.search.ResultFilter` ; `on_apply(filtre)`."""
+
+    KBPS = (0, 192, 256, 320)
+    SPEEDS = (0, 100, 500, 1000)
+
+    def __init__(self, parent: Any, current: Any, on_apply: Callable[[Any], None], sources: Sequence[str],
+                 soulseek: bool) -> None:
+        from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox
+
+        from ..core.search import FAMILIES, ResultFilter
+        from .search_progress import SOURCE_NAMES
+
+        super().__init__(parent, t("filters.title"), 440)
+        self._on_apply, self._cls = on_apply, ResultFilter
+        self.heading(t("filters.title"))
+        self.body.addWidget(label(t("hq.filter_sources"), "dim"))
+        self._sources: Dict[str, Any] = {}
+        row = hbox(spacing=theme.px(10))
+        for key in list(sources) + (["soulseek"] if soulseek else []):
+            box = QCheckBox(SOURCE_NAMES.get(key, key))
+            box.setChecked(not current.sources or key in current.sources)
+            row.addWidget(box)
+            self._sources[key] = box
+        row.addStretch(1)
+        self.body.addLayout(row)
+        self.body.addWidget(label(t("hq.filter_kind"), "dim"))
+        self._kind = QComboBox()
+        self._kinds = {"all": t("hq.kind_all"), "album": t("hq.kind_albums"), "track": t("hq.kind_tracks")}
+        self._kind.addItems(list(self._kinds.values()))
+        self._kind.setCurrentText(self._kinds.get(current.kind, self._kinds["all"]))
+        self.body.addWidget(self._kind)
+        self.body.addWidget(label(t("hq.filter_format"), "dim"))
+        self._families: Dict[str, Any] = {}
+        row = hbox(spacing=theme.px(10))
+        for fam in FAMILIES:
+            box = QCheckBox(t(f"hq.family_{fam}"))
+            box.setChecked(not current.families or fam in current.families)
+            row.addWidget(box)
+            self._families[fam] = box
+        row.addStretch(1)
+        self.body.addLayout(row)
+        self.body.addWidget(label(t("hq.filter_kbps"), "dim"))
+        self._kbps = QComboBox()
+        self._kbps_labels = {k: (t("hq.kbps_any") if k == 0 else t("hq.kbps_min", n=k)) for k in self.KBPS}
+        self._kbps.addItems(list(self._kbps_labels.values()))
+        self._kbps.setCurrentText(self._kbps_labels.get(current.min_kbps, self._kbps_labels[0]))
+        self._kbps.setToolTip(t("hq.kbps_tip"))
+        self.body.addWidget(self._kbps)
+        self.body.addWidget(label(t("hq.filter_duration"), "dim"))
+        row = hbox(spacing=theme.px(8))
+        self._duration = QLineEdit(_mmss(current.duration_s) if current.duration_s else "")
+        self._duration.setPlaceholderText(t("hq.duration_placeholder"))
+        row.addWidget(self._duration, 1)
+        row.addWidget(label("±", "dim"))
+        self._tolerance = QSpinBox()
+        self._tolerance.setRange(1, 60)
+        self._tolerance.setSuffix(" s")
+        self._tolerance.setValue(current.tolerance_s or 5)
+        row.addWidget(self._tolerance)
+        self.body.addLayout(row)
+        self._free = QCheckBox(t("hq.filter_free_slot"))
+        self._free.setChecked(current.free_slot)
+        self._speed = QComboBox()
+        self._speed_labels = {k: (t("hq.speed_any") if k == 0 else t("hq.speed_min", n=k)) for k in self.SPEEDS}
+        self._speed.addItems(list(self._speed_labels.values()))
+        self._speed.setCurrentText(self._speed_labels.get(current.min_speed_kbs, self._speed_labels[0]))
+        if soulseek:
+            self.body.addWidget(label(t("hq.filter_peer"), "dim"))
+            self.body.addWidget(self._free)
+            self.body.addWidget(self._speed)
+        self.soulseek_fields = soulseek
+        ok = self.footer(t("action.apply"), self._apply)
+        row = self.body.itemAt(self.body.count() - 1).layout()
+        row.insertWidget(0, button(t("hq.filter_reset"), self._reset, kind="flat"))
+        self.ok_btn = ok
+        self.show_dialog()
+
+    def value(self) -> Any:
+        sources = tuple(k for k, b in self._sources.items() if b.isChecked())
+        fams = tuple(k for k, b in self._families.items() if b.isChecked())
+        f = self._cls()
+        f.sources = () if len(sources) == len(self._sources) else sources
+        f.families = () if len(fams) == len(self._families) else fams
+        f.kind = next((k for k, v in self._kinds.items() if v == self._kind.currentText()), "all")
+        f.min_kbps = next((k for k, v in self._kbps_labels.items() if v == self._kbps.currentText()), 0)
+        f.duration_s = _parse_mmss(self._duration.text())
+        f.tolerance_s = self._tolerance.value()
+        if self.soulseek_fields:
+            f.free_slot = self._free.isChecked()
+            f.min_speed_kbs = next((k for k, v in self._speed_labels.items() if v == self._speed.currentText()), 0)
+        return f
+
+    def _apply(self) -> None:
+        f = self.value()
+        self.close()
+        self._on_apply(f)
+
+    def _reset(self) -> None:
+        self.close()
+        self._on_apply(self._cls())
+
+
+def _mmss(seconds: int) -> str:
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def _parse_mmss(text: str) -> int:
+    """« 4:28 » -> 268 ; « 268 » -> 268 ; vide ou illisible -> 0."""
+    text = (text or "").strip()
+    try:
+        if ":" in text:
+            m, s = text.split(":", 1)
+            return int(m) * 60 + int(s)
+        return int(text) if text else 0
+    except ValueError:
+        return 0
+
+
 class FiltersPopup(BaseDialog):
     """Options de recherche avancées : mots à exclure, type de résultat ; 1.2.1 (C08) : durée
     maximale et « masquer ce qui est déjà dans la bibliothèque ». `on_apply(mots, type, minutes,

@@ -316,14 +316,13 @@ def test_b59_no_answer_is_sent_again_once(monkeypatch):
 
 
 def test_b59_hq_search_shows_searching_not_no_result(demo, monkeypatch):  # noqa: F811
-    view = demo.views["search"]
+    view = demo.views["hq"]                         # 1.4.1 (C133) : la recherche haute qualité a sa page
     ctrl = demo.ctrl
     monkeypatch.setattr(type(ctrl), "slsk_ready", property(lambda self: True))
-    monkeypatch.setattr(ctrl, "free_search", lambda q, ok, partial=None: ok([]))
+    monkeypatch.setattr(ctrl, "free_search", lambda q, ok, partial=None, source_done=None: ok([]))
     monkeypatch.setattr(ctrl, "slsk_search", lambda q, ok, partial=None: partial([]))
     skel = []
     monkeypatch.setattr(view.table, "show_skeleton", lambda: skel.append(1))
-    view.mode.setCurrentIndex(1)
     view.entry.setText("fred again")
     view.run_search(force=True)
     pump(demo, 0.3)

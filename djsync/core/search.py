@@ -11,7 +11,8 @@ import logging
 import re
 import threading
 import unicodedata
-from typing import Any, Dict, Iterable, List, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from ..models import SearchMode, TrackResult
 
@@ -262,3 +263,155 @@ class MusicSearcher:
         except Exception as exc:  # noqa: BLE001 - purement informatif, jamais bloquant
             log.debug("Views unavailable for %s: %s", video_id, exc)
             return None
+
+
+# ======================================================================================
+# 1.4.1 (C134, C175) : résultats « Haute qualité » : qualité annoncée et filtre unique (sans interface)
+# ======================================================================================
+LOSSLESS_EXTS = ("flac", "wav", "aiff", "aif", "alac", "ape", "wv")
+FAMILIES = ("lossless", "mp3", "aac", "other")
+
+
+class Announced:
+    """Qualité annoncée d'un résultat, avant téléchargement (C175) : vérifiée après (C46)."""
+
+    def __init__(self, fmt: str = "", kbps: Optional[int] = None, sample_rate: int = 0, bit_depth: int = 0,
+                 vbr: bool = False) -> None:
+        self.fmt = fmt.upper()
+        self.kbps = kbps
+        self.sample_rate = sample_rate
+        self.bit_depth = bit_depth
+        self.vbr = vbr
+
+    @property
+    def lossless(self) -> bool:
+        return self.fmt.lower() in LOSSLESS_EXTS
+
+    @property
+    def family(self) -> str:
+        f = self.fmt.lower()
+        if self.lossless:
+            return "lossless"
+        if f == "mp3":
+            return "mp3"
+        if f in ("m4a", "aac", "mp4"):
+            return "aac"
+        return "other" if f else ""
+
+    @property
+    def label(self) -> str:
+        """« FLAC 16/44 », « FLAC », « MP3 320 », « MP3 VBR ≈ 245 », « AAC ≈ 128 »."""
+        if not self.fmt:
+            return ""
+        if self.lossless:
+            if self.bit_depth and self.sample_rate:
+                return f"{self.fmt} {self.bit_depth}/{self.sample_rate / 1000:g}"
+            return self.fmt
+        if self.kbps:
+            return f"{self.fmt} VBR ≈ {self.kbps}" if self.vbr else f"{self.fmt} {self.kbps}"
+        return self.fmt
+
+    @property
+    def level(self) -> str:
+        """« gold » (sans perte annoncé), « silver » (≥ 300 kbps annoncés), sinon ""."""
+        if self.lossless:
+            return "gold"
+        return "silver" if (self.kbps or 0) >= 300 else ""
+
+
+def announced(track: TrackResult) -> Announced:
+    r = getattr(track, "slsk", None)
+    if r is not None:
+        return Announced(r.ext, r.bitrate or None, r.sample_rate, r.bit_depth, bool(getattr(r, "vbr", False)))
+    q = (track.quality or "").strip()
+    if q:
+        parts = q.split()
+        kbps = next((int(p) for p in parts[1:] if p.isdigit()), None)
+        return Announced(parts[0], kbps)
+    if track.source in ("ytmusic", "youtube"):
+        return Announced("m4a", None)
+    return Announced()
+
+
+def source_key(track: TrackResult) -> str:
+    return "soulseek" if getattr(track, "slsk", None) is not None else (track.source or "")
+
+
+@dataclass
+class ResultFilter:
+    """Filtre des résultats (C134). Champ vide ou à 0 : pas de condition. Valeur inconnue d'un résultat :
+    gardé pour la durée (souvent absente chez Soulseek), écarté pour un débit minimum (sauf sans perte)."""
+
+    sources: Tuple[str, ...] = ()              # « archive », « audius », « soulseek », « ytmusic »…
+    kind: str = "all"                          # « all », « album », « track »
+    families: Tuple[str, ...] = ()             # parmi FAMILIES
+    min_kbps: int = 0
+    duration_s: int = 0
+    tolerance_s: int = 5
+    free_slot: bool = False                    # Soulseek : place libre chez le pair
+    min_speed_kbs: int = 0                     # Soulseek : vitesse d'envoi minimum (ko/s)
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "ResultFilter":
+        data = dict(data or {})
+        out = cls()
+        for k in ("sources", "families"):
+            if isinstance(data.get(k), (list, tuple)):
+                setattr(out, k, tuple(str(x) for x in data[k]))
+        if data.get("kind") in ("all", "album", "track"):
+            out.kind = data["kind"]
+        for k in ("min_kbps", "duration_s", "tolerance_s", "min_speed_kbs"):
+            try:
+                setattr(out, k, max(0, int(data.get(k, getattr(out, k)))))
+            except (TypeError, ValueError):
+                pass
+        out.free_slot = bool(data.get("free_slot", False))
+        return out
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"sources": list(self.sources), "kind": self.kind, "families": list(self.families),
+                "min_kbps": self.min_kbps, "duration_s": self.duration_s, "tolerance_s": self.tolerance_s,
+                "free_slot": self.free_slot, "min_speed_kbs": self.min_speed_kbs}
+
+    @property
+    def active(self) -> bool:
+        return self.to_dict() != ResultFilter().to_dict()
+
+
+def passes(track: TrackResult, f: ResultFilter) -> bool:
+    """Le résultat passe-t-il le filtre ? (Une ligne d'album passe si l'un de ses titres passe, C147.)"""
+    if f.sources and source_key(track) not in f.sources:
+        return False
+    if f.kind == "album" and not track.is_album:
+        return False
+    if track.is_album:
+        if f.kind == "track":
+            return False
+        children = list(getattr(track, "tracks", ()) or ())
+        return not children or any(passes(c, replace_kind(f)) for c in children)
+    if f.kind == "track" and track.is_album:
+        return False
+    a = announced(track)
+    if f.families and a.family not in f.families:
+        return False
+    if f.min_kbps and not a.lossless and (a.kbps or 0) < f.min_kbps:
+        return False
+    if f.duration_s and track.duration_seconds and abs(track.duration_seconds - f.duration_s) > f.tolerance_s:
+        return False
+    r = getattr(track, "slsk", None)
+    if r is not None:
+        if f.free_slot and not r.free_slot:
+            return False
+        if f.min_speed_kbs and (r.speed or 0) < f.min_speed_kbs * 1000:
+            return False
+    return True
+
+
+def replace_kind(f: ResultFilter) -> ResultFilter:
+    from dataclasses import replace as _replace
+
+    return _replace(f, kind="all")
+
+
+def filter_results(results: Iterable[TrackResult], f: ResultFilter) -> List[TrackResult]:
+    return [x for x in results if passes(x, f)]

@@ -163,11 +163,17 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
         values["source"] = f"{track.source_label} · {t('sc.free_short')}"
         values["source__color"] = theme.SILVER
     if track.is_album:                         # 1.2.1 (C09) : une ligne par album, s'ouvre au double-clic
-        values.update(artist=" · ".join(x for x in (track.artist, track.album or "") if x), views="", duration="",
-                      lib="", dl="›")
+        # 1.4.1 (C147) : même repère que les albums de la page Haute qualité (disque, « Album · n titres »)
+        n = getattr(track, "track_count", 0)
+        values.update(artist=" · ".join(x for x in (track.artist, track.album or "") if x), views="",
+                      duration=t("hq.album_count", n=n) if n else t("hq.type_album"), lib="", dl="›")
+        values["type__icon"] = "disc"
+    elif track.is_song:
+        values["type__icon"] = "music"
     if checked is not None:
         values["chk"] = CHECKED if checked else UNCHECKED
-    return Row(track.video_id, values, ("dup",) if track.is_duplicate else (), track)
+    tags = (("dup",) if track.is_duplicate else ()) + (("album",) if track.is_album else ())
+    return Row(track.video_id, values, tags, track)
 
 
 def buy_entry(ctrl: Any, artist: str, title: str) -> Any:

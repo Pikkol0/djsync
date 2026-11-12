@@ -337,14 +337,14 @@ def test_b91_missing_playlist_warnings_summed_up(caplog):
 def test_b92_size_column_in_high_quality_search(demo):  # noqa: F811
     from djsync.ui.views.common import result_columns, result_row
 
+    from djsync.ui.views.hq_view import hq_columns
+
     view = demo.views["search"]
     keys = [c.key for c in result_columns(with_size=True)]
     assert "size" in keys and "size" not in [c.key for c in result_columns()]
-    view._show_mode_columns()
-    assert "size" not in view.table._wanted and "views" in view.table._wanted
-    view.mode.setCurrentIndex(1)
-    assert "views" not in view.table._wanted and "size" in view.table._wanted
-    view.mode.setCurrentIndex(0)
+    assert "size" not in [c.key for c in view.table.columns] and "views" in [c.key for c in view.table.columns]
+    hq = [c.key for c in hq_columns()]                  # 1.4.1 (C133) : Taille sur la page Haute qualité
+    assert "size" in hq and "views" not in hq
 
     class Slsk:
         size, lossless, bitrate, free_slot, queue, speed = 12_300_000, True, 0, True, 0, 0

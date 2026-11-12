@@ -141,14 +141,15 @@ def test_soulseek_search_download_and_fake_check(demo, tmp_path, monkeypatch):  
     ctrl.on("message_action", lambda text, fn: actions.append((text, fn)))
     # recherche Haute qualité dans la vue Recherche
     ctrl._emit("settings_saved")
-    view = demo.views["search"]
-    view.mode.setCurrentIndex(1)
-    assert view.hq
+    view = demo.views["hq"]                         # 1.4.1 (C133) : page Haute qualité
     view.entry.setText("Bicep")
     view.run_search(force=True)
     assert pump(demo, 6, lambda: view.table.total == 2)
     row = view.table.row(next(iter(view._tracks)))
-    assert row.values["source"].startswith("Soulseek · FLAC") and not view.preview_btn.isEnabled()
+    assert row.values["source"] == "Soulseek" and row.values["quality"].startswith("FLAC")     # C175
+    view.table.select([row.iid])
+    view._refresh_buttons()
+    assert not view.preview_btn.isEnabled() and view.equiv_btn.isVisibleTo(view)                 # C167
     # téléchargements : import sur la clé, vraie qualité vérifiée
     jobs = ctrl.slsk_enqueue(files, [])
     assert pump(demo, 25, lambda: all(j.is_finished for j in jobs)), [(j.status, j.message) for j in jobs]

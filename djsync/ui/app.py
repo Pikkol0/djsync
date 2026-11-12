@@ -33,6 +33,7 @@ from .views.common import View, human_size
 from .views.feedback_view import FeedbackView
 from .views.downloads_view import DownloadsView
 from .views.home_view import HomeView
+from .views.hq_view import HqView
 from .views.import_view import ImportView
 from .views.library_view import LibraryView
 from .views.search_view import SearchView
@@ -49,6 +50,7 @@ DEFAULT_W, DEFAULT_H = 1240, 780
 TABS = [  # (clé, clé i18n, icône, classe)
     ("home", "tab.home", "home", HomeView),
     ("search", "tab.search", "search", SearchView),
+    ("hq", "tab.hq", "gem", HqView),                            # 1.4.1 (C133, D9) : page Haute qualité
     ("library", "tab.library", "library", LibraryView),
     ("downloads", "tab.downloads", "downloads", DownloadsView),
     ("import", "tab.import", "import", ImportView),
@@ -637,9 +639,10 @@ class DJSyncApp(QMainWindow):
         tip = self.usb_label.text() + (f" · {self.usb_free.text()}" if show_bar else "")      # B73
         self.usb_ring.set(self.usb_bar.value() / 1000 if show_bar else 0.0,
                           "computer" if local else "usb", tip)
-        search = self.views.get("search")
-        if search is not None:
-            search.refresh_duplicates()
+        for key in ("search", "hq"):                   # 1.4.1 (C133) : la page Haute qualité aussi
+            view = self.views.get(key)
+            if view is not None:
+                view.refresh_duplicates()
 
     def _library_changed(self) -> None:
         search = self.views.get("search")

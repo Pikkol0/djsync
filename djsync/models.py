@@ -113,6 +113,9 @@ class TrackResult:
     slsk: Any = field(default=None, compare=False, repr=False)   # 1.4.0 (C10.2) : résultat Soulseek d'origine
     license: str = ""                           # 1.4.0 (C45) : licence (Internet Archive, Audius)
     quality: str = ""                           # 1.4.0 (C45) : qualité annoncée (« FLAC », « MP3 320 »)
+    # 1.4.1 (C147) : ligne « album » d'Internet Archive : ses titres (déjà lus à la recherche), leur nombre
+    tracks: Tuple[Any, ...] = field(default=(), compare=False, repr=False)
+    track_count: int = 0
 
     # Renseignés par DuplicateChecker
     is_duplicate: bool = False

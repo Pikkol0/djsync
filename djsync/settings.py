@@ -115,6 +115,7 @@ class Settings:
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
+    hq_filters: dict = field(default_factory=dict)     # 1.4.1 (C134) : filtres de la page Haute qualité
     soulseek_enabled: bool = False     # 1.4.0 (C10.2) : désactivé par défaut
     soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
     soulseek_user: str = ""
@@ -187,6 +188,7 @@ class Settings:
             self.search_field, self.search_mode = "artist", "all"
         self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
+        self.hq_filters = self.hq_filters if isinstance(self.hq_filters, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         if self.merge_undo_s not in (5, 10, 30):
