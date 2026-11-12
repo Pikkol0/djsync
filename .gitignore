@@ -242,3 +242,6 @@ Thumbs.db
 
 # DJSync: version stamped by the build workflow
 djsync/_build_version.py
+
+# Quality test bench outputs (A05): measurements only, kept out of the repository
+bench_out/
