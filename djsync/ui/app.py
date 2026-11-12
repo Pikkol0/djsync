@@ -393,20 +393,18 @@ class DJSyncApp(QMainWindow):
             self._nav[key] = b
         lay.addStretch(1)
 
-        # ---- tâches longues (visible depuis tous les onglets) : 1.4.1 (C145), un seul bandeau pour toutes les
-        # tâches du registre `ctrl.tasks`, qui remplace la carte « Activité » (analyse, téléchargements) sans
-        # en changer l'aspect. Les anciens noms restent : la carte, ses barres, ses boutons, ses anneaux.
+        # ---- tâches longues (visible depuis tous les onglets) : 1.4.1 (C145), une carte par tâche en cours du
+        # registre `ctrl.tasks` (analyse, téléchargements, Doublons, Uniformiser…), qui remplace la carte
+        # « Activité ». Les anciens noms désignent les cartes de l'analyse et des téléchargements.
         from .mini_ring import MiniRing
         from .task_strip import TaskStrip
 
         strip = TaskStrip(self.ctrl.tasks, self._open_task_page)
         self.task_strip = self.an_box = strip
-        ana, dl = strip.row("analysis"), strip.row("downloads")
-        self.an_title = strip.title
-        self.an_open, self.an_stop = strip.head_buttons.open, strip.head_buttons.stop
-        self.an_label, self.an_bar = ana.label, ana.bar
-        self.dl_label, self.dl_bar = dl.label, dl.bar
-        self.an_ring, self.dl_ring = strip.ring_a, strip.ring_b
+        ana, dl = strip.card("analysis"), strip.card("downloads")
+        self.an_title, self.an_open, self.an_stop, self.an_pause = ana.title, ana.open, ana.stop, ana.pause
+        self.an_label, self.an_bar, self.an_ring = ana.label, ana.bar, ana.ring
+        self.dl_label, self.dl_bar, self.dl_ring = dl.label, dl.bar, dl.ring
         lay.addWidget(strip)
 
         # ---- clé active + remplissage
@@ -505,7 +503,7 @@ class DJSyncApp(QMainWindow):
         """Bandeau des tâches du volet (1.4.1, C145 ; avant : carte « Activité », 1.2.1 C21)."""
         strip = getattr(self, "task_strip", None)
         if strip is not None:
-            strip.refresh(bool(self._compact))
+            strip.refresh(bool(self._compact), getattr(self, "_card_margin", None))
 
     def _open_task_page(self, key: str) -> None:
         """→ d'une tâche du volet : une vue (Téléchargements…), la page Uniformiser en cours, ou un outil du
@@ -548,8 +546,8 @@ class DJSyncApp(QMainWindow):
 
         margin, card = cpx(10), cpx(1 if compact else 10)
         self.sidebar.layout().setContentsMargins(margin, margin, margin, margin)
-        for ring in (self.an_ring, self.dl_ring, self.usb_ring):
-            ring.rescale()
+        self.usb_ring.rescale()
+        self.task_strip.rescale()                                          # 1.4.1 (C145) : un anneau par carte
         # largeur : au moins un anneau dans sa carte, avec les marges (jamais coupé)
         width = max(cpx(SIDEBAR_COMPACT), ring_px() + 2 * (margin + card))
         if not compact:          # au moins le plus long libellé (langue, zoom)
@@ -564,7 +562,7 @@ class DJSyncApp(QMainWindow):
             w.setVisible(not compact)
         self.usb_ring.setVisible(compact)                                  # B73
         self.usb_box.layout().setContentsMargins(*([card] * 4))                            # C161
-        self.an_box.layout().setContentsMargins(*([card] * 4))
+        self._card_margin = card                                           # C145 : cartes des tâches
         self._analysis_changed()
         self._drive_changed()
 

@@ -90,7 +90,8 @@ class CurationMixin:
             from ...core import metadata, uniformize
 
             for track in tracks:
-                while paused is not None and paused() and not cancelled():
+                while paused is not None and paused() and not cancelled() \
+                        and not getattr(self.dispatcher, "_closed", False):        # fermeture : libéré
                     time.sleep(0.2)
                 if cancelled():
                     break

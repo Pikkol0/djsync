@@ -1,4 +1,5 @@
-"""1.4.1 (C145) : registre des tâches longues et bandeau du volet gauche (TaskStrip)."""
+"""1.4.1 (C145) : registre des tâches longues et cartes du volet gauche (TaskStrip) : une carte par tâche en
+cours, réduite à son anneau en volet replié, disparue dès la fin ; pause de l'analyse et des téléchargements."""
 from __future__ import annotations
 
 import threading
@@ -64,21 +65,19 @@ def test_c145_a_write_has_no_stop_and_no_pause():
     assert not reg.start("w", "x", can_stop=True).can_stop
 
 
-def test_c145_done_lingers_then_disappears_failed_stays_until_dismissed():
+def test_c145_done_disappears_at_once_failed_stays_until_dismissed():
     reg, later, _seen = _reg()
     ok = reg.start("ok", "x", total=2)
     ok.progress(2, 2)
     ok.finish()
-    assert ok.state == T.DONE and ok.fraction == 1.0 and reg.get("ok") is ok
-    assert later.calls and later.calls[0][0] == int(T.DONE_LINGER_S * 1000)
+    assert ok.state == T.DONE and reg.get("ok") is None and not later.calls   # 12/11 : la carte part tout de suite
+    slow = reg.start("slow", "x", linger=4.0)                       # délai encore possible pour un outil
+    slow.finish()
+    assert reg.get("slow") is slow and later.calls[0][0] == 4000
     later.run()
-    assert reg.get("ok") is None                                    # « ✓ fini » 4 s, puis la ligne part
-    gone = reg.start("now", "x", linger=0)
-    gone.finish()
-    assert reg.get("now") is None                                   # sans délai (analyse, téléchargements)
+    assert reg.get("slow") is None
     bad = reg.start("bad", "x")
     bad.fail("disk full")
-    later.run()
     assert reg.get("bad") is bad and bad.state == T.FAILED and bad.error == "disk full"
     assert reg.dismiss("bad") and reg.get("bad") is None
     assert not reg.dismiss("missing")
@@ -86,10 +85,10 @@ def test_c145_done_lingers_then_disappears_failed_stays_until_dismissed():
 
 def test_c145_restart_before_the_end_of_the_linger_keeps_the_line():
     reg, later, _seen = _reg()
-    task = reg.start("k", "x", total=5)
+    task = reg.start("k", "x", total=5, linger=4.0)
     task.progress(5, 5)
     task.finish()
-    again = reg.start("k", "x", total=3)
+    again = reg.start("k", "x", total=3, linger=4.0)
     later.run()                                                    # ancien retrait différé : ignoré
     assert again is task and task.active and task.done == 0 and reg.get("k") is task
     assert not reg.dismiss("k")                                     # une tâche en cours ne se masque pas
@@ -149,13 +148,17 @@ def _clear(reg):
     reg._changed()
 
 
-def test_c145_strip_with_0_1_and_4_tasks(demo):  # noqa: F811
-    from djsync.ui.task_strip import MAX_ROWS
-
-    reg, strip = demo.ctrl.tasks, demo.task_strip
-    demo.ctrl.settings.sidebar_compact = "off"
+def _expand(demo, compact="off"):
+    demo.ctrl.settings.sidebar_compact = compact
     demo._compact = None
     demo._update_compact()
+
+
+def test_c145_one_card_per_task_with_0_1_and_4_tasks(demo):  # noqa: F811
+    from djsync.ui.task_strip import MAX_CARDS
+
+    reg, strip = demo.ctrl.tasks, demo.task_strip
+    _expand(demo)
     _clear(reg)
     assert strip.isHidden()                                         # 0 tâche : rien
 
@@ -164,48 +167,41 @@ def test_c145_strip_with_0_1_and_4_tasks(demo):  # noqa: F811
                   resume=lambda: log.append("r"), can_stop=True, stop=lambda: log.append("s"), open="dup")
     a.progress(12, 40)
     pump(demo, 0.1)
-    assert strip.isVisible() and strip.title.text() == "CHECKING DUPLICATES"
-    row = strip.rows["dup"]
-    assert row.label.text() == "12 / 40" and row.bar.value() == 300
-    hb = strip.head_buttons                                         # une seule tâche : boutons dans l'en-tête
-    assert hb.open.isVisible() and hb.pause.isVisible() and hb.stop.isVisible()
-    assert not row.buttons.pause.isVisible()
-    hb.pause.click()
-    assert a.state == T.PAUSED and "Paused" in row.label.text() and hb.pause.toolTip() == "Resume"
-    hb.pause.click()
+    card = strip.cards["dup"]
+    assert strip.isVisible() and card.isVisible() and card.title.text() == "DUPLICATES"
+    assert card.label.text() == "12 / 40" and card.bar.value() == 300
+    assert card.open.isVisible() and card.pause.isVisible() and card.stop.isVisible()
+    card.pause.click()
+    assert a.state == T.PAUSED and card.label.text() == "12 / 40  ·  Paused" and card.pause.toolTip() == "Resume"
+    card.pause.click()
     assert a.state == T.RUNNING and log == ["p", "r"]
 
     others = [reg.start(k, "task.uniformize", total=10, can_stop=True, stop=lambda: None) for k in ("u1", "u2", "u3")]
     pump(demo, 0.2)
-    assert strip.title.text() == "ACTIVITY" and len(reg.tasks()) == 4
-    assert strip._scrolling and strip.area.isVisible()               # au-delà de 3 lignes : défilement
+    assert all(strip.cards[x.key].isVisible() is not None for x in others) and len(reg.tasks()) == 4
+    assert all(strip.cards[k].title.text() == "UNIFORMISE" for k in ("u1", "u2", "u3"))   # une carte chacune
+    assert card.title.text() == "DUPLICATES"
+    assert strip._scrolling and strip.area.isVisible()               # au-delà de 3 cartes : défilement
     assert strip.area.height() < strip.inner.sizeHint().height()
-    assert strip.rows["dup"].label.text().startswith("Checking duplicates 12 / 40")
-    assert all(strip.rows[x.key].buttons.stop.isVisible() for x in others)   # suivantes : boutons dans la ligne
-    assert hb.task is a and hb.pause.isVisible()                    # première : dans l'en-tête
-    strip.rows["u1"].buttons.stop.click()
-    assert others[0].state == T.STOPPING and not strip.rows["u1"].buttons.stop.isEnabled()
+    strip.cards["u1"].stop.click()
+    assert others[0].state == T.STOPPING and strip.cards["u1"].title.text() == "STOPPING…"
+    assert not strip.cards["u1"].stop.isEnabled()
 
     for x in others:
         x.finish()
     pump(demo, 0.1)
-    assert all(strip.rows[x.key].label.text().endswith("✓ Done") for x in others)   # « ✓ fini » reste un moment
-    for x in others:
-        reg._expire(x, x._token)
-    pump(demo, 0.1)
-    assert len(reg.tasks()) == 1 and not strip._scrolling and strip.area.isHidden()
-    assert MAX_ROWS == 3
+    assert len(reg.tasks()) == 1 and not strip._scrolling and strip.area.isHidden()   # finies : cartes parties
+    assert all(strip.cards[k].isHidden() for k in ("u1", "u2", "u3")) and MAX_CARDS == 3
 
     b = reg.start("bad", "task.uniformize")
     b.fail("Disk full")
     pump(demo, 0.1)
-    bad = strip.rows["bad"]
-    assert bad.label.text().endswith("Disk full") and bad.label.property("role") == "err"
-    bad._clicked()                                                  # clic sur la ligne rouge : masquée
-    assert reg.get("bad") is None
+    bad = strip.cards["bad"]
+    assert bad.label.text() == "Disk full" and bad.label.property("role") == "err" and bad.bar.isHidden()
+    bad._clicked()                                                  # clic sur la carte rouge : masquée
+    assert reg.get("bad") is None and bad.isHidden()
 
     opened = []
-    demo._open_task_page = opened.append
     strip._opener = opened.append
     strip.open_task(a)
     strip.open_task(None)
@@ -215,55 +211,137 @@ def test_c145_strip_with_0_1_and_4_tasks(demo):  # noqa: F811
     assert strip.isHidden() and not demo.errors
 
 
-def test_c145_collapsed_sidebar_one_ring_then_a_second_that_adds_up_the_rest(demo):  # noqa: F811
+def test_c145_collapsed_sidebar_one_small_card_per_task(demo):  # noqa: F811
+    from djsync.ui import theme
+    from djsync.ui.app import SIDEBAR_COMPACT
+
     reg, strip = demo.ctrl.tasks, demo.task_strip
     _clear(reg)
-    demo.ctrl.settings.sidebar_compact = "on"
-    demo._compact = None
-    demo._update_compact()
+    _expand(demo, "on")
     try:
         a = reg.start("a", "task.duplicates", total=10, order=0)
         a.progress(5, 10)
-        pump(demo, 0.1)
-        assert strip.ring_a.isVisible() and not strip.ring_b.isVisible() and strip.inner.isHidden()
-        assert strip.ring_a.value == 0.5 and strip.ring_a.toolTip() == "Checking duplicates 5 / 10"
-        b = reg.start("b", "task.uniformize", total=4)
+        b = reg.start("b", "task.uniformize", total=4, icon="tag")
         b.progress(1, 4)
-        pump(demo, 0.1)
-        assert strip.ring_b.isVisible() and strip.ring_b.value == 0.25
         c = reg.start("c", "task.uniformize", total=4)
         c.progress(3, 4)
-        pump(demo, 0.1)
-        assert strip.ring_b.value == 0.5 and strip.ring_b.toolTip().count("\n") == 1   # cumul des suivantes
+        pump(demo, 0.2)
+        rings = [strip.cards[k].ring for k in ("a", "b", "c")]
+        assert all(r.isVisible() for r in rings)                    # un anneau par tâche
+        assert [r.value for r in rings] == [0.5, 0.25, 0.75]
+        assert rings[0].toolTip() == "Duplicates 5 / 10" and rings[1].icon == "tag"
+        assert all(strip.cards[k].title.isHidden() and strip.cards[k].bar.isHidden() for k in ("a", "b", "c"))
+        inner = demo.sidebar.width() - 2 * theme.px(10)
+        for k in ("a", "b", "c"):                                   # jamais coupé (B94)
+            m = strip.cards[k].layout().contentsMargins()
+            assert strip.cards[k].ring.width() + m.left() + m.right() <= inner
+        assert demo.sidebar.width() >= SIDEBAR_COMPACT
     finally:
         _clear(reg)
-        demo.ctrl.settings.sidebar_compact = "auto"
-        demo._compact = None
-        demo._update_compact()
+        _expand(demo, "auto")
     assert not demo.errors
 
 
-def test_c145_analysis_goes_through_the_registry_and_stops_from_the_strip(demo):  # noqa: F811
+def test_c145_analysis_and_downloads_cards_pause_and_stop(demo):  # noqa: F811
+    from djsync.core.downloader import TrackResult
+    from djsync.models import DownloadJob
+
     ctrl = demo.ctrl
     q = ctrl.analysis
     _clear(ctrl.tasks)
-    demo.ctrl.settings.sidebar_compact = "off"
-    demo._compact = None
-    demo._update_compact()
+    _expand(demo)
     q.finished, q.total, q.done, q.current, q.cancelled = False, 10, 3, "Song", False
+    ctrl.jobs.append(DownloadJob(99, TrackResult("abcdefghijk", "T", "A"), status="downloading", percent=30))
     try:
         ctrl._emit("analysis")
+        ctrl._emit("downloads")
         task = ctrl.tasks.get("analysis")
-        assert task is not None and task.can_stop and not task.can_pause and task.open == "downloads"
+        assert task.can_stop and task.can_pause and task.open == "downloads"
         assert demo.an_title.text() == "ANALYSING" and demo.an_label.text() == "3 / 10  ·  Song"
-        assert demo.an_stop.isVisible() and demo.an_stop.toolTip() == "Stop analysis"
-        demo.an_stop.click()                                        # arrêt depuis le volet : la file s'arrête
+        assert demo.an_box.isVisible() and demo.dl_bar.isVisible()          # deux cartes
+        assert demo.task_strip.cards["downloads"].title.text() == "DOWNLOADING"
+        demo.an_pause.click()
+        assert q.paused and task.state == T.PAUSED and demo.an_label.text() == "3 / 10  ·  Paused  ·  Song"
+        demo.an_pause.click()
+        assert not q.paused and task.state == T.RUNNING
+        dl = demo.task_strip.cards["downloads"]
+        assert dl.pause.isVisible() and not dl.stop.isVisible()
+        dl.pause.click()
+        assert ctrl.downloads_paused and ctrl.tasks.get("downloads").state == T.PAUSED
+        dl.pause.click()
+        assert not ctrl.downloads_paused
+        demo.an_stop.click()                                        # arrêt depuis la carte : la file s'arrête
         assert q.cancelled and task.state == T.STOPPING and demo.an_title.text() == "STOPPING…"
-        assert not demo.an_stop.isEnabled()
     finally:
-        q.finished, q.cancelled = True, False
+        q.finished, q.cancelled, q.paused = True, False, False
+        ctrl.jobs[-1].status = "done"
         ctrl._emit("analysis")
-    assert ctrl.tasks.get("analysis") is None and not demo.an_box.isVisible()   # disparaît aussitôt (comme avant)
+        ctrl._emit("downloads")
+    assert ctrl.tasks.get("analysis") is None and not demo.an_box.isVisible()   # disparaît aussitôt
+    assert not demo.errors
+
+
+def test_c145_analysis_pause_finishes_the_current_track_and_loses_none(demo):  # noqa: F811
+    ctrl = demo.ctrl
+    _clear(ctrl.tasks)
+    started, processed = [], []
+    sem = threading.Semaphore(0)
+
+    def fake(ids, force=False, on_progress=None, should_stop=None, chunk=8):
+        n = 0
+        for i, cid in enumerate(ids, start=1):
+            if should_stop and should_stop():
+                break
+            started.append(cid)
+            sem.acquire(timeout=10)
+            processed.append(cid)
+            n += 1
+            if on_progress:
+                on_progress(i, len(ids), None, "")
+        return n, 0, 0
+
+    ctrl.library.analyze_tracks = fake
+    ids = [x.content_id for x in ctrl.library.list_tracks()]
+    q = ctrl.analyze(ids, force=True)
+    try:
+        assert pump(demo, 5, lambda: len(started) == 1)
+        assert ctrl.tasks.pause("analysis") and q.paused
+        sem.release()                                               # le son en cours finit…
+        assert pump(demo, 5, lambda: len(processed) == 1)
+        pump(demo, 0.8)
+        assert len(started) == 1 and q.running                      # … le suivant attend
+        assert ctrl.tasks.get("analysis").state == T.PAUSED and "Paused" in demo.an_label.text()
+        assert ctrl.tasks.resume("analysis") and not q.paused
+        for _ in ids:
+            sem.release()
+        assert pump(demo, 10, lambda: not q.running)
+        assert processed == ids and q.done == len(ids)              # aucun son perdu ni analysé deux fois
+    finally:
+        for _ in range(30):
+            sem.release()
+        q.cancel()
+        pump(demo, 1, lambda: not q.running)
+    assert ctrl.tasks.get("analysis") is None and not demo.errors
+
+
+def test_c145_downloads_pause_waits_before_the_next_file(demo):  # noqa: F811
+    from djsync.core.downloader import TrackResult
+    from djsync.models import DownloadJob
+
+    ctrl = demo.ctrl
+    ctrl.pause_downloads(True)
+    job = DownloadJob(77, TrackResult("abcdefghijm", "T", "A"))
+    th = threading.Thread(target=ctrl._run_job, args=(job,), daemon=True)
+    try:
+        th.start()
+        th.join(0.8)
+        assert th.is_alive() and job.status == "queued"            # pas commencé pendant la pause
+        job.status = "error"                                        # retiré entre-temps : rien n'est lancé
+        ctrl.pause_downloads(False)
+        th.join(3)
+        assert not th.is_alive() and job.status == "error"
+    finally:
+        ctrl.pause_downloads(False)
     assert not demo.errors
 
 
@@ -298,10 +376,10 @@ def test_c145_duplicates_pause_resume_stop_between_groups(demo):  # noqa: F811
     assert ctrl.tasks.stop("dup") and task.state == T.STOPPING
     g, ok = pending.pop()
     ok([g])
-    assert not pending and task.state == T.DONE                      # arrêt : fin propre après le groupe en cours
+    assert not pending and task.state == T.DONE and ctrl.tasks.get("dup") is None   # arrêt : fin propre
     assert dup.verified.count(False) == 1                           # le reste n'est pas vérifié, rien n'est perdu
     dup.verify_now(dup.verified.index(False))
-    assert len(pending) == 1 and ctrl.tasks.get("dup").state == T.DONE   # sans relancer la tâche
+    assert len(pending) == 1 and ctrl.tasks.get("dup") is None      # sans relancer la tâche
     dup.close()
     assert not demo.errors
 
@@ -319,7 +397,7 @@ def test_c145_duplicates_task_ends_with_the_page(demo):  # noqa: F811
     task = ctrl.tasks.get("dup")
     assert task.active
     dup.close()
-    assert task.state == T.DONE and not demo.errors
+    assert task.state == T.DONE and ctrl.tasks.get("dup") is None and not demo.errors
 
 
 # ------------------------------------------------------------------ Uniformiser

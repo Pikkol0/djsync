@@ -122,6 +122,7 @@ class AnalysisQueue(TaskHandle):
         # 1.4.0-rc.5 (C161) : téléchargements en cours dont le son sera analysé : comptés dès le départ
         self.expected: set = set()       # identifiants des téléchargements attendus
         self.stopped: set = set()        # téléchargements d'une analyse arrêtée : ne la relancent pas
+        self.paused = False              # 1.4.1 (C145) : pause depuis le volet (le son en cours finit)
 
     @property
     def running(self) -> bool:
@@ -187,8 +188,14 @@ class AnalysisQueue(TaskHandle):
             self.batch = [i for i in batch if i not in self.forced] + [i for i in batch if i in self.forced]
             return batch
 
+    def requeue(self, ids: Sequence[int]) -> None:
+        """1.4.1 (C145) : sons d'un lot pas commencés à cause d'une pause : remis en tête de file."""
+        with self._lock:
+            self.pending = [i for i in ids if i not in self.pending] + self.pending
+
     def reset(self) -> None:
         with self._lock:
+            self.paused = False
             self.total = self.done = self.ok = self.skipped = self.failed = 0
             self.pending, self.ids, self.forced, self.problems = [], set(), set(), []
             self.missing = {}
@@ -520,8 +527,14 @@ class LibraryOpsMixin:
                 log.warning("Analysis failed for track %s: %s", track.content_id if track else "?", problem[:300])
             self.dispatcher.post(self._analysis_progress, q.done, q.total, track, problem)
 
+        def wait_while_paused() -> None:
+            # 1.4.1 (C145) : pause du volet ; libérée par la reprise, l'arrêt ou la fermeture de l'application
+            while q.paused and not q.cancelled and not getattr(self.dispatcher, "_closed", False):
+                time.sleep(0.2)
+
         def work() -> Any:
             while True:
+                wait_while_paused()
                 light = self._light()
                 if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
                     self._wait_while_playing(q)
@@ -537,11 +550,26 @@ class LibraryOpsMixin:
                 batch = self._skip_missing(lib, q, batch)        # 1.3.2-rc.3 (B49)
                 normal = [i for i in batch if i not in q.forced]
                 forced = [i for i in batch if i in q.forced]
+                left: List[int] = []
                 for ids, force_it in ((normal, False), (forced, True)):
+                    if ids and q.paused and not q.cancelled:
+                        left += ids                           # C145 : pause, lot remis en file
+                        continue
                     if ids and not q.cancelled:
-                        a, sk, fl = lib.analyze_tracks(ids, force=force_it, on_progress=progress,
-                                                       should_stop=lambda: q.cancelled)
+                        seen = [0]
+
+                        def step(i: int, n: int, track: Optional[LibraryTrack], problem: str,
+                                 _seen: List[int] = seen) -> None:
+                            _seen[0] = i
+                            progress(i, n, track, problem)
+
+                        a, sk, fl = lib.analyze_tracks(ids, force=force_it, on_progress=step,
+                                                       should_stop=lambda: q.cancelled or q.paused)
                         q.ok, q.skipped, q.failed = q.ok + a, q.skipped + sk, q.failed + fl
+                        if q.paused and not q.cancelled:      # C145 : arrêt après le son en cours
+                            left += ids[seen[0]:]
+                if left:
+                    q.requeue(left)
                 self.dispatcher.post(self._analysis_batch_saved, lib)
             return q.ok, q.skipped, q.failed
 
@@ -668,6 +696,12 @@ class LibraryOpsMixin:
         if self.library is lib and self.analysis.running:
             self.service.refresh_library()
             self._emit("library")
+
+    def pause_analysis(self, paused: bool = True) -> None:
+        """1.4.1 (C145) : pause (le son en cours finit, le suivant attend) ou reprise de l'analyse."""
+        if self.analysis.running and self.analysis.paused != paused:
+            self.analysis.paused = paused
+            self._emit("analysis")
 
     def stop_analysis(self) -> None:
         if self.analysis.running:

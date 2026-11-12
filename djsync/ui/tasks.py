@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 RUNNING, PAUSED, STOPPING, DONE, FAILED = "running", "paused", "stopping", "done", "failed"
 ACTIVE = (RUNNING, PAUSED, STOPPING)
 
-DONE_LINGER_S = 4.0          # « ✓ fini » reste affiché 4 s, puis la ligne disparaît
+DONE_LINGER_S = 0.0          # 12/11 (auteur) : la carte disparaît dès que la tâche est finie
 
 
 class Task:
@@ -201,6 +201,14 @@ class TaskRegistry:
         if task is not None and task.state in (RUNNING, PAUSED):
             task.state = STOPPING
             self._changed()
+
+    def mark_paused(self, key: str, paused: bool) -> None:
+        """L'outil a été mis en pause (ou repris) ailleurs que par le volet."""
+        task = self._tasks.get(key)
+        if task is None or task.state not in (RUNNING, PAUSED) or (task.state == PAUSED) == paused:
+            return
+        task.state = PAUSED if paused else RUNNING
+        self._changed()
 
     def dismiss(self, key: str) -> bool:
         """Retire une tâche finie ou en échec (clic sur une ligne rouge)."""

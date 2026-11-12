@@ -72,9 +72,31 @@ class DownloadsMixin:
         s = self.settings
         return bool(s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb)
 
+    # ------------------------------------------------------------------ 1.4.1 (C145) : pause du volet
+    @property
+    def downloads_paused(self) -> bool:
+        return bool(getattr(self, "_downloads_paused", False))
+
+    def pause_downloads(self, paused: bool = True) -> None:
+        """Pause : les fichiers en cours finissent, les suivants restent en attente jusqu'à la reprise."""
+        if self.downloads_paused != paused:
+            self._downloads_paused = paused
+            self._emit("downloads")
+
+    def _wait_downloads_pause(self) -> None:
+        """Thread « dl » : attend la reprise avant de commencer un fichier (libéré aussi à la fermeture)."""
+        import time
+
+        while self.downloads_paused and not getattr(self.dispatcher, "_closed", False):
+            time.sleep(0.3)
+
     def _run_job(self, job: DownloadJob) -> None:
         """Thread « dl » : téléchargement natif -> tags -> ajout en base (+ backup) -> playlists."""
         last: Dict[str, Any] = {}
+        if self.downloads_paused:                           # 1.4.1 (C145) : jamais au milieu d'un fichier
+            self._wait_downloads_pause()
+            if job.status != "queued":                     # retiré ou annulé pendant la pause
+                return
 
         def progress(p: Any) -> None:
             key = (p.status, int(p.percent // 2))
