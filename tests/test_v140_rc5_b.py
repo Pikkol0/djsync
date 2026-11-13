@@ -40,6 +40,9 @@ def test_b91_missing_playlist_warnings_summed_up(caplog):
 
     noise = local_library._PlaylistXmlNoise()
     lg = logging.getLogger("pyrekordbox.masterdb.database.test")
+    lg.setLevel(logging.WARNING)                  # 1.4.2 (C183) : un test d'avant peut avoir réduit « pyrekordbox »
+    lg.disabled = False
+    logging.getLogger("djsync.db.local_library").disabled = False
     lg.addFilter(noise)
     try:
         # 1.4.2 (C183) : niveau posé sur le journal qui écrit le résumé (un test d'avant dans le même processus
