@@ -1273,8 +1273,20 @@ class DJSyncApp(QMainWindow):
                 return
             log.info("Focus to another window: %s%s", describe_window(win), since())
 
-        QGuiApplication.instance().applicationStateChanged.connect(state)
-        QGuiApplication.instance().focusWindowChanged.connect(focus)
+        # 1.4.2 (C183) : signaux de l'application, qui survivent à la fenêtre : rien après sa destruction (tests)
+        app = QGuiApplication.instance()
+        guarded_state = lambda st: _safe(lambda: state(st))          # noqa: E731
+        guarded_focus = lambda win: _safe(lambda: focus(win))        # noqa: E731
+        app.applicationStateChanged.connect(guarded_state)
+        app.focusWindowChanged.connect(guarded_focus)
+
+        def unhook() -> None:
+            for sig, fn in ((app.applicationStateChanged, guarded_state), (app.focusWindowChanged, guarded_focus)):
+                try:
+                    sig.disconnect(fn)
+                except (RuntimeError, TypeError):
+                    pass
+        self.destroyed.connect(lambda *_a: unhook())
         handle = self.windowHandle()
         if handle is not None:
             handle.windowStateChanged.connect(

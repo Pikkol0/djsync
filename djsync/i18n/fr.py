@@ -1966,7 +1966,7 @@ STRINGS = {
     "hq.help_reliable": "Fiabilité",
     "hq.help_reliable_text": "Un pair peut se déconnecter ou arrêter de partager sans prévenir. Si un téléchargement bloque, DJSync essaie un autre pair qui a le même fichier.",
     "hq.help_quality": "Qualité annoncée",
-    "hq.help_quality_text": "Ce que le fichier dit être (FLAC, 320 kbps…). DJSync vérifie la qualité réelle après le téléchargement.",
+    "hq.help_quality_text": "Ce que le fichier dit être (FLAC, 320 kbps…). Après le téléchargement, DJSync mesure sa qualité supposée.",
     "hq.help_preview": "Pas d'écoute",
     "hq.help_preview_text": "Un fichier Soulseek ne s'écoute qu'une fois téléchargé. Les sources libres (Internet Archive, Audius) s'écoutent avant.",
     "import.first_of": "Seuls les {n} premiers titres sur {total} sont affichés.",

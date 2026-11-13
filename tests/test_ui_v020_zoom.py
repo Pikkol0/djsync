@@ -32,8 +32,13 @@ def test_zoom_is_live_and_window_size_does_not_change_it(demo):  # noqa: F811
     assert theme.zoom() == 1.0
     demo.resize(1280, 800)
     assert pump(demo, 2, lambda: demo._compact is False)
-    # couleur : à chaud aussi
+    # couleur : à chaud aussi, sans redémarrer (1.3.0-rc.4, B23 : les vues sont refaites dans la nouvelle couleur ;
+    # 1.4.2, C144 : « green » est devenu une vraie couleur, « Vert franc »)
+    from djsync.ui.palettes import PALETTES
+
     demo.ctrl.settings.theme = "green"
     demo.ctrl._emit("restyle")
-    assert demo.views == views_before
+    pump(demo, 0.3)
+    assert theme.ACCENT.upper() == PALETTES["green"].upper() and demo.ctrl.has_library
+    assert demo.views["library"] is not None and demo._current == "library"
     assert not demo.errors

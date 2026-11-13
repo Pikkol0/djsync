@@ -49,6 +49,22 @@ def make_window(settings, monkeypatch, size=(1280, 800)):
 
 
 def close_window(window):
+    """Ferme la fenêtre ET la détruit vraiment. 1.4.2 (C183) : sans boucle Qt lancée, deleteLater() n'était
+    jamais exécuté (processEvents ne traite pas les destructions différées) : chaque test laissait ~940 widgets
+    et ~20 fenêtres, et chaque feuille de style (zoom, couleur, langue) les reprenait tous : plusieurs minutes
+    sur les derniers tests d'un processus. Les fenêtres de premier niveau restantes (pages, bulles) aussi."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
     window.close()
     window.deleteLater()
     pump(window, 0.05)
+    for w in list(QApplication.topLevelWidgets()):
+        try:
+            w.close()
+            w.deleteLater()
+        except RuntimeError:                       # déjà détruit
+            pass
+    for _i in range(3):
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QCoreApplication.processEvents()

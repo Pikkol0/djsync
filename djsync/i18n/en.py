@@ -1960,7 +1960,7 @@ STRINGS = {
     "hq.help_reliable": "Reliability",
     "hq.help_reliable_text": "Peers go offline or stop sharing without warning. If a download stalls, DJSync tries another peer with the same file.",
     "hq.help_quality": "Announced quality",
-    "hq.help_quality_text": "What the file claims to be (FLAC, 320 kbps…). DJSync checks the real quality after the download.",
+    "hq.help_quality_text": "What the file claims to be (FLAC, 320 kbps…). After the download, DJSync measures its estimated quality.",
     "hq.help_preview": "No preview",
     "hq.help_preview_text": "A Soulseek file can only be listened to once downloaded. Free sources (Internet Archive, Audius) can be played first.",
     "import.first_of": "Only the first {n} tracks of {total} are shown.",
