@@ -125,8 +125,8 @@ Mesure sur la tour (192 sons, 13/11) après la 1re passe : contretemps 34 → 24
 
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
-| GRI-1 | Auteur | Windows | (**B11**, **B12**) Relancer la commande ci-dessus et comparer au résumé de la mesure de départ (12/11 : BPM 160 / 192, contretemps 34 / 160, premier temps 81 / 160). | Contretemps en baisse nette, premier temps en hausse, BPM identiques au moins aussi nombreux ; aucune famille (house, hardstyle, rap, pop) qui recule. |
-| GRI-2 | Testeur platines | Platines | (**B11**, **B12**) Analyser 3 sons hardstyle ou hypertechno et 3 sons pop sur une clé ; les charger sur platine. | Grille sur les kicks (pas entre deux kicks) ; le « 1 » de la platine tombe sur le début des mesures (entrée de la basse, du refrain). |
+| GRI-4 | Auteur | Windows | (**B11**, **B12**) Relancer la commande ci-dessus et comparer au résumé de la mesure de départ (12/11 : BPM 160 / 192, contretemps 34 / 160, premier temps 81 / 160). | Contretemps en baisse nette, premier temps en hausse, BPM identiques au moins aussi nombreux ; aucune famille (house, hardstyle, rap, pop) qui recule. |
+| GRI-5 | Testeur platines | Platines | (**B11**, **B12**) Analyser 3 sons hardstyle ou hypertechno et 3 sons pop sur une clé ; les charger sur platine. | Grille sur les kicks (pas entre deux kicks) ; le « 1 » de la platine tombe sur le début des mesures (entrée de la basse, du refrain). |
 
 ## Or et argent (C141, D14)
 
