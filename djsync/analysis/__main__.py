@@ -110,7 +110,8 @@ def _grid_from_rekordbox(lib, track) -> bool:
 
 
 def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None = None,
-             under: str | None = None, playlist: str | None = None) -> int:
+             under: str | None = None, playlist: str | None = None, exclude: list | None = None,
+             min_seconds: int = 90) -> int:
     from .decode import ANALYSIS_SR, MP4_SUFFIXES, decode, mp4_timing, timeline_lead_seconds
     from .key import analyze_key
     from .tempo import analyze_tempo
@@ -126,13 +127,18 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
                 print(f"Playlist not found: {playlist}")
                 return 2
             wanted = {t.content_id for p in names for t in lib.get_playlist_tracks(p.playlist_id)}
+        excluded = [x.replace("\\", "/").rstrip("/").lower() for x in (exclude or []) if x]
         # 1.4.1 : la grille de référence est reconnue au FICHIER, pas à l'origine du son : Rekordbox écrit
         # toujours la grille étendue PQT2 dans le .EXT, DJSync jamais (et la retire quand il corrige ou
         # greffe une grille). Un son ajouté par DJSync puis analysé par Rekordbox compte ; un son de
         # Rekordbox dont DJSync a refait la grille ne compte plus.
         candidates = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0
                       and (wanted is None or t.content_id in wanted)
-                      and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())]
+                      and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())
+                      # 1.4.1 : audit de toute la bibliothèque : pas les bruitages, voix et extraits courts,
+                      # ni les dossiers écartés (--exclude)
+                      and (t.duration_seconds or 0) >= min_seconds
+                      and not any(x in str(lib.absolute_path(t)).replace("\\", "/").lower() for x in excluded)]
         tracks = [t for t in candidates if _grid_from_rekordbox(lib, t)][:limit]
         skipped = len(candidates) - len([t for t in candidates if _grid_from_rekordbox(lib, t)])
         print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
@@ -231,13 +237,16 @@ def main(argv=None) -> int:
     ap.add_argument("--compare", metavar="DRIVE|local",
                     help="compare with Rekordbox's analyses: of a drive (E:) or of this computer's collection (local)")
     ap.add_argument("--under", metavar="FOLDER", help="with --compare: only the tracks whose file is in this folder")
+    ap.add_argument("--exclude", metavar="FOLDER", action="append", help="with --compare: leave out this folder (repeatable)")
+    ap.add_argument("--min-seconds", type=int, default=90, help="with --compare: leave out shorter tracks (default 90)")
     ap.add_argument("--playlist", metavar="NAME", help="with --compare: only the tracks of this playlist")
     ap.add_argument("--limit", type=int, default=10_000, help="maximum number of tracks compared (default: all)")
     ap.add_argument("--csv", metavar="FILE", help="with --compare: write detailed measurements (calibration)")
     ap.add_argument("--ffmpeg", default=None, help="folder containing ffmpeg(.exe)")
     args = ap.parse_args(argv)
     if args.compare:
-        return _compare(args.compare, args.ffmpeg, args.limit, args.csv, args.under, args.playlist)
+        return _compare(args.compare, args.ffmpeg, args.limit, args.csv, args.under, args.playlist,
+                        args.exclude, args.min_seconds)
     if not args.files:
         ap.print_help()
         return 1
