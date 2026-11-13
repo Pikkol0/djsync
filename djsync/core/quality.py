@@ -76,6 +76,8 @@ class AudioInfo:
     @property
     def opus_signature(self) -> bool:
         """1.4.0-rc.4 (B75) : 48 kHz et coupure entre 19,5 et 21 kHz : profil d'un flux Opus de YouTube."""
+        if self.codec == "opus":           # 1.4.1 (C46) : fichier Opus (mutagen n'en donne pas la fréquence)
+            return 19500 <= self.cutoff < 21000
         return self.sample_rate == 48000 and 19500 <= self.cutoff < 21000 and self.codec != "mp3"
 
     @property
