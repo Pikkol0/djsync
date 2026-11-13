@@ -115,6 +115,9 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
                 print(f"Playlist not found: {playlist}")
                 return 2
             wanted = {t.content_id for p in names for t in lib.get_playlist_tracks(p.playlist_id)}
+        # --playlist : tous les sons de la playlist, même ajoutés par DJSync puis analysés par Rekordbox
+        if wanted is not None:
+            native = set(native) | wanted
         tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0 and t.content_id in native
                   and (wanted is None or t.content_id in wanted)
                   and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())][:limit]
