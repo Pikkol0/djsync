@@ -98,6 +98,7 @@ class Settings:
     # 1.4.1 (C131, D20) : ce que « Analyser à nouveau » refait sur un son analysé par Rekordbox
     # (grid, key, waves) ; tant que le choix n'a pas été fait (fenêtre ou Paramètres), ces sons sont laissés tels quels.
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
+    waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
@@ -214,6 +215,8 @@ class Settings:
             self.merge_undo_s = 10
         parts = self.reanalyze_rekordbox if isinstance(self.reanalyze_rekordbox, list) else ["grid"]
         self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
+        if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
+            self.waveform_style = "3band"
         return self
 
     def native_parts(self) -> tuple:

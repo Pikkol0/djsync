@@ -620,6 +620,11 @@ STRINGS = {
     "reanalyse.restore": "Restore Rekordbox's analysis",
     "reanalyse.restore_confirm": "Put back Rekordbox's beat grid, BPM, key and waveforms for “{title}”? Your current cues are kept.",
     "msg.rekordbox_restored": "Rekordbox's analysis restored (cues kept).",
+    "settings.waveform_style": "Waveform type",
+    "settings.waveform_blue": "Blue",
+    "settings.waveform_rgb": "RGB",
+    "settings.waveform_3band": "3 bands",
+    "settings.waveform_style_hint": "Like Rekordbox: one look everywhere (Beat grid and cues, player), read from the analysis files; applied at once, without restarting.",
     "settings.reanalyse_rekordbox": "“Analyse again” on tracks analysed by Rekordbox redoes:",
     "settings.reanalyse_rekordbox_hint": "Cues are never touched and Rekordbox's analysis is kept (right-click ▸ Restore Rekordbox's analysis). With nothing ticked, these tracks are left as they are.",
 

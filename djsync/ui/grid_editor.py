@@ -392,6 +392,7 @@ class GridEditor(QWidget):
         self._timer.start(60)
         self._play_icon_state: Any = None
         controller.load_grid(track.content_id, self._loaded, self._load_failed)
+        controller.on("waveform_style", self._style_changed)               # 1.4.1 (C77)
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
 
@@ -455,11 +456,48 @@ class GridEditor(QWidget):
         self.start_ms = max(0.0, self.cursor_ms - 1000)
         self._center()
         self._refresh_info()
+        self._show_style()
+
+    @property
+    def wave_style(self) -> str:
+        return getattr(self.ctrl.settings, "waveform_style", "3band") or "3band"
+
+    def _show_style(self) -> None:
+        """1.4.1 (C77) : un seul rendu dès l'ouverture, dans le type choisi (Paramètres ▸ Analyse), lu dans les
+        fichiers d'analyse : Bleu (PWV3), RGB (PWV5) ou 3 bandes (PWV7 du .2EX). En 3 bandes, la forme d'onde
+        fine calculée depuis le son remplace ensuite celle du fichier, mêmes couleurs (avant : RGB puis
+        3 bandes, C77)."""
+        if self.wave_style != "3band":
+            self.wave = None
+            self._wave_state = "ready"
+            self.draw()
+            return
+        from ..analysis.anlz import band_from_detail
+
+        self.wave = getattr(self, "_band_fallback", None) or band_from_detail(self.detail)
+        self._wave_state = "loading"
         self.draw()
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
 
+    def _style_changed(self, *_a: Any) -> None:
+        """Type de forme d'onde changé dans les Paramètres : relu tout de suite, sans toucher aux modifications."""
+        if not self.winfo_exists() or not self.beats:
+            return
+
+        def reloaded(data: Any) -> None:
+            if not self.winfo_exists():
+                return
+            self.detail = data["detail"]
+            self._band_fallback = data.get("band")
+            self._band_cache = None
+            self._show_style()
+
+        self.ctrl.load_grid(self.track.content_id, reloaded, lambda _e: None)
+
     def _wave_loaded(self, wave: Any) -> None:
         if not self.winfo_exists():
+            return
+        if self.wave_style != "3band":               # type changé pendant le calcul
             return
         if wave is None:                             # B21 : fichier introuvable ou illisible
             from ..analysis.anlz import band_from_detail

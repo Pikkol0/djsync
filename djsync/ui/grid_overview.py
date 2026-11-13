@@ -46,7 +46,7 @@ class GridOverview(QWidget):
         """(bas, médium, aigu) par pixel, de 0 à 1 ; recalculé seulement si la largeur ou les données changent."""
         ed = self.editor
         wave = getattr(ed, "wave", None)
-        key = (w, id(wave), len(getattr(ed, "detail", []) or []), getattr(ed, "duration_ms", 0))
+        key = (w, id(wave), id(getattr(ed, "detail", None)), getattr(ed, "duration_ms", 0))
         if key == self._cache_key:
             return self._cache
         cols = None
@@ -73,7 +73,7 @@ class GridOverview(QWidget):
         cues = tuple((c.slot, int(c.ms), bool(c.is_loop), str(c.label), str(c.colour()))
                      for c in (getattr(ed, "cues", []) or []))
         wave = getattr(ed, "wave", None)
-        return (w, h, self.devicePixelRatioF(), id(wave), len(getattr(ed, "detail", []) or []),
+        return (w, h, self.devicePixelRatioF(), id(wave), id(getattr(ed, "detail", None)),
                 getattr(ed, "duration_ms", 0), cues)
 
     def _static_layer(self, w: int, h: int) -> Any:

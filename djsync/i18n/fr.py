@@ -620,6 +620,11 @@ STRINGS = {
     "reanalyse.restore": "Rétablir l'analyse de Rekordbox",
     "reanalyse.restore_confirm": "Remettre la grille, le BPM, la tonalité et les formes d'onde de Rekordbox pour « {title} » ? Vos cues actuels sont gardés.",
     "msg.rekordbox_restored": "Analyse de Rekordbox rétablie (cues gardés).",
+    "settings.waveform_style": "Type de forme d'onde",
+    "settings.waveform_blue": "Bleu",
+    "settings.waveform_rgb": "RGB",
+    "settings.waveform_3band": "3 bandes",
+    "settings.waveform_style_hint": "Comme Rekordbox : un seul rendu partout (Grille et cues, lecteur), lu dans les fichiers d'analyse ; appliqué tout de suite, sans redémarrer.",
     "settings.reanalyse_rekordbox": "« Analyser à nouveau » sur les titres analysés par Rekordbox refait :",
     "settings.reanalyse_rekordbox_hint": "Les cues ne sont jamais touchés et l'analyse de Rekordbox est gardée (clic droit ▸ Rétablir l'analyse de Rekordbox). Sans rien de coché, ces titres sont laissés tels quels.",
 

@@ -794,7 +794,7 @@ class LibraryOpsMixin:
             grid = lib.beat_grid(content_id)
             ext = grid.dat_path.with_suffix(".EXT")
             try:
-                detail = read_detail(ext.read_bytes()) if ext.is_file() else []
+                detail = read_detail(ext.read_bytes(), self.settings.waveform_style) if ext.is_file() else []
             except (OSError, ValueError):
                 detail = []
             band = None                                # 1.3.0-rc.3 (B21) : 3 bandes de Rekordbox (.2EX)

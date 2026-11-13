@@ -251,6 +251,7 @@ class PlayerBar(QWidget):
         # le lecteur garde sa forme d'onde habituelle (la forme défilante est masquée pendant la page)
         self._grid_editor: Any = None
         controller.on("grid_page", self._grid_page)
+        controller.on("waveform_style", self._wave_style_changed)          # 1.4.1 (C77)
         row = hbox(spacing=theme.px(10))
         col.addLayout(row)
 
@@ -535,7 +536,14 @@ class PlayerBar(QWidget):
         else:
             self._show_track_info(None)
 
+    def _wave_style_changed(self, *_a: Any) -> None:
+        """1.4.1 (C77) : nouveau type de forme d'onde : l'aperçu du son en cours est relu, sans redémarrer."""
+        self._shown_track = getattr(self, "_shown_track", None)
+        if self._shown_track is not None and self.winfo_exists():
+            self._show_track_info(self._shown_track)
+
     def _show_track_info(self, track: Any) -> None:
+        self._shown_track = track
         self.key_pill.set(track.camelot if track is not None else None)
         if track is not None and track.bpm:
             self.bpm.setText(f"{track.bpm:.1f} BPM".replace(".0 ", " "))

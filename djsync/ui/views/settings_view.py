@@ -340,6 +340,16 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("settings.reanalyse_rekordbox_hint"), "faint", wrap=True))
+        row = hbox()                                                                # 1.4.1 (C77)
+        row.addWidget(self._fixed(label(t("settings.waveform_style"))))
+        self.wave_style = QComboBox()
+        for key in ("blue", "rgb", "3band"):
+            self.wave_style.addItem(t(f"settings.waveform_{key}"), key)
+        self.wave_style.setCurrentIndex(max(0, self.wave_style.findData(s.waveform_style)))
+        self.wave_style.setToolTip(t("settings.waveform_style_hint"))
+        row.addWidget(self.wave_style)
+        row.addStretch(1)
+        card.addLayout(row)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.key_notation"))))
         self._notation_labels = {k: t(f"settings.notation_{k}") for k in KEY_NOTATIONS}
@@ -1642,6 +1652,10 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
+        if style != s.waveform_style:
+            s.waveform_style = style
+            self.ctrl._emit("waveform_style")
         parts = [p for p, box in self.reanalyse_vars.items() if box.isChecked()]
         if parts != s.reanalyze_rekordbox:                  # 1.4.1 (C131) : changer le choix, c'est l'avoir fait
             s.reanalyze_rekordbox, s.reanalyze_rekordbox_asked = parts, True
