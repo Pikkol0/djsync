@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, List, Tuple
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QTabWidget, QWidget
 
 from .. import full_version
@@ -47,6 +48,11 @@ class HelpDialog(BaseDialog):
         first = QWidget()                                   # 1.3.2 (C68) : premiers pas
         lay = vbox(first, margins=theme.px(8), spacing=theme.px(4))
         lay.addWidget(label(t("start.intro"), "dim", wrap=True))
+        from .widgets import button
+
+        # 1.4.2 (C178) : la visite guidée, relancée d'ici à tout moment
+        self.tour_btn = button(t("tour.from_help"), self._tour, icon="go", kind="primary")
+        lay.addWidget(self.tour_btn, 0, Qt.AlignLeft)
         for k in range(1, 7):
             title = label(t(f"start.s{k}_title"))
             title.setStyleSheet("font-weight:600;")
@@ -83,6 +89,15 @@ class HelpDialog(BaseDialog):
         self.body.addWidget(tabs, 1)
         self.footer(t("action.close"), self.close, show_cancel=False, stretch=False)
         self.show_dialog()
+
+
+    def _tour(self) -> None:
+        win = self.parent().window() if self.parent() is not None else None
+        self.close()
+        if win is not None and hasattr(win, "_nav"):
+            from .tour import start
+
+            start(win)
 
 
 class TextDialog(BaseDialog):

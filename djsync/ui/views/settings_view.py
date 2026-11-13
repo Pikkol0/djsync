@@ -189,12 +189,16 @@ class SettingsView(View):
         self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.theme_btn.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.theme_btn)
-        for name, accent in PALETTES.items():
-            act = menu.addAction(logo_pixmap(theme.px(18), accent), t(f"theme.{name}"))
-            act.setCheckable(True)
-            act.setChecked(name == theme.CURRENT_THEME)
-            act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
-            self._swatches[name] = act
+        from ..palettes import FAMILIES
+
+        for family, names in FAMILIES.items():                      # 1.4.2 (C144) : par famille
+            menu.addSection(t(f"theme.family_{family}"))
+            for name in names:
+                act = menu.addAction(logo_pixmap(theme.px(18), PALETTES[name]), t(f"theme.{name}"))
+                act.setCheckable(True)
+                act.setChecked(name == theme.CURRENT_THEME)
+                act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
+                self._swatches[name] = act
         self.theme_btn.setMenu(menu)
         row.addWidget(self.theme_btn)
         row.addStretch(1)

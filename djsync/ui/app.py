@@ -237,6 +237,10 @@ class DJSyncApp(QMainWindow):
         self._startup_timer.timeout.connect(self._pump_startup)
         if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
             self.queue_startup("welcome", self._welcome)    # 1.3.2 (C54) : tout premier lancement
+        from . import tour
+
+        if tour.should_offer(self.ctrl.settings):          # 1.4.2 (C178) : visite guidée proposée (une fois)
+            self.queue_startup("tour", lambda: tour.offer(self))
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:

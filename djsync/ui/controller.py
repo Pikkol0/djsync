@@ -991,6 +991,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
         self.dispatcher.submit(work, lambda r: ok(*r), failed, pool="net")
 
+    def import_more(self, url: str, start: int, ok: Callable[[Any], None], err: Optional[Callback] = None) -> None:
+        """1.4.2 (C172) : titres suivants d'une longue playlist YouTube / SoundCloud (à partir du titre `start`)."""
+        self.dispatcher.submit(lambda: self.service.resolve_direct(url, start=start), ok, err or self._on_error,
+                               pool="net")
+
     def is_url(self, text: str) -> bool:
         """Omnibar : lien à importer (Spotify, YouTube, SoundCloud) ou texte à chercher ?"""
         text = (text or "").strip()

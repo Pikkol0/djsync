@@ -19,7 +19,7 @@ from ...models import (
 )
 from ..dialogs import BaseDialog
 from .. import theme
-from ..widgets import Column, Row, TrackTable, button, chip, hbox, label, line_edit
+from ..widgets import Column, Row, TrackTable, button, chip, hbox, icon_label, label, line_edit, panel
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
@@ -94,6 +94,16 @@ class ImportView(View):
         self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat", icon="playlist")
         opts.addWidget(self.paste_list)
         self.root.addLayout(opts)
+        # 1.4.2 (C172) : longue playlist : « 200 premiers titres sur 534 » et « Charger les 200 suivants »
+        self.more_box = panel(role="banner")
+        more = hbox(self.more_box, margins=theme.px(8), spacing=theme.px(8))
+        more.addWidget(icon_label("info", 16, theme.ACCENT))
+        self.more_lbl = label("", wrap=True)
+        more.addWidget(self.more_lbl, 1)
+        self.more_btn = button("", self.load_more, icon="download")
+        more.addWidget(self.more_btn)
+        self.more_box.hide()
+        self.root.addWidget(self.more_box)
 
         spotify_cols = [
             Column("chk", "", 36, "center", sortable=False, min_width=34),
@@ -160,6 +170,8 @@ class ImportView(View):
         self.pref_menu.setVisible(spotify)
         self.pref_label.setVisible(spotify)
         self.other_btn.setVisible(spotify)
+        if mode != "direct":
+            self.more_box.hide()                           # C172 : seulement pour une playlist YouTube / SoundCloud
         self._refresh_buttons()
 
     @property
@@ -373,8 +385,7 @@ class ImportView(View):
         self._apply_direct_checks(resolved.tracks)
         source = "SoundCloud" if resolved.kind == UrlKind.SOUNDCLOUD else "YouTube"
         extra = [resolved.note] if resolved.note else []
-        if resolved.truncated:
-            extra.append(t("import.truncated"))
+        self._show_more(resolved)                                        # 1.4.2 (C172)
         protected = sum(1 for tr in resolved.tracks if tr.protected)         # 1.4.0-rc.2 (B64)
         if protected:
             extra.append(plural("sc.protected_one", "sc.protected_many", protected))
@@ -384,6 +395,54 @@ class ImportView(View):
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
         if resolved.kind == UrlKind.SOUNDCLOUD:                         # 1.4.0 (C10.1)
             self.ctrl.check_originals(resolved.tracks, self._originals_checked)
+
+    # ------------------------------------------------- 1.4.2 (C172) : longues playlists, page par page
+    def _show_more(self, resolved: ResolvedUrl) -> None:
+        """« 200 premiers titres sur 534 » au-dessus du tableau et « Charger les 200 suivants »."""
+        from ...core.urlimport import MAX_ENTRIES
+
+        n = len(resolved.tracks)
+        if not resolved.truncated:
+            self.more_box.hide()
+            return
+        self.more_lbl.setText(t("import.first_of", n=n, total=resolved.total) if resolved.total
+                              else t("import.first_n", n=n))
+        left = resolved.total - n if resolved.total else MAX_ENTRIES
+        self.more_btn.setText(t("import.load_more", n=min(MAX_ENTRIES, max(1, left))))
+        self.more_btn.setEnabled(True)
+        self.more_box.show()
+
+    def load_more(self) -> None:
+        resolved = self.resolved
+        if resolved is None or not resolved.truncated:
+            return
+        token = self._token
+        self.more_btn.setEnabled(False)
+        self.more_btn.setText(t("import.loading_more"))
+        start = resolved.start + len(resolved.tracks)
+
+        def ok(more: ResolvedUrl) -> None:
+            if token != self._token or not self.winfo_exists() or self.resolved is not resolved:
+                return
+            known = {tr.video_id for tr in resolved.tracks}
+            added = [tr for tr in more.tracks if tr.video_id not in known]
+            from dataclasses import replace
+
+            whole = replace(resolved, tracks=resolved.tracks + added, total=more.total or resolved.total,
+                            truncated=more.truncated and bool(added))
+            off = [r.iid for r in self.dl_table.all_rows() if r.values.get("chk") == UNCHECKED]
+            self._load_direct(whole)
+            for iid in off:                                  # les choix déjà faits sont gardés
+                self.dl_table.update_values(iid, chk=UNCHECKED)
+            self._refresh_buttons()
+
+        def err(exc: BaseException) -> None:
+            if token == self._token and self.winfo_exists():
+                self.more_btn.setEnabled(True)
+                self._show_more(resolved)
+            self.ctrl._on_error(exc)
+
+        self.ctrl.import_more(resolved.source_url, start, ok, err)
 
     def _originals_checked(self, tracks: List[TrackResult]) -> None:
         if self.mode != "direct" or not self.winfo_exists():

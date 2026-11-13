@@ -123,6 +123,12 @@ class HqView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
+        # 1.4.2 (C169) : « ? » : ce que veulent dire place libre, file d'attente, vitesse, fiabilité
+        from ..widgets import icon_button
+
+        self.help_btn = icon_button("help", self.show_help, t("hq.help_tip"))
+        self.help_btn.setMinimumHeight(self.entry.sizeHint().height())
+        bar.addWidget(self.help_btn)
         self.root.addLayout(bar)
         self.progress = SearchProgress()                 # C171
         self.root.addWidget(self.progress)
@@ -234,6 +240,9 @@ class HqView(View):
     def on_show(self) -> None:
         self._refresh_slsk()
         self.entry.setFocus()
+
+    def show_help(self) -> Any:
+        return _help_dialog(self)
 
     def search_for(self, query: str) -> None:
         """Depuis Rechercher (mode Haute qualité), le Diagnostic, ou un faux sans perte signalé (C46)."""
@@ -457,3 +466,21 @@ class HqView(View):
             self._fill()
 
         self.ctrl.reannotate(tracks, done)
+
+
+def _help_dialog(parent: Any) -> Any:
+    """1.4.2 (C169) : petit panneau d'explication des colonnes de la recherche haute qualité (Soulseek)."""
+    from ..dialogs import BaseDialog
+
+    dlg = BaseDialog(parent, t("hq.help_title"), 520)
+    dlg.heading(t("hq.help_title"), t("hq.help_sub"))
+    for key in ("free_slot", "queue", "speed", "reliable", "quality", "preview"):
+        row = hbox(spacing=theme.px(8))
+        name = label(t(f"hq.help_{key}"), "accent")
+        name.setFixedWidth(theme.px(130))
+        row.addWidget(name, 0)
+        row.addWidget(label(t(f"hq.help_{key}_text"), "dim", wrap=True), 1)
+        dlg.body.addLayout(row)
+    dlg.footer(t("action.close"), dlg.close, show_cancel=False)
+    dlg.show_dialog()
+    return dlg

@@ -189,3 +189,166 @@ def test_c174_offer_once_per_pc_then_a_notice(demo, monkeypatch):
     demo.light_notice(weak)
     assert demo.toast.isVisible() and weak.describe() in demo.status.text()
     assert demo.toast_action.text() == t("light.notice_settings")
+
+
+# ------------------------------------------------------------------ C113 : nouvelles colonnes
+def test_c113_mytags_history_and_grid_marks(demo, tmp_path):
+    from djsync.db import grid_marks
+
+    lib = demo.ctrl.library
+    ids = [x.content_id for x in lib.list_tracks()]
+    with lib._write() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS myTag(myTag_id integer primary key, sequenceNo integer, name varchar,"
+                     " attribute integer, myTag_id_parent integer)")
+        conn.execute("CREATE TABLE IF NOT EXISTS myTag_content(myTag_id integer, content_id integer)")
+        conn.execute("CREATE TABLE IF NOT EXISTS history(history_id integer primary key, sequenceNo integer, name varchar,"
+                     " attribute integer, history_id_parent integer)")
+        conn.execute("CREATE TABLE IF NOT EXISTS history_content(history_id integer, content_id integer, sequenceNo integer)")
+        conn.execute("INSERT INTO myTag VALUES (1, 2, 'Warm-up', 0, 0), (2, 1, 'Peak', 0, 0)")
+        conn.execute("INSERT INTO myTag_content VALUES (1, ?), (2, ?)", (ids[0], ids[0]))
+        conn.execute("INSERT INTO history VALUES (1, 1, '2026-10-02', 0, 0), (2, 2, 'HISTORY 2026-11-08 (2)', 0, 0)")
+        conn.execute("INSERT INTO history_content VALUES (1, ?, 1), (2, ?, 1)", (ids[0], ids[0]))
+    extras = lib.track_extras(ids[:2])
+    assert extras[ids[0]] == {"mytags": ["Peak", "Warm-up"], "last_played": "2026-11-08"}
+    assert extras[ids[1]] == {"mytags": [], "last_played": ""}
+    grid_marks.mark(lib.backup_dir, ids[0])
+    assert ids[0] in grid_marks.load(lib.backup_dir)
+    view = demo.views["library"]
+    demo.show_view("library")
+    view.reload(full=True)
+    assert pump(demo, 8, lambda: bool(getattr(view, "_extras", None)) and ids[0] in view._extras)
+    row = view.table.row(str(ids[0]))
+    assert row is not None and "Peak" in row.values["mytags"] and row.values["last_played"] == "2026-11-08"
+    assert demo.ctrl.settings.mytags_column_shown and not view.table.isColumnHidden(view.table.column_index("mytags"))
+    # « One More Time » et « One More Time (Clip Officiel) » : doublon marqué, clic -> Doublons
+    dup = next(r for r in view.table.all_rows() if r.values.get("dup"))
+    view._cell_click(dup.iid, "dup")
+    assert pump(demo, 4, lambda: type(demo.stack.currentWidget()).__name__ == "DuplicatesDialog")
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C144 : couleurs
+def test_c144_more_colours_grouped_by_family(demo):
+    from djsync.ui.palettes import FAMILIES, PALETTES
+
+    assert len(PALETTES) == 24 and "green" in FAMILIES["deep"] and len(FAMILIES["soft"]) == 4
+    settings = demo.views["settings"]
+    assert set(settings._swatches) == set(PALETTES)
+    sections = [a.text() for a in settings.theme_btn.menu().actions() if a.isSeparator() and a.text()]
+    assert sections == [t("theme.family_vivid"), t("theme.family_deep"), t("theme.family_soft")]
+
+
+# ------------------------------------------------------------------ C149 : choix des playlists
+def test_c149_picker_shows_the_checked_playlists(demo):
+    from djsync.ui.dialogs import PlaylistPicker
+
+    pls = [p for p in demo.ctrl.library.list_playlists() if p.is_editable]
+    picker = PlaylistPicker(demo, demo.ctrl, "Download to", "OK", lambda ids: None, preselect=[pls[-1].playlist_id])
+    assert pump(demo, 4, lambda: bool(picker._vars))
+    assert picker.chip_names() == [pls[-1].name]
+    pid, cb = next((p, c) for p, c in picker._vars.items() if p != pls[-1].playlist_id)
+    cb.setChecked(True)
+    assert sorted(picker.chip_names()) == sorted([pls[-1].name, next(p.name for p in pls if p.playlist_id == pid)])
+    picker._unpick(pls[-1].playlist_id)
+    picker._unpick(pid)
+    pump(demo, 0.1)
+    assert picker.chip_names() == []
+    picker.close()
+
+
+# ------------------------------------------------------------------ C169 : aide de la recherche haute qualité
+def test_c169_help_panel(demo):
+    hq = demo.views["hq"]
+    dlg = hq.show_help()
+    from PySide6.QtWidgets import QLabel
+
+    texts = [w.text() for w in dlg.findChildren(QLabel)]
+    assert t("hq.help_free_slot") in texts and t("hq.help_queue_text") in texts
+    dlg.close()
+
+
+# ------------------------------------------------------------------ C172 : playlists de plus de 200 titres
+def test_c172_page_by_page():
+    from djsync.core.urlimport import resolve_direct
+
+    def entry(i):
+        vid = f"V{i:010d}"
+        return {"id": vid, "title": f"T{i}", "url": f"https://www.youtube.com/watch?v={vid}", "duration": 200,
+                "channel": "C"}
+
+    seen = []
+
+    def extractor(url, opts):
+        seen.append(opts)
+        first = opts.get("playliststart", 1)
+        last = opts["playlistend"]
+        return {"_type": "playlist", "title": "Long", "playlist_count": 534,
+                "entries": [entry(i) for i in range(first, min(last, 534) + 1)]}
+
+    res = resolve_direct("https://www.youtube.com/playlist?list=PLx", extractor=extractor)
+    assert len(res.tracks) == 200 and res.truncated and res.total == 534 and res.start == 1
+    more = resolve_direct("https://www.youtube.com/playlist?list=PLx", extractor=extractor, start=401)
+    assert seen[-1]["playliststart"] == 401 and len(more.tracks) == 134 and not more.truncated
+
+
+def test_c172_banner_and_load_more(demo, monkeypatch):
+    from djsync.models import ResolvedUrl, TrackResult, UrlKind
+
+    view = demo.views["import"]
+    demo.show_view("import")
+
+    def tr(i):
+        return TrackResult(video_id=f"V{i:010d}", title=f"T{i}", artist="A", album=None, duration_seconds=200,
+                           thumbnail_url="", result_type="video")
+
+    first = ResolvedUrl(UrlKind.YOUTUBE, "Long", [tr(i) for i in range(1, 201)], "https://youtube.com/playlist?list=PLx",
+                        True, "", True, 534, 1)
+    view._load_direct(first)
+    assert view.more_box.isVisibleTo(view) and "534" in view.more_lbl.text()
+    asked = []
+
+    def import_more(url, start, ok, err=None):
+        asked.append(start)
+        ok(ResolvedUrl(UrlKind.YOUTUBE, "Long", [tr(i) for i in range(201, 401)], url, True, "", True, 534, start))
+
+    monkeypatch.setattr(demo.ctrl, "import_more", import_more)
+    view.load_more()
+    assert asked == [201] and len(view.resolved.tracks) == 400 and view.more_box.isVisibleTo(view)
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------ C178 : Accueil (maquette A) et visite guidée
+def test_c178_home_actions_and_tour(demo, monkeypatch):
+    from djsync.ui import tour
+
+    home = demo.views["home"]
+    demo.show_view("home")
+    assert list(home.actions) == ["download", "analyse", "prepare", "uniformize"]
+    # cartes des bibliothèques au-dessus des actions (maquette A)
+    assert home.cards.mapTo(home, home.cards.rect().topLeft()).y() < home.actions_row.mapTo(home, home.actions_row.rect().topLeft()).y()
+    home.actions["download"].click()
+    assert demo.current == "search"
+    s = demo.ctrl.settings
+    s.tour_state = ""
+    monkeypatch.setattr(tour, "OFFER_AT_START", True)
+    assert tour.should_offer(s)
+    dlg = tour.offer(demo)
+    dlg.later_btn.click()
+    assert s.tour_state == "later" and tour.should_offer(s)
+    dlg = tour.offer(demo)
+    dlg.start_btn.click()
+    ov = demo.tour
+    assert ov is not None and ov.isVisible() and demo.current == "home"
+    assert not ov.hole.isNull()                                  # projecteur sur l'entrée « Accueil »
+    for _i in range(len(tour.STEPS) - 1):
+        ov.next()
+    assert ov.next_btn.text() == t("tour.finish")
+    ov.next()
+    assert demo.tour is None and s.tour_state == "done" and not tour.should_offer(s)
+    dlg = tour.offer(demo)
+    dlg.never_btn.click()
+    assert s.tour_state == "never" and not tour.should_offer(s)
+    ov = tour.start(demo)                                        # Aide ▸ Visite guidée
+    ov.skip()
+    assert s.tour_state == "never" and demo.tour is None
+    assert not demo.errors

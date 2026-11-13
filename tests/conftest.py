@@ -29,6 +29,16 @@ def _watched_register(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_tour_offer(monkeypatch):
+    """1.4.2 (C178) : pas de proposition de visite guidée au démarrage des tests (ses propres tests la testent)."""
+    try:
+        from djsync.ui import tour
+    except ImportError:              # PySide6 absent
+        return
+    monkeypatch.setattr(tour, "OFFER_AT_START", False)
+
+
+@pytest.fixture(autouse=True)
 def _strong_machine(monkeypatch):
     """1.4.0 (C65) : les tests voient une machine « normale » (pas de mode léger ni de fenêtre au démarrage),
     quelle que soit la machine de test ; les tests du mode léger simulent la leur."""

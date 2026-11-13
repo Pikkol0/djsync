@@ -8,7 +8,9 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QSize, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+)
 
 from . import theme
 from .icons import qicon
@@ -371,3 +373,61 @@ class FitBar(QWidget):
 
     def sizeHint(self) -> QSize:                 # noqa: N802
         return QSize(0, max((w.sizeHint().height() for w, *_r in self._items), default=0))
+
+
+class FlowLayout(QLayout):
+    """1.4.2 (C149) : éléments en ligne, qui passent à la ligne suivante quand la largeur manque (pastilles)."""
+
+    def __init__(self, parent: Any = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._space = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item: Any) -> None:  # noqa: N802 (API Qt)
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i: int) -> Any:  # noqa: N802
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i: int) -> Any:  # noqa: N802
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self) -> Any:  # noqa: N802
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._place(0, 0, width, apply=False)
+
+    def setGeometry(self, rect: Any) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._place(rect.x(), rect.y(), rect.width(), apply=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, x0: int, y0: int, width: int, apply: bool) -> int:
+        from PySide6.QtCore import QPoint, QRect
+
+        x, y, line = x0, y0, 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x > x0 and x + hint.width() > x0 + width:
+                x, y, line = x0, y + line + self._space, 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._space
+            line = max(line, hint.height())
+        return y + line - y0

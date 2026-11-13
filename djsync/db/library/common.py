@@ -231,4 +231,20 @@ def _safe_name(name: str, fallback: str) -> str:
 
 
 
+_DAY = re.compile(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})")
+
+
+def history_date(text: Any) -> str:
+    """1.4.2 (C113) : « AAAA-MM-JJ » tiré du nom ou de la date d'un historique (« 2026-11-13 », « HISTORY
+    2026-11-13 (2) », « 2026/11/13 21:04 ») ; "" si aucune date."""
+    m = _DAY.search(str(text or ""))
+    if not m:
+        return ""
+    y, mo, d = (int(g) for g in m.groups())
+    if not (1990 <= y <= 2100 and 1 <= mo <= 12 and 1 <= d <= 31):
+        return ""
+    return f"{y:04d}-{mo:02d}-{d:02d}"
+
+
 __all__ = [_n for _n in dir() if not _n.startswith("__")]
+

@@ -22,7 +22,29 @@ PALETTES = {
     "orange": "#FF8A2B",
     "red": "#FF3D5A",
     "hot_pink": "#FF3D9A",
+    # 1.4.2 (C144) : profondes (ni néon ni pastel), dont un vrai vert franc
+    "green": "#2FBF5B",
+    "forest": "#4E9F63",
+    "teal": "#2A9D8F",
+    "royal_blue": "#4F74E3",
+    "plum": "#A066C8",
+    "bordeaux": "#C8465E",
+    "copper": "#CD7A3C",
+    "ochre": "#D19A2A",
+    # 1.4.2 (C144) : douces
+    "sage": "#9CC5A1",
+    "periwinkle": "#A6B4F0",
+    "rose": "#E8A0B4",
+    "sand": "#E0C79A",
 }
+# 1.4.2 (C144) : familles présentées dans Paramètres ▸ Apparence (dans cet ordre)
+FAMILIES = {
+    "vivid": ("violet_light", "neon_violet", "electric_blue", "sky", "turquoise", "neon_green", "lime", "yellow",
+              "amber", "orange", "red", "hot_pink"),
+    "deep": ("green", "forest", "teal", "royal_blue", "plum", "bordeaux", "copper", "ochre"),
+    "soft": ("sage", "periwinkle", "rose", "sand"),
+}
+MIN_CONTRAST = 3.0            # accent lisible sur le fond des cartes (vérifié par les tests, C144)
 # couleurs retirées -> la plus proche gardée (réglages des versions précédentes)
 RETIRED = {"lavender": "violet_light", "cyan": "turquoise", "mint": "turquoise", "coral": "red",
            "magenta": "hot_pink", "pastel_pink": "hot_pink", "pastel_peach": "orange", "pastel_blue": "sky"}

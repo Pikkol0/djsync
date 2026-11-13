@@ -127,6 +127,8 @@ class Settings:
     light_prompt_off: bool = False     # 1.4.0 (C65) : ne plus proposer le mode léger au démarrage
     light_offered: list = field(default_factory=list)  # 1.4.2 (C174) : PC (identifiants hachés) où il a été proposé
     set_players: str = "all"           # 1.4.2 (C67) : platines visées par « Prêt pour le set ? »
+    mytags_column_shown: bool = False  # 1.4.2 (C113) : colonne My Tags affichée d'elle-même une fois
+    tour_state: str = ""               # 1.4.2 (C178) : visite guidée "" | later | done | never
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité

@@ -50,17 +50,33 @@ class HomeView(View):
         self.cards_lay = vbox(self.cards, spacing=theme.px(8))
         self.root.addWidget(self.cards)
 
+        # 1.4.2 (C178, maquette A) : les cartes des bibliothèques en haut, les 4 actions principales dessous
+        self.root.addSpacing(theme.px(8))
+        self.actions_title = label(t("home.actions"), "h2")
+        self.root.addWidget(self.actions_title)
+        self.actions_row = QWidget()
+        acts = hbox(self.actions_row, spacing=theme.px(10))
+        self.actions: dict = {}
+        for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
+                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
+            b = button(t(f"home.act_{key}") + "\n" + t(f"home.act_{key}_sub"), cmd, kind="tile", icon=icon)
+            b.setIconSize(QSize(theme.px(24), theme.px(24)))
+            b.setIcon(qicon(icon, 24, theme.ACCENT))
+            b.setToolTip(t(f"home.act_{key}_tip"))
+            acts.addWidget(b, 1)
+            self.actions[key] = b
+        self.root.addWidget(self.actions_row)
+
         # 1.4.2 (C182, A06) : les tuiles Outils (doublons du volet) laissent la place aux compteurs du Diagnostic
         self.root.addSpacing(theme.px(8))
         self.todo_title = label(t("home.todo"), "h2")
         self.root.addWidget(self.todo_title)
         self.todo_row = QWidget()
-        tools = hbox(self.todo_row, spacing=theme.px(10))
+        tools = hbox(self.todo_row, spacing=theme.px(8))
         self.todo: dict = {}
         for key, icon in TODO_TILES:
-            b = button("", lambda k=key: self._open_todo(k), kind="tile", icon=icon)
-            b.setIconSize(QSize(theme.px(20), theme.px(20)))
-            b.setIcon(qicon(icon, 20, theme.ACCENT))
+            b = button("", lambda k=key: self._open_todo(k), icon=icon)
+            b.setIcon(qicon(icon, 16, theme.ACCENT))
             tools.addWidget(b, 1)
             self.todo[key] = b
         self.root.addWidget(self.todo_row)
@@ -161,7 +177,7 @@ class HomeView(View):
             return
         for key, b in self.todo.items():
             n = counts.get(key)
-            b.setText(t(f"diagtab.{key}") + "\n" + (t("home.todo_count", n=n) if n is not None else "—"))
+            b.setText(t(f"diagtab.{key}") + "  ·  " + (t("home.todo_count", n=n) if n is not None else "—"))
             b.setToolTip(t("home.todo_tip"))
             b.setProperty("todo", bool(n))
 
@@ -342,6 +358,22 @@ class HomeView(View):
                 pass
 
         self.ctrl.pdb_sync_now(ok=restore, failed=restore)
+
+    # ------------------------------------------------- 1.4.2 (C178) : actions principales
+    def act_download(self) -> None:
+        win = self.window()
+        if hasattr(win, "show_view"):
+            win.show_view("search")
+
+    def act_prepare(self) -> None:
+        """« Préparer une clé » : la clé ouverte est vérifiée (« Prêt pour le set ? ») ; sans clé, Paramètres ▸
+        Bibliothèques (brancher, ouvrir une clé)."""
+        lib = self.ctrl.library
+        if lib is not None and not getattr(self.ctrl, "is_local", False):
+            self.set_check()
+            return
+        self.ctrl.message("info", t("home.prepare_no_drive"))
+        self.open_settings("libraries")
 
     # ------------------------------------------------------------------- outils
     def set_check(self) -> None:
