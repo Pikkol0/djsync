@@ -149,3 +149,14 @@ Remplace les onglets « Mauvaise qualité » et « Améliorer » du Diagnostic (
 | QLT-6 | Tous | Windows, macOS, Linux | (**C135**) « Tout chercher », puis « Remplacer tous les sûrs (n) » avec au moins 3 sons ; confirmer. Vérifier playlists et hot cues d'un son remplacé. | **Une seule** confirmation, avec le nombre de sons et les sources ; jamais une fenêtre par son. Remplacement habituel : playlists à la même place, hot cues recalés. |
 | QLT-7 | Tous | Windows, macOS, Linux | (**C135**, C140) Bibliothèque : clic droit sur un son ▸ « Qualité et meilleure version (1) » ; puis sur 5 sons. Diagnostic ▸ Un son : choisir un son ▸ Mesurer la qualité. | Un son : onglet Qualité, portée « Sélection (1) », détail ouvert sur ce son. 5 sons : portée « Sélection (5) ». Un son (Diagnostic) : après la mesure, même détail ouvert sur ce son. |
 | QLT-8 | Tous | Windows, macOS, Linux | (**C135**) Ignorer un son ; fermer et rouvrir l'onglet. | Le son ne revient pas (même mémoire que l'ancien « Ignorer »). |
+
+## Proposer des cues sur les vraies parties (C71)
+
+Mesure du 13/11 sur 16 sons de la clé de l'auteur (89 hot cues posés à la main), à une mesure près : ancien pas de 32 mesures : 36 % des cues proposés tombent sur un cue de l'auteur, 24 % de ses cues retrouvés ; nouvelle méthode : 56 % et 72 % (54 % et 67 % en laissant chaque son de côté pour le réglage).
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| PCU-1 | Tous | Windows, macOS, Linux | (**C71**) Grille et cues sur un son sans cue (rap, house) ▸ Proposer des cues. | Le bouton dit « Écoute du son… » une à trois secondes, puis la fenêtre « Cues proposés » : une ligne par cue (pad, mesure comptée depuis 0, temps), cochée, avec Écouter. A sur le premier temps de la grille, les autres sur des changements de partie (couplet, refrain, drop, break, outro), au début d'une mesure, au moins 4 mesures d'écart. |
+| PCU-2 | Tous | Windows, macOS, Linux | (**C71**) Dans la fenêtre : Écouter deux lignes ; décocher un cue ; Ajouter. Puis Enregistrer. | La lecture part du cue choisi, la fenêtre reste ouverte. Seuls les cues cochés sont posés ; rien n'est écrit avant Enregistrer. |
+| PCU-3 | Tous | Windows, macOS, Linux | (**C71**) Son avec A et C déjà posés et une mémoire : Proposer des cues. Son avec les 8 pads pris. Son très plat (une boucle). | A et C ne bougent pas ; aucun cue proposé à moins d'un demi-temps de A ou de C ; une mémoire n'empêche pas un hot cue au même endroit. 8 pads pris : « Aucun pad libre à remplir ». Son plat : seulement A, avec le message « Aucun changement de partie net ». |
+| PCU-4 | Auteur | Windows | (**C71**) Les 16 sons de l'échantillon cues : copier la clé, effacer les hot cues de 4 sons, Proposer des cues. | Les cues proposés retombent en grande partie sur tes anciens cues (à une mesure près) ; dire ceux qui manquent ou qui sont en trop. |
