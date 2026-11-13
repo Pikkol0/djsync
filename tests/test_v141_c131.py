@@ -440,3 +440,14 @@ def test_restore_entry_only_when_an_original_is_kept(demo, monkeypatch):
     monkeypatch.setattr(demo.ctrl, "_write", lambda fn, ok=None, success="", err=None: called.append(success))
     demo.ctrl.restore_rekordbox_analysis(x.content_id)
     assert called == [t("msg.rekordbox_restored")]
+
+
+def test_compare_counts_only_grids_written_by_rekordbox(usb_native):
+    from djsync.analysis.__main__ import _grid_from_rekordbox
+
+    lib, nat, own, _dat = usb_native
+    assert _grid_from_rekordbox(lib, lib.get_track(nat))          # PQT2 présente : grille de Rekordbox
+    assert not _grid_from_rekordbox(lib, lib.get_track(own))      # écrite par DJSync
+    lib.native_parts = ("grid",)
+    lib.analyze_tracks([nat], force=True)                         # grille refaite par DJSync : ne compte plus
+    assert not _grid_from_rekordbox(lib, lib.get_track(nat))

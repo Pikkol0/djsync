@@ -98,6 +98,17 @@ def _grid_gap(mine, theirs) -> tuple:
     return round(gap, 1), same_down, round(signed, 1)
 
 
+def _grid_from_rekordbox(lib, track) -> bool:
+    """True si la grille du son est celle de Rekordbox : balise PQT2 présente dans son .EXT."""
+    from .anlz import iter_tags
+
+    try:
+        ext = lib.absolute_path(track.analysis_path or "").with_suffix(".EXT")
+        return any(code == "PQT2" for code, _raw in iter_tags(ext.read_bytes()))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None = None,
              under: str | None = None, playlist: str | None = None) -> int:
     from .decode import ANALYSIS_SR, MP4_SUFFIXES, decode, mp4_timing, timeline_lead_seconds
@@ -115,15 +126,17 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
                 print(f"Playlist not found: {playlist}")
                 return 2
             wanted = {t.content_id for p in names for t in lib.get_playlist_tracks(p.playlist_id)}
-        # --playlist : tous les sons de la playlist, même ajoutés par DJSync puis analysés par Rekordbox
-        if wanted is not None:
-            native = set(native) | wanted
-        tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0 and t.content_id in native
-                  and (wanted is None or t.content_id in wanted)
-                  and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())][:limit]
-        skipped = sum(1 for t in lib.list_tracks() if t.is_analysed and t.content_id not in native)
+        # 1.4.1 : la grille de référence est reconnue au FICHIER, pas à l'origine du son : Rekordbox écrit
+        # toujours la grille étendue PQT2 dans le .EXT, DJSync jamais (et la retire quand il corrige ou
+        # greffe une grille). Un son ajouté par DJSync puis analysé par Rekordbox compte ; un son de
+        # Rekordbox dont DJSync a refait la grille ne compte plus.
+        candidates = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0
+                      and (wanted is None or t.content_id in wanted)
+                      and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())]
+        tracks = [t for t in candidates if _grid_from_rekordbox(lib, t)][:limit]
+        skipped = len(candidates) - len([t for t in candidates if _grid_from_rekordbox(lib, t)])
         print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
-              f"{f' ({skipped} analysed by DJSync ignored)' if skipped else ''}.\n", flush=True)
+              f"{f' ({skipped} with a grid written by DJSync ignored)' if skipped else ''}.\n", flush=True)
         bpm_ok = octave = key_ok = key_rel = grid_ok = grid_n = down_ok = half_n = 0
         by_format: dict = {}
         for i, t in enumerate(tracks, start=1):
