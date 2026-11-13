@@ -511,6 +511,7 @@ class DJSyncApp(QMainWindow):
         self.eject_btn.hide()
         uh.addWidget(self.eject_btn)
         ul.addLayout(uh)
+        self._usb_head = uh                                 # 1.4.2 (C182) : sa largeur compte pour celle du volet
         self.usb_label = label("", wrap=True)
         self.usb_bar = QProgressBar()
         self.usb_bar.setRange(0, 1000)
@@ -672,9 +673,12 @@ class DJSyncApp(QMainWindow):
         width = max(cpx(SIDEBAR_COMPACT), ring_px() + 2 * (margin + card))
         self.help_btn.setText("")                                        # C182 : « ? » seul, détail dans la bulle
         if not compact:          # au moins le plus long libellé (langue, zoom), et la ligne du bas (C182)
-            bottom = sum(b.sizeHint().width() for b in (self.feedback_btn, self.help_btn, self.fold_btn)) \
+            bottom = sum(max(b.sizeHint().width(), b.minimumWidth())
+                         for b in (self.feedback_btn, self.help_btn, self.fold_btn)) \
                 + 2 * self.bottom_row.spacing() + 2 * margin
-            width = max([theme.px(SIDEBAR_WIDTH), bottom]
+            head = self.usb_icon.sizeHint().width() + self.usb_title.sizeHint().width() \
+                + self.eject_btn.sizeHint().width() + 2 * self._usb_head.spacing() + 2 * (margin + cpx(10))
+            width = max([theme.px(SIDEBAR_WIDTH), bottom, head]
                         + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
         self.sidebar.setFixedWidth(width)
         self.logo_text.setVisible(not compact)

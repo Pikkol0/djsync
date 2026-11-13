@@ -1977,7 +1977,7 @@ STRINGS = {
     "home.act_prepare": "Prepare a drive",
     "home.act_prepare_sub": "Ready for the gig?",
     "home.act_prepare_tip": "Checks the open USB drive before you leave for the club.",
-    "home.act_uniformize": "Uniformize",
+    "home.act_uniformize": "Uniformise",
     "home.act_uniformize_sub": "Clean titles, artists, tags",
     "home.act_uniformize_tip": "Cleans up titles, artists and tags, choosing the scope.",
     "home.prepare_no_drive": "Plug in and open a USB drive first (Settings ▸ Libraries).",
