@@ -174,7 +174,8 @@ def test_b72_improve_lot_gets_spare_users(demo, monkeypatch):  # noqa: F811
     best, spare = track_of(_r("pack")), track_of(_r("other"))
     monkeypatch.setattr(ctrl, "replace_with_download",
                         lambda tr, old: DownloadJob(id=77, track=tr))
-    w = SimpleNamespace(best=best, finds=[best, spare], track=None)
+    # 1.4.1 (C135) : lignes de l'onglet Qualité (son + choix à la main)
+    w = SimpleNamespace(best=best, finds=[best, spare], track=SimpleNamespace(content_id=1), chosen=None)
     ctrl._slsk_alts = {}
     assert ctrl.improve_apply([w]) == 1
     assert [r.username for r in ctrl._slsk_alts[77]] == ["other"]
