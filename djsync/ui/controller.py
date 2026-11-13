@@ -1048,6 +1048,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.native_parts = s.native_parts()
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
+        try:                                       # 1.4.1 (C141) : reflet or / argent coupé en mode léger
+            from ..core.machine import light_active
+            from .shine import set_enabled
+
+            set_enabled(not light_active(s))
+        except Exception:  # noqa: BLE001
+            pass
         s.save()
         if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
             self.slsk_disconnect()

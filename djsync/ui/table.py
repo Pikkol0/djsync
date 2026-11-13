@@ -547,6 +547,10 @@ class TrackTable(QTableView):
         lay.addWidget(self._empty_text)
         self._empty_icon_name = ""
         self._empty.hide()
+        from .shine import Clock, ShineDelegate
+
+        self.setItemDelegate(ShineDelegate(self))                    # 1.4.1 (C141) : or et argent allumés
+        Clock.get().watch(self)
         for i, col in enumerate(self.columns):
             if col.key == "key":
                 self.setItemDelegateForColumn(i, _KeyDelegate(self))
@@ -1253,6 +1257,20 @@ class TrackTable(QTableView):
         if self._drop_at is not None:
             self._drop_at = None
             self.viewport().update()
+
+    def has_shine(self) -> bool:
+        """1.4.1 (C141) : au moins une cellule or ou argent dans le tableau (reflet à animer). Calculé
+        une fois par contenu (set_rows), jamais à chaque image."""
+        rows = getattr(self, "_rows", None) or {}
+        key = (id(rows), len(rows))
+        if getattr(self, "_shine_key", None) != key:
+            from . import theme as _th
+
+            metal = {_th.GOLD.upper(), _th.SILVER.upper()}
+            self._shine_key = key
+            self._shine = any(k.endswith("__color") and isinstance(v, str) and v.upper() in metal
+                              for row in list(rows.values())[:400] for k, v in (row.values or {}).items())
+        return self._shine
 
     def paintEvent(self, e: Any) -> None:        # noqa: N802
         super().paintEvent(e)

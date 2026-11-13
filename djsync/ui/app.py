@@ -269,6 +269,9 @@ class DJSyncApp(QMainWindow):
             from ..core.machine import light_active, machine_info, should_offer
 
             info = machine_info()
+            from .shine import set_enabled as _shine
+
+            _shine(not light_active(self.ctrl.settings, info))     # 1.4.1 (C141) : reflet coupé en mode léger
             log.info("Machine: %s, light mode %s (%s)", info.describe(),
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
             if should_offer(self.ctrl.settings, info):

@@ -127,3 +127,10 @@ Mesure locale sur 100 sons de l'échantillon (grilles de Rekordbox comme référ
 |---|---|---|---|---|
 | GRI-1 | Auteur | Windows | (**B11**, **B12**) Relancer la commande ci-dessus et comparer au résumé de la mesure de départ (12/11 : BPM 160 / 192, contretemps 34 / 160, premier temps 81 / 160). | Contretemps en baisse nette, premier temps en hausse, BPM identiques au moins aussi nombreux ; aucune famille (house, hardstyle, rap, pop) qui recule. |
 | GRI-2 | Testeur platines | Platines | (**B11**, **B12**) Analyser 3 sons hardstyle ou hypertechno et 3 sons pop sur une clé ; les charger sur platine. | Grille sur les kicks (pas entre deux kicks) ; le « 1 » de la platine tombe sur le début des mesures (entrée de la basse, du refrain). |
+
+## Or et argent (C141, D14)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| OR-1 | Tous | Windows, macOS, Linux | (**C141**) Bibliothèque avec un FLAC et un MP3 320 (colonnes Format, Débit) ; recherche Haute qualité (colonne Qualité) ; Recherche (colonne Source « original » / « free download »). | Textes or et argent en dégradé métallique (plus clairs au milieu), en gras ; un reflet les traverse environ toutes les 5 s, décalé d'une ligne à l'autre. Le jaune « ≈ 192 » et le gris restent unis : jamais confondus avec l'or ou l'argent. |
+| OR-2 | Tous | Windows, macOS, Linux | (**C141**) Mode léger activé ; puis fenêtre réduite ou autre application au premier plan. | Mode léger : dégradé fixe, plus de reflet. Fenêtre réduite ou inactive : plus aucun redessin (processeur au repos). |
