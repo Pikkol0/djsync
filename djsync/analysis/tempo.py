@@ -238,6 +238,47 @@ def _kick_phase(benv: np.ndarray, period: float, phase: float, debug: Optional[D
     return phase
 
 
+# 1.4.1 (B11) : énergie des basses (60-150 Hz) dans les 100 ms qui suivent chaque temps, comparée à celle
+# qui suit chaque contretemps. Le test par les ATTAQUES (_kick_phase) se trompe sur le hardstyle, la
+# hypertechno, la house à basse décalée : la basse « off » y attaque plus net que le kick, long et saturé.
+# Mesuré sur 83 sons de l'échantillon (grilles Rekordbox) : grille juste 2,30 au plus ; grille sur le
+# contretemps jusqu'à 34 (8 sur 19 au-dessus de 3) -> seuil 3, aucun son juste qui bascule.
+BASS_ENERGY_FLIP = 3.0
+
+
+def _band_energy(x: np.ndarray, sr: int, lo: float, hi: float) -> Tuple[np.ndarray, float]:
+    """(énergie de la bande lo-hi Hz par trame de 256 échantillons, trames par seconde)."""
+    n, hop = 512, 256
+    view = np.lib.stride_tricks.sliding_window_view(x, n)[::hop]
+    freqs = np.fft.rfftfreq(n, 1.0 / sr)
+    sel = (freqs >= lo) & (freqs <= hi)
+    win = np.hanning(n).astype(np.float32)
+    energy = np.concatenate([(np.abs(np.fft.rfft(view[i:i + 4096] * win, axis=1))[:, sel] ** 2).sum(axis=1)
+                             for i in range(0, view.shape[0], 4096)])
+    return energy, sr / hop
+
+
+def _bass_energy_flip(x: np.ndarray, sr: int, times: np.ndarray, beat: float,
+                      debug: Optional[Dict] = None) -> bool:
+    """True si l'énergie des basses est nettement plus forte un demi-temps après chaque temps."""
+    if x.size < 512 * 8 or times.size < 16:
+        return False
+    energy, fps = _band_energy(x, sr, 60, 150)
+    k = max(1, int(0.1 * fps))
+    starts = (times[4:-4] * fps).astype(int)
+
+    def at(pos: np.ndarray) -> float:
+        vals = [float(energy[a:a + k].mean()) for a in pos if 0 <= a and a + k < energy.size]
+        return float(np.median(vals)) if vals else 0.0
+
+    on = at(starts)
+    off = at(((times[4:-4] + beat / 2) * fps).astype(int))
+    ratio = off / on if on > 0 else (float("inf") if off > 0 else 0.0)
+    if debug is not None:
+        debug["bass_energy_offbeat_ratio"] = round(ratio, 3)
+    return ratio > BASS_ENERGY_FLIP
+
+
 def _choose_octave(env: np.ndarray, benv: np.ndarray, fps: float, bpm: float, debug: Optional[Dict] = None) -> float:
     """`bpm` est dans [90, 180). S'il est >= 140, sa moitié (70-90) est aussi dans la plage :
     règle calée sur Rekordbox (213 sons de référence) : rapide sous 168 BPM, lent au-dessus."""
@@ -395,6 +436,8 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     first = t_of(phase_frames)
     beat_len = 60.0 / bpm
     first %= beat_len
+    if _bass_energy_flip(x, sr, np.arange(first, duration, beat_len), beat_len, debug):   # 1.4.1 (B11)
+        first = (first + beat_len / 2) % beat_len
     times = np.arange(first, duration, beat_len)
     warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
     variable = warped is not None
@@ -419,7 +462,17 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
         per = np.array([float(v[nums == j].mean()) if np.any(nums == j) else 0.0 for j in range(4)])
         return (per - per.mean()) / (per.std() + 1e-9)
 
-    scores = list(z(harm) + 0.5 * z(bass)) if times.size >= 8 else [0.0, 0.0, 0.0, 0.0]
+    # 1.4.1 (B12) : + énergie des basses (40-120 Hz) dans les 80 ms après le temps : le kick et la basse
+    # appuient le 1er temps. Mesuré sur 62 grilles justes de l'échantillon : 1er temps de Rekordbox
+    # retrouvé 41 fois -> 47 (validation croisée par moitiés : 65 % -> 70 %).
+    low = np.zeros(times.size)
+    if times.size >= 8 and x.size >= 512 * 8:
+        energy, efps = _band_energy(x, sr, 40, 120)
+        k = max(1, int(0.08 * efps))
+        starts = (times * efps).astype(int)
+        low = np.array([np.log(float(energy[a:a + k].mean()) + 1e-9) if 0 <= a and a + k < energy.size else 0.0
+                        for a in starts])
+    scores = list(z(harm) + 0.5 * z(bass) + z(low)) if times.size >= 8 else [0.0, 0.0, 0.0, 0.0]
     if debug is not None:
         debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
     down = int(np.argmax(scores))

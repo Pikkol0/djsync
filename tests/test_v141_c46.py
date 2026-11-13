@@ -119,3 +119,55 @@ def test_three_slices_are_read(tmp_path, monkeypatch):
 
 def test_old_store_is_not_reused():
     assert S._file().name == "quality-3.json" or S._store_path is not None
+
+
+# ------------------------------------------------------------------- 1.4.1 (B11, B12)
+def _beats(sr, bpm, seconds, kick_off, phase=0.0):
+    """Kick long (70 Hz, 150 ms) sur les temps ; basse « off » nette sur les contretemps si kick_off."""
+    t = np.arange(int(seconds * sr)) / sr
+    y = np.zeros_like(t)
+    beat = 60.0 / bpm
+    for k in range(int(seconds / beat)):
+        s = phase + k * beat
+        i = int(s * sr)
+        n = int(0.15 * sr)
+        if i + n < y.size:
+            env = np.exp(-np.arange(n) / (0.12 * sr))
+            y[i:i + n] += 0.9 * env * np.sin(2 * np.pi * 70 * np.arange(n) / sr)
+            j = i + int(0.0 * sr)
+            y[j:j + 200] += 0.4 * np.random.default_rng(k).standard_normal(200)          # clic d'attaque
+        if kick_off:
+            o = int((s + beat / 2) * sr)
+            m = int(0.04 * sr)
+            if o + m < y.size:
+                y[o:o + m] += 0.08 * np.sin(2 * np.pi * 110 * np.arange(m) / sr)
+    return y.astype(np.float32)
+
+
+def test_b11_bass_energy_keeps_kicks_on_the_beat():
+    from djsync.analysis import tempo as T
+
+    sr = 22050
+    y = _beats(sr, 150.0, 40.0, kick_off=True, phase=0.1)
+    dbg = {}
+    g = T.analyze_tempo(y, sr, dbg)
+    assert abs(g.bpm - 150.0) < 0.5
+    beat = 60.0 / g.bpm
+    off = ((g.first_beat - 0.1) / beat) % 1.0
+    assert min(off, 1 - off) < 0.1                           # sur les kicks, pas sur les contretemps
+    assert dbg["bass_energy_offbeat_ratio"] < T.BASS_ENERGY_FLIP
+
+
+def test_b11_flip_when_bass_energy_is_on_the_offbeat():
+    from djsync.analysis import tempo as T
+
+    sr = 22050
+    beat = 0.4
+    times = np.arange(0.0, 30.0, beat)
+    y = np.zeros(int(30 * sr), dtype=np.float32)
+    for s in times + beat / 2:                               # énergie grave seulement sur les contretemps
+        i, n = int(s * sr), int(0.1 * sr)
+        if i + n < y.size:
+            y[i:i + n] += 0.8 * np.sin(2 * np.pi * 80 * np.arange(n) / sr)
+    assert T._bass_energy_flip(y, sr, times, beat)
+    assert not T._bass_energy_flip(y, sr, times + beat / 2, beat)

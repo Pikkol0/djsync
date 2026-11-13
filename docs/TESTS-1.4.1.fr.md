@@ -105,3 +105,25 @@ Avant ces tests : garder une copie de la clé (ou de la bibliothèque) d'essai. 
 | REA-5 | Auteur | Windows | (**C131**) Ordinateur, Rekordbox ouvert : « Analyser à nouveau » sur un son de Rekordbox. Fermer Rekordbox, recommencer, rouvrir Rekordbox. | Rekordbox ouvert : son en échec avec le message habituel (fermer Rekordbox), rien d'écrit. Fermé : grille de DJSync dans Rekordbox, cues identiques (liste des cues de Rekordbox inchangée) ; le son n'est pas devenu un son « de DJSync » (Grille et cues le dit toujours « analysé par Rekordbox »). |
 | REA-6 | Testeur platines | Platines | (**C131**, grille réécrite) Clé avec 3 sons de Rekordbox réanalysés (grille et BPM), dont un MP3, et 1 son rétabli (REA-4). Charger chaque son, lancer depuis un hot cue, activer la quantification, avancer dans le morceau à la molette (MP3). | Sons chargés sans erreur ; BPM et grille de DJSync affichés ; hot cues, mémoires et boucles à leur place ; recherche dans le MP3 normale ; pas de phrases affichées (retirées avec la grille). Le son rétabli se comporte comme avant. |
 | REA-7 | Auteur | Windows, macOS, Linux | (**B96**) Son de DJSync avec des cues : abîmer la liste des cues de son fichier ANLZ0000.DAT (éditeur hexadécimal, dans une balise PCOB), puis « Analyser à nouveau ». Même essai avec le .EXT tronqué d'un son de Rekordbox. | Le son est compté en échec avec la raison (« cues … could not be read » ou « Unreadable analysis file ») ; ses fichiers d'analyse et sa ligne dans la bibliothèque ne changent pas (avant : cues perdus sans message). |
+
+## Qualité supposée (C46, banc A05)
+
+Mesures du banc (81 pistes de CD, 2 025 copies) et règles : `djsync/analysis/spectrum.py` ; `python tools/quality_calibrate.py bench_out/features.jsonl` les rejoue. Les mesures de la 1.4.0 ne sont pas reprises : les sons sont mesurés de nouveau à la demande (onglet Qualité, « Recalculer la qualité supposée ») ou à la prochaine analyse.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| QUA-1 | Auteur | Windows | (**C46**, remplace 140-QUA-8) Le fichier « YouTube → MP3 320 → WAV » de 140-QUA-8 : clic droit ▸ Recalculer la qualité supposée. | Plus jamais « Sans perte » ni doré : « ≈ 320 » (ou moins), signalé faux sans perte. |
+| QUA-2 | Auteur | Windows | (**C46**) Un vrai FLAC de CD, un MP3 320 acheté, un MP3 128, un « FLAC » fait depuis un MP3 128 : Recalculer la qualité supposée. | FLAC : Sans perte (doré). MP3 320 : ≈ 320. MP3 128 et faux FLAC : ≈ 128, le faux FLAC signalé. |
+| QUA-3 | Tous | Windows, macOS, Linux | (**C46**) Un son téléchargé de YouTube (M4A ou Opus), et le même converti en WAV. | ≈ 192 au plus, jamais Sans perte. |
+| QUA-4 | Tous | Windows, macOS, Linux | (**C46**) Après la mise à jour, ouvrir la Bibliothèque avec la colonne Qualité supposée. | Les anciennes mesures ne s'affichent plus (case vide) jusqu'à un nouveau calcul ; rien n'est recalculé seul au lancement. Le calcul d'un son prend environ 1 s. |
+
+Limites connues (banc) : un AAC 256 ou un MP3 V0 remis en WAV peuvent passer pour du sans perte (AAC 256 : 94 %, MP3 V0 : 27 %) ; un Opus 128 et un Opus 160 ne se distinguent pas.
+
+## Grille : contretemps et premier temps (B11, B12, A02)
+
+Mesure locale sur 100 sons de l'échantillon (grilles de Rekordbox comme référence ; parmi les 82 au même BPM) : grille sur le contretemps 19 → 12 ; même premier temps de mesure 38 → 50. A02 : un seul son sur 100 en rapport 3:2 (et un en 4:3) : pas de détection automatique, seulement les boutons × 3/2 et × 2/3 (déjà faits). Mesure complète à refaire sur la tour : `python -m djsync.analysis --compare local --playlist "Échantillon DJSync" --csv bench_out\mesure-b12.csv`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GRI-1 | Auteur | Windows | (**B11**, **B12**) Relancer la commande ci-dessus et comparer au résumé de la mesure de départ (12/11 : BPM 160 / 192, contretemps 34 / 160, premier temps 81 / 160). | Contretemps en baisse nette, premier temps en hausse, BPM identiques au moins aussi nombreux ; aucune famille (house, hardstyle, rap, pop) qui recule. |
+| GRI-2 | Testeur platines | Platines | (**B11**, **B12**) Analyser 3 sons hardstyle ou hypertechno et 3 sons pop sur une clé ; les charger sur platine. | Grille sur les kicks (pas entre deux kicks) ; le « 1 » de la platine tombe sur le début des mesures (entrée de la basse, du refrain). |
