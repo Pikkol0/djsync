@@ -18,6 +18,10 @@ from ..widgets import button, chip, hbox, icon_label, label, line_edit, panel, v
 from .common import View, human_size
 
 
+# 1.4.2 (C182) : « À régler » : onglets du Diagnostic avec leur compteur
+TODO_TILES = (("missing", "warn"), ("dup", "duplicates"), ("quality", "wave"), ("uniformize", "tag"))
+
+
 class HomeView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
@@ -46,18 +50,24 @@ class HomeView(View):
         self.cards_lay = vbox(self.cards, spacing=theme.px(8))
         self.root.addWidget(self.cards)
 
+        # 1.4.2 (C182, A06) : les tuiles Outils (doublons du volet) laissent la place aux compteurs du Diagnostic
         self.root.addSpacing(theme.px(8))
-        self.root.addWidget(label(t("home.tools"), "h2"))
-        tools = hbox(spacing=theme.px(10))
-        for key, icon, cmd in (("home.tool_analysis", "wave", self._analysis),
-                               ("home.tool_duplicates", "duplicates", self._duplicates),
-                               ("home.tool_uniformize", "tag", self._uniformize),
-                               ("home.tool_import", "import", lambda: self.ctrl._emit("navigate", "import"))):
-            b = button(t(key), cmd, kind="tile", icon=icon)
+        self.todo_title = label(t("home.todo"), "h2")
+        self.root.addWidget(self.todo_title)
+        self.todo_row = QWidget()
+        tools = hbox(self.todo_row, spacing=theme.px(10))
+        self.todo: dict = {}
+        for key, icon in TODO_TILES:
+            b = button("", lambda k=key: self._open_todo(k), kind="tile", icon=icon)
             b.setIconSize(QSize(theme.px(20), theme.px(20)))
             b.setIcon(qicon(icon, 20, theme.ACCENT))
             tools.addWidget(b, 1)
-        self.root.addLayout(tools)
+            self.todo[key] = b
+        self.root.addWidget(self.todo_row)
+        self.todo_hint = label(t("home.todo_none"), "dim", wrap=True)
+        self.root.addWidget(self.todo_hint)
+        self._todo_refresh()
+        controller.on("diag_counts", self._todo_refresh)
         self.root.addStretch(1)
         # 1.3.2 (C73) : version de DJSync, discrète, en bas ; cliquable vers Paramètres ▸ DJSync
         foot = hbox()
@@ -128,9 +138,42 @@ class HomeView(View):
     # ------------------------------------------------------------------- clés
     def on_show(self) -> None:
         self.refresh()
+        self._todo_refresh()
+        try:
+            counted = "missing" in self.ctrl.diag_counts
+        except Exception:  # noqa: BLE001
+            counted = True
+        if self.ctrl.has_library and not counted:
+            self.ctrl.diag_quick_counts()           # C182 : compte rapide (sans lire les sons)
+
+    # ------------------------------------------------- 1.4.2 (C182) : « À régler »
+    def _todo_refresh(self) -> None:
+        try:
+            counts = dict(self.ctrl.diag_counts)
+        except Exception:  # noqa: BLE001
+            counts = {}
+        has = bool(self.ctrl.has_library)
+        try:
+            self.todo_title.setVisible(has)
+            self.todo_row.setVisible(has)
+            self.todo_hint.setVisible(not has)
+        except RuntimeError:                       # vue reconstruite
+            return
+        for key, b in self.todo.items():
+            n = counts.get(key)
+            b.setText(t(f"diagtab.{key}") + "\n" + (t("home.todo_count", n=n) if n is not None else "—"))
+            b.setToolTip(t("home.todo_tip"))
+            b.setProperty("todo", bool(n))
+
+    def _open_todo(self, key: str) -> None:
+        if not self.ctrl.has_library:
+            self.ctrl.message("error", t("msg.no_drive"))
+            return
+        self.window().open_diagnostic(key)
 
     def refresh(self) -> None:
         self.ctrl.drive_summaries(self._show)
+        self._todo_refresh()
         if self._pending_diag and self.ctrl.has_library and self.ctrl.drive is not None \
                 and str(self.ctrl.drive.db_path) == self._pending_diag:
             self._pending_diag = ""
@@ -246,6 +289,10 @@ class HomeView(View):
                                      kind="primary", icon="library"))
             if s.unanalysed > 0:
                 actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
+            if not s.is_local:                                   # 1.4.2 (C67) : « Prêt pour le set ? »
+                ready = button(t("set.button"), self.set_check, icon="check")
+                ready.setToolTip(t("set.button_tip"))
+                actions.addWidget(ready)
             if stale_detail is not None:
                 upd = button(t("home.pdb_update"), icon="refresh")
                 upd.setToolTip(t("home.pdb_update_tip"))
@@ -297,6 +344,11 @@ class HomeView(View):
         self.ctrl.pdb_sync_now(ok=restore, failed=restore)
 
     # ------------------------------------------------------------------- outils
+    def set_check(self) -> None:
+        from ..set_check_dialog import open_set_check
+
+        open_set_check(self, self.ctrl)
+
     def diagnose(self, drive: Any, connected: bool) -> None:
         """Bouton « Diagnostic » d'une carte : ouvre d'abord cette bibliothèque si besoin."""
         if connected and self.ctrl.has_library:

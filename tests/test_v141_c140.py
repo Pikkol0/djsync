@@ -80,10 +80,13 @@ def test_c140_no_number_before_anything_is_counted(demo):
 
 
 def test_c140_shortcuts_unchanged(demo):
-    from djsync.ui.app import NAV, TABS
+    # 1.4.2 (C182) : raccourcis attachés aux pages (plus à leur position) ; volet court de 6 entrées
+    from djsync.ui.app import NAV, SHORTCUT_KEYS, TABS
 
-    assert [k for k, *_ in TABS][3] == "library"                              # Ctrl+4 : toujours la Bibliothèque
-    assert [k for k, *_ in NAV if k != "diagnostic"] == [k for k, *_ in TABS]
+    assert [k for k, *_ in NAV] == ["home", "search", "library", "downloads", "diagnostic", "settings"]
+    assert SHORTCUT_KEYS["library"] == 3 and SHORTCUT_KEYS["diagnostic"] == 5
+    assert set(SHORTCUT_KEYS) == {k for k, *_ in TABS} | {"diagnostic"}
+    assert sorted(SHORTCUT_KEYS.values()) == list(range(1, 10))
 
 
 def test_c140_collapsed_one_icon_no_menu(demo):
@@ -242,7 +245,10 @@ def test_c140_whole_cards_when_there_is_room(demo):
     pump(demo, 0.6)
     assert not demo.card_lines
     assert demo.an_label.isVisible() and demo.an_bar.isVisible() and demo.usb_bar.isVisible()
-    demo.resize(1366, 697)                                                    # écran de 768 px
+    demo.resize(1366, 697)                    # écran de 768 px : 1.4.2 (C182, volet court) cartes entières
+    pump(demo, 0.6)
+    assert not demo.card_lines and demo.an_bar.isVisible()
+    demo.resize(1366, 520)                                                    # encore plus bas : une ligne
     pump(demo, 0.6)
     assert demo.card_lines and not demo.an_bar.isVisible() and demo.usb_line.isVisible()
     demo.resize(1280, 800)

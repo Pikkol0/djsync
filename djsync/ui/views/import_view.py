@@ -64,7 +64,9 @@ class ImportView(View):
         except ValueError:
             self.preference = MatchPreference.AUTO
 
-        self.root.addLayout(self.header(t("tab.import")))
+        from ..search_tabs import add_search_tabs
+
+        add_search_tabs(self, "import")                 # 1.4.2 (C182) : onglets de « Rechercher »
         bar = hbox(spacing=theme.px(8))
         from ...core.urlimport import source_names
 

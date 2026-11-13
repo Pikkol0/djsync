@@ -112,7 +112,9 @@ class HqView(View):
         self._query = ""
         self._filter = ResultFilter.from_dict(controller.settings.hq_filters)
 
-        self.root.addLayout(self.header(t("tab.hq")))
+        from ..search_tabs import add_search_tabs
+
+        add_search_tabs(self, "hq")                 # 1.4.2 (C182) : onglets de « Rechercher »
         bar = hbox(spacing=theme.px(8))
         self.entry = line_edit(t("search.placeholder_hq"), "search", big=True)
         self.entry.returnPressed.connect(lambda: self.run_search(force=True))

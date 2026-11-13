@@ -13,7 +13,7 @@ import shutil
 import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QObject, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QFrame, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QWidget,
@@ -57,10 +57,20 @@ TABS = [  # (clé, clé i18n, icône, classe)
     ("settings", "tab.settings", "settings", SettingsView),
     ("feedback", "tab.feedback", "chat", FeedbackView),         # 1.2.1 (C18)
 ]
-# 1.4.1 (C140, D19) : entrées du volet ; « Diagnostic » n'est pas une vue (il ouvre ses pages, onglets en haut).
-# Les raccourcis Ctrl+1…8 restent ceux des vues (TABS) : l'entrée du Diagnostic ne décale rien.
-NAV = [(k, lbl, icon) for k, lbl, icon, _cls in TABS[:5]] + [("diagnostic", "nav.diagnostic", "diagnostic")] \
-    + [(k, lbl, icon) for k, lbl, icon, _cls in TABS[5:]]
+# 1.4.2 (C182, structure B d'A06) : volet court, 6 destinations. « Rechercher » regroupe Recherche, Haute qualité
+# et Lien ou playlist (onglets en haut de ces pages) ; « Diagnostic » n'est pas une vue (il ouvre ses pages) ;
+# Retours passe sur la ligne du bas, avec l'Aide.
+NAV = [("home", "tab.home", "home"), ("search", "nav.find", "search"), ("library", "tab.library", "library"),
+       ("downloads", "nav.downloads", "downloads"), ("diagnostic", "nav.diagnostic", "diagnostic"),
+       ("settings", "tab.settings", "settings")]
+NAV_OF = {"hq": "search", "import": "search"}           # vue -> entrée du volet cochée
+# 1.4.2 (C182) : raccourcis Ctrl+chiffre attachés aux pages (plus à leur position dans le volet)
+SHORTCUT_KEYS = {"home": 1, "search": 2, "library": 3, "downloads": 4, "diagnostic": 5, "settings": 6,
+                 "hq": 7, "import": 8, "feedback": 9}
+
+
+def nav_key(view: Optional[str]) -> Optional[str]:
+    return NAV_OF.get(view or "", view)
 _ROLE = {"info": "dim", "ok": "accent", "warn": "warn", "error": "err"}
 
 
@@ -136,6 +146,22 @@ def qt_app() -> QApplication:
 
 
 DIAG_PAGE_TYPES = ("QualityPage", "DuplicatesDialog", "MissingFilesDialog", "OneTrackPage")   # 1.3.1 (C41), B58
+
+
+class _ClickFilter(QObject):
+    """1.4.2 (C182) : un clic sur un cadre (carte « Bibliothèque active ») lance une action ; les boutons de la
+    carte (Éjecter) gardent leur propre clic."""
+
+    def __init__(self, widget: QWidget, fn: Callable[[], None]) -> None:
+        super().__init__(widget)
+        self.fn = fn
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj: Any, e: Any) -> bool:  # noqa: N802 (API Qt)
+        if e.type() == QEvent.MouseButtonRelease and e.button() == Qt.LeftButton:
+            self.fn()
+            return True
+        return False
 
 
 class DJSyncApp(QMainWindow):
@@ -276,6 +302,9 @@ class DJSyncApp(QMainWindow):
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
             if should_offer(self.ctrl.settings, info):
                 self.queue_startup("light_mode", lambda: self.offer_light_mode(info))
+            elif light_active(self.ctrl.settings, info):
+                # 1.4.2 (C174) : à chaque lancement où le mode léger est actif, un rappel discret (bulle)
+                QTimer.singleShot(2500, lambda: _safe(lambda: self.light_notice(info)))
 
     # ----------------------------------------------------- fenêtres de démarrage (C155)
     def queue_startup(self, name: str, show: Any) -> None:
@@ -317,6 +346,12 @@ class DJSyncApp(QMainWindow):
         from .dialogs import BaseDialog
 
         s = self.ctrl.settings
+        from ..core.machine import machine_id
+
+        mid = machine_id()                              # 1.4.2 (C174) : une fois par PC
+        if mid not in s.light_offered:
+            s.light_offered = (list(s.light_offered) + [mid])[-50:]
+            self.ctrl.save_settings_quiet()
         dlg = BaseDialog(self, t("light.title"), 460)
         dlg.heading(t("light.title"))
         dlg.body.addWidget(label(t("light.text", machine=info.describe()), wrap=True))
@@ -340,6 +375,13 @@ class DJSyncApp(QMainWindow):
         dlg.never_box = never
         dlg.show_dialog()
         return dlg
+
+    def light_notice(self, info: Any) -> None:
+        """1.4.2 (C174) : « Mode léger actif sur ce PC », avec un lien vers son réglage."""
+        if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
+            return
+        self._message("info", t("light.notice", machine=info.describe()))
+        self._message_action(t("light.notice_settings"), lambda: self._open_settings_section("general"))
 
     # ------------------------------------------------------------------ construction
     def _build(self) -> None:
@@ -472,15 +514,25 @@ class DJSyncApp(QMainWindow):
         self.usb_free = label("", "dim", wrap=True)
         for w in (self.usb_label, self.usb_bar, self.usb_free):
             ul.addWidget(w)
-        self.usb_ring = MiniRing("usb", lambda: self.show_view("settings"))   # B73
+        # 1.4.2 (C182) : carte cliquable (Espace, Sauvegardes, Éjecter) ; replié, l'anneau ouvre le même menu
+        self.usb_ring = MiniRing("usb", lambda: self.drive_menu(self.usb_ring))   # B73
         ul.addWidget(self.usb_ring, 0, Qt.AlignHCenter)
         self.usb_ring.hide()
+        usb.setCursor(Qt.PointingHandCursor)
+        self._usb_click = _ClickFilter(usb, lambda: self.drive_menu(self.usb_box))
         lay.addSpacing(theme.px(6))
         lay.addWidget(usb)
 
-        self.help_btn = button(t("help.button"), self.open_help, kind="nav")
+        # 1.4.2 (C182) : Retours sur la ligne du bas, avec l'Aide (libellé court, détail dans la bulle) et Réduire
+        self.feedback_btn = button(t("tab.feedback"), lambda: self.show_view("feedback"), kind="nav")
+        self.feedback_btn.setCheckable(True)
+        self.feedback_btn.setIcon(qicon("chat", 18, theme.DIM))
+        self.feedback_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
+        self.feedback_btn._icon_name = "chat"  # type: ignore[attr-defined]
+        self.help_btn = button(t("nav.help_short"), self.open_help, kind="nav")
         self.help_btn.setIcon(qicon("help", 18, theme.DIM))
         self.help_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
+        self.help_btn.setToolTip(t("help.button") + " (F1)")
         lay.addSpacing(theme.px(4))
         # 1.2.0-rc.4 (B09) : la barre se replie seule quand la fenêtre est étroite ; ce bouton la
         # déplie ou la replie à la demande (choix retenu dans les réglages).
@@ -491,6 +543,7 @@ class DJSyncApp(QMainWindow):
 
         self.bottom_row = QBoxLayout(QBoxLayout.LeftToRight)
         self.bottom_row.setSpacing(theme.px(3))
+        self.bottom_row.addWidget(self.feedback_btn, 1)
         self.bottom_row.addWidget(self.help_btn, 1)
         self.bottom_row.addWidget(self.fold_btn)
         lay.addLayout(self.bottom_row)
@@ -540,7 +593,7 @@ class DJSyncApp(QMainWindow):
         theme.apply(self.qapp, s.zoom)
         self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
         self.logo.setPixmap(logo_pixmap(theme.px(24), theme.ACCENT))
-        for b in list(self._nav.values()) + [self.help_btn]:
+        for b in list(self._nav.values()) + [self.help_btn, self.feedback_btn]:
             b.setIconSize(QSize(theme.px(18), theme.px(18)))
         for view in self.views.values():
             view.on_scale()
@@ -578,6 +631,7 @@ class DJSyncApp(QMainWindow):
         if compact == self._compact:
             return
         self._compact = compact
+        self._compact_small = False                                 # C182 : décidé de nouveau (_fit_sidebar)
         labels = {k: l for k, l, _i in NAV}
         # 1.4.0-rc.3 (B70) : en volet replié, boutons carrés centrés (le fond suivait la marge du mode large)
         square = "padding: 0px; text-align: center;" if compact else ""
@@ -593,8 +647,10 @@ class DJSyncApp(QMainWindow):
             b.setMaximumHeight(side if compact else 16777215)
             icon = cpx(20 if compact else 18)                       # 1.4.0-rc.5 (C161) : un peu plus gros replié
             b.setIconSize(QSize(icon, icon))
-        for b in (self.help_btn, self.fold_btn):
+        for b in (self.feedback_btn, self.help_btn, self.fold_btn):
             b.setStyleSheet(square)
+        self.feedback_btn.setText("" if compact else t("tab.feedback"))
+        self.feedback_btn.setToolTip(t("tab.feedback") if compact else "")
         from PySide6.QtWidgets import QBoxLayout
 
         self.bottom_row.setDirection(QBoxLayout.TopToBottom if compact else QBoxLayout.LeftToRight)
@@ -608,11 +664,14 @@ class DJSyncApp(QMainWindow):
         self.task_strip.rescale()                                          # 1.4.1 (C145) : un anneau par carte
         # largeur : au moins un anneau dans sa carte, avec les marges (jamais coupé)
         width = max(cpx(SIDEBAR_COMPACT), ring_px() + 2 * (margin + card))
-        if not compact:          # au moins le plus long libellé (langue, zoom)
-            width = max([theme.px(SIDEBAR_WIDTH)] + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
+        self.help_btn.setText("" if compact else t("nav.help_short").replace("&", "&&"))
+        if not compact:          # au moins le plus long libellé (langue, zoom), et la ligne du bas (C182)
+            bottom = sum(b.sizeHint().width() for b in (self.feedback_btn, self.help_btn, self.fold_btn)) \
+                + 2 * self.bottom_row.spacing() + 2 * margin
+            width = max([theme.px(SIDEBAR_WIDTH), bottom]
+                        + [b.sizeHint().width() + theme.px(24) for b in self._nav.values()])
         self.sidebar.setFixedWidth(width)
         self.logo_text.setVisible(not compact)
-        self.help_btn.setText("" if compact else t("help.button").replace("&", "&&"))
         self.fold_btn.setIcon(qicon("go" if compact else "back", 18, theme.DIM))
         self.fold_btn.setText("")                                       # C140 : icône seule, à droite de l'Aide
         self.fold_btn.setToolTip(t("nav.expand") if compact else t("nav.collapse"))
@@ -665,8 +724,32 @@ class DJSyncApp(QMainWindow):
                 self._set_card_lines(False)
                 line = self._sidebar_need() > self.sidebar.height()
             self._set_card_lines(line)
+            # 1.4.2 (C182) : volet replié, icônes réduites quand la hauteur manque (petit écran, fort zoom)
+            small = False
+            if self._compact:
+                self._set_compact_small(False)
+                small = self._sidebar_need() > self.sidebar.height()
+            self._set_compact_small(small)
         finally:
             self._fitting = False
+
+    def _set_compact_small(self, small: bool) -> None:
+        if small == getattr(self, "_compact_small", False):
+            return
+        self._compact_small = small
+        if not self._compact:
+            return
+        cpx = lambda n: max(int(n), theme.px(n))          # noqa: E731 (comme dans _update_compact)
+        side, icon = (cpx(34), cpx(16)) if small else (cpx(SIDEBAR_COMPACT - 12), cpx(20))
+        for b in self._nav.values():
+            b.setFixedHeight(side)
+            b.setIconSize(QSize(icon, icon))
+        self.nav_inner.setMinimumHeight(self.nav_inner.layout().sizeHint().height())
+        self._relayout_sidebar()
+
+    @property
+    def compact_small(self) -> bool:
+        return bool(self._compact and getattr(self, "_compact_small", False))
 
     def _set_card_lines(self, line: bool) -> None:
         if line == getattr(self, "_card_lines", None):
@@ -728,14 +811,28 @@ class DJSyncApp(QMainWindow):
         if self._current and self._current != key:
             self._previous = self._current                     # capture d'écran de l'onglet Retours
         self._current = key
-        for k, b in self._nav.items():
-            active = k == key
-            b.setChecked(active)
-            b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
+        self._check_nav(nav_key(key))                       # 1.4.2 (C182) : Haute qualité, Lien -> Rechercher
         self.stack.setCurrentWidget(self.views[key])
-        self._reveal_nav(key)
+        self._reveal_nav(nav_key(key) or key)
         self.views[key].on_show()
         self._badge()
+
+    def _check_nav(self, entry: Optional[str]) -> None:
+        """Coche l'entrée du volet `entry` (une seule à la fois ; Retours est sur la ligne du bas)."""
+        for k, b in list(self._nav.items()) + [("feedback", self.feedback_btn)]:
+            active = k == entry
+            try:
+                b.setChecked(active)
+                b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
+            except RuntimeError:                       # ancienne interface (changement de langue)
+                pass
+
+    def go(self, key: str) -> None:
+        """1.4.2 (C182) : une page par son nom (raccourcis Ctrl+chiffre) ; « diagnostic » ouvre ses pages."""
+        if key == "diagnostic":
+            self.open_diagnostic()
+        else:
+            self.show_view(key)
 
     @property
     def current(self) -> Optional[str]:
@@ -751,7 +848,7 @@ class DJSyncApp(QMainWindow):
                 return
         if self._compact or "downloads" not in self._nav:
             return
-        self._nav["downloads"].setText(self._nav_text("downloads", "tab.downloads"))
+        self._nav["downloads"].setText(self._nav_text("downloads", "nav.downloads"))
         self._nav["diagnostic"].setText(self._nav_text("diagnostic", "nav.diagnostic"))
 
     def _drive_changed(self) -> None:
@@ -820,8 +917,8 @@ class DJSyncApp(QMainWindow):
         sc.activated.connect(fn)
 
     def _bind_shortcuts(self) -> None:
-        for i, (key, *_rest) in enumerate(TABS, start=1):
-            self._shortcut(f"Ctrl+{i}", lambda k=key: self.show_view(k))
+        for key, i in SHORTCUT_KEYS.items():                 # 1.4.2 (C182) : attachés aux pages
+            self._shortcut(f"Ctrl+{i}", lambda k=key: self.go(k))
         self._shortcut("Ctrl+K", self.focus_omnibar)
         self._shortcut("Ctrl+F", self._focus_filter)
         self._shortcut("Ctrl+,", lambda: self.show_view("settings"))
@@ -938,6 +1035,64 @@ class DJSyncApp(QMainWindow):
     def _open_settings_section(self, section: str) -> None:
         self.show_view("settings")
         self.views["settings"].show_section(section)
+
+    # ------------------------------------------------- 1.4.2 (C182) : carte « Bibliothèque active »
+    def drive_menu_entries(self) -> list:
+        drive = self.ctrl.drive
+        local = bool(getattr(drive, "is_local", False))
+        entries: list = [(t("nav.space"), self.open_space, "usb")]
+        if self.ctrl.backups_available:
+            entries.append((t("nav.backups") + "…", self.open_backups, "back"))
+        if drive and not local:
+            entries += [None, (t("set.button"), self.open_set_check, "check"),         # 1.4.2 (C67)
+                        (t("eject.hint"), self.ctrl.eject, "eject")]
+        if not drive:
+            entries = [(t("nav.libraries"), lambda: self._open_settings_section("libraries"), "library")]
+        return entries
+
+    def drive_menu(self, anchor: QWidget) -> None:
+        from .table import popup_menu
+
+        popup_menu(anchor, self.drive_menu_entries(), anchor.mapToGlobal(anchor.rect().topRight()))
+
+    def open_space(self) -> None:
+        """Paramètres ▸ Bibliothèques, carte « Espace » à l'écran (la mesure part quand elle est visible)."""
+        self._open_settings_section("libraries")
+        view = self.views["settings"]
+        box = getattr(view, "space_box", None)
+
+        def scroll() -> None:
+            try:
+                if box is not None and view.isVisible():
+                    view.area.ensureWidgetVisible(box, 0, theme.px(20))
+                    view._space_if_shown()
+            except RuntimeError:
+                pass
+        QTimer.singleShot(0, scroll)
+
+    def open_set_check(self) -> None:
+        from .set_check_dialog import open_set_check
+
+        open_set_check(self, self.ctrl)
+
+    def open_backups(self) -> None:
+        from .backups_dialog import BackupsDialog
+
+        BackupsDialog(self, self.ctrl)
+
+    def open_track_diagnostic(self, content_id: int) -> None:
+        """« Diagnostic de ce son » (menu d'un son) : onglet « Un son », ce son choisi."""
+        from .one_track_page import OneTrackPage
+
+        self._one_track_id = content_id
+        current = self.stack.currentWidget()
+        if isinstance(current, OneTrackPage):
+            current.select_track(content_id)
+            return
+        self.open_diagnostic("one", from_page=current if current in self._diag_pages() else None)
+        page = next((w for w in self._diag_pages() if isinstance(w, OneTrackPage)), None)
+        if page is not None:
+            page.select_track(content_id)
 
     def open_diagnostic(self, tab: Optional[str] = None, from_page: Optional[QWidget] = None) -> None:
         """Ouvre un onglet du Diagnostic. `from_page` : l'onglet quitté (fermé sans revenir à la vue
@@ -1160,10 +1315,8 @@ class DJSyncApp(QMainWindow):
         from .diag_tabs import DiagTabs
 
         diag = page.findChild(DiagTabs) is not None        # 1.4.1 (C140) : toute page du Diagnostic
-        for k, b in self._nav.items():
-            on = diag and k == "diagnostic"
-            b.setChecked(on)
-            b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if on else theme.DIM))  # type: ignore[attr-defined]
+        # 1.4.2 (C182) : une page ouverte par-dessus une vue (Grille et cues, Uniformiser…) garde l'entrée d'origine
+        self._check_nav("diagnostic" if diag else nav_key(self._current))
         self.stack.setCurrentWidget(page)
         if diag:
             self._reveal_nav("diagnostic")

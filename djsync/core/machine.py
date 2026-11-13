@@ -67,7 +67,19 @@ def light_active(settings: Any, info: Optional[MachineInfo] = None) -> bool:
     return bool((info or machine_info()).modest)
 
 
+def machine_id() -> str:
+    """1.4.2 (C174) : identifiant de ce PC, haché (jamais le nom de l'ordinateur ni l'adresse en clair) : la
+    fenêtre du mode léger n'est proposée qu'une fois par PC, même quand DJSync tourne depuis une clé portable."""
+    import hashlib
+    import platform
+    import uuid
+
+    raw = f"{uuid.getnode():x}|{platform.node()}|{platform.machine()}"
+    return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()[:16]
+
+
 def should_offer(settings: Any, info: Optional[MachineInfo] = None) -> bool:
-    """La fenêtre du démarrage : PC modeste, mode « auto », pas encore refusée."""
+    """La fenêtre du démarrage : PC modeste, mode « auto », pas encore refusée, pas encore montrée sur ce PC
+    (1.4.2, C174)."""
     return getattr(settings, "light_mode", "auto") == "auto" and not getattr(settings, "light_prompt_off", False) \
-        and bool((info or machine_info()).modest)
+        and bool((info or machine_info()).modest) and machine_id() not in (getattr(settings, "light_offered", None) or [])

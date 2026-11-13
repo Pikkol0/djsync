@@ -1293,14 +1293,8 @@ class LibraryView(View):
 
     def _tools_menu(self) -> None:
         sel = self._selected_tracks()
+        # 1.4.2 (C182, A06) : seulement les outils de liste ; ce qui touche un son est dans son menu (clic droit)
         entries: list = []
-        if sel:
-            entries.append((t("lib.analyse_selection", n=len(sel)), lambda: self._analyse(sel), "wave"))
-        entries += [(t("lib.analyse_missing"), lambda: self._analyse(None), "wave"), None]
-        if len(sel) == 1:
-            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
-                        (t("action.edit_metadata"), self._edit_metadata, "edit")]
-        entries.append((t("lib.find_duplicates"), self._duplicates, "duplicates"))
         entries.append((t("uni.menu_scope", scope=self._scope_name()) + "…", self._uniformize, "tag"))
         entries.append((t("genre.menu") + "…", self._genre_playlists, "playlist"))
         target = sel or None
@@ -1332,34 +1326,19 @@ class LibraryView(View):
         if self.in_playlist and self.playlist.is_editable:
             entries += [(t("lib.move_to"), self._move_to, "move"), (t("lib.remove"), self._remove, "close")]
         tracks = self._selected_tracks()
-        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave"),
-                    (t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
-                     "wave"),                                               # 1.4.0-rc.6 (C180)
-                    (t("quality.open_sel", n=len(tracks)), lambda: self._open_quality(tracks), "wave")]   # C135
-        if len(tracks) == 1:
-            from ..reveal import reveal_entry
+        # 1.4.2 (C182) : bloc commun du menu d'un son (même ordre dans le lecteur, Téléchargements, Diagnostic)
+        from ..track_menu import track_entries
 
-            if tracks[0].is_analysed:                                             # 1.4.1 (C131, D20)
-                entries.append((t("player.analyse_again"), lambda: self._analyse_again(tracks[0]), "wave"))
-                if tracks[0].content_id in self.ctrl.rekordbox_originals:
-                    entries.append((t("reanalyse.restore"), lambda: self._restore_rekordbox(tracks[0]), "back"))
-            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
-                        (t("action.edit_metadata"), self._edit_metadata, "edit"),
-                        reveal_entry(self.ctrl, tracks[0])]                       # 1.4.0-rc.2 (C139)
-            if tracks[0].camelot:
-                entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
-                                "key"))
-        entries.append((t("meta.complete_sel", n=len(tracks)), lambda: self._complete_metadata(tracks), "tag"))
+        entries.append(None)
+        entries += track_entries(self, self.ctrl, tracks, where="library", harmonic=self.set_harmonic)
+        entries.append((t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
+                        "wave"))                                            # 1.4.0-rc.6 (C180)
         if len(tracks) == 1:                                      # 1.4.0 (C103) : ouvrir une de ses playlists
             paths = self._playlist_paths(tracks[0].content_id)[:8]
             if paths:
                 entries.append(None)
                 entries += [(t("lib.open_playlist", name=path), lambda pid=pid: self._goto(f"p{pid}"), "playlist")
                             for pid, path in paths]
-        if len(tracks) == 1:                                      # 1.4.0 (C10.3)
-            from .common import buy_entry
-
-            entries.append(buy_entry(self.ctrl, tracks[0].artist, tracks[0].title))
         entries += [None, (self._delete_label() + "…", self._delete, "trash")]
         return entries
 
