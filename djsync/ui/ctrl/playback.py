@@ -248,7 +248,10 @@ class PlaybackMixin:
             from ...analysis.anlz import read_overview
 
             dat, ext = lib.analysis_files(track)
-            return read_overview(dat.read_bytes() if dat else None, ext.read_bytes() if ext else None)
+            two = dat.with_suffix(".2EX") if dat else None
+            return read_overview(dat.read_bytes() if dat else None, ext.read_bytes() if ext else None,
+                                 style=self.settings.waveform_style,                        # 1.4.1 (C77)
+                                 two_ex=two.read_bytes() if two is not None and two.is_file() else None)
 
         self.dispatcher.submit(work, ok, lambda _e: ok([]), pool="cover")
 
@@ -265,7 +268,7 @@ class PlaybackMixin:
             dat, ext = lib.analysis_files(track)
             if ext is None:
                 return None
-            detail = read_detail(ext.read_bytes())
+            detail = read_detail(ext.read_bytes(), self.settings.waveform_style)
             beats = read_beats(dat.read_bytes()) if dat else []
             return (detail, beats) if detail else None
 

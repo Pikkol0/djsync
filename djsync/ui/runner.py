@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 # 1.4.0-rc.5 (B90) : la recherche a sa propre file (jamais derrière les vues, pochettes ou doublons), les
 # vues YouTube la leur (une requête par titre : des dizaines par recherche)
 _POOLS = {"net": 6, "search": 2, "views": 3, "db": 1, "ui_db": 1, "dl": 2, "cover": 4, "match": 3, "analysis": 1,
-          "tools": 1, "watch": 1, "quality": 1}     # 1.4.0-rc.6 (C180) : recalcul de la qualité à part
+          "tools": 1, "watch": 1, "quality": 1,     # 1.4.0-rc.6 (C180) : recalcul de la qualité à part
+          "cues": 1}                                # 1.4.1 (C60) : marqueur « cues placés » des listes
 
 GC_YOUNG_S = 0.5          # 1.3.2-rc.5 (B50) : génération 0
 GC_MIDDLE_S = 5.0         # génération 1

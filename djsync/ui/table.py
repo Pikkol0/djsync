@@ -177,6 +177,8 @@ class _Model(QAbstractTableModel):
             if col.key == "title" and self.table.show_covers:
                 return self.table._cover_for(row)
             return None
+        if role == Qt.BackgroundRole and "album" in row.tags:     # 1.4.1 (C147) : un album se repère d'un coup d'œil
+            return QColor(theme.ELEV)
         if role == Qt.ForegroundRole:
             hexa = row.values.get(col.key + "__color")        # 1.3.1 (C37) : couleur imposée (couleur du son)
             if hexa:
@@ -372,6 +374,44 @@ class _CheckDelegate(QStyledItemDelegate):
                            check_pixmap(value, size, hover, painter.device().devicePixelRatioF()))
 
 
+class _CuesDelegate(QStyledItemDelegate):
+    """1.4.1 (C60) : colonne « cues » : une pastille par hot cue posé, à sa couleur ; sinon le texte (« — »)."""
+
+    def __init__(self, table: "TrackTable") -> None:
+        super().__init__(table)
+        self.table = table
+
+    def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
+        table = self.table
+        try:
+            row = table._rows.get(table._shown[index.row()])
+        except IndexError:
+            row = None
+        dots = list((row.values.get("cues__dots") if row is not None else None) or [])
+        opt = option
+        self.initStyleOption(opt, index)
+        if dots:
+            opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        if not dots:
+            return
+        d, gap = theme.px(9), theme.px(3)
+        r = opt.rect
+        n = max(1, min(len(dots), max(1, (r.width() - theme.px(6) + gap) // (d + gap))))
+        total = n * d + (n - 1) * gap
+        x = r.center().x() - total / 2 + 0.5
+        y = r.center().y() - d / 2 + 0.5
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
+        for hexa in dots[:n]:
+            painter.setBrush(QColor(hexa))
+            painter.drawEllipse(QRectF(x, y, d, d))
+            x += d + gap
+        painter.restore()
+
+
 class _KeyDelegate(QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
@@ -426,6 +466,9 @@ class TrackTable(QTableView):
         self.on_sort_changed: Optional[Callable[[Optional[str], bool], None]] = None
         self.menu_builder: Optional[Callable[[List[str]], List[MenuEntry]]] = None
         self.row_filter: Optional[Callable[[Row], bool]] = None
+        # 1.4.1 (C147) : lignes enfants (titres d'un album déplié) : iid de la ligne parente, sinon None ; au
+        # tri et au filtre, elles restent juste sous leur parent, dans leur ordre d'insertion
+        self.parent_of: Optional[Callable[[Row], Optional[str]]] = None
         self.on_delete: Optional[Callable[[], None]] = None
         self.on_files_dropped: Optional[Callable[[List[str]], None]] = None   # 1.4.0 (C26)
 
@@ -504,9 +547,15 @@ class TrackTable(QTableView):
         lay.addWidget(self._empty_text)
         self._empty_icon_name = ""
         self._empty.hide()
+        from .shine import Clock, ShineDelegate
+
+        self.setItemDelegate(ShineDelegate(self))                    # 1.4.1 (C141) : or et argent allumés
+        Clock.get().watch(self)
         for i, col in enumerate(self.columns):
             if col.key == "key":
                 self.setItemDelegateForColumn(i, _KeyDelegate(self))
+            if col.key == "cues":                                    # 1.4.1 (C60) : pastilles des hot cues
+                self.setItemDelegateForColumn(i, _CuesDelegate(self))
             if col.key == "state":
                 self.setItemDelegateForColumn(i, _ProgressDelegate(self))
             if col.key == "title" and self.show_covers:
@@ -834,6 +883,20 @@ class TrackTable(QTableView):
         if "chk" in values:                                      # 1.4.0-rc.4 (C148) : case d'en-tête
             self._model.headerDataChanged.emit(Qt.Horizontal, 0, len(self.columns) - 1)
 
+    def update_many(self, values: Dict[str, Dict[str, Any]]) -> None:
+        """1.4.1 (C60) : nouvelles valeurs pour beaucoup de lignes d'un coup (un seul rafraîchissement), tri et
+        filtre en cours conservés."""
+        changed = False
+        for iid, vals in values.items():
+            row = self._rows.get(iid)
+            if row is not None:
+                row.values.update(vals)
+                changed = True
+        if changed:
+            self.viewport().update()
+            if self._sort_key in {k for v in values.values() for k in v}:
+                self.refilter()
+
     def set_tags(self, iid: str, *tags: str) -> None:
         row = self._rows.get(iid)
         if row is None:
@@ -1006,7 +1069,25 @@ class TrackTable(QTableView):
             empty = [i for i in ids if _sort_value(self._rows[i], col)[0] == 1]
             present.sort(key=lambda i: _sort_value(self._rows[i], col), reverse=self._sort_desc)
             ids = present + empty
+        if self.parent_of is not None:
+            ids = self._group_children(ids)
         return list(ids)
+
+    def _group_children(self, ids: List[str]) -> List[str]:
+        """C147 : chaque enfant juste sous son parent (ordre d'insertion) ; sans parent affiché, pas d'enfant."""
+        parent = {i: self.parent_of(self._rows[i]) for i in ids}
+        kept = set(ids)
+        children: Dict[str, List[str]] = {}
+        for i in self._order:
+            p = self.parent_of(self._rows[i]) if i in kept else None
+            if p is not None:
+                children.setdefault(p, []).append(i)
+        out: List[str] = []
+        for i in ids:
+            if parent[i] is None:
+                out.append(i)
+                out.extend(children.get(i, []))
+        return out
 
     def _rebuild(self, selected: set, top: int) -> None:
         self._shown = self._visible_order()
@@ -1176,6 +1257,20 @@ class TrackTable(QTableView):
         if self._drop_at is not None:
             self._drop_at = None
             self.viewport().update()
+
+    def has_shine(self) -> bool:
+        """1.4.1 (C141) : au moins une cellule or ou argent dans le tableau (reflet à animer). Calculé
+        une fois par contenu (set_rows), jamais à chaque image."""
+        rows = getattr(self, "_rows", None) or {}
+        key = (id(rows), len(rows))
+        if getattr(self, "_shine_key", None) != key:
+            from . import theme as _th
+
+            metal = {_th.GOLD.upper(), _th.SILVER.upper()}
+            self._shine_key = key
+            self._shine = any(k.endswith("__color") and isinstance(v, str) and v.upper() in metal
+                              for row in list(rows.values())[:400] for k, v in (row.values or {}).items())
+        return self._shine
 
     def paintEvent(self, e: Any) -> None:        # noqa: N802
         super().paintEvent(e)

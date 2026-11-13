@@ -7,7 +7,9 @@ Une rangée de 8 pads A à H aux couleurs Rekordbox, sous la forme d'onde :
     d'onde) ; clic droit = boucle de 1 à 16 temps, renommer, couleur, déplacer au curseur, supprimer ;
   * mémoires : ajouter au curseur, liste simple (clic = y aller, clic droit = supprimer).
 Rien n'est posé tout seul : « Proposer des cues » ne remplit que les pads libres, et seulement après un
-clic. Rien n'est écrit avant « Enregistrer » (page Grille et cues).
+clic. 1.4.1 (C71) : les cues proposés sont placés sur les vraies parties du son (analysis/sections.py) ;
+une fenêtre les montre d'abord, on peut les écouter et choisir lesquels ajouter. Rien n'est écrit avant
+« Enregistrer » (page Grille et cues).
 """
 from __future__ import annotations
 
@@ -15,9 +17,9 @@ from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QPushButton, QWidget
 
-from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, nearest_beat_ms, suggest_cues
+from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, suggest_cues
 from ..i18n import t
 from . import theme
 from .widgets import button, hbox, label, vbox
@@ -159,10 +161,9 @@ class CuePanel(QWidget):
         self.ed.cues_changed()
 
     def _position(self, exact: bool = False) -> int:
-        """Position d'un nouveau cue : temps le plus proche du curseur (Maj : exactement au curseur)."""
-        exact = exact or bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
-        ms = self.ed.cursor_ms
-        return int(round(ms)) if exact or not self.ed.beats else nearest_beat_ms(self.ed.beats, ms)
+        """Position d'un nouveau cue : temps (ou quart de temps, aimant) le plus proche du curseur ; Maj ou Alt :
+        exactement au curseur."""
+        return int(self.ed.snap_ms(self.ed.cursor_ms, exact))     # 1.4.1 (C92) : aimant (Alt : libre)
 
     # ----------------------------------------------------------------- pads
     def pad_clicked(self, slot: int) -> None:
@@ -334,13 +335,50 @@ class CuePanel(QWidget):
 
     # ------------------------------------------------------------ lot
     def suggest(self) -> None:
-        new = suggest_cues(self.ed.beats, self.cues)
-        if not new:
+        """1.4.1 (C71) : cherche les changements de partie dans le son (tâche de fond), puis montre les cues
+        proposés : écoute possible, l'utilisateur coche ceux à ajouter."""
+        taken = {c.slot for c in self.cues if c.slot}
+        if len(taken) >= len(SLOTS):
             self.ed.ctrl.message("info", t("cue.suggest_none"))
             return
-        self.cues.extend(new)
+        ctrl, track, beats = self.ed.ctrl, self.ed.track, list(self.ed.beats)
+        self.suggest_btn.setEnabled(False)
+        self.suggest_btn.setText(t("cue.suggest_running"))
+
+        def work() -> Any:
+            from ..analysis.sections import propose_for_file
+
+            path = ctrl.library.absolute_path(track)
+            return propose_for_file(str(path), beats, ctrl.settings.ffmpeg_location or None)
+
+        def done(found: Any) -> None:
+            self._suggest_idle()
+            positions, clear = found
+            new = suggest_cues(beats, self.cues, positions=positions)
+            if not new:
+                ctrl.message("info", t("cue.suggest_none"))
+                return
+            SuggestCuesDialog(self, new, clear)
+
+        def failed(exc: BaseException) -> None:
+            self._suggest_idle()
+            ctrl.message("error", t("cue.suggest_failed", error=str(exc)[:160]))
+
+        ctrl.dispatcher.submit(work, done, failed, pool="tools")
+
+    def _suggest_idle(self) -> None:
+        try:
+            self.suggest_btn.setEnabled(True)
+            self.suggest_btn.setText(t("cue.suggest"))
+        except RuntimeError:
+            pass
+
+    def add_suggested(self, cues: List[Cue]) -> None:
+        if not cues:
+            return
+        self.cues.extend(cues)
         self._changed()
-        self.ed.ctrl.message("ok", t("cue.suggested", n=len(new)))
+        self.ed.ctrl.message("ok", t("cue.suggested", n=len(cues)))
 
     def clear_all(self) -> None:
         from .dialogs import ConfirmDialog
@@ -358,3 +396,46 @@ class CuePanel(QWidget):
             tempos = sorted(b[1] for b in self.ed.beats)
             bpm = tempos[len(tempos) // 2] / 100.0
         return str(c.loop_beats or loop_beats_for(c.ms, c.loop_ms or c.ms, bpm))
+
+
+class SuggestCuesDialog:
+    """1.4.1 (C71) : cues proposés, avant ajout. Une ligne par cue (pad, mesure, temps) avec une case cochée
+    et « Écouter » ; « Ajouter » pose les cues cochés sur leurs pads (rien n'est écrit avant Enregistrer)."""
+
+    def __init__(self, pads: "CuePanel", cues: List[Cue], clear: bool) -> None:
+        from PySide6.QtWidgets import QCheckBox
+
+        from .dialogs import BaseDialog
+
+        class _Window(BaseDialog):
+            modal = False                    # écouter un cue proposé pendant que la fenêtre est ouverte
+
+        self.pads, self.cues = pads, cues
+        ed = pads.ed
+        dlg = self.dialog = _Window(pads.window(), t("cue.suggest_title"), 460)
+        dlg.heading(t("cue.suggest_title"), t("cue.suggest_sub") if clear else t("cue.suggest_unclear"))
+        bars = [b[2] for b in ed.beats if b[0] == 1]
+        self.boxes: List[Any] = []
+        for c in cues:
+            row = hbox()
+            bar = min(range(len(bars)), key=lambda k: abs(bars[k] - c.ms)) if bars else 0
+            box = QCheckBox(t("cue.suggest_row", pad=SLOTS[c.slot - 1], bar=bar, time=_clock(c.ms)))
+            box.setChecked(True)
+            row.addWidget(box, 1)
+            row.addWidget(button(t("cue.suggest_listen"), lambda ms=c.ms: ed.play_from(ms), kind="flat", icon="play"))
+            dlg.body.addLayout(row)
+            self.boxes.append(box)
+        dlg.footer(t("cue.suggest_add"), self._add)
+        dlg.show_dialog()
+
+    def chosen(self) -> List[Cue]:
+        return [c for c, b in zip(self.cues, self.boxes) if b.isChecked()]
+
+    def _add(self) -> None:
+        self.pads.add_suggested(self.chosen())
+        self.dialog.close()
+
+
+def _clock(ms: int) -> str:
+    s = max(0, int(ms)) / 1000.0
+    return f"{int(s // 60)}:{s % 60:04.1f}"

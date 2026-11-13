@@ -154,7 +154,7 @@ def test_b75_youtube_and_opus_signature_capped_at_192():
 def test_b75_quality_table_and_setting_text(demo):  # noqa: F811
     from djsync.i18n import t
 
-    assert "192" in t("yt.settings_best")
+    assert "192" in t("settings.quality_yt_best_tip")       # 1.4.1 (C143) : dit dans la bulle de la liste
     v = demo.views["settings"]
     cells = [c.text() for c in v.quality_table.cells]
     assert any("160–192" in c for c in cells)
@@ -166,7 +166,7 @@ def test_c146_welcome_quality_step(demo, monkeypatch):  # noqa: F811
 
     s = demo.ctrl.settings
     monkeypatch.setattr(s, "save", lambda *a, **k: None)
-    s.youtube_best = False
+    s.download_quality = "original"                                # 1.4.1 (C143)
     w = WelcomeDialog(demo, demo.ctrl)
     w._choose(s.language)
     w._to_quality()
@@ -174,11 +174,11 @@ def test_c146_welcome_quality_step(demo, monkeypatch):  # noqa: F811
     w._pick_yt("best")
     assert not w.yt_warn.isHidden()
     w._finish()
-    assert s.youtube_best is True and s.welcome_done is True
-    v = demo.views["settings"]
-    v.yt_best_var.setChecked(False)
+    assert s.download_quality == "yt_best" and s.youtube_best is True and s.welcome_done is True
+    v = demo.views["settings"]                                     # C143 : le meilleur flux est dans la liste
+    v.format_menu.setCurrentText(v._format_labels["original"])
     assert v.yt_best_warn.isHidden()
-    v.yt_best_var.setChecked(True)
+    v.format_menu.setCurrentText(v._format_labels["yt_best"])
     assert not v.yt_best_warn.isHidden()
 
 
@@ -274,6 +274,8 @@ def test_b78_archive_order_relevance_and_parallel():
     out = F.archive_search("Jul", get=get)
     took = time.monotonic() - start
     assert peak[0] > 1 and took < 0.2 * 6 * 0.6               # en parallèle
+    assert [x.is_album for x in out] == [True] * 6               # 1.4.1 (C147) : un élément à 2 titres = un album
+    out = [c for x in out for c in (x.tracks or (x,))]
     assert [x.video_id.split("/")[0] for x in out][:2] == ["archive:jul0", "archive:jul0"]   # ordre d'archive.org
     assert [x.title for x in out][:2] == ["Un", "Deux"]         # ordre des pistes
     assert len(out) == 12                                       # pistes sans artiste propre trouvées par l'album

@@ -93,8 +93,12 @@ class ImportsMixin:
             if skip and skip != getattr(self, "_watch_skip", ""):      # 1.4.0-rc.4 (B77) : raison notée
                 log.info("Watched folder skipped: %s", skip)
             self._watch_skip = skip
+            if not folder and getattr(self.settings, "watch_scanned", ""):   # 1.4.1 (B95) : désactivé :
+                self.settings.watch_scanned = ""                             # la réactivation rattrapera
+                self.save_settings_quiet()
             return
         self._watch_skip = ""
+        self._watch_catch_up(folder)                                         # 1.4.1 (B95) : en parallèle
         w = getattr(self, "_watch", None)
         # 1.4.0-rc.4 (B77) : sous Windows, le réglage garde « C:/… » et Path donne « C:\… » : la
         # comparaison en texte recréait le surveillant à chaque passage, qui oubliait tout.
@@ -128,6 +132,68 @@ class ImportsMixin:
             log.warning("Watched folder: %s", exc)
 
         self.dispatcher.submit(work, done, failed, pool="watch")   # 1.4.0-rc.4 (B77) : jamais derrière les outils
+
+    # ------------------------------------------------------------- 1.4.1 (B95)
+    def _watch_scan_key(self, folder: str) -> str:
+        import os
+
+        norm = os.path.normcase(os.path.normpath(folder).rstrip("/\\") or folder)
+        return f"{norm}|{'local' if self.is_local else 'usb'}"
+
+    def _watch_catch_up(self, folder: str) -> bool:
+        """À l'activation du dossier surveillé (ou à son changement, ou la première fois avec cette
+        bibliothèque), le contenu de « DJSync imported » (sous-dossiers compris) est rattrapé : les sons déjà
+        dans la bibliothèque ouverte sont remis dans la playlist du dossier surveillé (recréée si elle a
+        disparu, l'ancienne « Importés » renommée), les autres sont importés. Aucun fichier du dossier n'est
+        déplacé ni supprimé. Le passage normal (nouveaux fichiers) continue en même temps. Renvoie True s'il
+        vient d'être lancé."""
+        from ...core import importer
+        from ...core.watcher import DONE_DIR
+
+        key = self._watch_scan_key(folder)
+        if getattr(self.settings, "watch_scanned", "") == key or getattr(self, "_watch_catching", False):
+            return False
+        lib = self.library
+        name = t("watch.playlist") if self.settings.watch_playlist else ""
+        fmt = "" if self.is_local else (self.settings.player_format or "")
+        known_names = watch_playlist_names() + old_watch_playlists()
+        self._watch_catching = True
+
+        def work() -> Any:
+            done_dir = Path(folder) / DONE_DIR
+            files = importer.collect([done_dir]) if done_dir.is_dir() else []
+            tracks, missing = importer.find_in_library(lib, files, fmt)
+            added = 0
+            if name:
+                exists = any(p.is_editable and p.name in known_names for p in lib.list_playlists())
+                if tracks or missing or exists:               # rien à rattacher : pas de playlist vide créée
+                    pid = self._watch_playlist(lib, name)
+                    if tracks:
+                        added = int(lib.add_to_playlist(pid, [x.content_id for x in tracks]) or 0)
+                    self.service.refresh_library()
+            return added, missing
+
+        def done(result: Any) -> None:
+            added, missing = result
+            self._watch_catching = False
+            self.settings.watch_scanned = key
+            self.save_settings_quiet()
+            log.info("Watched folder caught up: %d track(s) put back in the playlist, %d to import", added, len(missing))
+            if lib is not self.library:
+                return
+            self._emit("library")
+            if added:
+                self.message("ok", plural("watch.caught_up_one", "watch.caught_up_many", added, name=name))
+            if missing:
+                self.import_files([str(p) for p in missing], quiet=True, playlist_name=name, watched_from=folder)
+
+        def failed(exc: BaseException) -> None:
+            self._watch_catching = False
+            self.settings.watch_scanned = key                  # pas de nouvel essai à chaque passage
+            log.warning("Watched folder catch-up failed: %s", exc)
+
+        self.dispatcher.submit(work, done, failed, pool="db")
+        return True
 
     # ------------------------------------------------------------- 1.4.0-rc.5 (C160)
     @staticmethod

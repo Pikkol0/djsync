@@ -142,7 +142,8 @@ Aussi testé : m4a/AAC, mp3 VBR, intro silencieuse de 8 s, vidéo désaccordée 
   d'ajout restent toujours écrites.
 * Grille fausse sur les platines : éditeur de grille (voir `interface_v020.md`).
 * Sons ajoutés par une version précédente : `RekordboxUsbLibrary.analyze_missing()`. Les sons natifs Rekordbox ne
-  sont jamais réanalysés ; dans export.pdb, la ligne d'un ancien son DJSync est réécrite avec le
+  sont réanalysés que sur demande (1.4.1, C131 : « Analyser à nouveau », greffe de la grille et / ou des formes
+  d'onde dans leurs fichiers, cues intacts, original gardé dans `DJSync_Backups/anlz-rekordbox/`) ; dans export.pdb, la ligne d'un ancien son DJSync est réécrite avec le
   **même id** (playlists intactes).
 * Suppression d'un son DJSync : ses fichiers ANLZ sont supprimés aussi (pas la pochette, partageable).
 * Vérifier sans rien écrire : `python -m djsync.analysis fichier.m4a`.

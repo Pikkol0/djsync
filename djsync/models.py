@@ -113,6 +113,9 @@ class TrackResult:
     slsk: Any = field(default=None, compare=False, repr=False)   # 1.4.0 (C10.2) : résultat Soulseek d'origine
     license: str = ""                           # 1.4.0 (C45) : licence (Internet Archive, Audius)
     quality: str = ""                           # 1.4.0 (C45) : qualité annoncée (« FLAC », « MP3 320 »)
+    # 1.4.1 (C147) : ligne « album » d'Internet Archive : ses titres (déjà lus à la recherche), leur nombre
+    tracks: Tuple[Any, ...] = field(default=(), compare=False, repr=False)
+    track_count: int = 0
 
     # Renseignés par DuplicateChecker
     is_duplicate: bool = False
@@ -367,6 +370,7 @@ JOB_STATUS_LABELS = LazyLabels(lambda: {
     "adding": "job.adding",
     "done": "job.done",
     "error": "job.error",
+    "cancelled": "job.cancelled",          # 1.4.1 (C145) : arrêté depuis le volet
 })
 
 
@@ -388,10 +392,11 @@ class DownloadJob:
     replace_ids: List[int] = field(default_factory=list)   # V1.1.0 : sons remplacés une fois téléchargé
     reanalyse: bool = False                                # … et analyser le nouveau (l'ancien l'était)
     original: bool = False                                 # 1.4.0 (C10.1) : fichier d'origine SoundCloud obtenu
+    stop: bool = field(default=False, compare=False)       # 1.4.1 (C145) : arrêt demandé (volet)
 
     @property
     def is_finished(self) -> bool:
-        return self.status in ("done", "error")
+        return self.status in ("done", "error", "cancelled")
 
     @property
     def is_active(self) -> bool:

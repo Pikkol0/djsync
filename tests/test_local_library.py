@@ -157,7 +157,7 @@ def test_metadata_grid_duplicates_and_delete(local):
     assert local.merge_duplicates(a.content_id, [b.content_id]) == (1, 0)
     assert [x.content_id for x in local.get_playlist_tracks(pl.playlist_id)] == [native.content_id, a.content_id]
     assert not b_file.exists()
-    # un son natif n'est jamais effacé du disque ni réanalysé
+    # un son natif n'est jamais effacé du disque ; réanalysé seulement sur choix (1.4.1, C131 : native_parts)
     assert local.analyze_tracks([native.content_id], force=True) == (0, 1, 0)
     removed, failures = local.delete_tracks([native.content_id, a.content_id])
     assert removed == 2 and failures == 0

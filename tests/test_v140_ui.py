@@ -141,14 +141,15 @@ def test_soulseek_search_download_and_fake_check(demo, tmp_path, monkeypatch):  
     ctrl.on("message_action", lambda text, fn: actions.append((text, fn)))
     # recherche Haute qualité dans la vue Recherche
     ctrl._emit("settings_saved")
-    view = demo.views["search"]
-    view.mode.setCurrentIndex(1)
-    assert view.hq
+    view = demo.views["hq"]                         # 1.4.1 (C133) : page Haute qualité
     view.entry.setText("Bicep")
     view.run_search(force=True)
     assert pump(demo, 6, lambda: view.table.total == 2)
     row = view.table.row(next(iter(view._tracks)))
-    assert row.values["source"].startswith("Soulseek · FLAC") and not view.preview_btn.isEnabled()
+    assert row.values["source"] == "Soulseek" and row.values["quality"].startswith("FLAC")     # C175
+    view.table.select([row.iid])
+    view._refresh_buttons()
+    assert not view.preview_btn.isEnabled() and view.equiv_btn.isVisibleTo(view)                 # C167
     # téléchargements : import sur la clé, vraie qualité vérifiée
     jobs = ctrl.slsk_enqueue(files, [])
     assert pump(demo, 25, lambda: all(j.is_finished for j in jobs)), [(j.status, j.message) for j in jobs]
@@ -213,9 +214,12 @@ def test_improve_ranks_and_picks_better_versions():
 
 
 def test_improve_page_search_and_confirmed_replace(demo, monkeypatch):  # noqa: F811
+    """1.4.1 (C135) : l'ancien onglet « Améliorer » ouvre l'onglet Qualité ; « Tout chercher » puis
+    « Remplacer tout ce qui est sûr » : une seule confirmation pour tout le lot."""
     from djsync.core import quality
     from djsync.models import TrackResult
     from djsync.ui.dialogs import ConfirmDialog
+    from djsync.ui.quality_page import QualityPage
 
     from .qt_util import pump
 
@@ -231,22 +235,21 @@ def test_improve_page_search_and_confirmed_replace(demo, monkeypatch):  # noqa: 
                         duration_seconds=x.duration_seconds, source="archive", quality="FLAC")])
 
     monkeypatch.setattr(ctrl, "free_search", free_search)
+    monkeypatch.setattr(ctrl, "find_alternatives", lambda track, ok: ok([]))
     replaced = []
     monkeypatch.setattr(ctrl, "replace_with_download", lambda tr, old: replaced.append((tr.video_id, old[0].content_id)) or 1)
     demo.open_diagnostic("improve")
-    assert pump(demo, 6, lambda: getattr(demo, "_page", None) is not None or True)
-    from djsync.ui.improve_dialog import ImproveDialog
-
-    page = next(w for w in demo.findChildren(ImproveDialog))
+    assert pump(demo, 6, lambda: isinstance(demo.stack.currentWidget(), QualityPage))
+    page = demo.stack.currentWidget()
     assert pump(demo, 6, lambda: page.table.total == len(lib_tracks))
-    assert ctrl.diag_counts.get("improve") == len(lib_tracks)
+    assert ctrl.diag_counts.get("quality") == len(lib_tracks)
     page._search_all()
-    ok_ = pump(demo, 6, lambda: all(w.searched for w in page.weaks.values()))
-    assert ok_, [(w.track.title, w.searched, page._queue, page._searching) for w in page.weaks.values()]
-    gains = [w.gain for w in page.weaks.values()]
-    assert gains.count("AAC 128 → FLAC") == len(gains) - 1 and gains.count("") == 1   # le clip (autre durée) : rien
+    ok_ = pump(demo, 6, lambda: all(w.searched for w in page.shown.values()))
+    assert ok_, [(w.track.title, w.searched, page._queue, page._searching) for w in page.shown.values()]
+    gains = [w.gain for w in page.shown.values()]
+    assert gains.count("AAC 128 → FLAC") == len(gains) - 1 and gains.count("") == 1   # le clip : rien de mieux
     page._apply_sure()
     dlg = [w for w in demo.findChildren(ConfirmDialog) if w.isVisible()]
-    assert dlg and not replaced                                     # rien sans confirmation
+    assert len(dlg) == 1 and not replaced                           # rien sans confirmation, une seule fenêtre
     dlg[-1]._ok()
     assert len(replaced) == len(lib_tracks) - 1 and page.table.total == 1

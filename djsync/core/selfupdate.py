@@ -57,7 +57,11 @@ def plan(frozen: Optional[bool] = None, executable: Optional[str] = None,
     exe_dir = Path(executable or sys.executable).resolve().parent
     if platform == "win32":
         path = launcher if launcher is not None else os.environ.get("DJSYNC_LAUNCHER")
-        return Plan("windows", Path(path)) if path and Path(path).is_file() else None
+        if not path or not Path(path).is_file():
+            return None
+        # 1.4.1 (B84) : DJSync.exe dans un dossier non modifiable (Program Files) : il ne peut pas être
+        # remplacé sans droits d'administrateur ; la page de la release s'ouvre à la place
+        return Plan("windows", Path(path)) if _writable(Path(path).parent) else None
     if platform == "darwin":
         if exe_dir.name == "MacOS" and exe_dir.parent.name == "Contents" and exe_dir.parent.parent.suffix == ".app":
             return Plan("mac", exe_dir.parent.parent)
@@ -65,6 +69,14 @@ def plan(frozen: Optional[bool] = None, executable: Optional[str] = None,
     if (exe_dir / "_internal").is_dir():
         return Plan("linux", exe_dir)
     return None
+
+
+def _writable(folder: Path) -> bool:
+    try:
+        with tempfile.NamedTemporaryFile(dir=folder, prefix=".djsync-write-test-"):
+            return True
+    except OSError:
+        return False
 
 
 def staged_path(p: Plan) -> Path:

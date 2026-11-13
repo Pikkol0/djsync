@@ -55,6 +55,7 @@ class LibraryBase:
         # ---- analyse / pochettes (V1.1-A4)
         self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
         self.auto_cue = False                       # V0.5.0 : mémoire cue sur le premier temps fort
+        self.native_parts: Tuple[str, ...] = ()     # 1.4.1 (C131) : ce qu'une réanalyse refait sur un son de Rekordbox
         self.artwork = artwork                      # pochette intégrée -> PIONEER/Artwork
         self.ffmpeg_location = ffmpeg_location or None
         self.key_notation = key_notation            # auto | camelot | musical

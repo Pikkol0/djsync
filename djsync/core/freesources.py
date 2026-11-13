@@ -26,6 +26,7 @@ AUDIUS_HOSTS = "https://api.audius.co"
 ARCHIVE_SEARCH = "https://archive.org/advancedsearch.php"
 ARCHIVE_META = "https://archive.org/metadata/{id}"
 ARCHIVE_FILE = "https://archive.org/download/{id}/{name}"
+ARCHIVE_COVER = "https://archive.org/services/img/{id}"       # 1.4.1 (C170) : vignette de l'élément
 # formats Internet Archive -> (extension, sans perte)
 _IA_FORMATS = {"flac": ("flac", True), "24bit flac": ("flac", True), "wave": ("wav", True), "aiff": ("aiff", True),
                "vbr mp3": ("mp3", False), "320kbps mp3": ("mp3", False), "mp3": ("mp3", False)}
@@ -72,6 +73,7 @@ def audius_search(query: str, limit: int = 15, get: Callable = _get) -> List[Tra
                                duration_seconds=int(x.get("duration") or 0), thumbnail_url=art.get("480x480") or None,
                                source="audius", source_url=link, genre=x.get("genre") or None,
                                license=t_license("audius", x.get("license") or ""), quality="MP3 320",
+                               release_date=x.get("release_date") or None, year=_year({"date": x.get("release_date")}),
                                original_available=bool(x.get("downloadable")) or None))
     return out
 
@@ -100,7 +102,7 @@ def archive_search(query: str, limit: int = 60, get: Callable = _get) -> List[Tr
     words = [w for w in _plain(query).split() if len(w) > 1]
     q = " AND ".join(f"({w})" for w in words) or query
     resp = get(ARCHIVE_SEARCH, {"q": f"({q}) AND mediatype:(audio)", "fl[]": ["identifier", "title", "creator",
-                                                                             "licenseurl"],
+                                                                             "licenseurl", "year", "date"],
                                 "rows": ARCHIVE_ITEMS, "output": "json"})
     docs = [d for d in ((resp or {}).get("response") or {}).get("docs") or [] if d.get("identifier")]
 
@@ -134,6 +136,11 @@ def archive_search(query: str, limit: int = 60, get: Callable = _get) -> List[Tr
             rank = (fmt[1], fmt[0] == "flac")
             if key not in best or rank > best[key][0]:
                 best[key] = (rank, f, fmt, title)
+        year = _year(doc)
+        cover = ARCHIVE_COVER.format(id=ident)
+        licence = t_license("archive", doc.get("licenseurl") or "")
+        album_title = doc.get("title") or None
+        tracks: List[TrackResult] = []
         for rank, f, fmt, title in sorted(best.values(), key=lambda b: _track_no(b[1])):
             length = f.get("length") or "0"
             try:
@@ -142,14 +149,39 @@ def archive_search(query: str, limit: int = 60, get: Callable = _get) -> List[Tr
             except ValueError:
                 secs = 0
             url = ARCHIVE_FILE.format(id=ident, name=quote(str(f.get("name", ""))))
-            out.append(TrackResult(video_id=f"archive:{ident}/{f.get('name')}", title=title,
-                                   artist=f.get("artist") or creator, album=doc.get("title") or None,
-                                   duration_seconds=secs, source="archive", source_url=url,
-                                   license=t_license("archive", doc.get("licenseurl") or ""),
-                                   quality=fmt[0].upper() if fmt[1] else "MP3"))
+            no = _track_no(f)
+            tracks.append(TrackResult(video_id=f"archive:{ident}/{f.get('name')}", title=title,
+                                      artist=f.get("artist") or creator, album=album_title,
+                                      duration_seconds=secs, thumbnail_url=cover, source="archive", source_url=url,
+                                      license=licence, quality=fmt[0].upper() if fmt[1] else "MP3", year=year,
+                                      track_no=no if no < 10 ** 6 else 0))
+        if len(tracks) >= 2:          # 1.4.1 (C147) : un élément à plusieurs titres = une ligne d'album
+            out.append(album_of(ident, album_title or ident, creator, year, cover, licence, tracks))
+        else:
+            out += tracks
         if len(out) >= limit:
             break
     return out[:limit]
+
+
+def _year(doc: Dict[str, Any]) -> int:
+    """1.4.1 (C170) : année de l'élément (« year », sinon début de « date »), 0 si absente."""
+    for key in ("year", "date"):
+        m = re.match(r"\s*(\d{4})", str(doc.get(key) or ""))
+        if m:
+            return int(m.group(1))
+    return 0
+
+
+def album_of(ident: str, title: str, creator: str, year: int, cover: str, licence: str,
+             tracks: List[TrackResult]) -> TrackResult:
+    """1.4.1 (C147) : ligne d'album : ses titres dans l'ordre de l'album, sa meilleure qualité, sa durée totale."""
+    rank = {"FLAC": 3, "WAV": 3, "AIFF": 3, "MP3": 1}
+    best = max((x.quality for x in tracks), key=lambda q: rank.get(q, 0), default="")
+    return TrackResult(video_id=f"archive:{ident}", title=title, artist=creator, album=title, result_type="album",
+                       duration_seconds=sum(x.duration_seconds for x in tracks), thumbnail_url=cover,
+                       source="archive", source_url=f"https://archive.org/details/{ident}", license=licence,
+                       quality=best, year=year, tracks=tuple(tracks), track_count=len(tracks))
 
 
 def t_license(source: str, raw: str) -> str:

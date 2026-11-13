@@ -224,6 +224,7 @@ def test_diagnostic_reopens_on_the_last_tab(demo, monkeypatch):  # noqa: F811
     monkeypatch.setattr(dd, "DuplicatesDialog", lambda *a: opened.append("dup"))
     monkeypatch.setattr(md, "MissingFilesDialog", lambda *a: opened.append("missing"))
     monkeypatch.setattr(demo, "reopen_dialog_page", lambda cls: None)
+    demo.ctrl.settings.diag_tab = "missing"                # 1.4.1 (C140) : par défaut « Un son », voir test_v141_c140
     demo.open_diagnostic()
     assert opened[-1] == "missing"
     demo.open_diagnostic("dup")

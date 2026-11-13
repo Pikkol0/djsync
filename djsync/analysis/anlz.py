@@ -192,6 +192,10 @@ def _write_atomic(target: Path, data: bytes) -> None:
     os.replace(tmp, target)
 
 
+class CuesUnreadable(ValueError):
+    """1.4.1 (B96) : les cues de l'analyse existante ne se relisent pas ; rien n'est réécrit."""
+
+
 def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, int, int]], wf: Waveforms,
                 total_samples: int = 0, rel_dir: Optional[str] = None, memory_cues: Sequence[int] = (),
                 previous: Optional[str] = None) -> str:
@@ -215,8 +219,10 @@ def write_files(drive_root: Path, track_path: str, beats: Sequence[Tuple[int, in
 
             kept = read_cues(old_dat.read_bytes(), old_ext.read_bytes() if old_ext.is_file() else None)
             cues = kept or None
-        except (OSError, ValueError):
-            cues = None
+        except (OSError, ValueError, struct.error, IndexError) as exc:
+            # 1.4.1 (B96) : avant, les cues étaient perdus sans message ; le son n'est plus réécrit
+            raise CuesUnreadable(f"cues of the existing analysis could not be read ({old_dat.name}: {exc}); "
+                                 "track left untouched") from exc
         break
     dat = build_dat(track_path, beats, wf, total_samples, memory_cues, cues)
     ext = build_ext(track_path, wf, memory_cues, cues)
@@ -304,34 +310,164 @@ def drop_extended_grid(data: bytes) -> bytes:
     return rebuild(data, {"PQT2": None}) if "PQT2" in parse(data) else data
 
 
-def read_overview(dat: Optional[bytes] = None, ext: Optional[bytes] = None) -> List[Tuple[float, str]]:
+# ------------------------------------------- 1.4.1 (C131, D20) : greffe dans une analyse de Rekordbox
+CUE_TAGS = ("PCOB", "PCO2")
+GRID_EXTRAS = ("PQT2", "PSSI")           # grille étendue et phrases : calées sur l'ancienne grille, retirées
+
+
+def cue_tags(data: bytes) -> List[bytes]:
+    """Balises de cues (octets bruts, dans l'ordre du fichier)."""
+    return [raw for code, raw in iter_tags(data) if code in CUE_TAGS]
+
+
+def _wave_tags(suffix: str, wf: Waveforms) -> Dict[str, Optional[bytes]]:
+    if suffix == ".DAT":
+        return {"PWAV": _pwav(b"PWAV", wf.preview), "PWV2": _pwav(b"PWV2", wf.tiny_preview)}
+    if suffix == ".EXT":
+        n = wf.detail_count
+        return {"PWV3": _pwv(b"PWV3", 1, n, 0x00960000, wf.detail),
+                "PWV5": _pwv(b"PWV5", 2, n, 0x00960305, wf.color_detail),
+                "PWV4": _pwv(b"PWV4", 6, len(wf.color_preview) // 6, 0, wf.color_preview)}
+    if suffix == ".2EX" and wf.band_detail:
+        return {"PWV7": _pwv(b"PWV7", 3, len(wf.band_detail) // 3, 0x00960000, wf.band_detail),
+                "PWV6": _tag(b"PWV6", struct.pack(">II", 3, len(wf.band_preview) // 3), wf.band_preview),
+                "PWVC": _tag(b"PWVC", b"\x00\x00", struct.pack(">HHH", *wf.band_norm))}
+    return {}
+
+
+def graft(files: Dict[str, bytes], beats: Optional[Sequence[Tuple[int, int, int]]] = None,
+          wf: Optional[Waveforms] = None) -> Dict[str, bytes]:
+    """Greffe dans les fichiers d'analyse d'un son ({".DAT": …, ".EXT": …, ".2EX": …}) sans les
+    reconstruire : `beats` remplace PQTZ (PQT2 et PSSI retirés), `wf` remplace les balises de forme
+    d'onde déjà présentes. Tout le reste (PPTH, PVBR, cues…) est recopié à l'octet près. Renvoie
+    seulement les fichiers qui changent. ValueError si un fichier est illisible, si le .DAT manque
+    ou si les cues ne ressortent pas identiques (rien n'est alors à écrire)."""
+    from .cues import read_cues
+
+    if ".DAT" not in files:
+        raise ValueError("no .DAT analysis file")
+    try:
+        read_cues(files[".DAT"], files.get(".EXT"))          # cues relisibles, sinon on ne touche à rien
+    except (struct.error, IndexError) as exc:
+        raise ValueError(f"unreadable cues: {exc}") from exc
+    out: Dict[str, bytes] = {}
+    for suffix, data in files.items():
+        new = data
+        if beats is not None:
+            if suffix == ".DAT":
+                new = replace_beats(new, beats)
+            present = {code for code, _raw in iter_tags(new)}
+            drop = {code: None for code in GRID_EXTRAS if code in present}
+            if drop:
+                new = rebuild(new, drop)
+        if wf is not None:
+            present = {code for code, _raw in iter_tags(new)}
+            swap = {code: raw for code, raw in _wave_tags(suffix, wf).items() if code in present}
+            if swap:
+                new = rebuild(new, swap)
+        if cue_tags(new) != cue_tags(data):
+            raise ValueError(f"cues would change in {suffix}")
+        if new != data:
+            out[suffix] = new
+    return out
+
+
+def with_cues_of(original: bytes, current: bytes) -> bytes:
+    """`original` avec les cues de `current` (« Rétablir l'analyse de Rekordbox » : les cues posés
+    depuis sont gardés). Cues identiques : `original` rendu à l'octet près."""
+    now: Dict[str, List[bytes]] = {}
+    for code, raw in iter_tags(current):
+        if code in CUE_TAGS:
+            now.setdefault(code, []).append(raw)
+    if cue_tags(original) == cue_tags(current):
+        return original
+    len_header = struct.unpack(">I", original[4:8])[0]
+    body, seen = [], set()
+    for code, raw in iter_tags(original):
+        if code not in CUE_TAGS:
+            body.append(raw)
+        elif code not in seen:
+            seen.add(code)
+            body += now.get(code, [])
+    for code in CUE_TAGS:                                 # listes absentes de l'original : à la fin
+        if code not in seen:
+            body += now.get(code, [])
+    blob = b"".join(body)
+    head = bytearray(original[:len_header])
+    struct.pack_into(">I", head, 8, len_header + len(blob))
+    out = bytes(head) + blob
+    parse(out)
+    return out
+
+
+WAVE_STYLES = ("blue", "rgb", "3band")    # 1.4.1 (C77) : réglage « Type de forme d'onde », comme Rekordbox
+BAND_RGB = ((0x1F, 0x6F, 0xE5), (0xF0, 0x98, 0x2C), (0xF6, 0xEA, 0xD2))   # basses, médiums, aigus (3 bandes)
+
+
+def blue_colour(whiteness: int) -> str:
+    """Couleur de la forme d'onde « Bleu » de Rekordbox : bleu profond (0) vers bleu très clair (7)."""
+    k = max(0, min(7, int(whiteness))) / 7.0
+    r = int(0x10 + (0xC8 - 0x10) * k)
+    g = int(0x5A + (0xE6 - 0x5A) * k)
+    b = int(0xE6 + (0xFF - 0xE6) * k)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _bands_colour(low: int, mid: int, high: int) -> str:
+    """Une colonne en 3 bandes réduite à une couleur : celle de la bande la plus forte (aperçus étroits)."""
+    k = max(range(3), key=lambda i: (low, mid, high)[i])
+    return "#%02X%02X%02X" % BAND_RGB[k]
+
+
+def read_overview(dat: Optional[bytes] = None, ext: Optional[bytes] = None, style: str = "rgb",
+                  two_ex: Optional[bytes] = None) -> List[Tuple[float, str]]:
     """Aperçu de forme d'onde pour le lecteur : [(hauteur 0-1, couleur #RRGGBB)].
 
-    PWV4 (aperçu couleur, .EXT) si présent, sinon PWAV (aperçu mono, .DAT)."""
-    if ext:
+    1.4.1 (C77) : selon le type choisi, lu dans les fichiers d'analyse comme Rekordbox : « rgb » PWV4 (.EXT),
+    « 3band » PWV6 (.2EX), « blue » PWAV (.DAT) ; sinon le premier qui existe."""
+    def pwv4() -> List[Tuple[float, str]]:
         try:
-            tags = parse(ext)
+            tags = parse(ext) if ext else {}
         except ValueError:
             tags = {}
-        if "PWV4" in tags:
-            b = tags["PWV4"][0][1]
-            out = []
-            for k in range(len(b) // 6):
-                _d0, _d1, low, mid, high, _d5 = b[k * 6:k * 6 + 6]
-                h = max(low, mid, high) / 127.0
-                tot = (low + mid + high) or 1
-                r = int(min(255, 70 + 185 * low / tot)); g = int(min(255, 70 + 185 * mid / tot))
-                bl = int(min(255, 70 + 185 * high / tot))
-                out.append((min(1.0, h), f"#{r:02X}{g:02X}{bl:02X}"))
-            if out:
-                return out
-    if dat:
-        try:
-            tags = parse(dat)
-        except ValueError:
+        if "PWV4" not in tags:
             return []
-        if "PWAV" in tags:
-            return [((v & 0x1F) / 31.0, "#4A9EFF" if (v >> 5) < 4 else "#9CCBFF") for v in tags["PWAV"][0][1]]
+        b = tags["PWV4"][0][1]
+        out = []
+        for k in range(len(b) // 6):
+            _d0, _d1, low, mid, high, _d5 = b[k * 6:k * 6 + 6]
+            h = max(low, mid, high) / 127.0
+            tot = (low + mid + high) or 1
+            r = int(min(255, 70 + 185 * low / tot)); g = int(min(255, 70 + 185 * mid / tot))
+            bl = int(min(255, 70 + 185 * high / tot))
+            out.append((min(1.0, h), f"#{r:02X}{g:02X}{bl:02X}"))
+        return out
+
+    def pwv6() -> List[Tuple[float, str]]:
+        try:
+            tags = parse(two_ex) if two_ex else {}
+        except ValueError:
+            tags = {}
+        if "PWV6" not in tags:
+            return []
+        b = tags["PWV6"][0][1]
+        return [(min(1.0, max(b[k * 3:k * 3 + 3]) / 127.0), _bands_colour(*b[k * 3:k * 3 + 3]))
+                for k in range(len(b) // 3)]
+
+    def pwav() -> List[Tuple[float, str]]:
+        try:
+            tags = parse(dat) if dat else {}
+        except ValueError:
+            tags = {}
+        if "PWAV" not in tags:
+            return []
+        return [((v & 0x1F) / 31.0, blue_colour(v >> 5)) for v in tags["PWAV"][0][1]]
+
+    order = {"rgb": (pwv4, pwv6, pwav), "3band": (pwv6, pwv4, pwav), "blue": (pwav, pwv4, pwv6)}
+    for fn in order.get(style, order["rgb"]):
+        out = fn()
+        if out:
+            return out
     return []
 
 
@@ -367,10 +503,14 @@ def band_from_detail(detail: List[Tuple[float, str]]) -> Any:
                     high=(h * 0.4).astype(np.uint8))
 
 
-def read_detail(ext: bytes) -> List[Tuple[float, str]]:
-    """Forme d'onde détaillée (150 colonnes/s) pour l'éditeur de grille : PWV5 couleur, sinon PWV3."""
+def read_detail(ext: bytes, style: str = "rgb") -> List[Tuple[float, str]]:
+    """Forme d'onde détaillée (150 colonnes/s) : « rgb » PWV5 couleur, « blue » PWV3 (hauteur et blancheur,
+    1.4.1, C77) ; à défaut l'autre."""
     tags = parse(ext)
-    if "PWV5" in tags:
+
+    def pwv5() -> List[Tuple[float, str]]:
+        if "PWV5" not in tags:
+            return []
         b = tags["PWV5"][0][1]
         out = []
         for k in range(len(b) // 2):
@@ -378,6 +518,14 @@ def read_detail(ext: bytes) -> List[Tuple[float, str]]:
             r, g, bl, h = (v >> 13) & 7, (v >> 10) & 7, (v >> 7) & 7, (v >> 2) & 31
             out.append((h / 31.0, f"#{r * 36:02X}{g * 36:02X}{bl * 36:02X}"))
         return out
-    if "PWV3" in tags:
-        return [((v & 0x1F) / 31.0, "#4A9EFF") for v in tags["PWV3"][0][1]]
+
+    def pwv3() -> List[Tuple[float, str]]:
+        if "PWV3" not in tags:
+            return []
+        return [((v & 0x1F) / 31.0, blue_colour(v >> 5)) for v in tags["PWV3"][0][1]]
+
+    for fn in ((pwv3, pwv5) if style == "blue" else (pwv5, pwv3)):
+        out = fn()
+        if out:
+            return out
     return []

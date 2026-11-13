@@ -32,9 +32,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-latest, shard: 1, shards: 2}
-          - {os: windows-latest, shard: 2, shards: 2}
-          - {os: ubuntu-22.04, shard: 1, shards: 1}
+          # 1.4.1 (C181) : Windows en 3 lots et Linux en 2 (Linux seul dépassait 45 min en passe complète)
+          - {os: windows-latest, shard: 1, shards: 3}
+          - {os: windows-latest, shard: 2, shards: 3}
+          - {os: windows-latest, shard: 3, shards: 3}
+          - {os: ubuntu-22.04, shard: 1, shards: 2}
+          - {os: ubuntu-22.04, shard: 2, shards: 2}
     name: tests (${{ matrix.os }}${{ matrix.shards > 1 && format(' {0}/{1}', matrix.shard, matrix.shards) || '' }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45

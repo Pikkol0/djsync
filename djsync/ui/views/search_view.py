@@ -50,7 +50,7 @@ class SearchView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
-        # 1.4.0 (C10.2, C45) : recherche « haute qualité » (Soulseek) à part de la recherche classique
+        # 1.4.0 (C10.2, C45) : recherche « haute qualité » ; 1.4.1 (C133, D9) : elle a sa page, ce choix l'ouvre
         self.mode = QComboBox()
         self.mode.addItems([t("search.mode_classic"), t("search.mode_hq")])
         self.mode.setToolTip(t("search.mode_hq_tip"))
@@ -66,11 +66,10 @@ class SearchView(View):
         info_row.addWidget(self.info, 1)
         self.root.addLayout(info_row)
 
-        self.table = TrackTable(self, result_columns(with_size=True), loader=loader, show_covers=True,
+        self.table = TrackTable(self, result_columns(), loader=loader, show_covers=True,
                                 click_columns=("dl",))
         self.table.fit_content = True                    # 1.4.0-rc.4 (C150)
         self.remember_layout(self.table, "search")
-        self._show_mode_columns()                        # 1.4.0-rc.5 (B92)
         self._views_timer = QTimer(self)                 # 1.4.0-rc.5 (B90) : vues des lignes qui apparaissent
         self._views_timer.setSingleShot(True)
         self._views_timer.setInterval(200)
@@ -92,76 +91,24 @@ class SearchView(View):
         self.root.addLayout(actions)
         self._refresh_filter_label()
         self._refresh_buttons()
-        controller.on("slsk_search", self._slsk_search_for)
 
-    # ------------------------------------------------- 1.4.0 (C10.2) : haute qualité (Soulseek)
+    # ------------------------------------------------- 1.4.1 (C133, D9) : la haute qualité a sa page
     @property
     def hq(self) -> bool:
-        return not self.mode.isHidden() and self.mode.currentIndex() == 1
+        return False
 
-    def _show_mode_columns(self) -> None:
-        """1.4.0-rc.5 (B92) : Haute qualité : colonne Taille, pas de Vues ; recherche classique : l'inverse."""
-        hidden = "views" if self.hq else "size"
-        self.table.set_display_columns([c.key for c in self.table.columns if c.key != hidden])
-
-    def _mode_changed(self, _i: int) -> None:
-        self._show_mode_columns()
-        self._last_query = ""
-        self.entry.setPlaceholderText(t("search.placeholder_hq") if self.hq else t("search.placeholder"))
-        self.filter_btn.setEnabled(not self.hq)
-        if self.entry.text().strip():
-            self.run_search(force=True)
-
-    def _slsk_search_for(self, query: str) -> None:
-        self.ctrl._emit("navigate", "search")
-        self.mode.setCurrentIndex(1)
-        self.entry.setText(query)
-        self.run_search(force=True)
-
-    def _run_hq(self, query: str, token: int) -> None:
-        """Haute qualité : sources libres (Internet Archive, Audius) et, s'il est activé, Soulseek ; une
-        seule liste, chaque ligne dit d'où vient le son, sa qualité et sa licence (C45)."""
-        from ..ctrl.soulseek import track_of
-
-        free: List[TrackResult] = []
-        slsk: List[TrackResult] = []
-        state = {"free": False, "slsk": not self.ctrl.slsk_ready}
-
-        def show() -> None:
-            if token != self._token or not self.winfo_exists():
-                return
-            tracks = slsk + free
-            lossless = sum(1 for x in tracks if (x.slsk is not None and x.slsk.lossless)
-                           or x.quality in ("FLAC", "WAV", "AIFF"))
-            done = state["free"] and state["slsk"]
-            if not done and not tracks:          # 1.4.0-rc.2 (B59) : pas « Aucun résultat » tant que ça cherche
-                self.info.setText(t("search.hq_running", n=0))
-                self.table.show_skeleton()
-                return
-            summary = (t("search.hq_results", n=len(tracks), lossless=lossless) if done
-                       else t("search.hq_running", n=len(tracks)))
-            self._show_results(tracks, summary)
-
-        def got_free(rs: List[TrackResult]) -> None:
-            free[:] = rs
-            state["free"] = True
-            show()
-
-        def got_free_part(rs: List[TrackResult]) -> None:   # 1.4.0-rc.4 (B78) : source par source
-            if not state["free"]:
-                free[:] = rs
-                show()
-
-        def got_slsk(rs: List[Any], final: bool) -> None:
-            slsk[:] = [track_of(r) for r in rs]
-            if final:
-                state["slsk"] = True
-            show()
-
-        self.info.setText(t("search.hq_running", n=0))
-        self.ctrl.free_search(query, got_free, got_free_part)
-        if self.ctrl.slsk_ready:
-            self.ctrl.slsk_search(query, lambda rs: got_slsk(rs, True), lambda rs: got_slsk(rs, False))
+    def _mode_changed(self, i: int) -> None:
+        """« Haute qualité » : la page Haute qualité s'ouvre avec le texte déjà tapé ; ce menu revient à
+        « Classique » (un seul code de recherche haute qualité)."""
+        if i != 1:
+            return
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(0)
+        self.mode.blockSignals(False)
+        query = self.entry.text().strip()
+        self.ctrl._emit("navigate", "hq")
+        if query:
+            self.ctrl._emit("slsk_search", query)
 
     def on_show(self) -> None:
         self.entry.setFocus()
@@ -235,8 +182,6 @@ class SearchView(View):
 
     # -------------------------------------------------------------- recherche
     def _debounced(self) -> None:
-        if self.hq:                                   # Soulseek : seulement sur Entrée (recherche réseau)
-            return
         query = self.entry.text().strip()
         if len(query) >= MIN_CHARS and query != self._last_query:
             self.run_search()
@@ -254,9 +199,6 @@ class SearchView(View):
 
         self._albums, self._album_open = [], None
         self.back_btn.hide()
-        if self.hq:
-            self._run_hq(query, token)
-            return
 
         def ok(results: List[TrackResult]) -> None:
             if token != self._token or not self.winfo_exists():
@@ -295,12 +237,11 @@ class SearchView(View):
             self.info.setText(plural("search.results_one", "search.results_many", len(results))
                               + self._filter_summary() + tail)
         self._refresh_buttons()
-        if not self.hq:
-            QTimer.singleShot(0, self._enrich_visible)
+        QTimer.singleShot(0, self._enrich_visible)
 
     def _enrich_visible(self) -> None:
         """1.4.0-rc.5 (B90) : vues chargées seulement pour les lignes à l'écran (puis au défilement)."""
-        if self.hq or not self.winfo_exists():
+        if not self.winfo_exists():
             return
         rows = [self._tracks.get(i) for i in self.table.visible_iids(margin=3)]
         self.ctrl.enrich_views([x for x in rows if x is not None and not x.is_album], self._on_views)

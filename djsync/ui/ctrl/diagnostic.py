@@ -40,6 +40,7 @@ class MissingItem:
     found: Optional[Path] = None                   # fichier du même nom trouvé ailleurs (dossier déplacé)
     offline: bool = False                          # disque du fichier non branché (bibliothèque du PC)
     volume: str = ""                               # 1.3.2-rc.2 (B40) : ce disque (« E: », « /Volumes/Clé »)
+    versions: List[LibraryTrack] = field(default_factory=list)   # 1.4.1 (C173) : même son (titre, artiste, ± 3 s)
 
 
 def volume_label(vol: Path) -> str:
@@ -180,7 +181,16 @@ class DiagnosticMixin:
         if getattr(self, "_quality_stop", None) is not None:
             return False
         stop = self._quality_stop = threading.Event()
+        paused = self._quality_pause = threading.Event()
         ffmpeg = self.settings.ffmpeg_location or None
+        # 1.4.1 (C135) : inscrite au volet des tâches (C145) : pause, reprise, arrêt ; une mesure arrêtée reprend
+        # où elle s'était arrêtée (les sons déjà mesurés sont dans le cache du spectre)
+        registry = getattr(self, "tasks", None)
+        task = None
+        if registry is not None:
+            task = registry.start("quality", "task.quality", icon="wave", open="quality",
+                                  can_pause=True, pause=paused.set, resume=paused.clear,
+                                  can_stop=True, stop=stop.set)
 
         def work() -> int:
             from ...analysis.spectrum import flush, measure_and_remember
@@ -190,6 +200,8 @@ class DiagnosticMixin:
             items = list(tracks) if tracks is not None else list(lib.list_tracks())
             try:
                 for i, x in enumerate(items, start=1):
+                    while paused.is_set() and not stop.is_set():
+                        stop.wait(0.2)
                     if stop.is_set():
                         break
                     path = lib.absolute_path(x)
@@ -198,19 +210,26 @@ class DiagnosticMixin:
                         fakes += probe(path).fake
                     if i % 25 == 0:
                         flush()
-                    if progress and (i % 5 == 0 or i == len(items)):
-                        self.dispatcher.post(progress, i, len(items))
+                    if i % 5 == 0 or i == len(items):
+                        if progress:
+                            self.dispatcher.post(progress, i, len(items))
+                        if task is not None:
+                            task.progress(i, len(items))
             finally:
                 flush()
             return fakes
 
         def finish(fakes: int) -> None:
             self._quality_stop = None
+            if task is not None:
+                task.finish()
             self._emit("quality_changed")
             ok(fakes)
 
         def failed(exc: BaseException) -> None:
             self._quality_stop = None
+            if task is not None:
+                task.fail(str(exc)[:120])
             self._on_error(exc)
             ok(0)
 
@@ -300,6 +319,14 @@ class DiagnosticMixin:
                 out.append(MissingItem(x, str(path), [names[p] for p in member.get(x.content_id, []) if p in names],
                                        same.get(x.content_id, []), None, bool(vol is not None and not vol.exists()),
                                        volume_label(vol) if vol is not None and not vol.exists() else ""))
+            from ...core.duplicates import existing_versions, version_key
+
+            by_key: Dict[Any, List[LibraryTrack]] = {}          # C173 : versions présentes, par (titre, artiste)
+            for y in tracks:
+                if present[y.content_id]:
+                    by_key.setdefault(version_key(y), []).append(y)
+            for i in out:
+                i.versions = existing_versions(i.track, by_key.get(version_key(i.track), []))
             wanted = {Path(i.path).name.casefold() for i in out if not i.offline}
             found = index_files(list(dict.fromkeys(roots)), wanted) if wanted else {}
             for i in out:

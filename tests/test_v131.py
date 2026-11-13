@@ -450,7 +450,7 @@ def test_missing_files_tab_replace_relink_remove(tmp_path, monkeypatch):
 
 def test_diagnostic_tabs_switch_between_tools(tmp_path, monkeypatch):
     from djsync.ui.diag_tabs import DiagTabs
-    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+    from djsync.ui.quality_page import QualityPage
     from djsync.ui.duplicates_dialog import DuplicatesDialog
     from djsync.ui.missing_dialog import MissingFilesDialog
 
@@ -471,8 +471,8 @@ def test_diagnostic_tabs_switch_between_tools(tmp_path, monkeypatch):
         assert pump(app, 2, lambda: find(app, MissingFilesDialog) is not None and find(app, DuplicatesDialog) is None)
         page = find(app, MissingFilesDialog)
         page.findChild(DiagTabs)._go("quality")
-        assert pump(app, 2, lambda: find(app, DiagnosticDialog) is not None and find(app, MissingFilesDialog) is None)
-        q = find(app, DiagnosticDialog)
+        assert pump(app, 2, lambda: find(app, QualityPage) is not None and find(app, MissingFilesDialog) is None)
+        q = find(app, QualityPage)
         q.close()                                                       # Retour : vue d'origine
         assert pump(app, 2, lambda: app._current == "library" and app.stack.currentWidget() is app.views["library"])
         # Uniformiser : choix de la portée, puis page avec la même barre d'onglets

@@ -4,8 +4,8 @@
 « Analyser » juste dessous ; la liste des sons concernés (une case par son pour en retirer) ; la case
 « analyser à nouveau » expliquée. Après le lancement, la page reste ouverte et suit l'analyse son par
 son (en file, en cours, fait, échec), avec « Arrêter » et « Continuer en arrière-plan ». L'analyse elle-même
-tourne toujours dans la file commune du contrôleur ; les sons analysés par Rekordbox ne sont jamais
-réanalysés.
+tourne toujours dans la file commune du contrôleur. 1.4.1 (C131, D20) : une seule case « Analyser à
+nouveau », pour tous les sons ; ceux de Rekordbox passent par ui.reanalyse (choix de ce qui est refait).
 """
 from __future__ import annotations
 
@@ -186,14 +186,27 @@ class AnalysisDialog(BaseDialog):
         todo = self._todo()
         if not todo:
             return
-        import time
+        ids = [x.content_id for x in todo]
+        force = self.force.isChecked()
 
-        self._started = [x.content_id for x in todo]
-        self._t0 = time.monotonic()
-        self.ctrl.analyze(self._started, force=self.force.isChecked())
-        self.force.setEnabled(False)
-        self._describe()
-        self._buttons()
+        def launch() -> None:
+            import time
+
+            if not self.winfo_exists() or self._started:
+                return
+            self._started = ids
+            self._t0 = time.monotonic()
+            self.ctrl.analyze(ids, force=force)
+            self.force.setEnabled(False)
+            self._describe()
+            self._buttons()
+
+        if force:                                # 1.4.1 (C131) : question ou confirmation si sons de Rekordbox
+            from .reanalyse import analyse_again
+
+            analyse_again(self, self.ctrl, ids, launch)
+        else:
+            launch()
 
     def _stop(self) -> None:
         self.ctrl.stop_analysis()

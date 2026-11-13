@@ -12,6 +12,8 @@ du projet « cues-reference-rekordbox ») :
 """
 from __future__ import annotations
 
+import bisect
+
 import struct
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -276,6 +278,29 @@ def nearest_beat_ms(beats: Sequence[Tuple[int, int, int]], ms: float) -> int:
     return int(min(beats, key=lambda b: abs(b[2] - ms))[2])
 
 
+def nearest_grid_ms(beats: Sequence[Tuple[int, int, int]], ms: float, division: int = 1) -> int:
+    """1.4.1 (C92) : position la plus proche sur la grille découpée en `division` parts par temps (1 = le temps,
+    4 = le quart de temps). Avant le premier ou après le dernier temps : au tempo du temps voisin."""
+    if not beats:
+        return int(round(ms))
+    division = max(1, int(division))
+    if division == 1:
+        return nearest_beat_ms(beats, ms)
+    pos = [b[2] for b in beats]
+    i = bisect.bisect_right(pos, ms) - 1
+    if i < 0:
+        i = 0
+    if i >= len(pos) - 1:
+        i = max(0, len(pos) - 2)
+    if len(pos) < 2:
+        return int(pos[0])
+    step = (pos[i + 1] - pos[i]) / division
+    if step <= 0:
+        return nearest_beat_ms(beats, ms)
+    k = round((ms - pos[i]) / step)
+    return int(round(pos[i] + k * step))
+
+
 def loop_end_ms(beats: Sequence[Tuple[int, int, int]], start_ms: int, n_beats: int) -> int:
     """Fin d'une boucle de `n_beats` temps qui commence à `start_ms`, calée sur la grille ; au-delà du
     dernier temps, on prolonge au tempo du dernier temps."""
@@ -291,22 +316,31 @@ def loop_end_ms(beats: Sequence[Tuple[int, int, int]], start_ms: int, n_beats: i
 
 
 def suggest_cues(beats: Sequence[Tuple[int, int, int]], existing: Sequence[Cue], every_bars: int = 32,
-                 limit: int = 8) -> List[Cue]:
-    """« Proposer des cues » : A au premier temps fort, puis un pad toutes les `every_bars` mesures, sur
-    les pads encore libres seulement (les cues existants ne sont jamais déplacés)."""
+                 limit: int = 8, positions: Optional[Sequence[int]] = None) -> List[Cue]:
+    """« Proposer des cues », sur les pads encore libres seulement (les cues existants ne sont jamais déplacés),
+    jamais à moins d'un demi-temps d'un hot cue existant.
+
+    1.4.1 (C71) : `positions` (ms, analysis/sections.py) = changements de partie trouvés dans le son ; sans elles,
+    A au premier temps fort, puis un pad toutes les `every_bars` mesures (ancienne méthode)."""
     bars = [b[2] for b in beats if b[0] == 1]
-    if not bars:
-        return []
+    if positions is None:
+        if not bars:
+            return []
+        positions = bars[::max(1, every_bars)]
     taken = {c.slot for c in existing if c.slot}
-    used_ms = {c.ms for c in existing if c.slot}
     free = [s for s in range(1, limit + 1) if s not in taken]
+    tempos = sorted(b[1] for b in beats) if beats else []
+    bpm = (tempos[len(tempos) // 2] / 100.0) if tempos else 120.0
+    half_beat = 30000.0 / (bpm or 120.0)
+    near = [c.ms for c in existing if c.slot]          # une mémoire au même endroit qu'un hot cue : normal
     out: List[Cue] = []
-    for ms in bars[::max(1, every_bars)]:
+    for ms in positions:
         if not free:
             break
-        if ms in used_ms:
+        if any(abs(int(ms) - m) < half_beat for m in near):
             continue
         out.append(Cue(free.pop(0), int(ms)))
+        near.append(int(ms))
     return out
 
 

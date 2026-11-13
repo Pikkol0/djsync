@@ -349,6 +349,21 @@ def _diagnostic(p: _Pen) -> None:
     p.line(5.5, 10.5, 7.5, 10.5, 9, 7, 11, 13.5, 12.5, 10.5, 14.5, 10.5, w=1.6)
 
 
+def _disc(p: _Pen) -> None:
+    """1.4.1 (C147) : album (disque)."""
+    p.circle(12, 12, 8.5)
+    p.circle(12, 12, 2.2, fill=True)
+    p.arc(12, 12, 5.3, 200, 290)
+
+
+def _gem(p: _Pen) -> None:
+    """1.4.1 (C133) : page Haute qualité (pierre taillée)."""
+    p.line(5, 9, 9, 4, 15, 4, 19, 9, 12, 20, 5, 9)
+    p.line(5, 9, 19, 9)
+    p.line(9, 4, 10.5, 9, 12, 20)
+    p.line(15, 4, 13.5, 9, 12, 20)
+
+
 DRAW: Dict[str, Callable[[_Pen], None]] = {
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
@@ -358,7 +373,7 @@ DRAW: Dict[str, Callable[[_Pen], None]] = {
     "key": _key, "check": _check, "keyboard": _keyboard, "refresh": _refresh, "folder": _folder, "back": _back,
     "clipboard": _clipboard, "playlist": _playlist, "unlisted": _unlisted, "warn": _warn, "info": _info, "move": _move,
     "computer": _computer, "eject": _eject, "watch": _watch, "copy": _copy, "tag": _tag,
-    "diagnostic": _diagnostic, "chat": _chat, "columns": _columns,
+    "diagnostic": _diagnostic, "chat": _chat, "columns": _columns, "disc": _disc, "gem": _gem,
 }
 
 

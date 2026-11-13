@@ -74,9 +74,10 @@ class CurationMixin:
         return ReviewStore(settings_dir() / "uniformize" / f"{key}.json")
 
     def uniformize_scan(self, tracks: Sequence[LibraryTrack], on_item: Callback, on_done: Callback,
-                        cancelled: Callable[[], bool]) -> None:
+                        cancelled: Callable[[], bool], paused: Optional[Callable[[], bool]] = None) -> None:
         """Propositions son par son (Deezer + règles), en arrière-plan ; on_item(track, details,
-        proposal) dans le thread UI à chaque son, on_done() à la fin."""
+        proposal) dans le thread UI à chaque son, on_done() à la fin. 1.4.1 (C145) : tant que `paused()`,
+        le son suivant n'est pas commencé."""
         lib = self.library
         if lib is None:
             return
@@ -89,6 +90,9 @@ class CurationMixin:
             from ...core import metadata, uniformize
 
             for track in tracks:
+                while paused is not None and paused() and not cancelled() \
+                        and not getattr(self.dispatcher, "_closed", False):        # fermeture : libéré
+                    time.sleep(0.2)
                 if cancelled():
                     break
                 try:

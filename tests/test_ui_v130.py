@@ -43,7 +43,23 @@ def test_pads_loops_memories_and_save(demo_grid):  # noqa: F811
     # une mémoire, des cues proposés sur les pads libres seulement
     ed.cursor_ms = ed.beats[2][2]
     panel.add_memory()
-    panel.suggest()
+    panel.suggest()                                                       # 1.4.1 (C71) : fenêtre, puis Ajouter
+    from djsync.ui.cue_pads import SuggestCuesDialog
+
+    shown = []
+    real = SuggestCuesDialog.__init__
+
+    def spy(self, *a, **k):
+        real(self, *a, **k)
+        shown.append(self)
+
+    SuggestCuesDialog.__init__ = spy
+    try:
+        assert pump(app, 8, lambda: shown)
+    finally:
+        SuggestCuesDialog.__init__ = real
+    assert all(c.slot != 1 for c in shown[0].cues)                        # pads libres seulement
+    shown[0]._add()
     assert panel.cue(1).ms == ed.beats[7][2]                              # A n'a pas bougé
     assert panel.cue(2) is not None
     ed.grab()                                                             # dessin des cues et de la boucle

@@ -151,6 +151,21 @@ def _note_slow_poll(base: float, drives: float, rekordbox: float, blank: float) 
                  " [%d so far]", total * 1000, base * 1000, drives * 1000, rekordbox * 1000, blank * 1000, n)
 
 
+def equivalent_query(track: TrackResult) -> Tuple[str, str]:
+    """1.4.1 (C167) : (artiste, titre) d'un résultat Soulseek, tirés du nom de fichier (« 03 - Bicep - Glue
+    (Original Mix).flac ») ; pour une autre source, ses champs."""
+    import re
+
+    r = getattr(track, "slsk", None)
+    if r is None:
+        return track.artist or "", track.title or ""
+    stem = re.sub(r"^\s*\d{1,3}\s*[-._)]\s*", "", r.stem)            # numéro de piste
+    parts = [p.strip() for p in re.split(r"\s+[-–]\s+", stem) if p.strip()]
+    if len(parts) >= 2:
+        return parts[0], " - ".join(parts[1:])
+    return (track.artist or "", parts[0] if parts else track.title or "")
+
+
 def _unprepared() -> List[Any]:
     """Clés sans bibliothèque (T02) ; jamais bloquant."""
     try:
@@ -216,6 +231,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._rekordbox_warned = False
         self._init_playback()
         self.error_reporter = self._make_error_reporter()       # 1.2.3
+        # 1.4.1 (C145) : registre des tâches longues, affiché par le volet gauche (TaskStrip). L'analyse et
+        # les téléchargements y sont reportés à chacun de leurs évènements.
+        from .tasks import TaskRegistry
+
+        self.tasks = TaskRegistry(post=dispatcher.post, later=getattr(dispatcher, "call_later", None),
+                                  notify=lambda: self._emit("tasks"))
+        self.on("analysis", self._sync_analysis_task)
+        self.on("downloads", self._sync_download_task)
+        self.on("download_update", lambda _job: self._sync_download_task())
 
     def _make_error_reporter(self) -> Any:
         """1.2.3 : rapports d'erreur à l'auteur (demande à l'utilisateur, sauf réglage contraire)."""
@@ -254,6 +278,49 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 fn(*args)
             except Exception:  # noqa: BLE001 - une vue en erreur ne doit pas casser les autres
                 log.exception("Listener %s", event)
+
+    # ------------------------------------------------------------------ 1.4.1 (C145) : tâches du volet
+    def _sync_analysis_task(self) -> None:
+        """File d'analyse -> tâche « analysis » (mêmes textes que l'ancienne carte : « 3 / 10  ·  son »,
+        flèche vers Téléchargements et analyse, pause, arrêt). Disparaît dès la fin."""
+        q = self.analysis
+        task = self.tasks.get("analysis")
+        if not q.running:
+            if task is not None and task.active:
+                task.finish()
+            return
+        if task is None or not task.active:
+            task = self.tasks.start("analysis", "nav.analysing", icon="wave", order=0, linger=0,
+                                    can_pause=True, pause=lambda: self.pause_analysis(True),
+                                    resume=lambda: self.pause_analysis(False),
+                                    can_stop=True, stop=self.stop_analysis, open="downloads",
+                                    stopping_title="analysis.stopping", open_tip="nav.open_activity",
+                                    stop_tip="lib.analyse_stop")
+        if q.cancelled:
+            self.tasks.mark_stopping("analysis")
+        else:
+            self.tasks.mark_paused("analysis", q.paused)
+        name = q.current if len(q.current) <= 40 else q.current[:39] + "…"
+        task.progress(q.done, q.total, detail=name, fraction=q.done / max(1, q.total))
+
+    def _sync_download_task(self) -> None:
+        """Série de téléchargements en cours -> tâche « downloads » (carte « TÉLÉCHARGEMENTS », « 1 / 2 », barre
+        à l'avancement des fichiers). Pause : les fichiers en cours finissent, les suivants attendent. Arrêt :
+        tout s'arrête, fichier en cours compris (sauf un ajout à la bibliothèque déjà commencé)."""
+        b_done, b_total, frac = self.download_progress()
+        task = self.tasks.get("downloads")
+        if b_total <= 0:
+            if task is not None and task.active:
+                task.finish()
+            return
+        if task is None or not task.active:
+            task = self.tasks.start("downloads", "nav.downloading", icon="download", order=1, linger=0,
+                                    open="downloads",
+                                    can_pause=True, pause=lambda: self.pause_downloads(True),
+                                    resume=lambda: self.pause_downloads(False),
+                                    can_stop=True, stop=self.stop_downloads, stop_tip="task.stop_downloads")
+        self.tasks.mark_paused("downloads", self.downloads_paused)
+        task.progress(b_done, b_total, fraction=frac)
 
     def message(self, kind: str, text: str) -> None:
         """kind : info | ok | warn | error — affiché dans la barre d'état."""
@@ -553,6 +620,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                     ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
+                lib.native_parts = self.settings.native_parts()
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -565,6 +633,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 ffmpeg_location=self.settings.ffmpeg_location or None, key_notation=self.settings.key_notation,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
+            lib.native_parts = self.settings.native_parts()
             try:                                      # 1.3.0 (T01) : utile pour les retours « platine »
                 from ..db.usb import drive_filesystem
 
@@ -589,6 +658,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._emit("drive")
             self._rekordbox_warned = False
             self._repair_pdb(self.library)
+            self.refresh_rekordbox_originals()
 
         def err(exc: BaseException) -> None:
             self._connecting = False
@@ -770,15 +840,19 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.dispatcher.submit(probe, ok, err, pool="net")
 
     # ---------------------------------------------------------------- recherche
-    def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None) -> None:
+    def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None,
+                    source_done: Optional[Callable[[str], None]] = None) -> None:
         """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués.
-        1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source."""
+        1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source.
+        1.4.1 (C171) : `source_done(nom)` dans le fil de l'interface quand une source a répondu (ou échoué)."""
         from ..core import freesources
 
         sources = list(self.settings.free_sources or [])
         got: list = []
 
         def part(_name: str, rs: Any) -> None:
+            if source_done is not None:
+                self.dispatcher.post(source_done, _name)
             if partial is None:
                 return
             dup = getattr(self.service, "_duplicates", None)
@@ -792,6 +866,37 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return dup.annotate(found) if dup is not None else found
 
         self.dispatcher.submit(work, ok, lambda exc: (log.info("Free sources: %s", exc), ok([])), pool="net")
+
+    def free_sources_list(self) -> List[str]:
+        """1.4.1 (C171) : sources libres interrogées par la recherche Haute qualité."""
+        return [x for x in (self.settings.free_sources or []) if x in ("archive", "audius")]
+
+    def play_equivalent(self, track: TrackResult, ok: Optional[Callable[[Optional[TrackResult]], None]] = None) -> None:
+        """1.4.1 (C167) : un fichier Soulseek ne s'écoute pas avant d'être téléchargé : on joue la version
+        « titre officiel » trouvée sur YouTube Music (artiste + titre tirés du nom de fichier nettoyé).
+        ok(son joué) ou ok(None) si rien n'est trouvé ; n'influence pas le téléchargement."""
+        from ..core.metadata import clean_title
+
+        artist, title = equivalent_query(track)
+        query = f"{artist} {clean_title(title)}".strip()
+
+        def work() -> Optional[TrackResult]:
+            found = self.service.search(query, limit=5, mode=SearchMode.SONGS)
+            return next((x for x in found if x.is_song and not x.is_album), None)
+
+        def done(found: Optional[TrackResult]) -> None:
+            if found is None:
+                self.message("info", t("hq.equivalent_none", query=query))
+            else:
+                self.play_queue([found], 0)
+            if ok is not None:
+                ok(found)
+
+        def failed(exc: BaseException) -> None:
+            log.info("Equivalent not found: %s", exc)
+            done(None)
+
+        self.dispatcher.submit(work, done, failed, pool="search")
 
     def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
         try:
@@ -940,16 +1045,24 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.ffmpeg_location = s.ffmpeg_location or None
             self.library.key_notation = s.key_notation
             self.library.auto_cue = s.auto_cue
+            self.library.native_parts = s.native_parts()
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
+        try:                                       # 1.4.1 (C141) : reflet or / argent coupé en mode léger
+            from ..core.machine import light_active
+            from .shine import set_enabled
+
+            set_enabled(not light_active(s))
+        except Exception:  # noqa: BLE001
+            pass
         s.save()
         if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
             self.slsk_disconnect()
         self._emit("settings_saved")
 
     def _apply_output(self) -> None:
-        if hasattr(self.service, "set_output"):
-            self.service.set_output(self.settings.audio_format, self.settings.normalize_volume)
+        if hasattr(self.service, "set_quality"):                          # 1.4.1 (C143)
+            self.service.set_quality(self.settings.download_quality)
         if hasattr(self.service, "set_soundcloud_auth"):                  # 1.4.0 (C10.1)
             from ..core.soundcloud import auth_options
 
@@ -958,7 +1071,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         if hasattr(self.service, "set_youtube"):                          # 1.4.0 (C48)
             from ..core.soundcloud import auth_options
 
-            self.service.set_youtube(self.settings.youtube_best, auth_options(self.settings.youtube_browser))
+            self.service.set_youtube(auth_options(self.settings.youtube_browser))
             retry = getattr(self, "retry_bot_failures", None)                 # 1.4.0-rc.2 (B66)
             if retry is not None and self.settings.youtube_browser:
                 retry()

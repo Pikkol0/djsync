@@ -158,7 +158,8 @@ class SoulseekMixin:
             tried.append(f"{result.username}")
             try:
                 wait = 60.0 if others else QUEUE_WAIT_S
-                path = self.slsk.download(result, progress, stall=STALL_S, reach=REACH_S, queue_wait=wait)
+                path = self.slsk.download(result, progress, stall=STALL_S, reach=REACH_S, queue_wait=wait,
+                                          should_stop=lambda: bool(getattr(job, "stop", False)))          # 1.4.1 (C145) : ⏹ du volet
                 log.info("Soulseek: %s received from %s after %d peer(s), %.0f s", result.name, result.username,
                          len(tried), time.monotonic() - started)
                 return path
@@ -234,7 +235,7 @@ class SoulseekMixin:
             if not waited:
                 waited = True
                 progress(0.0, "same_user")
-            if job.status == "cancelled":
+            if job.status == "cancelled" or getattr(job, "stop", False):
                 from ...core.soulseek import SoulseekError
 
                 raise SoulseekError("cancelled")
@@ -277,6 +278,9 @@ class SoulseekMixin:
                 raise SoulseekError(t("slsk.not_connected"))
             path = self._slsk_download_any(job, result, progress)
             result = job.track.slsk or result
+            if getattr(job, "stop", False):                     # 1.4.1 (C145) : dernier point avant l'écriture
+                Path(path).unlink(missing_ok=True)
+                raise SoulseekError("cancelled")
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
             src = Path(path)
@@ -306,6 +310,9 @@ class SoulseekMixin:
             job.status = "done"
             self._slsk_check_quality(job, result)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
+            if getattr(job, "stop", False) and job.status != "done":         # 1.4.1 (C145) : arrêt demandé, pas une erreur
+                self._stopped(job)
+                return
             log.warning("Soulseek download failed (%s): %s", getattr(result, "path", "?"), exc)
             from ..controller import known_error
 

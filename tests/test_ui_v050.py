@@ -70,14 +70,13 @@ def test_settings_engine_offer_and_copy_menu(env, tmp_path):
         app.show_view("settings")
         view = app.views["settings"]
         assert "yt-dlp" in view.engine_state.text() and not view.eject_btn.isEnabled()   # PC : rien à éjecter
-        view.format_menu.setCurrentText(view._format_labels["mp3"])
-        view.normalize_var.setChecked(True)
+        view.format_menu.setCurrentText(view._format_labels["mp3_320"])     # 1.4.1 (C143) : une seule liste
         view.cue_var.setChecked(False)
         view._save()
-        assert (ctrl.settings.audio_format, ctrl.settings.normalize_volume, ctrl.settings.auto_cue) == ("mp3", True, False)
+        assert (ctrl.settings.download_quality, ctrl.settings.auto_cue) == ("mp3_320", False)
         assert ctrl.library.auto_cue is False
         loaded = Settings.load()
-        assert loaded.audio_format == "mp3" and loaded.normalize_volume
+        assert loaded.download_quality == "mp3_320" and loaded.audio_format == "mp3"
         # ---- vérification manuelle : nouvelle version proposée
         monkeypatch.setattr(engine, "latest", lambda fetch=None: engine.Release("2099.1.1", {}))
         view.show_section("advanced")                                # 1.3.1 (C89) : carte du moteur dans Avancé
@@ -132,11 +131,14 @@ def test_usb_export_pdb_repaired_on_open_and_rekordbox_warning(tmp_path, monkeyp
         ctrl = app.ctrl
         seen = []
         ctrl.on("message", lambda kind, text: seen.append((kind, text)))
-        assert pump(app, 6, lambda: ctrl.has_library)
-        assert pump(app, 6, lambda: pdb_of(usb).has_track(added.path))          # réparé tout seul
-        assert pump(app, 2, lambda: any("export.pdb" in text for _k, text in seen))
+        # 1.4.1 (C181) : délais plus larges. Échec 1 fois sur 20 sur la tour, toujours au premier lancement de la
+        # suite (fichiers .pyc à créer, antivirus) : la réparation finissait après les 2 s attendues. Non reproduit
+        # en 12 essais sous Linux. pump() rend la main dès que la condition est vraie : rien de plus lent si tout va bien.
+        assert pump(app, 15, lambda: ctrl.has_library)
+        assert pump(app, 15, lambda: pdb_of(usb).has_track(added.path))         # réparé tout seul
+        assert pump(app, 10, lambda: any("export.pdb" in text for _k, text in seen))
         running["on"] = True
-        assert pump(app, 3, lambda: any(k == "warn" and "Rekordbox" in text for k, text in seen))
+        assert pump(app, 10, lambda: any(k == "warn" and "Rekordbox" in text for k, text in seen))
         n = len([1 for k, text in seen if "Rekordbox is open" in text])
         pump(app, 0.5)
         assert len([1 for k, text in seen if "Rekordbox is open" in text]) == n == 1     # une seule fois

@@ -200,7 +200,7 @@ def test_picker_single_click_toggles(window):
 
 
 def test_duplicates_and_diagnostic_open_as_pages(window):
-    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+    from djsync.ui.quality_page import QualityPage
     from djsync.ui.duplicates_dialog import DuplicatesDialog
     from tests.qt_util import pump
 
@@ -209,8 +209,8 @@ def test_duplicates_and_diagnostic_open_as_pages(window):
     assert window.stack.currentWidget() is dup and dup.parent() is window.stack and not dup.isWindow()
     dup.close()
     assert pump(window, 2, lambda: window.current == "library" and window.stack.currentWidget() is window.views["library"])
-    diag = DiagnosticDialog(window.views["home"], window.ctrl)
-    again = DiagnosticDialog(window.views["home"], window.ctrl)          # une seule page de chaque sorte
+    diag = QualityPage(window.views["home"], window.ctrl)
+    again = QualityPage(window.views["home"], window.ctrl)          # une seule page de chaque sorte
     assert window.stack.indexOf(diag) == -1 and window.stack.currentWidget() is again
     again.reject()                                                        # Échap = Retour
     assert pump(window, 2, lambda: window.stack.currentWidget() is window.views["library"]) and not window.errors

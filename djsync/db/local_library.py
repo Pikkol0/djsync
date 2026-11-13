@@ -52,7 +52,10 @@ from .errors import (
 )
 from .base import KEEP
 from .library.common import FILE_TYPES, PdbStatus, _Extras, _safe_name, extract_video_id
-from .library.metadata import BeatGrid, PlaylistStats
+from .library.metadata import (
+    NATIVE_PARTS, REKORDBOX_ORIGINALS, BeatGrid, PlaylistStats, anlz_set, keep_rekordbox_original,
+    read_rekordbox_original, restored_files, write_or_roll_back,
+)
 
 log = logging.getLogger(__name__)
 
@@ -343,6 +346,7 @@ class LocalRekordboxLibrary:
         self.backup_keep = backup_keep
         self.analyze = analyze
         self.auto_cue = False                  # V0.5.0 : mémoire cue sur le premier temps fort
+        self.native_parts: Tuple[str, ...] = ()   # 1.4.1 (C131) : ce qu'une réanalyse refait sur un son de Rekordbox
         self.artwork = artwork
         self.ffmpeg_location = ffmpeg_location or None
         self.key_notation = key_notation
@@ -963,6 +967,10 @@ class LocalRekordboxLibrary:
                 dat = self.share_dir / ex.anlz_path.lstrip("/")
                 ex.written += [dat, dat.with_suffix(".EXT"), dat.with_suffix(".2EX")]
             except Exception as exc:  # noqa: BLE001 - son ajouté sans analyse
+                from ..analysis.anlz import CuesUnreadable
+
+                if isinstance(exc, CuesUnreadable):     # 1.4.1 (B96) : rien de réécrit, compté en échec
+                    ex.analysis = None
                 log.warning("Analysis failed (%s): %s", file_path.name, exc)
                 ex.problems.append(f"analysis: {exc}")
         if cover and self.artwork:
@@ -1120,8 +1128,9 @@ class LocalRekordboxLibrary:
     def analyze_tracks(self, content_ids: Sequence[int], force: bool = False,
                        on_progress: Optional[Callable[[int, int, Optional[LibraryTrack], str], None]] = None,
                        should_stop: Optional[Callable[[], bool]] = None, chunk: int = 8) -> Tuple[int, int, int]:
-        """Analyse les sons sans analyse ; avec `force`, réanalyse AUSSI ceux que DJSync a créés —
-        jamais une analyse de Rekordbox. Renvoie (analysés, ignorés, échecs)."""
+        """Analyse les sons sans analyse ; avec `force`, réanalyse AUSSI ceux que DJSync a créés, et
+        greffe dans les analyses de Rekordbox les parties de `native_parts` (1.4.1, D20 ; vide = laissées
+        telles quelles). Renvoie (analysés, ignorés, échecs)."""
         ids = list(dict.fromkeys(int(c) for c in content_ids))
         owned = self.owned.all()
         done = skipped = failed = 0
@@ -1134,7 +1143,14 @@ class LocalRekordboxLibrary:
                 rows = self._read("SELECT UUID, COALESCE(SampleRate,44100) FROM djmdContent WHERE ID = :id",
                                   {"id": str(cid)})
                 uuid, rate = rows[0]
-                if track.is_analysed and not (force and uuid in owned):
+                parts = tuple(p for p in self.native_parts if p in NATIVE_PARTS) if force else ()
+                if track.is_analysed and uuid not in owned:
+                    if parts:                           # 1.4.1 (C131) : son de Rekordbox, reste non « owned »
+                        self._native_reanalyse(cid, track, uuid, parts)
+                        done += 1
+                    else:
+                        skipped += 1
+                elif track.is_analysed and not force:
                     skipped += 1
                 else:
                     path = Path(track.path)
@@ -1162,6 +1178,106 @@ class LocalRekordboxLibrary:
                     t = None
                 on_progress(i, len(ids), t, problem)
         return done, skipped, failed
+
+    # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
+    def native_ids(self, content_ids: Sequence[int]) -> set:
+        """Parmi ces sons, ceux dont l'analyse vient de Rekordbox (analysés, pas créés par DJSync)."""
+        owned = self.owned.all()
+        out: set = set()
+        for cid in dict.fromkeys(int(c) for c in content_ids):
+            rows = self._read("SELECT UUID, AnalysisDataPath FROM djmdContent WHERE ID = :id", {"id": str(cid)})
+            if rows and rows[0][1] and rows[0][0] not in owned:
+                out.add(cid)
+        return out
+
+    def _native_reanalyse(self, cid: int, track: LibraryTrack, uuid: str, parts: Tuple[str, ...]) -> None:
+        """Greffe (grille et / ou formes d'onde) dans les fichiers de Rekordbox ; djmdCue et les cues
+        des fichiers ne bougent pas. Illisible ou copie de l'original impossible : rien n'est écrit."""
+        from ..analysis import analyze_file
+        from ..analysis.anlz import graft
+
+        self.ensure_writable()
+        path = Path(track.path)
+        if not path.is_file():
+            raise LibraryError(f"File not found: {path}")
+        paths = anlz_set(self.absolute_path(track.analysis_path or ""))
+        try:
+            files = {s: f.read_bytes() for s, f in paths.items()}
+            graft(files)
+        except (OSError, ValueError) as exc:
+            raise LibraryError(f"Unreadable analysis file, track not re-analysed: {exc}") from exc
+        row = self._read("SELECT BPM, KeyID FROM djmdContent WHERE ID = :id", {"id": str(cid)})[0]
+        try:
+            keep_rekordbox_original(self.backup_dir / REKORDBOX_ORIGINALS / uuid, files,
+                                    {"path": track.path, "bpmx100": int(row[0] or 0), "key_id": row[1],
+                                     "kept": datetime.now().isoformat(timespec="seconds")})
+        except OSError as exc:
+            raise LibraryError(f"Rekordbox's analysis could not be kept, track not re-analysed: {exc}") from exc
+        try:
+            analysis = analyze_file(path, self.ffmpeg_location)
+            new = graft(files, beats=analysis.pqtz_beats() if "grid" in parts else None,
+                        wf=analysis.waveforms if "waves" in parts else None)
+        except Exception as exc:  # noqa: BLE001
+            raise LibraryError(f"analysis: {exc}") from exc
+
+        def commit() -> None:
+            with self._write() as db:
+                c = self._content(cid)
+                if "grid" in parts and analysis.bpm > 0:
+                    c.BPM = int(round(analysis.bpm * 100))
+                if "key" in parts and analysis.key.name:
+                    key_id = self._key_id(db, analysis.key.name)
+                    if key_id:
+                        c.KeyID = key_id
+                if new:
+                    c.AnalysisUpdated = str(int(c.AnalysisUpdated or 0) + 1)
+                c.updated_at = datetime.now()
+                anlz = c.AnalysisDataPath or ""
+                for suffix in new:
+                    self._file_row(db, c, anlz[:-4] + suffix)
+
+        write_or_roll_back({paths[s]: d for s, d in new.items()}, {paths[s]: files[s] for s in new}, commit)
+
+    def has_rekordbox_original(self, content_id: int) -> bool:
+        rows = self._read("SELECT UUID FROM djmdContent WHERE ID = :id", {"id": str(content_id)})
+        return bool(rows) and (self.backup_dir / REKORDBOX_ORIGINALS / str(rows[0][0]) / "info.json").is_file()
+
+    def rekordbox_originals(self) -> set:
+        folder = self.backup_dir / REKORDBOX_ORIGINALS
+        try:
+            uuids = [d.name for d in folder.iterdir() if (d / "info.json").is_file()]
+        except OSError:
+            return set()
+        out: set = set()
+        for uuid in uuids:
+            out.update(int(r[0]) for r in self._read("SELECT ID FROM djmdContent WHERE UUID = :u", {"u": uuid}))
+        return out
+
+    def restore_rekordbox_analysis(self, content_id: int) -> LibraryTrack:
+        """Remet l'analyse d'origine de Rekordbox ; les cues actuels sont gardés, la copie reste en place."""
+        self.ensure_writable()
+        rows = self._read("SELECT UUID, AnalysisDataPath FROM djmdContent WHERE ID = :id", {"id": str(content_id)})
+        if not rows:
+            raise TrackNotFoundError(f"Track not found (id {content_id}).")
+        uuid, anlz = rows[0]
+        stored, info = read_rekordbox_original(self.backup_dir / REKORDBOX_ORIGINALS / str(uuid))
+        if not anlz:
+            raise LibraryError("This track is not analysed yet: run the analysis first.")
+        dat = self.absolute_path(anlz)
+        new, originals = restored_files(anlz_set(dat), stored, dat)
+
+        def commit() -> None:
+            with self._write() as db:
+                c = self._content(content_id)
+                c.BPM = int(info.get("bpmx100") or 0)
+                c.KeyID = info.get("key_id")
+                c.AnalysisUpdated = str(int(c.AnalysisUpdated or 0) + 1)
+                c.updated_at = datetime.now()
+                for f in new:
+                    self._file_row(db, c, anlz[:-4] + f.suffix)
+
+        write_or_roll_back(new, originals, commit)
+        return self.get_track(content_id)
 
     def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
                         key: Optional[str] = None) -> LibraryTrack:
@@ -1400,11 +1516,32 @@ class LocalRekordboxLibrary:
     # ------------------------------------------------------------ hot cues (1.3.0, C22)
     def track_cues(self, content_id: int) -> List[Any]:
         """Cues du son tels que Rekordbox les montre : table djmdCue (Kind 0 mémoire, 1-3 A-C, 5-9 D-H)."""
-        from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
-
         rows = self._read("SELECT Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize, ActiveLoop "
                           "FROM djmdCue WHERE ContentID = :id AND COALESCE(rb_local_deleted,0) = 0",
                           {"id": str(content_id)})
+        return self._cues_from_rows(rows)
+
+    def track_cues_many(self, content_ids: Sequence[int]) -> Dict[int, List[Any]]:
+        """1.4.1 (C60) : cues de plusieurs sons en une requête (colonne « Cues » des listes)."""
+        ids = [str(int(c)) for c in content_ids]
+        if not ids:
+            return {}
+        marks = ", ".join(f":i{k}" for k in range(len(ids)))
+        rows = self._read("SELECT ContentID, Kind, InMsec, OutMsec, ColorTableIndex, Comment, BeatLoopSize, ActiveLoop "
+                          f"FROM djmdCue WHERE ContentID IN ({marks}) AND COALESCE(rb_local_deleted,0) = 0",
+                          {f"i{k}": v for k, v in enumerate(ids)})
+        grouped: Dict[int, List[Any]] = {}
+        for row in rows:
+            try:
+                grouped.setdefault(int(row[0]), []).append(tuple(row[1:]))
+            except (TypeError, ValueError):
+                continue
+        return {cid: self._cues_from_rows(r) for cid, r in grouped.items()}
+
+    @staticmethod
+    def _cues_from_rows(rows: Any) -> List[Any]:
+        from ..analysis.cues import PALETTE, SLOT_FOR_KIND, Cue
+
         out: List[Any] = []
         for kind, in_ms, out_ms, color, comment, loop_size, active in rows:
             slot = SLOT_FOR_KIND.get(int(kind or 0))

@@ -111,6 +111,8 @@ class MissingFilesDialog(BaseDialog):
         for it in self.items:
             title, artist = split_display(it.track.title, it.track.artist)
             extra = "  ·  " + t("missing.offline_short", drive=it.volume or "?") if it.offline else ""
+            if getattr(it, "versions", None):                 # 1.4.1 (C173) : « Version existante »
+                extra += "  ·  " + plural("missing.version_one", "missing.version_many", len(it.versions))
             item = QListWidgetItem(f"{title}\n{artist or '—'}{extra}")
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)          # C126
             item.setCheckState(Qt.Unchecked)
@@ -187,6 +189,7 @@ class MissingFilesDialog(BaseDialog):
                                         else t("dup.in_no_playlist"), "dim", wrap=True))
         if it.offline:
             self.detail_lay.addWidget(label(t("missing.offline", drive=it.volume or "?"), "warn", wrap=True))
+        self._show_versions(it)
         self.detail_lay.addSpacing(theme.px(6))
         self.detail_lay.addWidget(label(t("missing.what"), "dim"))
         default = None
@@ -258,10 +261,10 @@ class MissingFilesDialog(BaseDialog):
         for k, c in enumerate(found):
             from . import levels
 
-            exp, _lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+            exp, _lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "download_quality", "") or "original")
             r = QRadioButton(f"   {c.track.title} — {c.track.artist}  ·  {format_duration(c.track.duration_seconds)}"
                              f"  ·  {exp}")                                  # C42 : qualité attendue
-            r.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "audio_format", "m4a")))
+            r.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "download_quality", "") or "original"))
             group.addButton(r, ALT + k)
             r.toggled.connect(lambda _on: self._refresh_actions())
             box.addWidget(r)
@@ -402,5 +405,70 @@ class MissingFilesDialog(BaseDialog):
 
             self.ctrl.remove_missing(ids, done, self._failed)
 
+        detail = t("missing.remove_all_detail")
+        with_version = [i for i in self.items if not i.offline and getattr(i, "versions", None)]
+        if with_version:                                   # 1.4.1 (C173) : ces lignes ont une version existante
+            names = ", ".join(split_display(i.track.title, i.track.artist)[0] for i in with_version[:5])
+            more = len(with_version) - 5
+            detail = t("missing.remove_all_versions", n=len(with_version), names=names + ("…" if more > 0 else "")) \
+                + "\n" + detail
         ConfirmDialog(self, t("missing.remove_all"), plural("missing.remove_all_one", "missing.remove_all_many", len(ids)),
-                      go, confirm_text=t("missing.remove_all"), danger=True, detail=t("missing.remove_all_detail"))
+                      go, confirm_text=t("missing.remove_all"), danger=True, detail=detail)
+
+    # ------------------------------------------------------------------ 1.4.1 (C173) : version existante
+    def _show_versions(self, it: Any) -> None:
+        """Versions présentes du même son : titre, artiste, format, durée, playlists ; « Fusionner avec
+        celle-ci » (toujours avec confirmation, jamais en lot ni automatiquement)."""
+        versions = list(getattr(it, "versions", None) or [])
+        if not versions:
+            return
+        self.detail_lay.addSpacing(theme.px(4))
+        self.detail_lay.addWidget(label(plural("missing.version_one", "missing.version_many", len(versions)), "accent"))
+        self._version_rows = {}
+        for v in versions:
+            box = panel(role="banner")
+            lay = vbox(box, margins=theme.px(8), spacing=theme.px(2))
+            vt, va = split_display(v.title, v.artist)
+            fmt = Path(v.path or "").suffix.lstrip(".").upper() or "?"
+            lay.addWidget(label(f"{vt} — {va or '—'}", wrap=True))
+            lay.addWidget(label(f"{fmt}  ·  {format_duration(v.duration_seconds)}", "dim"))
+            pls = label(t("missing.version_playlists_loading"), "faint", wrap=True)
+            lay.addWidget(pls)
+            row = hbox()
+            row.addStretch(1)
+            row.addWidget(button(t("missing.merge_with"), lambda x=v: self.merge_with(x), icon="duplicates"))
+            lay.addLayout(row)
+            self.detail_lay.addWidget(box)
+            self._version_rows[v.content_id] = pls
+
+        def show(found: dict) -> None:
+            if not self.winfo_exists():
+                return
+            for cid, names in found.items():
+                w = self._version_rows.get(cid)
+                if w is not None:
+                    w.setText(t("dup.in_playlists", names=", ".join(names)) if names else t("dup.in_no_playlist"))
+
+        self.ctrl.track_playlists([v.content_id for v in versions], show)
+
+    def merge_with(self, version: Any) -> None:
+        """Fusion de l'entrée introuvable avec une version présente, par la fusion de Doublons (inchangée) :
+        playlists reportées, hot cues reportés si la version gardée n'en a pas ; confirmation qui nomme les deux."""
+        from .dialogs import ConfirmDialog
+
+        it = self.current
+        if it is None or self._busy:
+            return
+        mt, ma = split_display(it.track.title, it.track.artist)
+        vt, va = split_display(version.title, version.artist)
+
+        def go() -> None:
+            self._busy = True
+            self._refresh_actions()
+            self.ctrl.replace_missing(it.track.content_id, version.content_id, lambda _r=None: self._done_current(),
+                                      self._failed)
+
+        self.merge_dialog = ConfirmDialog(
+            self, t("missing.merge_title"),
+            t("missing.merge_message", missing=f"{mt} — {ma or '—'}", kept=f"{vt} — {va or '—'}"),
+            go, confirm_text=t("missing.merge_with"), detail=t("missing.merge_detail"))

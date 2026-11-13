@@ -53,18 +53,22 @@ def cookie_error(exc: Any) -> bool:
 
 class Downloader:
     def __init__(self, ffmpeg_location: Optional[str] = None, fallback_bitrate: str = "256",
-                 audio_format: str = "m4a", normalize: bool = False) -> None:
+                 quality: str = "original") -> None:
         """
         ffmpeg_location  : dossier contenant ffmpeg(.exe) ; None/"" = chercher dans le PATH.
         fallback_bitrate : débit (kbps) de l'AAC produit si le flux natif est indisponible.
+        quality          : 1.4.1 (C143) : original | yt_best | mp3_320 | mp3_256 | mp3_192 | mp3_128.
         """
         self._ffmpeg = ffmpeg_location or None
         self._fallback_bitrate = fallback_bitrate
-        self.audio_format = audio_format
-        self.normalize = normalize
+        self.quality = quality
         self.soundcloud_auth: dict = {}       # 1.4.0 (C10.1) : options yt-dlp du compte SoundCloud
-        self.youtube_best = False             # 1.4.0 (C48) : meilleur flux YouTube (plus lourd)
         self.youtube_auth: dict = {}          # cookies d'un navigateur connecté (YouTube Premium)
+
+    @property
+    def mp3_kbps(self) -> int:
+        """Débit du MP3 voulu (0 : pas de conversion)."""
+        return int(self.quality[4:]) if self.quality.startswith("mp3_") and self.quality[4:].isdigit() else 0
 
     def _ffmpeg_exe(self) -> Optional[str]:
         from ..analysis.decode import find_ffmpeg
@@ -93,15 +97,29 @@ class Downloader:
 
         original = False
         try:
+            path, original = self._fetch(track, dest, base, notify)
+        except yt_dlp.utils.DownloadCancelled:
+            # 1.4.1 (C145) : arrêt demandé pendant le téléchargement : morceaux partiels effacés
+            remove_partials(dest, base)
+            raise
+        return self._finish(track, path, original, notify, tag)
+
+    def _fetch(self, track: TrackResult, dest: Path, base: str, notify: ProgressCallback) -> "tuple[Path, bool]":
+        import yt_dlp
+
+        original = False
+        try:
             try:
                 native = _YT_NATIVE if track.source in ("ytmusic", "youtube") else _ANY_NATIVE
                 extra: dict = {"format": native}
                 if track.source in ("ytmusic", "youtube"):
                     extra.update(self.youtube_auth)
-                    if self.youtube_best:
+                    if self.quality == "yt_best":
                         extra["format"] = _YT_BEST
                         extra["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a",
                                                     "preferredquality": "256"}]
+                    elif self.mp3_kbps:          # 1.4.1 (C143) : un MP3 est fait depuis le meilleur flux
+                        extra["format"] = _YT_BEST
                 if track.source == "soundcloud":
                     extra.update(self.soundcloud_auth)
                     if track.want_original:      # C10.1 : fichier d'origine d'abord, sinon le flux
@@ -140,12 +158,17 @@ class Downloader:
         except yt_dlp.utils.DownloadError as exc:
             notify(DownloadProgress("error", message=str(exc)))
             raise
+        return path, original
 
-        if tag and not original and (self.normalize or self.audio_format != "m4a"):
+    def _finish(self, track: TrackResult, path: Path, original: bool, notify: ProgressCallback,
+                tag: bool) -> DownloadedTrack:
+        if tag and not original and self.mp3_kbps and path.suffix.lower() != ".mp3":
             notify(DownloadProgress("converting", 100.0, "Converting…"))
             try:
-                path = finalize(path, self._ffmpeg_exe(), self.audio_format, self.normalize)
-            except Exception as exc:  # noqa: BLE001 - le fichier d'origine reste utilisable
+                path = finalize(path, self._ffmpeg_exe(), "mp3", f"{self.mp3_kbps}k")
+            except Exception as exc:  # noqa: BLE001 - le fichier d'origine reste utilisable…
+                if path.suffix.lower() not in _READABLE:     # … sauf un flux que Rekordbox ne lit pas (Opus)
+                    raise
                 log.warning("Post-processing failed for %s: %s", path, exc)
         if tag:
             notify(DownloadProgress("tagging", 100.0, "Writing tags…"))
@@ -200,3 +223,16 @@ class Downloader:
         if final is None:
             raise FileNotFoundError(f"Expected file not found in {dest}")
         return final, str((info or {}).get("format_id") or "")
+
+
+def remove_partials(dest: Path, base: str) -> None:
+    """1.4.1 (C145) : fichiers laissés par un téléchargement interrompu (« .part », « .ytdl », fragments)."""
+    import glob
+
+    for f in Path(dest).glob(glob.escape(base) + ".*"):
+        name = f.name
+        if name.endswith((".part", ".ytdl")) or ".part-Frag" in name or ".temp." in name:
+            try:
+                f.unlink()
+            except OSError:
+                pass

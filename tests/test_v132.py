@@ -170,6 +170,7 @@ def test_analysis_page_lists_tracks_and_starts(demo, monkeypatch):  # noqa: F811
     first.setCheckState(Qt.Unchecked)                           # retirer un son de la liste
     assert len(d._todo()) == len(tracks) - 1
     d._start()
+    pump(demo, 4, lambda: bool(started))        # 1.4.1 (C131) : sons de Rekordbox comptés avant le lancement
     assert started and len(started[0][0]) == len(tracks) - 1 and started[0][1] is True
     assert not d.start_btn.isVisible() or d.start_btn.isHidden()
     d.close()

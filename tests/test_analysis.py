@@ -379,7 +379,8 @@ def test_reanalysis_is_skipped_for_analysed_and_native_tracks(tmp_path):
         lib.add_track(lib.absolute_path(t), "a", "A", playlist_ids=[1])      # ré-ajout : pas de réanalyse
         assert dat.stat().st_mtime_ns == stamp
         native = lib._read("SELECT content_id FROM content WHERE masterDbId IS NOT NULL")[0][0]
-        assert lib.analyze_track(native, force=True).path == "/Contents/n.mp3"   # natif : jamais touché
+        # 1.4.1 (C131, D20) : natif laissé tel quel tant que rien n'est choisi (native_parts vide)
+        assert lib.analyze_track(native, force=True).path == "/Contents/n.mp3"
         assert lib.unanalysed_tracks() == []
 
 

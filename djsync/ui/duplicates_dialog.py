@@ -45,6 +45,7 @@ class DuplicatesDialog(BaseDialog):
         self._priority: List[List[LibraryTrack]] = []       # 1.3.2 (C84) : groupes demandés en premier
         self._pending: List[dict] = []                       # 1.3.2 (C82) : fusions en attente (Annuler)
         self._refining: Optional[List[LibraryTrack]] = None
+        self._paused = self._stopped = False                 # 1.4.1 (C145) : pause / arrêt depuis le volet
         self._focus = set(focus_ids or [])
         self._keep_id = keep_id                              # version choisie dans le Diagnostic
         self._full = full
@@ -149,6 +150,9 @@ class DuplicatesDialog(BaseDialog):
         # C84 : d'abord les groupes demandés (clic droit, « Vérifier maintenant »), puis celui affiché
         asked = [next((i for i in todo if self.groups[i] is g), -1) for g in self._priority]
         asked = [i for i in asked if i >= 0]
+        if (self._paused or self._stopped) and not asked:    # C145 : pas de groupe suivant (sauf demandé)
+            self._update_count()
+            return
         i = asked[0] if asked else (self.index if self.index in todo else todo[0])
         self._priority = [g for g in self._priority if g is not self.groups[i]]
         group = self.groups[i]
@@ -202,12 +206,59 @@ class DuplicatesDialog(BaseDialog):
             self.count.setText(plural("dup.groups_one", "dup.groups_many", n))
             self.bar.hide()
         self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
+        self._sync_task(todo, n)
+
+    # ------------------------------------------------------------------ 1.4.1 (C145) : tâche du volet
+    def _sync_task(self, todo: int, n: int) -> None:
+        """Vérification du son des groupes -> tâche « dup » du volet (pause, arrêt, → ouvre cette page).
+        Pause et arrêt : le groupe en cours finit, le suivant n'est pas commencé ; « Vérifier maintenant »
+        reste possible. Fin : tout vérifié, arrêt (une fois le groupe en cours fini) ou page fermée."""
+        tasks = getattr(self.ctrl, "tasks", None)
+        if tasks is None:
+            return
+        task = tasks.get("dup")
+        working = bool(todo) and not self._closed and not (self._stopped and self._refining is None)
+        if not working:
+            if task is not None and task.active and getattr(self, "_task", None) is task:
+                task.finish()
+            return
+        if task is None or not task.active:
+            if self._stopped:                          # arrêtée : « Vérifier maintenant » ne la relance pas
+                return
+            self._paused = False
+            task = tasks.start("dup", "task.duplicates", icon="duplicates", open="dup",
+                               can_pause=True, pause=self._task_pause, resume=self._task_resume,
+                               can_stop=True, stop=self._task_stop)
+        self._task = task
+        task.progress(n - todo, n)
+
+    def _task_pause(self) -> None:
+        self._paused = True
+
+    def _task_resume(self) -> None:
+        self._paused = False
+        if self.winfo_exists():
+            self._refine_next()
+
+    def _task_stop(self) -> None:
+        self._stopped = True
+        if self.winfo_exists():
+            self._update_count()
+
+    def close(self) -> bool:                      # noqa: D401
+        result = super().close()
+        tasks = getattr(self.ctrl, "tasks", None)
+        task = tasks.get("dup") if tasks is not None else None
+        if task is not None and task.active and getattr(self, "_task", None) is task:
+            task.finish()
+        return result
 
     # ------------------------------------------------------------------ liste
     def _loaded(self, groups: List[List[LibraryTrack]]) -> None:
         if not self.winfo_exists():
             return
         self.groups = groups
+        self._paused = self._stopped = False                 # C145 : nouvelle recherche, nouvelle tâche
         self.verified = [False] * len(groups)
         self.apart = [[] for _ in groups]
         self.same_titles = []
@@ -654,12 +705,12 @@ class DuplicatesDialog(BaseDialog):
             name = label(c.track.title)
             name.setStyleSheet("font-weight:600;")
             text.addWidget(name)
-            exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "audio_format", "m4a"))
+            exp, lvl = levels.expected_download(c.track.source, getattr(self.ctrl.settings, "download_quality", "") or "original")
             kind = t("track.song") if c.track.is_song else t("track.video")
             line = label("  ·  ".join([escape(c.track.artist or ""), format_duration(c.track.duration_seconds),
                                        escape(kind), levels.html(exp, lvl)]), "dim")
             line.setTextFormat(Qt.RichText)
-            line.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "audio_format", "m4a")))
+            line.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "download_quality", "") or "original"))
             text.addWidget(line)
             lay.addLayout(text, 1)
             lay.addWidget(chip(SOURCE_LABELS.get(c.track.source, c.track.source)))

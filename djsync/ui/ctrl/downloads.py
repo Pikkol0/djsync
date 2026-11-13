@@ -10,6 +10,14 @@ from ...i18n import plural, t
 from ...models import DownloadJob, TrackResult
 from .library_ops import pdb_warning
 
+
+class DownloadStopped(Exception):
+    """1.4.1 (C145) : arrêt demandé depuis le volet (pas une erreur)."""
+
+
+def _stop_asked(job: Any) -> bool:
+    return bool(getattr(job, "stop", False))
+
 log = logging.getLogger(__name__)
 
 
@@ -64,7 +72,7 @@ class DownloadsMixin:
 
     def _job_changed(self, job: DownloadJob) -> None:
         q = getattr(self, "analysis", None)
-        if job.status == "error" and q is not None and q.drop(job.id):    # 1.4.0-rc.5 (C161) : retiré du total
+        if job.status in ("error", "cancelled") and q is not None and q.drop(job.id):   # C161 : retiré du total
             self._emit("analysis")
         self._emit("download_update", job)
 
@@ -72,11 +80,55 @@ class DownloadsMixin:
         s = self.settings
         return bool(s.analyze_after_download_local if self.is_local else s.analyze_after_download_usb)
 
+    # ------------------------------------------------------------------ 1.4.1 (C145) : pause du volet
+    @property
+    def downloads_paused(self) -> bool:
+        return bool(getattr(self, "_downloads_paused", False))
+
+    def pause_downloads(self, paused: bool = True) -> None:
+        """Pause : les fichiers en cours finissent, les suivants restent en attente jusqu'à la reprise."""
+        if self.downloads_paused != paused:
+            self._downloads_paused = paused
+            self._emit("downloads")
+
+    def stop_downloads(self) -> None:
+        """Arrêt (⏹ du volet) : les sons en attente ne partent pas, ceux en cours de téléchargement ou de
+        conversion sont interrompus (fichier partiel effacé) ; un son déjà en train d'être ajouté à la
+        bibliothèque finit (on ne coupe jamais une écriture). Tous restent dans la liste, « Arrêté »,
+        et « Réessayer » les relance."""
+        self._downloads_paused = False
+        for job in list(self.jobs):
+            if job.is_finished or job.status == "adding":
+                continue
+            job.stop = True
+            if job.status == "queued":
+                job.status, job.percent, job.message = "cancelled", 0.0, ""
+                self._job_changed(job)
+        self._emit("downloads")
+
+    def _wait_downloads_pause(self) -> None:
+        """Thread « dl » : attend la reprise avant de commencer un fichier (libéré aussi à la fermeture)."""
+        import time
+
+        while self.downloads_paused and not getattr(self.dispatcher, "_closed", False):
+            time.sleep(0.3)
+
     def _run_job(self, job: DownloadJob) -> None:
         """Thread « dl » : téléchargement natif -> tags -> ajout en base (+ backup) -> playlists."""
         last: Dict[str, Any] = {}
+        if getattr(self, "_downloads_paused", False):       # 1.4.1 (C145) : jamais au milieu d'un fichier
+            self._wait_downloads_pause()
+            if job.status != "queued" and not _stop_asked(job):   # retiré pendant la pause
+                return
+        if _stop_asked(job):                               # C145 : arrêté avant de partir
+            self._stopped(job)
+            return
 
         def progress(p: Any) -> None:
+            if _stop_asked(job):                           # C145 : interrompt yt-dlp au milieu du fichier
+                from yt_dlp.utils import DownloadCancelled
+
+                raise DownloadCancelled("stopped")
             key = (p.status, int(p.percent // 2))
             if last.get("key") == key:
                 return
@@ -104,7 +156,12 @@ class DownloadsMixin:
                 from ...core.metadata import enrich
 
                 track = enrich(track)
+            if _stop_asked(job):
+                raise DownloadStopped()
             result = self.service.download(track, lib.default_download_dir(track.artist, track.album), on_progress=progress)
+            if _stop_asked(job):                      # C145 : arrêté pendant la conversion ou les tags
+                Path(result.file_path).unlink(missing_ok=True)
+                raise DownloadStopped()
             fmt = "" if getattr(lib, "is_local", False) else (self.settings.player_format or "")
             from ...core import players
 
@@ -115,6 +172,9 @@ class DownloadsMixin:
                 out = players.convert(flac, players.target_path(flac, fmt), fmt, self.settings.ffmpeg_location or None)
                 flac.unlink(missing_ok=True)
                 result = replace(result, file_path=str(out))
+            if _stop_asked(job):                      # C145 : dernier point d'arrêt avant l'écriture
+                Path(result.file_path).unlink(missing_ok=True)
+                raise DownloadStopped()
             job.status, job.percent = "adding", 100.0
             self.dispatcher.post(self._job_changed, job)
             meta = {"year": track.year, "release_date": track.release_date, "genre": track.genre,
@@ -150,6 +210,9 @@ class DownloadsMixin:
             if warning:
                 self.dispatcher.post(self.message, "warn", warning)
         except Exception as exc:  # noqa: BLE001 - affiché dans la ligne du téléchargement
+            if _stop_asked(job):                      # C145 : arrêt demandé, pas une erreur
+                self._stopped(job)
+                return
             log.warning("Download %s failed: %s", job.track.video_id, exc)
             from ..controller import is_offline_error, known_error
 
@@ -208,10 +271,17 @@ class DownloadsMixin:
             if job.status == "error" and getattr(job, "reason", "") == "error.youtube_bot":
                 self.retry(job)
 
+    def _stopped(self, job: DownloadJob) -> None:
+        """Thread « dl » : son arrêté (C145) : « Arrêté » dans la liste, relançable."""
+        log.info("Download %s stopped by the user", job.track.video_id)
+        job.status, job.percent, job.message, job.peer_state = "cancelled", 0.0, "", ""
+        self.dispatcher.post(self._job_changed, job)
+
     def retry(self, job: DownloadJob) -> None:
-        if job.status != "error" or self.library is None:
+        if job.status not in ("error", "cancelled") or self.library is None:
             return
         job.status, job.percent, job.message, job.library = "queued", 0.0, "", self.library
+        job.stop = False
         self._emit("download_update", job)
         self.dispatcher.submit(lambda: self._run_job(job), pool="dl")
 

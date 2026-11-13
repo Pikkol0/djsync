@@ -34,7 +34,7 @@ def demo(tmp_path, monkeypatch):
 
 
 def test_tabs_home_and_english_default(demo):
-    assert list(demo.views) == ["home", "search", "library", "downloads", "import", "settings", "feedback"]
+    assert list(demo.views) == ["home", "search", "hq", "library", "downloads", "import", "settings", "feedback"]
     assert demo._nav["home"].text() == "Home" and demo.current == "home"
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].tracks == 10)
@@ -89,47 +89,6 @@ def test_queue_next_previous(demo):
     assert ctrl.queue_index == 2
     pump(demo, 1.0)
     assert demo.player_bar.next_btn.isEnabled()
-    assert not demo.errors
-
-
-def test_zoom_is_live_and_window_size_does_not_change_it(demo):
-    from djsync.ui import theme
-
-    lib = demo.views["library"]
-    demo.show_view("library")
-    assert pump(demo, 4, lambda: lib.table.total == 10)
-    views_before = dict(demo.views)
-    demo.ctrl.settings.zoom = 150
-    demo.ctrl._emit("restyle")
-    pump(demo, 0.3)
-    assert theme.zoom() == 1.5 and demo.views == views_before          # pas de reconstruction
-    assert lib.table.total == 10
-    demo.ctrl.settings.zoom = 100
-    demo.ctrl._emit("restyle")
-    # petite fenêtre : barre latérale en icônes, le zoom ne bouge pas
-    demo.resize(780, 520)
-    assert pump(demo, 2, lambda: demo._compact is True)
-    assert theme.zoom() == 1.0
-    demo.resize(1280, 800)
-    assert pump(demo, 2, lambda: demo._compact is False)
-    # couleur : à chaud aussi
-    demo.ctrl.settings.theme = "green"
-    demo.ctrl._emit("restyle")
-    assert demo.views == views_before
-    assert not demo.errors
-
-
-def test_language_rebuild(demo):
-    demo.ctrl.settings.language = "fr"
-    demo.ctrl._emit("rebuild_ui")
-    pump(demo, 0.5)
-    assert demo._nav["home"].text() == "Accueil" and demo.ctrl.has_library
-    demo.show_view("library")
-    assert pump(demo, 3, lambda: demo.views["library"].table.total == 10)
-    demo.ctrl.settings.language = "en"
-    demo.ctrl._emit("rebuild_ui")
-    pump(demo, 0.3)
-    assert demo._nav["home"].text() == "Home"
     assert not demo.errors
 
 

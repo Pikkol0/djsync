@@ -122,6 +122,7 @@ class AnalysisQueue(TaskHandle):
         # 1.4.0-rc.5 (C161) : téléchargements en cours dont le son sera analysé : comptés dès le départ
         self.expected: set = set()       # identifiants des téléchargements attendus
         self.stopped: set = set()        # téléchargements d'une analyse arrêtée : ne la relancent pas
+        self.paused = False              # 1.4.1 (C145) : pause depuis le volet (le son en cours finit)
 
     @property
     def running(self) -> bool:
@@ -187,8 +188,14 @@ class AnalysisQueue(TaskHandle):
             self.batch = [i for i in batch if i not in self.forced] + [i for i in batch if i in self.forced]
             return batch
 
+    def requeue(self, ids: Sequence[int]) -> None:
+        """1.4.1 (C145) : sons d'un lot pas commencés à cause d'une pause : remis en tête de file."""
+        with self._lock:
+            self.pending = [i for i in ids if i not in self.pending] + self.pending
+
     def reset(self) -> None:
         with self._lock:
+            self.paused = False
             self.total = self.done = self.ok = self.skipped = self.failed = 0
             self.pending, self.ids, self.forced, self.problems = [], set(), set(), []
             self.missing = {}
@@ -442,6 +449,26 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: log.info("Playlist membership not read: %s", exc), pool="db")
 
+    def cue_marks(self, tracks: Sequence[LibraryTrack], ok: Callable[[Dict[int, Any]], None]) -> None:
+        """1.4.1 (C60) : hot cues, boucles et mémoires de chaque son (`core.cue_marks.CueMark`), hors du fil de
+        l'interface ; ok() n'est pas appelé si la bibliothèque a changé entre-temps."""
+        lib = self.library
+        items = [x for x in tracks if x is not None]
+        if lib is None or not items:
+            ok({})
+            return
+
+        def work() -> Dict[int, Any]:
+            from ...core.cue_marks import read_marks
+
+            return read_marks(lib, items, should_stop=lambda: self.library is not lib)
+
+        def done(marks: Dict[int, Any]) -> None:
+            if self.library is lib:
+                ok(marks)
+
+        self.dispatcher.submit(work, done, lambda exc: log.info("Cue marks not read: %s", exc), pool="cues")
+
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library
         if lib is None:
@@ -467,7 +494,8 @@ class LibraryOpsMixin:
                 on_done: Optional[Callable[[Any], None]] = None, quiet: bool = False,
                 expect: Sequence[int] = ()) -> Optional[TaskHandle]:
         """Met des sons dans la file d'analyse (BPM / grille / tonalité / formes d'onde) et la lance si
-        elle ne tourne pas. Renvoie la file (annulable). Les sons analysés par Rekordbox sont ignorés.
+        elle ne tourne pas. Renvoie la file (annulable). Avec `force`, les sons analysés par Rekordbox suivent
+        le choix mémorisé (1.4.1, D20) : passer par ui.reanalyse.analyse_again pour le demander.
         `expect` (1.4.0-rc.5, C161) : téléchargements dont le son sera analysé, comptés tout de suite."""
         lib = self.library
         if lib is None:
@@ -500,8 +528,14 @@ class LibraryOpsMixin:
                 log.warning("Analysis failed for track %s: %s", track.content_id if track else "?", problem[:300])
             self.dispatcher.post(self._analysis_progress, q.done, q.total, track, problem)
 
+        def wait_while_paused() -> None:
+            # 1.4.1 (C145) : pause du volet ; libérée par la reprise, l'arrêt ou la fermeture de l'application
+            while q.paused and not q.cancelled and not getattr(self.dispatcher, "_closed", False):
+                time.sleep(0.2)
+
         def work() -> Any:
             while True:
+                wait_while_paused()
                 light = self._light()
                 if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
                     self._wait_while_playing(q)
@@ -517,11 +551,26 @@ class LibraryOpsMixin:
                 batch = self._skip_missing(lib, q, batch)        # 1.3.2-rc.3 (B49)
                 normal = [i for i in batch if i not in q.forced]
                 forced = [i for i in batch if i in q.forced]
+                left: List[int] = []
                 for ids, force_it in ((normal, False), (forced, True)):
+                    if ids and q.paused and not q.cancelled:
+                        left += ids                           # C145 : pause, lot remis en file
+                        continue
                     if ids and not q.cancelled:
-                        a, sk, fl = lib.analyze_tracks(ids, force=force_it, on_progress=progress,
-                                                       should_stop=lambda: q.cancelled)
+                        seen = [0]
+
+                        def step(i: int, n: int, track: Optional[LibraryTrack], problem: str,
+                                 _seen: List[int] = seen) -> None:
+                            _seen[0] = i
+                            progress(i, n, track, problem)
+
+                        a, sk, fl = lib.analyze_tracks(ids, force=force_it, on_progress=step,
+                                                       should_stop=lambda: q.cancelled or q.paused)
                         q.ok, q.skipped, q.failed = q.ok + a, q.skipped + sk, q.failed + fl
+                        if q.paused and not q.cancelled:      # C145 : arrêt après le son en cours
+                            left += ids[seen[0]:]
+                if left:
+                    q.requeue(left)
                 self.dispatcher.post(self._analysis_batch_saved, lib)
             return q.ok, q.skipped, q.failed
 
@@ -529,6 +578,8 @@ class LibraryOpsMixin:
             q.finished, q.current = True, ""
             if self.library is lib:
                 self.service.refresh_library()
+                if q.forced:
+                    self.refresh_rekordbox_originals()      # 1.4.1 (C131)
             if result is not None:
                 ok_n, skipped, failed = result
                 text = t("msg.analysis_done", done=ok_n, skipped=skipped, failed=failed)
@@ -649,11 +700,61 @@ class LibraryOpsMixin:
             self.service.refresh_library()
             self._emit("library")
 
+    def pause_analysis(self, paused: bool = True) -> None:
+        """1.4.1 (C145) : pause (le son en cours finit, le suivant attend) ou reprise de l'analyse."""
+        if self.analysis.running and self.analysis.paused != paused:
+            self.analysis.paused = paused
+            self._emit("analysis")
+
     def stop_analysis(self) -> None:
         if self.analysis.running:
             self.analysis.cancel()
             self.message("info", t("analysis.stopping"))
             self._emit("analysis")
+
+    # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
+    def native_ids(self, content_ids: Sequence[int], ok: Callable[[set], None]) -> None:
+        """ok(sons de la liste dont l'analyse vient de Rekordbox)."""
+        lib = self.library
+        if lib is None or not hasattr(lib, "native_ids"):
+            ok(set())
+            return
+        ids = list(content_ids)
+        self.dispatcher.submit(lambda: lib.native_ids(ids), ok, lambda _e: ok(set()), pool="db")
+
+    def set_native_parts(self, parts: Sequence[str]) -> None:
+        """Choix « que réanalyser sur les sons analysés par Rekordbox » : mémorisé et appliqué."""
+        s = self.settings
+        s.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]
+        s.reanalyze_rekordbox_asked = True
+        s.save()
+        if self.library is not None:
+            self.library.native_parts = s.native_parts()
+
+    @property
+    def rekordbox_originals(self) -> set:
+        """Sons dont l'analyse d'origine de Rekordbox est gardée (tenu à jour en arrière-plan)."""
+        return self.__dict__.setdefault("_rekordbox_originals", set())
+
+    def refresh_rekordbox_originals(self) -> None:
+        lib = self.library
+        if lib is None or not hasattr(lib, "rekordbox_originals"):
+            self.__dict__["_rekordbox_originals"] = set()
+            return
+
+        def done(found: Any) -> None:
+            if self.library is lib:
+                self.__dict__["_rekordbox_originals"] = set(found or ())
+
+        self.dispatcher.submit(lib.rekordbox_originals, done, lambda _e: None, pool="db")
+
+    def restore_rekordbox_analysis(self, content_id: int, ok: Optional[Callback] = None) -> None:
+        def done(result: Any) -> None:
+            self.refresh_rekordbox_originals()
+            if ok:
+                ok(result)
+
+        self._write(lambda lib: lib.restore_rekordbox_analysis(content_id), done, t("msg.rekordbox_restored"))
 
     def analyze_missing(self, ok: Optional[Callback] = None) -> None:
         """Compatibilité V1.1-A4 : analyse tous les sons DJSync non analysés."""
@@ -693,7 +794,7 @@ class LibraryOpsMixin:
             grid = lib.beat_grid(content_id)
             ext = grid.dat_path.with_suffix(".EXT")
             try:
-                detail = read_detail(ext.read_bytes()) if ext.is_file() else []
+                detail = read_detail(ext.read_bytes(), self.settings.waveform_style) if ext.is_file() else []
             except (OSError, ValueError):
                 detail = []
             band = None                                # 1.3.0-rc.3 (B21) : 3 bandes de Rekordbox (.2EX)

@@ -107,7 +107,7 @@ def expected_download(source: str, audio_format: str):
     from ..models import SOURCE_LABELS
 
     src_kbps = SOURCE_KBPS
-    fmt = "MP3 320" if audio_format == "mp3" else "m4a"
+    fmt = _target(audio_format)
     text = t("dup.expected", kbps=src_kbps, source=SOURCE_LABELS.get(source, source or "?"), fmt=fmt)
     return text, audio_quality(src_kbps)
 
@@ -115,12 +115,19 @@ def expected_download(source: str, audio_format: str):
 SOURCE_KBPS = 128
 
 
+def _target(quality: str) -> str:
+    """Format écrit pour un choix de Paramètres ▸ Téléchargement (1.4.1, C143 ; « mp3 » / « m4a » : anciens)."""
+    if quality.startswith("mp3_") and quality[4:].isdigit():
+        return f"MP3 {quality[4:]}"
+    return "MP3 320" if quality == "mp3" else "m4a"
+
+
 def expected_tip(audio_format: str) -> str:
     """Bulle d'aide de la qualité attendue ; en MP3, conseille le m4a (même son, fichier plus léger)."""
     from ..i18n import t
 
     tip = t("dup.expected_tip")
-    if audio_format == "mp3" and SOURCE_KBPS <= 160:
+    if _target(audio_format).startswith("MP3") and SOURCE_KBPS <= 160:
         tip += "\n" + t("dup.expected_tip_mp3")
     return tip
 

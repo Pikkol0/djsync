@@ -237,19 +237,19 @@ ffmpeg = shutil.which("ffmpeg")
 
 
 @pytest.mark.skipif(ffmpeg is None, reason="FFmpeg requis")
-def test_finalize_mp3_and_normalize(tmp_path):
-    from djsync.core.audio_post import finalize, measure
+def test_finalize_mp3_only(tmp_path):
+    """1.4.1 (C143) : « Même volume » retiré ; finalize ne fait plus que la conversion MP3, au débit choisi."""
+    from djsync.core.audio_post import finalize
 
     src = tmp_path / "quiet.m4a"
     subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=6",
                     "-af", "volume=-20dB", "-c:a", "aac", str(src)], check=True)
-    assert finalize(src, ffmpeg) == src                          # m4a sans normalisation : intact
-    before = measure(src, ffmpeg)
-    out = finalize(src, ffmpeg, "m4a", normalize=True)
-    after = measure(out, ffmpeg)
-    assert out == src and after.integrated > before.integrated + 5 and after.true_peak <= -0.5
-    mp3 = finalize(out, ffmpeg, "mp3")
+    assert finalize(src, ffmpeg) == src                          # m4a : intact
+    mp3 = finalize(src, ffmpeg, "mp3", "192k")
     assert mp3.suffix == ".mp3" and mp3.is_file() and not src.exists()
+    probe = subprocess.run([ffmpeg, "-hide_banner", "-i", str(mp3)], capture_output=True, text=True).stderr
+    assert "192 kb/s" in probe
+    assert finalize(mp3, ffmpeg, "mp3", "320k") == mp3           # déjà un MP3 : jamais ré-encodé
 
 
 def test_grid_band_wave_is_fine_and_aligned():

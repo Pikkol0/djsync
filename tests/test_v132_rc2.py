@@ -322,8 +322,9 @@ def test_analysis_page_leaves_out_missing_files(demo, monkeypatch):  # noqa: F81
     assert pump(demo, 4, lambda: tracks[0].content_id in d._missing)
     assert tracks[0].content_id not in [x.content_id for x in d._todo()]
     assert "introuvable" in d.what.text() or "not found" in d.what.text()
-    d._start()
-    assert started and tracks[0].content_id not in started[0]
+    d._start()                                             # 1.4.1 (C131) : lancement après native_ids (asynchrone)
+    assert pump(demo, 4, lambda: bool(started))
+    assert tracks[0].content_id not in started[0]
     assert d._eta(0)                                       # temps restant affiché pendant l'analyse
     d.close()
     assert not demo.errors

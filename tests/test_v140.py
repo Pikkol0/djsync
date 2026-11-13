@@ -189,7 +189,7 @@ def test_downloader_keeps_the_original_untouched(tmp_path, monkeypatch):
 
     monkeypatch.setattr(D.Downloader, "_run", fake_run)
     monkeypatch.setattr(D, "finalize", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no transcode")))
-    d = D.Downloader(audio_format="mp3", normalize=True)
+    d = D.Downloader(quality="mp3_320")
     d.soundcloud_auth = {"username": "oauth", "password": "tok"}
     res = d.download(_sc(want_original=True), tmp_path)
     assert res.original and res.file_path.endswith(".wav")
@@ -420,7 +420,7 @@ def test_youtube_best_stream_is_opt_in(tmp_path, monkeypatch):
     from djsync.models import TrackResult
     from djsync.settings import Settings
 
-    assert Settings().youtube_best is False
+    assert Settings().youtube_best is False and Settings().normalize().download_quality == "original"
     seen = []
     monkeypatch.setattr(D.Downloader, "_run", lambda self, tr, dest, base, extra, n: (seen.append(extra),
                                                                                       (_wav(dest / f"{base}.wav"), "251"))[1])
@@ -430,7 +430,7 @@ def test_youtube_best_stream_is_opt_in(tmp_path, monkeypatch):
     yt = TrackResult(video_id="y" * 11, title="T", artist="A")
     d.download(yt, tmp_path / "a")
     assert seen[-1]["format"] == D._YT_NATIVE and "postprocessors" not in seen[-1]
-    d.youtube_best, d.youtube_auth = True, {"cookiesfrombrowser": ("firefox",)}
+    d.quality, d.youtube_auth = "yt_best", {"cookiesfrombrowser": ("firefox",)}     # 1.4.1 (C143)
     d.download(yt, tmp_path / "b")
     assert seen[-1]["format"].startswith("141/") and seen[-1]["postprocessors"][0]["preferredquality"] == "256"
     assert seen[-1]["cookiesfrombrowser"] == ("firefox",)
@@ -613,7 +613,7 @@ def test_lossless_from_a_free_source_is_never_transcoded(tmp_path, monkeypatch):
     monkeypatch.setattr(D.Downloader, "_run", lambda self, tr, dest, base, extra, n: ((_wav(dest / f"{base}.wav")), "0"))
     monkeypatch.setattr(D, "finalize", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no transcode")))
     monkeypatch.setattr(D, "tag_audio", lambda *a, **k: None)
-    d = D.Downloader(audio_format="mp3", normalize=True)
+    d = D.Downloader(quality="mp3_320")
     tr = TrackResult(video_id="archive:x", title="T", artist="A", source="archive",
                      source_url="https://archive.org/download/x/t.wav", quality="WAV")
     res = d.download(tr, tmp_path)

@@ -144,8 +144,17 @@ def is_portable(start: Optional[Path] = None) -> bool:
             or (here / CONTENTS / "portable.flag").exists() or own_drive_root(here) is not None)
 
 
+def contents_dir() -> Optional[Path]:
+    """1.4.1 (B84) : dossier `.djsync` déplacé par le lanceur (DJSync.exe rangé dans un dossier non modifiable,
+    comme C:\\Program Files) : %LOCALAPPDATA%\\DJSync, avec `app` et `data`. None sinon (cas habituel)."""
+    moved = os.environ.get("DJSYNC_CONTENTS_DIR")
+    return Path(moved) if moved else None
+
+
 def portable_data_dir(start: Optional[Path] = None) -> Optional[Path]:
     """Réglages de la version portable : `.djsync/data` (caché), ou l'ancien `DJSync_Data` s'il existe."""
+    if start is None and contents_dir() is not None:         # 1.4.1 (B84)
+        return contents_dir() / "data"
     here = Path(start) if start is not None else app_dir()
     if not is_portable(here):
         return None
@@ -157,6 +166,8 @@ def portable_data_dir(start: Optional[Path] = None) -> Optional[Path]:
 def tool_dirs(start: Optional[Path] = None) -> list:
     here = Path(start) if start is not None else app_dir()
     bases = [here / CONTENTS / "app", here / CONTENTS, here]
+    if start is None and contents_dir() is not None:         # 1.4.1 (B84)
+        bases[:0] = [contents_dir() / "app", contents_dir()]
     if start is None and getattr(sys, "frozen", False):
         bases.insert(0, Path(sys.executable).resolve().parent)          # outils livrés avec l'application
     seen, out = set(), []

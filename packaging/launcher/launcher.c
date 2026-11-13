@@ -14,6 +14,9 @@
  * .djsync reçoit les attributs « caché » + « système » : l'utilisateur ne voit que DJSync.exe.
  * L'application reçoit DJSYNC_APP_DIR = dossier de ce lanceur (où vivent ses données) et
  * DJSYNC_LAUNCHER = chemin de ce lanceur (pour pouvoir se désinstaller).
+ * 1.4.1 (B84) : si le dossier de l'exe n'est pas modifiable (C:\Program Files sans droits
+ * d'administrateur, dossier protégé), .djsync va dans %LOCALAPPDATA%\DJSync à la place ; l'application
+ * reçoit alors DJSYNC_CONTENTS_DIR = ce dossier (son app\ et son data\). Sur une clé, rien ne change.
  *
  * Compilation (Linux, mingw-w64) : packaging/build_launcher.sh
  */
@@ -302,6 +305,17 @@ static int extract(const wchar_t *self, uint64_t start, uint64_t size, const wch
     return 1;
 }
 
+/* 1.4.1 (B84) : peut-on écrire dans ce dossier ? (fichier d'essai, effacé à la fermeture) */
+static int writable(const wchar_t *folder) {
+    wchar_t probe[MAX_PATH * 2];
+    swprintf(probe, MAX_PATH * 2, L"%ls\\.djsync-write-test-%lu", folder, (unsigned long)GetCurrentProcessId());
+    HANDLE h = CreateFileW(probe, GENERIC_WRITE, 0, NULL, CREATE_NEW,
+                           FILE_ATTRIBUTE_TEMPORARY | FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    CloseHandle(h);
+    return 1;
+}
+
 /* ------------------------------------------------------------------- lancement */
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
     (void)inst; (void)prev; (void)show;
@@ -311,6 +325,27 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
     wcscpy(dir, self);
     *wcsrchr(dir, L'\\') = 0;
     swprintf(base, MAX_PATH * 2, L"%ls\\%ls", dir, CONTENTS);
+    /* 1.4.1 (B84) : .djsync déjà là et modifiable, ou dossier de l'exe modifiable : comme avant ;
+       sinon %LOCALAPPDATA%\DJSync (l'exe peut rester dans Program Files) */
+    int moved = 0;
+    DWORD attrs = GetFileAttributesW(base);
+    int exists = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+    if (!(exists ? writable(base) : writable(dir))) {
+        wchar_t local[MAX_PATH * 2];
+        DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH * 2);
+        if (!n || n >= MAX_PATH * 2) {
+            fail(L"This folder is read-only: put DJSync.exe in Documents or on the Desktop.\n"
+                 L"Ce dossier est protégé : placez DJSync.exe dans Documents ou sur le Bureau.", 0);
+            return 1;
+        }
+        swprintf(base, MAX_PATH * 2, L"%ls\\DJSync", local);
+        if (!CreateDirectoryW(base, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+            fail(L"This folder is read-only: put DJSync.exe in Documents or on the Desktop.\n"
+                 L"Ce dossier est protégé : placez DJSync.exe dans Documents ou sur le Bureau.", GetLastError());
+            return 1;
+        }
+        moved = 1;
+    }
     swprintf(exe, MAX_PATH * 2, L"%ls\\app\\DJSync.exe", base);
     swprintf(stamp, MAX_PATH * 2, L"%ls\\app\\VERSION.txt", base);
 
@@ -351,9 +386,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR args, int show) {
         if (g_win) DestroyWindow(g_win);
         if (g_font) DeleteObject(g_font);
     }
-    SetFileAttributesW(base, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY);
+    if (!moved)                                    /* %LOCALAPPDATA%\DJSync reste un dossier normal */
+        SetFileAttributesW(base, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY);
 
     SetEnvironmentVariableW(L"DJSYNC_APP_DIR", dir);
+    SetEnvironmentVariableW(L"DJSYNC_CONTENTS_DIR", moved ? base : NULL);   /* 1.4.1 (B84) */
     SetEnvironmentVariableW(L"DJSYNC_LAUNCHER", self);           /* V1.2.0 : « Retirer DJSync de cette clé » */
     wchar_t cmd[32768];
     swprintf(cmd, 32768, L"\"%ls\" %ls", exe, args ? args : L"");

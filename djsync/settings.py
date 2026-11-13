@@ -44,6 +44,11 @@ def clamp_zoom(value: object) -> int:
         return ZOOM_DEFAULT
 
 
+# 1.4.1 (C143) : qualité des téléchargements (une seule liste) ; réglages remplacés, plus jamais écrits
+DOWNLOAD_QUALITIES = ("original", "yt_best", "mp3_320", "mp3_256", "mp3_192", "mp3_128")
+RETIRED = ("audio_format", "youtube_best", "normalize_volume")
+
+
 @dataclass
 class Settings:
     first_run = False               # 1.3.2 (C54) : attribut de classe, jamais enregistré (pas un champ)
@@ -83,10 +88,18 @@ class Settings:
     local_db_dir: str = ""             # dossier de master.db ; vide = emplacement standard de Rekordbox
     local_music_dir: str = ""          # dossier des sons téléchargés ; vide = Musique/DJSync
     # ---- V0.5.0
-    audio_format: str = "m4a"          # m4a (flux d'origine, sans perte) | mp3 (MP3 320, ré-encodé)
-    normalize_volume: bool = False     # même sonie pour tous les sons téléchargés (gain fixe, ré-encodage)
+    # 1.4.1 (C143) : `download_quality` remplace les trois réglages ci-dessous, lus une version encore pour la
+    # reprise, puis plus jamais écrits (« Même volume » retiré : décision du 05/11).
+    download_quality: str = ""         # original | yt_best | mp3_320 | mp3_256 | mp3_192 | mp3_128
+    audio_format: str = "m4a"          # ancien : m4a | mp3 (lu pour la reprise, puis déduit de download_quality)
+    normalize_volume: bool = False     # ancien : ignoré
     merge_undo_s: int = 10             # 1.3.2 (C82) : délai pour annuler une fusion de doublons (5, 10, 30 s)
     auto_cue: bool = True              # mémoire cue sur le premier temps fort à l'analyse
+    # 1.4.1 (C131, D20) : ce que « Analyser à nouveau » refait sur un son analysé par Rekordbox
+    # (grid, key, waves) ; tant que le choix n'a pas été fait (fenêtre ou Paramètres), ces sons sont laissés tels quels.
+    reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
+    waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
+    reanalyze_rekordbox_asked: bool = False
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
@@ -105,6 +118,7 @@ class Settings:
     scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
     audio_latency_ms: int = 0          # 1.3.0-rc.3 (C39) : retard de sortie en plus (Bluetooth…), pour les curseurs
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
+    grid_magnet: int = 0               # 1.4.1 (C92) : aimant de Grille et cues (0 = coupé, 1 = au temps, 4 = au quart)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
     player_format: str = ""            # 1.4.0 (C26 sens C) : FLAC enregistrés sur la clé en "wav" / "aiff"
@@ -114,6 +128,7 @@ class Settings:
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
+    hq_filters: dict = field(default_factory=dict)     # 1.4.1 (C134) : filtres de la page Haute qualité
     soulseek_enabled: bool = False     # 1.4.0 (C10.2) : désactivé par défaut
     soulseek_accepted: bool = False    # avertissement (VPN, droits, fiabilité) accepté une fois
     soulseek_user: str = ""
@@ -124,6 +139,7 @@ class Settings:
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Dossier surveillé »
     watch_first_done: bool = False     # 1.4.0-rc.5 (C160) : message du tout premier son importé déjà montré
+    watch_scanned: str = ""            # 1.4.1 (B95) : dossier (et bibliothèque) déjà rattrapés à l'activation
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
     soundcloud_token: str = ""         # ou jeton « oauth_token » du compte
@@ -133,7 +149,7 @@ class Settings:
     settings_version: int = 0          # migrations des réglages enregistrés
     # ---- 1.3.2
     welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
-    diag_tab: str = "missing"          # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic
+    diag_tab: str = "one"              # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic ; 1.4.1 (C140) : « Un son »
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
 
     @classmethod
@@ -176,6 +192,13 @@ class Settings:
             self.analyze_after_download_usb = self.analyze_after_download_local = True
             self.settings_version = 2
         self.audio_format = self.audio_format if self.audio_format in ("m4a", "mp3") else "m4a"
+        if self.download_quality not in DOWNLOAD_QUALITIES:          # 1.4.1 (C143) : reprise, sans question
+            self.download_quality = ("mp3_320" if self.audio_format == "mp3"
+                                     else "yt_best" if self.youtube_best else "original")
+        # anciens réglages déduits du nouveau (lus ailleurs : qualité attendue, accueil) ; jamais écrits
+        self.audio_format = "mp3" if self.download_quality.startswith("mp3") else "m4a"
+        self.youtube_best = self.download_quality == "yt_best"
+        self.normalize_volume = False
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"
         self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
@@ -185,11 +208,21 @@ class Settings:
             self.search_field, self.search_mode = "artist", "all"
         self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
+        self.hq_filters = self.hq_filters if isinstance(self.hq_filters, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         if self.merge_undo_s not in (5, 10, 30):
             self.merge_undo_s = 10
+        parts = self.reanalyze_rekordbox if isinstance(self.reanalyze_rekordbox, list) else ["grid"]
+        self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
+        if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
+            self.waveform_style = "3band"
         return self
+
+    def native_parts(self) -> tuple:
+        """1.4.1 (C131, D20) : ce qu'une réanalyse refait sur un son de Rekordbox ; rien tant que le choix
+        n'a pas été fait."""
+        return tuple(self.reanalyze_rekordbox) if self.reanalyze_rekordbox_asked else ()
 
     # 1.3.2 (C57) : « Rétablir les réglages par défaut ». Jamais touchés : ce qui n'est pas un réglage mais
     # un état ou une mémoire (fenêtre, onglets, colonnes, tris, choix « ignorer », identifiants).
@@ -223,7 +256,8 @@ class Settings:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+            data = {k: v for k, v in asdict(self).items() if k not in RETIRED}     # 1.4.1 (C143)
+            tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)
