@@ -99,7 +99,7 @@ def _grid_gap(mine, theirs) -> tuple:
 
 
 def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None = None,
-             under: str | None = None) -> int:
+             under: str | None = None, playlist: str | None = None) -> int:
     from .decode import ANALYSIS_SR, MP4_SUFFIXES, decode, mp4_timing, timeline_lead_seconds
     from .key import analyze_key
     from .tempo import analyze_tempo
@@ -108,7 +108,15 @@ def _compare(source: str, ffmpeg: str | None, limit: int, csv_path: str | None =
     lib, native = _open_source(source)
     try:
         prefix = under.replace("\\", "/").rstrip("/").lower() if under else ""
+        wanted = None
+        if playlist:                       # 1.4.1 : mesure de départ sur une playlist (« Échantillon DJSync »)
+            names = [p for p in lib.list_playlists() if p.name.strip().casefold() == playlist.strip().casefold()]
+            if not names:
+                print(f"Playlist not found: {playlist}")
+                return 2
+            wanted = {t.content_id for p in names for t in lib.get_playlist_tracks(p.playlist_id)}
         tracks = [t for t in lib.list_tracks() if t.is_analysed and t.bpm > 0 and t.content_id in native
+                  and (wanted is None or t.content_id in wanted)
                   and (not prefix or prefix in str(lib.absolute_path(t)).replace("\\", "/").lower())][:limit]
         skipped = sum(1 for t in lib.list_tracks() if t.is_analysed and t.content_id not in native)
         print(f"{len(tracks)} tracks analysed by Rekordbox to compare"
@@ -207,12 +215,13 @@ def main(argv=None) -> int:
     ap.add_argument("--compare", metavar="DRIVE|local",
                     help="compare with Rekordbox's analyses: of a drive (E:) or of this computer's collection (local)")
     ap.add_argument("--under", metavar="FOLDER", help="with --compare: only the tracks whose file is in this folder")
+    ap.add_argument("--playlist", metavar="NAME", help="with --compare: only the tracks of this playlist")
     ap.add_argument("--limit", type=int, default=10_000, help="maximum number of tracks compared (default: all)")
     ap.add_argument("--csv", metavar="FILE", help="with --compare: write detailed measurements (calibration)")
     ap.add_argument("--ffmpeg", default=None, help="folder containing ffmpeg(.exe)")
     args = ap.parse_args(argv)
     if args.compare:
-        return _compare(args.compare, args.ffmpeg, args.limit, args.csv, args.under)
+        return _compare(args.compare, args.ffmpeg, args.limit, args.csv, args.under, args.playlist)
     if not args.files:
         ap.print_help()
         return 1
