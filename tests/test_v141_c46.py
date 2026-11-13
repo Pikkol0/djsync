@@ -171,3 +171,26 @@ def test_b11_flip_when_bass_energy_is_on_the_offbeat():
             y[i:i + n] += 0.8 * np.sin(2 * np.pi * 80 * np.arange(n) / sr)
     assert T._bass_energy_flip(y, sr, times, beat)
     assert not T._bass_energy_flip(y, sr, times + beat / 2, beat)
+
+
+def test_compare_grid_gap_at_octave_and_dump(tmp_path):
+    """1.4.1 : DJSync à 75 et Rekordbox à 150 : un temps Rekordbox sur deux se compare ; --dump écrit
+    les mesures par temps sans titre ni chemin."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from djsync.analysis import __main__ as M
+
+    mine = SimpleNamespace(beats=[((k % 4) + 1, 0.1 + 0.8 * k) for k in range(40)], bpm=75.0, variable=False)
+    rb_t = [0.1 + 0.4 * k for k in range(80)]
+    rb_n = [(k % 4) + 1 for k in range(80)]
+    assert M._grid_gap(mine, (rb_t, rb_n))[0] > 100                 # sans tenir compte de l'octave : faux
+    gap, same_down, signed = M._grid_gap(mine, (rb_t, rb_n), double=True)
+    assert gap < 1 and same_down and abs(signed) < 1
+    sr = 22050
+    audio = SimpleNamespace(samples=np.random.default_rng(0).normal(0, 0.1, sr * 34).astype(np.float32), sr=sr)
+    M._dump(str(tmp_path), 3, audio, mine, (rb_t, rb_n), {})
+    d = np.load(tmp_path / "0003.npz")
+    assert d["bands"].shape == (40, 4, len(M.DUMP_BANDS)) and d["chroma"].shape == (40, 12)
+    assert d["rb_t"].size == 80 and set(d.files) >= {"times", "nums", "spec", "rb_n", "bpm", "variable"}
