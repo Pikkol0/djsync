@@ -356,7 +356,8 @@ class OneTrackPage(BaseDialog):
         self.ctrl.dispatcher.submit(work, ok, err, pool="tools")
 
     def _quality(self) -> None:
-        """Mesure la qualité réelle (spectre) de ce son seul ; la fiche montre le résultat."""
+        """Mesure la qualité réelle (spectre) de ce son seul, puis (1.4.1, C135) ouvre son détail dans
+        l'onglet Qualité : meilleure version, gain, remplacement."""
         x = self.track
         if x is None:
             return
@@ -367,6 +368,9 @@ class OneTrackPage(BaseDialog):
             if self.track is x:
                 self._show_card()
             self._say(t("one.quality_fake") if fakes else t("one.quality_ok"))
+            win = self.window()
+            if hasattr(win, "open_quality") and self.track is x:
+                win.open_quality([x.content_id], focus=x.content_id)
 
         self._say(t("one.quality_running"))
         if not self.ctrl.measure_quality([x], done, None, force=True):

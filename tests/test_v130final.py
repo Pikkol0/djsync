@@ -73,7 +73,7 @@ def test_key_pill_is_never_a_window_and_still_shows_once_placed(demo):  # noqa: 
 def test_no_page_flashes_a_window(demo, monkeypatch):  # noqa: F811
     """Toutes les pages, avec des tonalités affichées (Doublons, Diagnostic) : aucune fenêtre en trop."""
     from djsync.models import LibraryTrack
-    from djsync.ui.diagnostic_dialog import DiagnosticDialog
+    from djsync.ui.quality_page import QualityPage
     from djsync.ui.duplicates_dialog import DuplicatesDialog
 
     monkeypatch.setattr(LibraryTrack, "camelot", property(lambda self: "8A"))
@@ -87,7 +87,7 @@ def test_no_page_flashes_a_window(demo, monkeypatch):  # noqa: F811
     assert pump(demo, 4, lambda: len(dup.groups) == 1)
     pump(demo, 0.5)
     dup.close()
-    diag = DiagnosticDialog(demo.views["home"], demo.ctrl)
+    diag = QualityPage(demo.views["home"], demo.ctrl)
     pump(demo, 1.5)
     diag.close()
     track = next(r.data for r in lib.table.all_rows() if r.data is not None)

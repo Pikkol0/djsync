@@ -174,7 +174,7 @@ From an empty drive to the decks, in six steps.
 2. **Find and download** — Type a title or an artist in Search (or paste a YouTube, SoundCloud or Spotify link on Home), listen, then press Download at the end of the line and choose the playlists.
 3. **Analyse** — Downloaded tracks are analysed in the background: BPM, beat grid, key and waveforms, like Rekordbox. Library ▸ Not analysed lists what is left.
 4. **Set your cues** — Library ▸ the Grid and cues button of a track: hot cues A–H, loops and memories, beat grid to adjust. Nothing is written before Save.
-5. **Check** — Home shows whether the drive is up to date for older players (export.pdb). The *Diagnostic* (sidebar) finds duplicates, low-quality files and missing files; its *One track* tab finds a track and does everything on it (edit info, duplicates, quality, show the file).
+5. **Check** — Home shows whether the drive is up to date for older players (export.pdb). The *Diagnostic* (sidebar) finds duplicates and missing files, and its *Quality* tab measures every track and finds a better version (one confirmation for all the safe replacements); its *One track* tab finds a track and does everything on it (edit info, duplicates, quality, show the file).
 6. **Eject** — Always press Eject in DJSync before unplugging the drive: everything is written and checked. Then plug it into the decks.
 
 ### Français
@@ -185,7 +185,7 @@ D'une clé vide aux platines, en six étapes.
 2. **Chercher et télécharger** — Tapez un titre ou un artiste dans Recherche (ou collez un lien YouTube, SoundCloud ou Spotify sur l'Accueil), écoutez, puis bouton Télécharger en bout de ligne et choix des playlists.
 3. **Analyser** — Les sons téléchargés sont analysés en arrière-plan : BPM, grille, tonalité et formes d'onde, comme Rekordbox. Bibliothèque ▸ Non analysés liste ce qui reste.
 4. **Poser ses cues** — Bibliothèque ▸ bouton Grille et cues d'un son : hot cues A à H, boucles et mémoires, grille à ajuster. Rien n'est écrit avant Enregistrer.
-5. **Vérifier** — L'Accueil dit si la clé est à jour pour les anciennes platines (export.pdb). Le *Diagnostic* (volet de gauche) trouve les doublons, les fichiers de mauvaise qualité et les fichiers introuvables ; son onglet *Un son* retrouve un son et fait tout dessus (infos, doublons, qualité, fichier).
+5. **Vérifier** — L'Accueil dit si la clé est à jour pour les anciennes platines (export.pdb). Le *Diagnostic* (volet de gauche) trouve les doublons et les fichiers introuvables, et son onglet *Qualité* mesure chaque son et lui cherche une meilleure version (une seule confirmation pour tous les remplacements sûrs) ; son onglet *Un son* retrouve un son et fait tout dessus (infos, doublons, qualité, fichier).
 6. **Éjecter** — Appuyez toujours sur Éjecter dans DJSync avant de retirer la clé : tout est écrit et vérifié. Ensuite, branchez-la sur les platines.
 
 ## Quick use

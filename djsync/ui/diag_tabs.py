@@ -1,5 +1,5 @@
 """Diagnostic en onglets (1.3.1, C41/C43) : Un son (1.4.1, C140) · Fichiers introuvables · Doublons ·
-Mauvaise qualité · Améliorer · Uniformiser.
+Qualité (1.4.1, C135) · Uniformiser.
 
 1.4.1 (C140) : quand la largeur manque (zoom, fenêtre étroite), les onglets autres que celui ouvert ne gardent que
 leur icône et leur compteur, nom dans la bulle ; jamais de texte coupé.
@@ -18,9 +18,11 @@ from ..i18n import t
 from . import theme
 from .widgets import hbox
 
-# 1.4.0 (C47) : « Améliorer » ; 1.4.1 (C140, D19) : premier onglet « Un son » (sans compteur)
-TABS = ("one", "missing", "dup", "quality", "improve", "uniformize")
-ICONS = {"one": "search", "missing": "warn", "dup": "duplicates", "quality": "wave", "improve": "download", "uniformize": "tag"}
+# 1.4.1 (C140, D19) : premier onglet « Un son » (sans compteur) ; (C135) « Mauvaise qualité » et « Améliorer »
+# (1.4.0, C47) ne font plus qu'un onglet « Qualité »
+TABS = ("one", "missing", "dup", "quality", "uniformize")
+ICONS = {"one": "search", "missing": "warn", "dup": "duplicates", "quality": "wave", "uniformize": "tag"}
+ALIASES = {"improve": "quality"}            # ancien onglet mémorisé (réglage diag_tab)
 
 
 class DiagTabs(QWidget):

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
@@ -135,7 +135,7 @@ def qt_app() -> QApplication:
     return app  # type: ignore[return-value]
 
 
-DIAG_PAGE_TYPES = ("DiagnosticDialog", "DuplicatesDialog", "MissingFilesDialog", "ImproveDialog", "OneTrackPage")   # 1.3.1 (C41), B58
+DIAG_PAGE_TYPES = ("QualityPage", "DuplicatesDialog", "MissingFilesDialog", "OneTrackPage")   # 1.3.1 (C41), B58
 
 
 class DJSyncApp(QMainWindow):
@@ -891,6 +891,27 @@ class DJSyncApp(QMainWindow):
 
         self._error_report_dialog = ErrorReportDialog(self, summary, answer, on_always=always)
 
+    def open_quality(self, ids: Optional[Sequence[int]] = None, name: str = "", focus: Optional[int] = None) -> None:
+        """1.4.1 (C135) : onglet Qualité sur une sélection (`ids`) ou toute la bibliothèque ; `focus` : le
+        détail de ce son s'ouvre dès qu'il est lu (« Un son », C140)."""
+        from .quality_page import QualityPage
+
+        def go() -> None:
+            page = next((w for w in self._diag_pages() if isinstance(w, QualityPage)), None)
+            if page is not None and page.winfo_exists():
+                self.reopen_dialog_page(QualityPage)
+                page.set_scope(ids, name)
+            else:
+                page = QualityPage(self, self.ctrl, ids=ids, scope_name=name)
+            if focus is not None:
+                page.focus_track(int(focus))
+
+        current = self.stack.currentWidget()
+        if current in self._diag_pages() and not isinstance(current, QualityPage):
+            self._drop_diag_page(current, then=go)
+        else:
+            go()
+
     def open_uniformize(self, tracks: Any, scope: str) -> None:
         """1.2.2 (C14) : page « Uniformiser » dans la zone de contenu (comme l'éditeur de grille)."""
         from .uniformize_page import UniformizePage
@@ -928,8 +949,9 @@ class DJSyncApp(QMainWindow):
         s = self.ctrl.settings
         if tab is None:
             tab = getattr(s, "diag_tab", "") or "one"
-        from .diag_tabs import TABS
+        from .diag_tabs import ALIASES, TABS
 
+        tab = ALIASES.get(tab, tab)                 # 1.4.1 (C135) : « improve » -> « quality »
         if tab not in TABS:                 # 1.4.0-rc.2 (B58) : une seule liste, « improve » compris
             tab = "one"
         if getattr(s, "diag_tab", None) != tab:
@@ -944,10 +966,8 @@ class DJSyncApp(QMainWindow):
                 return
             if tab == "dup":
                 from .duplicates_dialog import DuplicatesDialog as page_cls
-            elif tab == "quality":
-                from .diagnostic_dialog import DiagnosticDialog as page_cls
-            elif tab == "improve":                          # 1.4.0 (C47)
-                from .improve_dialog import ImproveDialog as page_cls
+            elif tab == "quality":                          # 1.4.1 (C135) : onglet « Qualité » unique
+                from .quality_page import QualityPage as page_cls
             elif tab == "one":                              # 1.4.1 (C140) : « Un son »
                 from .one_track_page import OneTrackPage as page_cls
             else:
@@ -987,13 +1007,12 @@ class DJSyncApp(QMainWindow):
             then()
 
     def _diag_pages(self) -> List[QWidget]:
-        from .diagnostic_dialog import DiagnosticDialog
         from .duplicates_dialog import DuplicatesDialog
-        from .improve_dialog import ImproveDialog
         from .missing_dialog import MissingFilesDialog
         from .one_track_page import OneTrackPage
+        from .quality_page import QualityPage
 
-        kinds = (DiagnosticDialog, DuplicatesDialog, MissingFilesDialog, ImproveDialog, OneTrackPage)   # B58, C140
+        kinds = (QualityPage, DuplicatesDialog, MissingFilesDialog, OneTrackPage)   # B58, C140, C135
         return [w for w in (self.stack.widget(i) for i in range(self.stack.count())) if isinstance(w, kinds)]
 
     # ------------------------------------------------- 1.2.3 : Doublons, Diagnostic, Analyse en pages

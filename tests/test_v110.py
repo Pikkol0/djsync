@@ -114,15 +114,22 @@ def demo(tmp_path, monkeypatch):
     close_window(window)
 
 
-def test_diagnostic_from_home_card_replace_and_ignore(demo):
-    """1.3.1 (C41) : le bouton Diagnostic ouvre l'onglet « Fichiers introuvables » ; l'onglet « Mauvaise
-    qualité » garde le remplacement par une version retéléchargée et « Ignorer » (les doublons ont
-    leur propre onglet)."""
-    from djsync.ui.diagnostic_dialog import ALT, DiagnosticDialog
+def test_diagnostic_from_home_card_replace_and_ignore(demo, monkeypatch):
+    """1.3.1 (C41) : le bouton Diagnostic ouvre l'onglet « Fichiers introuvables » ; 1.4.1 (C135) : l'onglet
+    « Qualité » (ex-« Mauvaise qualité » + « Améliorer ») garde le remplacement d'un son tiré d'une vidéo par
+    une version audio propre, avec une seule confirmation, et « Ignorer » retenu d'une fois sur l'autre."""
     from djsync.ui.dialogs import ConfirmDialog
     from djsync.ui.missing_dialog import MissingFilesDialog
+    from djsync.ui.quality_page import QualityPage
 
     ctrl = demo.ctrl
+    monkeypatch.setattr(ctrl, "free_search", lambda q, ok, partial=None: ok([]))
+
+    def clean(track, ok):                                   # YouTube Music : version audio, même durée
+        ok([Candidate(TrackResult(video_id="clean000001", title="One More Time", artist=track.artist or "",
+                                  duration_seconds=track.duration_seconds), 95.0)])
+
+    monkeypatch.setattr(ctrl, "find_alternatives", clean)
     home = demo.views["home"]
     assert pump(demo, 8, lambda: home._summaries and home._summaries[0].connected)
     ctrl.settings.diag_tab = "missing"          # 1.4.1 (C140) : sans historique, « Un son » (test_v141_c140)
@@ -131,44 +138,45 @@ def test_diagnostic_from_home_card_replace_and_ignore(demo):
     missing = find(demo, MissingFilesDialog)
     assert pump(demo, 6, lambda: missing.count.text() == "No missing file")
     missing.findChild(__import__("djsync.ui.diag_tabs", fromlist=["DiagTabs"]).DiagTabs)._go("quality")
-    assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
+    assert pump(demo, 2, lambda: find(demo, QualityPage) is not None)
     assert find(demo, MissingFilesDialog) is None                        # un seul onglet ouvert
-    dlg = find(demo, DiagnosticDialog)
-    assert pump(demo, 6, lambda: not dlg._loading)
-    kinds = [(k, p.track.title) for k, p in dlg.items]
-    assert kinds == [("source", "One More Time (Clip Officiel)"), ("bitrate", "Umbrella")], kinds
-    assert dlg.list.item(0).flags() == dlg.list.item(0).flags().__class__(0)   # en-tête de section
+    page = find(demo, QualityPage)
+    assert pump(demo, 6, lambda: not page._loading)
+    shown = {w.track.title: w for w in page.shown.values()}
+    assert set(shown) == {"One More Time (Clip Officiel)", "Umbrella"}, set(shown)
+    assert shown["One More Time (Clip Officiel)"].video and shown["Umbrella"].under(256)
     assert ctrl.diag_counts["quality"] == 2
 
-    # ---- qualité : remplacer Umbrella par la version retéléchargée
-    dlg._select(next(i for i, (k, _p) in enumerate(dlg.items) if k == "bitrate"))
-    i = dlg.index
-    assert "MP3 128 kbps" in dlg.items[i][1].reason
-    assert pump(demo, 4, lambda: dlg._choice.checkedId() == ALT)
-    umbrella = dlg.items[i][1].track
-    pls_before = {p.name for p in ctrl.playlists if umbrella.content_id in _ids(ctrl, p.playlist_id)}
-    dlg._apply()
+    # ---- son tiré d'une vidéo : détail, version audio propre, une seule confirmation
+    clip = shown["One More Time (Clip Officiel)"]
+    detail = page.open_detail(str(clip.track.content_id))
+    assert pump(demo, 4, lambda: clip.searched)
+    assert [f.video_id for f in clip.finds] == ["clean000001"]
+    pls_before = {p.name for p in ctrl.playlists if clip.track.content_id in _ids(ctrl, p.playlist_id)}
+    detail.table.select(["r0"])
+    detail.replace()
     assert pump(demo, 2, lambda: find(demo, ConfirmDialog) is not None)
     find(demo, ConfirmDialog)._ok()
-    assert len(dlg.items) == 1
     job = ctrl.jobs[-1]
-    assert job.replace_ids == [umbrella.content_id]
+    assert job.replace_ids == [clip.track.content_id]
     assert pump(demo, 8, lambda: job.status == "done")
-    tracks = ctrl.library.list_tracks()
-    assert umbrella.content_id not in {x.content_id for x in tracks}
-    assert pls_before == {p.name for p in ctrl.playlists if job.content_id in _ids(ctrl, p.playlist_id)} == {"Classiques"}
+    assert clip.track.content_id not in {x.content_id for x in ctrl.library.list_tracks()}
+    assert pls_before == {p.name for p in ctrl.playlists if job.content_id in _ids(ctrl, p.playlist_id)}
+    detail.close()
 
-    # ---- ignorer : retenu pour les diagnostics suivants
-    dlg._select(0)
-    dlg._ignore()
-    assert dlg.items == [] and ctrl.settings.diag_ignored[0].startswith("q:")
-    dlg.close()
+    # ---- ignorer : retenu pour les fois suivantes
+    pump(demo, 1)
+    umbrella = next(w for w in page.shown.values() if w.track.title == "Umbrella")
+    page._ignore([umbrella])
+    assert "Umbrella" not in {w.track.title for w in page.shown.values()}
+    assert any(k.startswith("q:") for k in ctrl.settings.diag_ignored)
+    page.close()
     demo.open_diagnostic("quality")
-    assert pump(demo, 2, lambda: find(demo, DiagnosticDialog) is not None)
-    dlg = find(demo, DiagnosticDialog)
-    assert pump(demo, 6, lambda: not dlg._loading)
-    assert dlg.items == [] and dlg.count.text() == "Nothing to fix"
-    dlg.close()
+    assert pump(demo, 2, lambda: find(demo, QualityPage) is not None)
+    page = find(demo, QualityPage)
+    assert pump(demo, 6, lambda: not page._loading)
+    assert "Umbrella" not in {w.track.title for w in page.shown.values()}
+    page.close()
     assert not demo.errors
 
 
@@ -194,10 +202,19 @@ def test_compare_tool_only_rekordbox_analyses(tmp_path, capsys):
                       "Mine", "Test", None, None, [])
         with lib._write() as conn:                          # « exporté par Rekordbox »
             conn.execute("UPDATE content SET masterDbId = 1 WHERE content_id = ?", (native.content_id,))
+        # 1.4.1 : la grille de Rekordbox est reconnue au fichier (PQT2 dans le .EXT, que DJSync n'écrit jamais)
+        from djsync.analysis import anlz
+
+        ext = lib.absolute_path(lib.get_track(native.content_id).analysis_path).with_suffix(".EXT")
+        from .test_v141_c131 import _tag
+
+        body = b"".join(raw for _c, raw in anlz.iter_tags(ext.read_bytes()))
+        ext.write_bytes(anlz._file([body, _tag(b"PQT2", b"\x01" * 40)]))
     out_csv = tmp_path / "diag.csv"
-    assert main(["--compare", str(usb), "--csv", str(out_csv), "--under", str(usb / "Contents")]) == 0
+    assert main(["--compare", str(usb), "--csv", str(out_csv), "--under", str(usb / "Contents"),
+                 "--min-seconds", "0"]) == 0
     out = capsys.readouterr().out
-    assert "1 tracks analysed by Rekordbox to compare (1 analysed by DJSync ignored)" in out
+    assert "1 tracks analysed by Rekordbox to compare (1 with a grid written by DJSync ignored)" in out
     assert "Same BPM (±0.05)                      1/1" in out and "Only 1 tracks" in out
     assert out_csv.read_text(encoding="utf-8-sig").count("\n") == 2
     lo, hi = wilson(45, 50)

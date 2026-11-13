@@ -95,7 +95,7 @@ def test_c140_collapsed_one_icon_no_menu(demo):
     assert b.text() == "" and b.toolTip().startswith(t("nav.diagnostic")) and b.menu() is None
     b.click()
     assert pump(demo, 3, lambda: type(demo.stack.currentWidget()).__name__ in
-                ("OneTrackPage", "MissingFilesDialog", "DuplicatesDialog", "DiagnosticDialog", "ImproveDialog"))
+                ("OneTrackPage", "MissingFilesDialog", "DuplicatesDialog", "QualityPage"))
     demo.ctrl.settings.sidebar_compact = "auto"
 
 

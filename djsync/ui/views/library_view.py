@@ -1279,6 +1279,13 @@ class LibraryView(View):
 
         GenrePlaylistsDialog(self, self.ctrl)
 
+    def _open_quality(self, tracks: List[LibraryTrack]) -> None:
+        """1.4.1 (C135) : onglet Qualité sur la sélection (portée « sélection »)."""
+        win = self.window()
+        if hasattr(win, "open_quality"):
+            win.open_quality([x.content_id for x in tracks],
+                             focus=tracks[0].content_id if len(tracks) == 1 else None)
+
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:
             return
@@ -1327,7 +1334,8 @@ class LibraryView(View):
         tracks = self._selected_tracks()
         entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave"),
                     (t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
-                     "wave")]                                               # 1.4.0-rc.6 (C180)
+                     "wave"),                                               # 1.4.0-rc.6 (C180)
+                    (t("quality.open_sel", n=len(tracks)), lambda: self._open_quality(tracks), "wave")]   # C135
         if len(tracks) == 1:
             from ..reveal import reveal_entry
 
