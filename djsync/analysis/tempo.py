@@ -279,6 +279,41 @@ def _bass_energy_flip(x: np.ndarray, sr: int, times: np.ndarray, beat: float,
     return ratio > BASS_ENERGY_FLIP
 
 
+# 1.4.1 (B11, 2e passe) : deux indices de plus, combinés (calés sur 74 grilles de l'échantillon dont 12 sur
+# le contretemps ; vérifiés ensuite sur la mesure de la tour) : montée de l'énergie 60-150 Hz sur 60 ms et
+# énergie 150-400 Hz sur 30 ms, contretemps moins temps, chacun divisé par son écart-type sur les grilles
+# justes. Score > 1,15 -> grille décalée d'un demi-temps (grilles justes : 0,96 au plus).
+OFFBEAT_SCORE_FLIP = 1.15
+_SD_LOW_RISE, _SD_LOWMID = 1.64, 0.817
+
+
+def _offbeat_score(x: np.ndarray, sr: int, times: np.ndarray, beat: float,
+                   debug: Optional[Dict] = None) -> float:
+    if x.size < 512 * 8 or times.size < 24:
+        return 0.0
+    tt = times[8:-8]
+
+    def stat(lo: float, hi: float, win: float, rise: bool) -> float:
+        energy, fps = _band_energy(x, sr, lo, hi)
+        le = np.log(energy + 1e-9)
+        k = max(1, int(win * fps))
+
+        def at(ts: np.ndarray) -> float:
+            vals = []
+            for a in (ts * fps).astype(int):
+                if a >= k and a + k < le.size:
+                    v = float(le[a:a + k].mean())
+                    vals.append(v - float(le[a - k:a].mean()) if rise else v)
+            return float(np.median(vals)) if vals else 0.0
+
+        return at(tt + beat / 2) - at(tt)
+
+    score = stat(60, 150, 0.06, True) / _SD_LOW_RISE + stat(150, 400, 0.03, False) / _SD_LOWMID
+    if debug is not None:
+        debug["offbeat_score"] = round(score, 3)
+    return score
+
+
 def _choose_octave(env: np.ndarray, benv: np.ndarray, fps: float, bpm: float, debug: Optional[Dict] = None) -> float:
     """`bpm` est dans [90, 180). S'il est >= 140, sa moitié (70-90) est aussi dans la plage :
     règle calée sur Rekordbox (213 sons de référence) : rapide sous 168 BPM, lent au-dessus."""
@@ -437,6 +472,8 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     beat_len = 60.0 / bpm
     first %= beat_len
     if _bass_energy_flip(x, sr, np.arange(first, duration, beat_len), beat_len, debug):   # 1.4.1 (B11)
+        first = (first + beat_len / 2) % beat_len
+    elif _offbeat_score(x, sr, np.arange(first, duration, beat_len), beat_len, debug) > OFFBEAT_SCORE_FLIP:
         first = (first + beat_len / 2) % beat_len
     times = np.arange(first, duration, beat_len)
     warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)

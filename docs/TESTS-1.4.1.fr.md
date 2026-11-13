@@ -121,7 +121,7 @@ Limites connues (banc) : un AAC 256 ou un MP3 V0 remis en WAV peuvent passer pou
 
 ## Grille : contretemps et premier temps (B11, B12, A02)
 
-Mesure locale sur 100 sons de l'échantillon (grilles de Rekordbox comme référence ; parmi les 82 au même BPM) : grille sur le contretemps 19 → 12 ; même premier temps de mesure 38 → 50. A02 : un seul son sur 100 en rapport 3:2 (et un en 4:3) : pas de détection automatique, seulement les boutons × 3/2 et × 2/3 (déjà faits). Mesure complète à refaire sur la tour : `python -m djsync.analysis --compare local --playlist "Échantillon DJSync" --csv bench_out\mesure-b12.csv`.
+Mesure sur la tour (192 sons, 13/11) après la 1re passe : contretemps 34 → 24, même premier temps 81 → 97 (72 % des grilles justes). 2e passe de B11 (deux indices de plus) : sur 100 sons, contretemps 12 → 9, aucune grille juste qui bascule. A02 : un seul son sur 100 en rapport 3:2 (et un en 4:3) : pas de détection automatique, seulement les boutons × 3/2 et × 2/3 (déjà faits). Mesure complète à refaire sur la tour : `python -m djsync.analysis --compare local --playlist "Échantillon DJSync" --csv bench_out\mesure-b12.csv`.
 
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
