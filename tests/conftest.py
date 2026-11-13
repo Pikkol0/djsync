@@ -54,10 +54,16 @@ def _qt_cleanup():
         QCoreApplication.processEvents()
 
 
+REAL_REKORDBOX_CHECK = {"test_v132_rc4"}        # tests de la détection elle-même : fonction réelle
+
+
 @pytest.fixture(autouse=True)
-def _rekordbox_closed(monkeypatch):
+def _rekordbox_closed(request, monkeypatch):
     """1.4.2 (C183) : les tests simulent un Rekordbox fermé : Rekordbox ouvert sur la machine de test (la tour)
     refusait l'écriture de master.db et faisait échouer 13 tests. Les tests de Rekordbox ouvert le simulent."""
+    module = getattr(request.node, "module", None)
+    if module is not None and module.__name__.rsplit(".", 1)[-1] in REAL_REKORDBOX_CHECK:
+        return
     try:
         from djsync.db import local_library
     except ImportError:

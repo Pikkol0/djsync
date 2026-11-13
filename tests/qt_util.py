@@ -56,9 +56,12 @@ def close_window(window):
     from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication
 
-    window.close()
-    window.deleteLater()
-    pump(window, 0.05)
+    try:
+        window.close()
+        window.deleteLater()
+    except RuntimeError:                           # déjà détruite (fermée par le test lui-même)
+        pass
+    pump(None, 0.05)
     for w in list(QApplication.topLevelWidgets()):
         try:
             w.close()

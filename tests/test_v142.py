@@ -216,7 +216,9 @@ def test_c113_mytags_history_and_grid_marks(demo, tmp_path):
     view = demo.views["library"]
     demo.show_view("library")
     view.reload(full=True)
-    assert pump(demo, 8, lambda: bool(getattr(view, "_extras", None)) and ids[0] in view._extras)
+    # la lecture d'avant (tables encore absentes) peut arriver après : on attend celle qui voit les My Tags
+    assert pump(demo, 10, lambda: (getattr(view, "_extras", None) or {}).get(ids[0], {}).get("mytags"))
+    pump(demo, 0.2)
     row = view.table.row(str(ids[0]))
     assert row is not None and "Peak" in row.values["mytags"] and row.values["last_played"] == "2026-11-08"
     assert demo.ctrl.settings.mytags_column_shown and not view.table.isColumnHidden(view.table.column_index("mytags"))

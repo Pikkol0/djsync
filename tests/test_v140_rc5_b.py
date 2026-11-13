@@ -42,18 +42,23 @@ def test_b91_missing_playlist_warnings_summed_up(caplog):
     lg = logging.getLogger("pyrekordbox.masterdb.database.test")
     lg.addFilter(noise)
     try:
-        with caplog.at_level(logging.INFO):
+        # 1.4.2 (C183) : niveau posé sur le journal qui écrit le résumé (un test d'avant dans le même processus
+        # peut avoir relevé celui de « djsync »)
+        summary = logging.getLogger("djsync.db.local_library")
+        summary.addHandler(caplog.handler)            # même si un test d'avant a coupé la remontée vers la racine
+        with caplog.at_level(logging.INFO), caplog.at_level(logging.INFO, logger="djsync.db.local_library"):
             for _ in range(20):                                     # 20 écritures
                 for pid in range(17):
                     lg.warning(f"Playlist {pid} not found in masterPlaylists6.xml! Did you add it manually?")
                 noise.report()
             lg.warning("Something else")
-        lines = [r.getMessage() for r in caplog.records]
+        lines = [r.getMessage() for r in {id(r): r for r in caplog.records}.values()]   # un enregistrement reçu deux fois compte une fois
         assert sum("not found in masterPlaylists6" in x for x in lines) == 0
         assert sum("17 playlist(s) missing" in x for x in lines) == 1
         assert "Something else" in lines
     finally:
         lg.removeFilter(noise)
+        logging.getLogger("djsync.db.local_library").removeHandler(caplog.handler)
 
 
 # ------------------------------------------------------------------ B92 : colonne Taille

@@ -533,7 +533,7 @@ class DJSyncApp(QMainWindow):
         self.feedback_btn.setIcon(qicon("chat", 18, theme.DIM))
         self.feedback_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         self.feedback_btn._icon_name = "chat"  # type: ignore[attr-defined]
-        self.help_btn = button(t("nav.help_short"), self.open_help, kind="nav")
+        self.help_btn = button("", self.open_help, kind="nav")          # C182 : icône « ? » seule (largeur du volet)
         self.help_btn.setIcon(qicon("help", 18, theme.DIM))
         self.help_btn.setIconSize(QSize(theme.px(18), theme.px(18)))
         self.help_btn.setToolTip(t("help.button") + " (F1)")
@@ -548,7 +548,7 @@ class DJSyncApp(QMainWindow):
         self.bottom_row = QBoxLayout(QBoxLayout.LeftToRight)
         self.bottom_row.setSpacing(theme.px(3))
         self.bottom_row.addWidget(self.feedback_btn, 1)
-        self.bottom_row.addWidget(self.help_btn, 1)
+        self.bottom_row.addWidget(self.help_btn)
         self.bottom_row.addWidget(self.fold_btn)
         lay.addLayout(self.bottom_row)
         return bar
@@ -651,8 +651,10 @@ class DJSyncApp(QMainWindow):
             b.setMaximumHeight(side if compact else 16777215)
             icon = cpx(20 if compact else 18)                       # 1.4.0-rc.5 (C161) : un peu plus gros replié
             b.setIconSize(QSize(icon, icon))
-        for b in (self.feedback_btn, self.help_btn, self.fold_btn):
-            b.setStyleSheet(square)
+        self.feedback_btn.setStyleSheet(square)
+        for b in (self.help_btn, self.fold_btn):                       # icônes seules : toujours centrées
+            b.setStyleSheet("padding: 0px; text-align: center;")
+            b.setMinimumWidth(cpx(SIDEBAR_COMPACT - 12))
         self.feedback_btn.setText("" if compact else t("tab.feedback"))
         self.feedback_btn.setToolTip(t("tab.feedback") if compact else "")
         from PySide6.QtWidgets import QBoxLayout
@@ -668,7 +670,7 @@ class DJSyncApp(QMainWindow):
         self.task_strip.rescale()                                          # 1.4.1 (C145) : un anneau par carte
         # largeur : au moins un anneau dans sa carte, avec les marges (jamais coupé)
         width = max(cpx(SIDEBAR_COMPACT), ring_px() + 2 * (margin + card))
-        self.help_btn.setText("" if compact else t("nav.help_short").replace("&", "&&"))
+        self.help_btn.setText("")                                        # C182 : « ? » seul, détail dans la bulle
         if not compact:          # au moins le plus long libellé (langue, zoom), et la ligne du bas (C182)
             bottom = sum(b.sizeHint().width() for b in (self.feedback_btn, self.help_btn, self.fold_btn)) \
                 + 2 * self.bottom_row.spacing() + 2 * margin

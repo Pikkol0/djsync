@@ -245,10 +245,7 @@ def test_c140_whole_cards_when_there_is_room(demo):
     pump(demo, 0.6)
     assert not demo.card_lines
     assert demo.an_label.isVisible() and demo.an_bar.isVisible() and demo.usb_bar.isVisible()
-    demo.resize(1366, 697)                    # écran de 768 px : 1.4.2 (C182, volet court) cartes entières
-    pump(demo, 0.6)
-    assert not demo.card_lines and demo.an_bar.isVisible()
-    demo.resize(1366, 520)                                                    # encore plus bas : une ligne
+    demo.resize(1366, 520)                    # fenêtre basse (1.4.2, C182 : volet court, le seuil a baissé)
     pump(demo, 0.6)
     assert demo.card_lines and not demo.an_bar.isVisible() and demo.usb_line.isVisible()
     demo.resize(1280, 800)

@@ -2005,7 +2005,7 @@ STRINGS = {
     "tour.settings_title": "Settings",
     "tour.settings": "Appearance, libraries, download, analysis, and the technical settings.",
     "tour.drive_title": "Active library",
-    "tour.drive": "The library you work on. Click it for the space used, the backups, « Ready for the gig? » and eject.",
+    "tour.drive": "The library you work on. Click it for the space used, the backups, Ready for the gig? and eject.",
     "tour.player_title": "Player",
     "tour.player": "Listen to any track, with its waveform. ☰ opens the same track menu as everywhere else.",
     "tour.help_title": "Help",
