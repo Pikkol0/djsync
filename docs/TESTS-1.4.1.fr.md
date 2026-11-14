@@ -170,3 +170,9 @@ Référence : captures Rekordbox du 13/11 (« Tribus disparues », 3 bandes, RGB
 | ODE-1 | Tous | Windows, macOS, Linux | (**C77**) Paramètres ▸ Analyse ▸ Type de forme d'onde : 3 bandes. Ouvrir Grille et cues sur un son analysé par Rekordbox, puis sur un son de DJSync ; lancer un son dans le lecteur. | Dès l'ouverture, forme d'onde 3 bandes (basses bleues, médiums orange, aigus crème), jamais RGB puis 3 bandes ; elle s'affine sans changer de couleurs. Aperçu du lecteur dans les mêmes couleurs. |
 | ODE-2 | Tous | Windows, macOS, Linux | (**C77**) Grille et cues ouvert : passer à RGB, enregistrer les paramètres, revenir ; puis Bleu. | Le changement s'applique tout de suite, sans redémarrer, à la forme d'onde, à la vue d'ensemble et à l'aperçu du lecteur ; les modifications en cours (grille, cues) sont gardées. RGB : couleurs comme Rekordbox RGB. Bleu : bleu profond à bleu très clair, comme Rekordbox Bleu. |
 | ODE-3 | Auteur | Windows | (**C77**) Même son, même endroit, dans Rekordbox et dans DJSync, pour chacun des trois types. | Mêmes couleurs et même allure (un son de DJSync, réanalysé, aussi). |
+
+## Démarrage (B97)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| DEM-1 | Tous | Windows, macOS, Linux | (**B97**) Paramètres ▸ Téléchargement : choisir un navigateur connecté à YouTube, enregistrer, fermer DJSync et le relancer. | DJSync démarre normalement (plus de fenêtre « 'AppController' object has no attribute 'jobs' »). Le navigateur reste choisi. |
