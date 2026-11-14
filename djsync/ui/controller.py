@@ -205,7 +205,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         )
         self.player.set_volume(settings.volume)
         self.player.latency_offset_ms = settings.audio_latency_ms      # 1.3.0-rc.3 (C39)
-        self._apply_output(retry=False)        # 1.4.2 : au démarrage, self.jobs n'existe pas encore
+        self._apply_output(retry=False)        # 1.4.1 (B97) : au démarrage, self.jobs n'existe pas encore
 
         self.drive: Optional[UsbDrive] = None
         self.library: Optional[RekordboxUsbLibrary] = None

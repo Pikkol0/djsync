@@ -1015,7 +1015,7 @@ class DJSyncApp(QMainWindow):
 
         current = self.stack.currentWidget()
         if current in self._diag_pages() and not isinstance(current, QualityPage):
-            self._drop_diag_page(current, then=go)
+            self._switch_diag_page(current, go)
         else:
             go()
 
@@ -1028,8 +1028,7 @@ class DJSyncApp(QMainWindow):
             page._leaving = True
             page.close()
         self._uni_return = self._current or "library"
-        for old in self._diag_pages():                  # 1.3.1 (C41) : onglet Uniformiser du Diagnostic
-            self._drop_diag_page(old)
+        # 1.4.1-rc.2 (B99) : les autres onglets du Diagnostic restent ouverts derrière (tâche en cours gardée)
         self.uniformize_page = UniformizePage(self.stack, self.ctrl, list(tracks), scope, on_close=self._uni_closed)
         self.stack.addWidget(self.uniformize_page)
         self._show_page(self.uniformize_page)
@@ -1147,7 +1146,21 @@ class DJSyncApp(QMainWindow):
         if from_page is None or tab == "uniformize":
             go()                      # Uniformiser : la page actuelle reste tant que la portée n'est pas choisie
             return
-        self._drop_diag_page(from_page, then=go)
+        self._switch_diag_page(from_page, go)
+
+    def _switch_diag_page(self, from_page: QWidget, go: Callable[[], None]) -> None:
+        """1.4.1-rc.2 (B99) : changer d'onglet du Diagnostic ne ferme plus l'onglet quitté : il reste ouvert
+        derrière, avec sa tâche (Doublons repartait de zéro), comme en passant par un autre menu (B63). Le
+        Retour du nouvel onglet ramène là d'où l'on était venu au Diagnostic, pas à l'onglet quitté."""
+        if from_page is getattr(self, "uniformize_page", None):        # Uniformiser : fermé comme avant
+            self._drop_diag_page(from_page, then=go)
+            return
+        returns = self.__dict__.setdefault("_page_returns", {})
+        origin = returns.get(id(from_page))
+        go()
+        cur = self.stack.currentWidget()
+        if origin is not None and cur is not from_page and cur in self._diag_pages():
+            returns[id(cur)] = origin
 
     def _drop_diag_page(self, page: QWidget, then: Optional[Callable[[], None]] = None) -> None:
         """Ferme une page du Diagnostic sans revenir à la vue d'origine (changement d'onglet)."""
@@ -1195,10 +1208,10 @@ class DJSyncApp(QMainWindow):
 
     def open_dialog_page(self, page: QWidget) -> None:
         returns = self.__dict__.setdefault("_page_returns", {})
-        diag = type(page).__name__ in DIAG_PAGE_TYPES             # un seul onglet du Diagnostic à la fois
+        # 1.4.1-rc.2 (B99) : les autres onglets du Diagnostic restent ouverts derrière (plus « un seul à la fois »)
         for i in reversed(range(self.stack.count())):            # une seule page de chaque sorte
             old = self.stack.widget(i)
-            if old is not page and (type(old) is type(page) or (diag and old in self._diag_pages())):
+            if old is not page and type(old) is type(page):
                 returns.pop(id(old), None)
                 old._host = None                                  # type: ignore[attr-defined]
                 self.stack.removeWidget(old)

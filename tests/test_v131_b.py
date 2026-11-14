@@ -121,7 +121,7 @@ def test_missing_files_tab_replace_relink_remove(tmp_path, monkeypatch):
     import shutil
 
     from djsync.ui.diag_tabs import DiagTabs
-    from djsync.ui.missing_dialog import DOWNLOAD, RELINK, REMOVE, REPLACE, MissingFilesDialog
+    from djsync.ui.missing_dialog import DOWNLOAD, RELINK, REMOVE, MissingFilesDialog
 
     from .qt_util import close_window, find, pump
 
@@ -151,9 +151,10 @@ def test_missing_files_tab_replace_relink_remove(tmp_path, monkeypatch):
         assert items[umbrella.title].found == moved and not items[vald.title].candidates
 
         # remplacer le clip par la version présente
-        dlg._select(dlg.items.index(items[clip.title]))
-        assert dlg._choice.checkedId() == REPLACE * 1000
-        dlg._apply()
+        dlg._select(dlg.items.index(items[clip.title]))      # 1.4.1-rc.2 (B100) : par la carte de la version
+        assert by_title["One More Time"].content_id in dlg._version_rows
+        dlg.merge_with(by_title["One More Time"])
+        dlg.merge_dialog._ok()
         assert pump(app, 6, lambda: len(dlg.items) == 2)
         ids = {x.content_id for x in lib.list_tracks()}
         assert clip.content_id not in ids and by_title["One More Time"].content_id in ids

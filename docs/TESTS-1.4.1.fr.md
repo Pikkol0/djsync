@@ -170,3 +170,23 @@ Référence : captures Rekordbox du 13/11 (« Tribus disparues », 3 bandes, RGB
 | ODE-1 | Tous | Windows, macOS, Linux | (**C77**) Paramètres ▸ Analyse ▸ Type de forme d'onde : 3 bandes. Ouvrir Grille et cues sur un son analysé par Rekordbox, puis sur un son de DJSync ; lancer un son dans le lecteur. | Dès l'ouverture, forme d'onde 3 bandes (basses bleues, médiums orange, aigus crème), jamais RGB puis 3 bandes ; elle s'affine sans changer de couleurs. Aperçu du lecteur dans les mêmes couleurs. |
 | ODE-2 | Tous | Windows, macOS, Linux | (**C77**) Grille et cues ouvert : passer à RGB, enregistrer les paramètres, revenir ; puis Bleu. | Le changement s'applique tout de suite, sans redémarrer, à la forme d'onde, à la vue d'ensemble et à l'aperçu du lecteur ; les modifications en cours (grille, cues) sont gardées. RGB : couleurs comme Rekordbox RGB. Bleu : bleu profond à bleu très clair, comme Rekordbox Bleu. |
 | ODE-3 | Auteur | Windows | (**C77**) Même son, même endroit, dans Rekordbox et dans DJSync, pour chacun des trois types. | Mêmes couleurs et même allure (un son de DJSync, réanalysé, aussi). |
+
+## Démarrage (B97)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| DEM-1 | Tous | Windows, macOS, Linux | (**B97**) Paramètres ▸ Téléchargement : choisir un navigateur connecté à YouTube, enregistrer, fermer DJSync et le relancer. | DJSync démarre normalement (plus de fenêtre « 'AppController' object has no attribute 'jobs' »). Le navigateur reste choisi. |
+
+## rc.2 : retours des tests de la rc.1 (B99, B100, B101, C195, C196, C190, GRI-2)
+
+À refaire sur la rc.2 : seulement ces scénarios (et DEM-1, correctif B97 déjà dans la rc.2).
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| DIA-6 | Tous | Windows, macOS, Linux | (**B99**) Diagnostic ▸ Doublons sur une grande bibliothèque ; pendant la vérification, passer à l'onglet Fichiers introuvables, puis à Qualité, puis revenir à Doublons. | La vérification continue pendant les autres onglets (son panneau reste dans le volet) ; au retour, Doublons est là où il en était, sans repartir de 0. Retour depuis n'importe quel onglet ramène à la page d'où l'on était venu au Diagnostic. |
+| INT-4 | Tous | Windows, macOS, Linux | (**B100**) Fichiers introuvables : un son dont une version identique est dans la bibliothèque sous un autre nom ou une autre durée (« Elle a mal (feat. Niska) »). | Une carte par version (titre, format, durée, BPM, playlists) avec **Écouter** et **Fusionner avec celle-ci** ; plus de lignes « Remplacer par … » à cocher. |
+| INT-5 | Tous | Windows, macOS, Linux | (**B101**) Même page, fenêtre petite ou zoom à 150 % ; un son avec plusieurs versions. | Les cartes gardent leur taille (texte lisible, boutons entiers) ; le détail défile ; les boutons du bas restent visibles. |
+| INT-6 | Tous | Windows, macOS, Linux | (**C196**) Cliquer **Écouter** sur une carte ; puis choisir « Télécharger une version propre » et cliquer ▶ à côté d'un résultat. | La version présente se lit dans le lecteur ; le résultat proposé se lit en aperçu avant de le choisir. |
+| INT-7 | Tous | Windows, macOS, Linux | (**C195**) Liste avec des introuvables dans aucune playlist (et, sur l'ordinateur, un disque débranché). | « Dans aucune playlist » apparaît dans la ligne de la liste et en orange dans le détail. **Retirer les n dans aucune playlist** : confirmation, puis seuls ceux-là quittent la bibliothèque ; ceux d'un disque débranché et ceux dans une playlist restent. |
+| OR-3 | Tous | Windows, macOS, Linux | (**C190**) Mêmes écrans qu'OR-1 (MP3 320 dans Bibliothèque, Haute qualité, Recherche). | Le texte et la pastille « argent » sont en bleu acier métallisé avec le reflet : on ne les confond plus avec le gris ou le blanc. L'or ne change pas. |
+| GRI-6 | Tous | Windows, macOS, Linux | (**141-GRI-2**) Grille et cues : cocher « Curseur fixe au centre ». | « Aimant » et son choix sont grisés ; la bulle explique pourquoi. Décocher le curseur fixe : l'aimant revient tel qu'il était réglé. |
