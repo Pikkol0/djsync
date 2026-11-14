@@ -3,7 +3,8 @@
 Liste les sons de la bibliothèque dont le fichier n'existe plus (supprimé, renommé, dossier déplacé,
 disque non branché) et propose pour chacun :
 * Remplacer par une version identique déjà dans la bibliothèque (elle prend sa place dans les
-  playlists ; ses hot cues sont repris si elle n'en a pas) ;
+  playlists ; ses hot cues sont repris si elle n'en a pas) : 1.4.1-rc.2 (B100, B101, C196), une carte
+  par version, comme dans Doublons (écouter, remplacer), dans un détail qui défile ;
 * Relier au fichier du même nom trouvé ailleurs (dossier déplacé) : même son, rien d'autre ne change ;
 * Retélécharger une version propre (comme « Mauvaise qualité ») ;
 * Retirer l'entrée de la bibliothèque (et de ses playlists).
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QListWidget, QListWidgetItem, QRadioButton
+from PySide6.QtWidgets import QButtonGroup, QFrame, QListWidget, QListWidgetItem, QRadioButton, QScrollArea
 
 from ..core.duplicates import split_display
 from ..i18n import plural, t
@@ -24,7 +25,7 @@ from . import theme
 from .dialogs import BaseDialog
 from .diag_tabs import add_tabs
 from .duplicates_dialog import _drop_layout
-from .widgets import button, hbox, label, panel, vbox
+from .widgets import button, hbox, icon_button, label, panel, vbox
 
 REPLACE, RELINK, DOWNLOAD, REMOVE = 0, 1, 2, 3
 ALT = 100
@@ -67,7 +68,12 @@ class MissingFilesDialog(BaseDialog):
         self.detail_lay = vbox(self.detail, margins=theme.px(10), spacing=theme.px(6))
         self.detail_lay.addWidget(label(t("missing.searching_sub"), "faint", wrap=True))
         self.detail_lay.addStretch(1)
-        main.addWidget(self.detail, 1)
+        # 1.4.1-rc.2 (B101) : le détail défile (cartes des versions tassées sinon), comme dans Doublons
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.NoFrame)
+        self.detail_scroll.setWidget(self.detail)
+        main.addWidget(self.detail_scroll, 1)
         self.body.addLayout(main, 1)
 
         bar = hbox()
@@ -77,6 +83,11 @@ class MissingFilesDialog(BaseDialog):
         self.remove_checked_btn = button(t("missing.remove_checked", n=0), self._remove_checked, kind="flat",
                                          icon="trash")                                     # C126
         bar.addWidget(self.remove_checked_btn)
+        # 1.4.1-rc.2 (C195) : retirer d'un coup les introuvables qui ne sont dans aucune playlist
+        self.remove_orphans_btn = button(t("missing.remove_orphans", n=0), self._remove_orphans, kind="flat",
+                                         icon="trash")
+        self.remove_orphans_btn.setToolTip(t("missing.remove_orphans_tip"))
+        bar.addWidget(self.remove_orphans_btn)
         bar.addStretch(1)
         self.skip_btn = button(t("missing.skip"), self._skip, icon="next")
         self.apply_btn = button(t("missing.apply"), self._apply, kind="primary", icon="check")
@@ -113,6 +124,8 @@ class MissingFilesDialog(BaseDialog):
             extra = "  ·  " + t("missing.offline_short", drive=it.volume or "?") if it.offline else ""
             if getattr(it, "versions", None):                 # 1.4.1 (C173) : « Version existante »
                 extra += "  ·  " + plural("missing.version_one", "missing.version_many", len(it.versions))
+            if not it.playlists:                              # 1.4.1-rc.2 (C195)
+                extra += "  ·  " + t("dup.in_no_playlist")
             item = QListWidgetItem(f"{title}\n{artist or '—'}{extra}")
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)          # C126
             item.setCheckState(Qt.Unchecked)
@@ -186,19 +199,14 @@ class MissingFilesDialog(BaseDialog):
         path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.detail_lay.addWidget(path)
         self.detail_lay.addWidget(label(t("dup.in_playlists", names=", ".join(it.playlists)) if it.playlists
-                                        else t("dup.in_no_playlist"), "dim", wrap=True))
+                                        else t("dup.in_no_playlist"), "dim" if it.playlists else "warn",
+                                        wrap=True))                  # 1.4.1-rc.2 (C195) : mis en valeur
         if it.offline:
             self.detail_lay.addWidget(label(t("missing.offline", drive=it.volume or "?"), "warn", wrap=True))
         self._show_versions(it)
         self.detail_lay.addSpacing(theme.px(6))
         self.detail_lay.addWidget(label(t("missing.what"), "dim"))
-        default = None
-        for k, cand in enumerate(it.candidates[:5]):
-            ct, ca = split_display(cand.title, cand.artist)
-            r = self._radio(t("missing.replace_by", title=ct, artist=ca or "—",
-                              duration=format_duration(cand.duration_seconds)), REPLACE * 1000 + k)
-            r.setToolTip(t("missing.replace_tip"))
-            default = default or r
+        default = None                # 1.4.1-rc.2 (B100) : « Remplacer » passe par les cartes des versions
         if it.found is not None:
             r = self._radio(t("missing.relink", path=str(it.found)), RELINK * 1000)
             r.setToolTip(t("missing.relink_tip"))
@@ -212,6 +220,7 @@ class MissingFilesDialog(BaseDialog):
         if default is not None and not it.offline:
             default.setChecked(True)
         self.detail_lay.addStretch(1)
+        self.detail_scroll.verticalScrollBar().setValue(0)
         self._refresh_actions()
 
     def _radio(self, text: str, cid: int) -> QRadioButton:
@@ -247,8 +256,9 @@ class MissingFilesDialog(BaseDialog):
         while box.count():
             w = box.takeAt(0).widget()
             if w is not None:
-                if isinstance(w, QRadioButton):
-                    self._alt_group().removeButton(w)
+                for r in [w, *w.findChildren(QRadioButton)]:
+                    if isinstance(r, QRadioButton):
+                        self._alt_group().removeButton(r)
                 w.deleteLater()
         found = self._alts.get(cid)
         if found is None:
@@ -267,7 +277,11 @@ class MissingFilesDialog(BaseDialog):
             r.setToolTip(levels.expected_tip(getattr(self.ctrl.settings, "download_quality", "") or "original"))
             group.addButton(r, ALT + k)
             r.toggled.connect(lambda _on: self._refresh_actions())
-            box.addWidget(r)
+            line = QFrame()                                   # 1.4.1-rc.2 (C196) : écouter avant de choisir
+            row = hbox(line, spacing=theme.px(4))
+            row.addWidget(r, 1)
+            row.addWidget(icon_button("play", lambda tr=c.track: self.ctrl.preview(tr), t("action.listen")))
+            box.addWidget(line)
             if k == 0:
                 r.setChecked(True)
         self._refresh_actions()
@@ -295,6 +309,14 @@ class MissingFilesDialog(BaseDialog):
         if hasattr(self, "remove_checked_btn"):                              # C126
             self.remove_checked_btn.setText(t("missing.remove_checked", n=n))
             self.remove_checked_btn.setEnabled(not self._busy and n > 0)
+        if hasattr(self, "remove_orphans_btn"):                              # 1.4.1-rc.2 (C195)
+            k = len(self.orphans())
+            self.remove_orphans_btn.setText(t("missing.remove_orphans", n=k))
+            self.remove_orphans_btn.setEnabled(not self._busy and k > 0)
+
+    def orphans(self) -> List[Any]:
+        """Introuvables dans aucune playlist, hors disque absent (rebrancher le disque les retrouverait)."""
+        return [i for i in self.items if not i.playlists and not i.offline]
 
     def _skip(self) -> None:
         if self.current is None:
@@ -383,6 +405,35 @@ class MissingFilesDialog(BaseDialog):
                       plural("missing.remove_all_one", "missing.remove_all_many", len(ids)),
                       go, confirm_text=t("action.delete"), danger=True, detail=detail)
 
+    def _remove_orphans(self) -> None:
+        """1.4.1-rc.2 (C195) : retirer d'un coup les introuvables qui ne sont dans aucune playlist."""
+        from .dialogs import ConfirmDialog
+
+        ids = [i.track.content_id for i in self.orphans()]
+        if not ids or self._busy:
+            return
+
+        def go() -> None:
+            self._busy = True
+            self._refresh_actions()
+            gone = set(ids)
+
+            def done(_r: Any = None) -> None:
+                if not self.winfo_exists():
+                    return
+                self._busy = False
+                self.items = [i for i in self.items if i.track.content_id not in gone]
+                self.ctrl.set_diag_count("missing", len(self.items))
+                self._fill_list()
+                self._select(0 if self.items else -1)
+
+            self.ctrl.remove_missing(ids, done, self._failed)
+
+        self.orphans_dialog = ConfirmDialog(
+            self, t("missing.remove_orphans", n=len(ids)),
+            plural("missing.remove_orphans_one", "missing.remove_orphans_many", len(ids)),
+            go, confirm_text=t("action.delete"), danger=True, detail=t("missing.remove_all_detail"))
+
     def _remove_all(self) -> None:
         from .dialogs import ConfirmDialog
 
@@ -426,18 +477,23 @@ class MissingFilesDialog(BaseDialog):
         self.detail_lay.addWidget(label(plural("missing.version_one", "missing.version_many", len(versions)), "accent"))
         self._version_rows = {}
         for v in versions:
-            box = panel(role="banner")
-            lay = vbox(box, margins=theme.px(8), spacing=theme.px(2))
+            box = panel(role="banner")                        # 1.4.1-rc.2 (B101) : carte comme dans Doublons
+            lay = hbox(box, margins=theme.px(8), spacing=theme.px(6))
+            text = vbox(spacing=theme.px(2))
             vt, va = split_display(v.title, v.artist)
             fmt = Path(v.path or "").suffix.lstrip(".").upper() or "?"
-            lay.addWidget(label(f"{vt} — {va or '—'}", wrap=True))
-            lay.addWidget(label(f"{fmt}  ·  {format_duration(v.duration_seconds)}", "dim"))
+            text.addWidget(label(f"{vt} — {va or '—'}", wrap=True))
+            text.addWidget(label(f"{fmt}  ·  {format_duration(v.duration_seconds)}"
+                                 + (f"  ·  {v.bpm:.0f} BPM" if getattr(v, "bpm", 0) else ""), "dim"))
             pls = label(t("missing.version_playlists_loading"), "faint", wrap=True)
-            lay.addWidget(pls)
-            row = hbox()
-            row.addStretch(1)
-            row.addWidget(button(t("missing.merge_with"), lambda x=v: self.merge_with(x), icon="duplicates"))
-            lay.addLayout(row)
+            text.addWidget(pls)
+            lay.addLayout(text, 1)
+            play = button(t("action.listen"), lambda x=v: self.ctrl.play_queue([x], 0), kind="flat", icon="play")
+            play.setEnabled(not self.ctrl.file_missing(v))       # 1.4.1-rc.2 (C196)
+            lay.addWidget(play, 0, Qt.AlignVCenter)
+            merge = button(t("missing.merge_with"), lambda x=v: self.merge_with(x), icon="duplicates")
+            merge.setToolTip(t("missing.replace_tip"))
+            lay.addWidget(merge, 0, Qt.AlignVCenter)
             self.detail_lay.addWidget(box)
             self._version_rows[v.content_id] = pls
 

@@ -327,6 +327,9 @@ class DiagnosticMixin:
                     by_key.setdefault(version_key(y), []).append(y)
             for i in out:
                 i.versions = existing_versions(i.track, by_key.get(version_key(i.track), []))
+                # 1.4.1-rc.2 (B100) : les versions identiques trouvées par Doublons ont aussi leur carte
+                seen = {v.content_id for v in i.versions}
+                i.versions += [c for c in i.candidates if c.content_id not in seen]
             wanted = {Path(i.path).name.casefold() for i in out if not i.offline}
             found = index_files(list(dict.fromkeys(roots)), wanted) if wanted else {}
             for i in out:
