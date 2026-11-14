@@ -125,6 +125,10 @@ class Settings:
     youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
     light_mode: str = "auto"           # 1.4.0 (C65) : mode léger auto | on | off
     light_prompt_off: bool = False     # 1.4.0 (C65) : ne plus proposer le mode léger au démarrage
+    light_offered: list = field(default_factory=list)  # 1.4.2 (C174) : PC (identifiants hachés) où il a été proposé
+    set_players: str = "all"           # 1.4.2 (C67) : platines visées par « Prêt pour le set ? »
+    mytags_column_shown: bool = False  # 1.4.2 (C113) : colonne My Tags affichée d'elle-même une fois
+    tour_state: str = ""               # 1.4.2 (C178) : visite guidée "" | later | done | never
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
@@ -183,6 +187,9 @@ class Settings:
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
+        self.set_players = self.set_players if self.set_players in ("all", "recent", "nxs2", "old") else "all"
+        if not isinstance(self.light_offered, list):
+            self.light_offered = []
         self.volume = max(0.0, min(1.0, float(self.volume)))
         self.audio_latency_ms = max(-200, min(2000, int(self.audio_latency_ms or 0)))
         if self.settings_version < 1:      # V1.0.0 : l'ajout de pages à export.pdb devient le défaut

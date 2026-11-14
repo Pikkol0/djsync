@@ -9,7 +9,6 @@ from dataclasses import replace
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QComboBox
 
 from ...i18n import plural, t
 from ...models import SEARCH_MODE_LABELS, SearchMode, TrackResult
@@ -36,7 +35,9 @@ class SearchView(View):
         self._debounce.setInterval(DEBOUNCE_MS)
         self._debounce.timeout.connect(self._debounced)
 
-        self.root.addLayout(self.header(t("tab.search")))
+        from ..search_tabs import add_search_tabs
+
+        add_search_tabs(self, "search")                 # 1.4.2 (C182) : Recherche · Haute qualité · Lien
         bar = hbox(spacing=theme.px(8))
         # 1.2.1 (C08) : où chercher (Tout / Titre / Artiste / Album)
         self._field_labels = {"all": t("search.field_all"), "title": t("search.field_title"),
@@ -50,13 +51,7 @@ class SearchView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
-        # 1.4.0 (C10.2, C45) : recherche « haute qualité » ; 1.4.1 (C133, D9) : elle a sa page, ce choix l'ouvre
-        self.mode = QComboBox()
-        self.mode.addItems([t("search.mode_classic"), t("search.mode_hq")])
-        self.mode.setToolTip(t("search.mode_hq_tip"))
-        self.mode.setMinimumHeight(self.entry.sizeHint().height())
-        self.mode.currentIndexChanged.connect(self._mode_changed)
-        bar.addWidget(self.mode)
+        # 1.4.2 (C182) : le menu de mode (Classique / Haute qualité) est remplacé par l'onglet Haute qualité
         self.root.addLayout(bar)
         info_row = hbox(spacing=theme.px(8))
         self.back_btn = button(t("search.back_to_albums"), self._close_album, kind="flat", icon="back")
@@ -96,19 +91,6 @@ class SearchView(View):
     @property
     def hq(self) -> bool:
         return False
-
-    def _mode_changed(self, i: int) -> None:
-        """« Haute qualité » : la page Haute qualité s'ouvre avec le texte déjà tapé ; ce menu revient à
-        « Classique » (un seul code de recherche haute qualité)."""
-        if i != 1:
-            return
-        self.mode.blockSignals(True)
-        self.mode.setCurrentIndex(0)
-        self.mode.blockSignals(False)
-        query = self.entry.text().strip()
-        self.ctrl._emit("navigate", "hq")
-        if query:
-            self.ctrl._emit("slsk_search", query)
 
     def on_show(self) -> None:
         self.entry.setFocus()

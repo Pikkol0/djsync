@@ -443,6 +443,12 @@ class QualityPage(BaseDialog):
 
             entries += [None, buy_entry(self.ctrl, sel[0].track.artist or "", sel[0].track.title)]
         entries.append((t("diag.ignore"), lambda: self._ignore(sel), "close"))
+        if len(sel) == 1:                                   # 1.4.2 (C182) : le même menu d'un son partout
+            from .track_menu import track_entries
+
+            common = [e for e in track_entries(self, self.ctrl, [sel[0].track], where="quality")
+                      if e is None or e[0] != t("buy.menu")]          # Acheter : déjà plus haut
+            entries += [None] + common
         return entries
 
 

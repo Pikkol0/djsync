@@ -210,8 +210,18 @@ class DownloadsView(View):
             self.ctrl.retry(job)
 
     def _menu(self, iids: List[str]) -> list:
-        return [(t("action.listen"), lambda: self._play(None), "play"),
-                (t("action.retry"), self._retry, "refresh")] if iids else []
+        if not iids:
+            return []
+        entries: list = [(t("action.listen"), lambda: self._play(None), "play"),
+                         (t("action.retry"), self._retry, "refresh")]
+        # 1.4.2 (C182) : un son téléchargé est dans la bibliothèque : même menu qu'ailleurs
+        jobs = [j for j in self._selected_jobs() if j.status == "done" and j.content_id is not None]
+        tracks = [self._tracks.get(str(j.content_id)) for j in jobs]
+        if len(iids) == 1 and tracks and tracks[0] is not None:
+            from ..track_menu import track_entries
+
+            entries += [None] + track_entries(self, self.ctrl, tracks[:1], where="downloads")
+        return entries
 
     # ======================================================================= analyse
     def on_show(self) -> None:
@@ -421,8 +431,7 @@ class DownloadsView(View):
         sel = self._selected_tracks()
         if not sel:
             return []
-        entries: list = [(t("action.listen"), lambda: self._play_track(iids[0]), "play"),
-                         (t("lib.analyse_selection", n=len(sel)), self._analyse_selection, "wave")]
-        if len(sel) == 1 and sel[0].is_analysed:
-            entries.append((t("lib.edit_grid"), lambda: self._edit_grid(sel[0]), "grid"))
-        return entries
+        from ..track_menu import track_entries          # 1.4.2 (C182) : le même menu partout
+
+        return [(t("action.listen"), lambda: self._play_track(iids[0]), "play"), None] \
+            + track_entries(self, self.ctrl, sel, where="downloads")

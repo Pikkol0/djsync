@@ -181,8 +181,11 @@ def resolve_direct(
     limit: int = MAX_ENTRIES,
     extractor: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
     details: Optional[Callable[[List[str]], Dict[str, Dict[str, Any]]]] = None,
+    start: int = 1,
 ) -> ResolvedUrl:
     """Liste les morceaux d'une URL YouTube/SoundCloud (1 vidéo ou toute une playlist).
+
+    1.4.2 (C172) : `limit` titres au plus à partir du titre `start` (1 = le premier) : « Charger les 200 suivants ».
 
     `extractor(url, opts) -> info` est injectable pour les tests ; par défaut yt-dlp.
     """
@@ -194,8 +197,10 @@ def resolve_direct(
     single = kind == UrlKind.YOUTUBE and _single_video_of_playlist_url(url)
     opts: Dict[str, Any] = {
         "quiet": True, "no_warnings": True, "skip_download": True,
-        "extract_flat": "in_playlist", "playlistend": limit, "noplaylist": single,
+        "extract_flat": "in_playlist", "playlistend": start + limit - 1, "noplaylist": single,
     }
+    if start > 1:
+        opts["playliststart"] = start
     try:
         if extractor is not None:
             info = extractor(url, opts)
@@ -232,5 +237,15 @@ def resolve_direct(
         source_url=url,
         is_playlist=is_playlist,
         note="Video + playlist link: only the video is imported." if single else "",
-        truncated=is_playlist and len(entries) >= limit,
+        truncated=is_playlist and (len(entries) >= limit or start + len(entries) - 1 < total_of(info)),
+        total=total_of(info) if is_playlist else 0,
+        start=start,
     )
+
+
+def total_of(info: Dict[str, Any]) -> int:
+    """1.4.2 (C172) : nombre de titres annoncé par la playlist (0 : inconnu)."""
+    try:
+        return int(info.get("playlist_count") or info.get("n_entries") or 0)
+    except (TypeError, ValueError):
+        return 0

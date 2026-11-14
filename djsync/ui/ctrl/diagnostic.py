@@ -252,6 +252,10 @@ class DiagnosticMixin:
         """Nombre de sons concernés par onglet (None : pas encore compté)."""
         if not hasattr(self, "_diag_counts"):
             self._diag_counts: Dict[str, Optional[int]] = {}
+        lib = getattr(self, "library", None)                    # 1.4.2 (C182) : comptes d'une autre bibliothèque
+        if getattr(self, "_diag_counts_lib", lib) is not lib:
+            self._diag_counts.clear()
+        self._diag_counts_lib = lib
         return self._diag_counts
 
     def diag_quick_counts(self) -> None:

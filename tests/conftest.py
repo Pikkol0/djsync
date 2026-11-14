@@ -29,6 +29,59 @@ def _watched_register(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _qt_cleanup():
+    """1.4.2 (C183) : après chaque test, les fenêtres Qt encore ouvertes (pages, bulles, fenêtres créées sans
+    fixture) sont vraiment détruites : sinon elles s'accumulent dans le processus et chaque changement de
+    feuille de style (zoom, couleur, langue) les reprend toutes."""
+    yield
+    import sys
+
+    if "PySide6.QtWidgets" not in sys.modules:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None or not QApplication.topLevelWidgets():
+        return
+    for w in list(QApplication.topLevelWidgets()):
+        try:
+            w.close()
+            w.deleteLater()
+        except RuntimeError:
+            pass
+    for _i in range(3):
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QCoreApplication.processEvents()
+
+
+REAL_REKORDBOX_CHECK = {"test_v132_rc4"}        # tests de la détection elle-même : fonction réelle
+
+
+@pytest.fixture(autouse=True)
+def _rekordbox_closed(request, monkeypatch):
+    """1.4.2 (C183) : les tests simulent un Rekordbox fermé : Rekordbox ouvert sur la machine de test (la tour)
+    refusait l'écriture de master.db et faisait échouer 13 tests. Les tests de Rekordbox ouvert le simulent."""
+    module = getattr(request.node, "module", None)
+    if module is not None and module.__name__.rsplit(".", 1)[-1] in REAL_REKORDBOX_CHECK:
+        return
+    try:
+        from djsync.db import local_library
+    except ImportError:
+        return
+    monkeypatch.setattr(local_library, "rekordbox_running", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_tour_offer(monkeypatch):
+    """1.4.2 (C178) : pas de proposition de visite guidée au démarrage des tests (ses propres tests la testent)."""
+    try:
+        from djsync.ui import tour
+    except ImportError:              # PySide6 absent
+        return
+    monkeypatch.setattr(tour, "OFFER_AT_START", False)
+
+
+@pytest.fixture(autouse=True)
 def _strong_machine(monkeypatch):
     """1.4.0 (C65) : les tests voient une machine « normale » (pas de mode léger ni de fenêtre au démarrage),
     quelle que soit la machine de test ; les tests du mode léger simulent la leur."""

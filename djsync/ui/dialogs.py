@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QLineEdit, QScrollArea, QWidget,
+    QCheckBox, QComboBox, QDialog, QLineEdit, QPushButton, QScrollArea, QWidget,
 )
 
 from ..i18n import t
@@ -215,6 +215,14 @@ class PlaylistPicker(BaseDialog):
         self._folders: Dict[int, Any] = {}
         self._filling = False
         self.heading(title, subtitle)
+        # 1.4.2 (C149) : bandeau « Sélectionnées » : une pastille par playlist cochée, toujours visible
+        from .widgets import FlowLayout
+
+        self._chips_box = QWidget()
+        self._chips = FlowLayout(self._chips_box, spacing=theme.px(4))
+        self._chips_title = label(t("picker.selected"), "section")
+        self.body.addWidget(self._chips_title)
+        self.body.addWidget(self._chips_box)
         self._filter = QLineEdit()
         self._filter.setPlaceholderText(t("picker.search"))
         self._filter.setClearButtonEnabled(True)
@@ -308,8 +316,13 @@ class PlaylistPicker(BaseDialog):
             self._filling = False
             self._empty.setVisible(not self._vars)
             self._apply_filter()
+            self._fit_height(len(playlists))                    # 1.4.2 (C149)
             if tick is not None and tick in self._vars:
                 self._tree.scrollToItem(self._vars[tick].item)
+            else:                                               # C149 : jusqu'à la première playlist cochée
+                first = next((cb.item for _pid, cb in self._vars.items() if cb.isChecked()), None)
+                if first is not None:
+                    self._tree.scrollToItem(first)
             self._refresh_ok()
 
         self.ctrl.fetch_playlists(show)
@@ -389,6 +402,50 @@ class PlaylistPicker(BaseDialog):
 
     def _refresh_ok(self) -> None:
         self._ok_btn.setEnabled(self._allow_empty or bool(self._selected()))
+        self._refresh_chips()
+
+    # ------------------------------------------------- 1.4.2 (C149) : sélection visible, hauteur adaptée
+    def _refresh_chips(self) -> None:
+        while self._chips.count():
+            item = self._chips.takeAt(0)
+            if item is not None and item.widget() is not None:
+                item.widget().deleteLater()
+        names = {pid: cb.item.text(0).split("   ·   ")[0] for pid, cb in self._vars.items()}
+        chosen = [pid for pid in self._selected() if pid in names]
+        if not chosen:
+            self._chips.addWidget(label(t("picker.selected_none"), "faint"))
+        for pid in chosen:
+            b = button(names[pid], lambda _c=False, p=pid: self._unpick(p), kind="flat", icon="close",
+                       tooltip=t("picker.unselect"))
+            b.setProperty("chip", True)
+            self._chips.addWidget(b)
+        self._chips_box.updateGeometry()
+
+    def chip_names(self) -> List[str]:
+        out = []
+        for i in range(self._chips.count()):
+            w = self._chips.itemAt(i).widget()
+            if isinstance(w, QPushButton):
+                out.append(w.text())
+        return out
+
+    def _unpick(self, pid: int) -> None:
+        cb = self._vars.get(pid)
+        if cb is not None:
+            cb.setChecked(False)                       # _item_changed suit (décoche et met à jour)
+
+    def _fit_height(self, n: int) -> None:
+        """La fenêtre grandit avec le nombre de playlists, jusqu'à 80 % de la hauteur de l'écran (puis la liste
+        défile)."""
+        if self._host is not None or getattr(self, "_fitted", False):
+            return
+        self._fitted = True
+        screen = self.screen() if hasattr(self, "screen") else None
+        avail = screen.availableGeometry().height() if screen is not None else 800
+        row = max(self._tree.sizeHintForRow(0), theme.px(22)) if self._tree.topLevelItemCount() else theme.px(22)
+        want = self.sizeHint().height() - self._tree.sizeHint().height() + row * (n + 1) + theme.px(12)
+        height = max(theme.px(420), min(int(avail * 0.8), want))
+        self.resize(self.width(), height)
 
     def _create(self) -> None:
         name = self._new.text().strip()
