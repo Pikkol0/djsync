@@ -308,6 +308,7 @@ class GridEditor(QWidget):
         self.fixed_box.setChecked(self.fixed_cursor)
         self.fixed_box.toggled.connect(self._set_fixed)
         play.addWidget(self.fixed_box)
+        self._magnet_enable()
         self.body.addLayout(play)
 
         from .cue_pads import CuePanel
@@ -541,10 +542,20 @@ class GridEditor(QWidget):
         if self.fixed_cursor:
             self.start_ms = self.cursor_ms - self.view_s * 500.0
 
+    def _magnet_enable(self) -> None:
+        """1.4.1-rc.2 (141-GRI-2) : avec le curseur fixe au centre, on fait glisser le son : l'aimant du curseur
+        n'a pas de sens (et gênerait), il est grisé, avec la raison dans la bulle ; le choix reste gardé."""
+        fixed = bool(self.fixed_cursor)
+        self.magnet_box.setEnabled(not fixed)
+        self.magnet_menu.setEnabled(not fixed and self.magnet_box.isChecked())
+        tip = t("grid.magnet_fixed_tip") if fixed else t("grid.magnet_tip")
+        self.magnet_box.setToolTip(tip)
+        self.magnet_menu.setToolTip(tip)
+
     def _magnet_changed(self, *_args: Any) -> None:
         """1.4.1 (C92) : aimant coupé, au temps ou au quart de temps ; choix gardé."""
         on = self.magnet_box.isChecked()
-        self.magnet_menu.setEnabled(on)
+        self.magnet_menu.setEnabled(on and not self.fixed_cursor)
         self.magnet = (4 if self.magnet_menu.currentIndex() == 1 else 1) if on else 0
         try:
             self.ctrl.settings.grid_magnet = self.magnet
@@ -556,7 +567,7 @@ class GridEditor(QWidget):
         """1.4.1 (C92) : position calée sur la grille. Curseur : seulement si l'aimant est mis. Cue : au temps
         (comme avant) ou au quart de temps si l'aimant est au quart. Alt ou Maj (ou `exact`) : position libre."""
         free = exact or bool(QApplication.keyboardModifiers() & (Qt.AltModifier | Qt.ShiftModifier))
-        if free or not self.beats or (cursor and not self.magnet):
+        if free or not self.beats or (cursor and (not self.magnet or getattr(self, "fixed_cursor", False))):   # GRI-2
             return float(ms) if cursor else float(int(round(ms)))
         return float(nearest_grid_ms(self.beats, ms, self.magnet or 1))
 
@@ -567,6 +578,7 @@ class GridEditor(QWidget):
             self.ctrl.settings.save()
         except Exception:  # noqa: BLE001 - réglage de confort
             pass
+        self._magnet_enable()
         self._center()
         self.draw()
 

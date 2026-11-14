@@ -29,9 +29,9 @@ FPS = 25
 
 STOPS = {   # (sombre, clair, sombre) : métal, pas un aplat
     "gold": ("#9A7420", "#F3D27A", "#B8862B"),
-    "silver": ("#7D8792", "#E4E9EF", "#98A2AD"),
+    "silver": ("#4F7BAA", "#B9D6F5", "#5E8BBB"),     # 1.4.1-rc.2 (C190) : bleu acier
 }
-HIGHLIGHT = {"gold": "#FFF6D6", "silver": "#FFFFFF"}
+HIGHLIGHT = {"gold": "#FFF6D6", "silver": "#EAF5FF"}
 
 _enabled = True
 

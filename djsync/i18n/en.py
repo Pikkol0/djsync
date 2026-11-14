@@ -716,6 +716,7 @@ STRINGS = {
     "grid.bpm_entry_tip": "BPM of the grid: type a value and press Enter (or Set BPM)",
     "grid.magnet": "Magnet",
     "grid.magnet_tip": "Magnet (like Quantize in Rekordbox): a click moves the cursor onto the nearest beat, and cues are placed on the nearest beat or quarter beat. Hold Alt to place freely. Kept for next time.",
+    "grid.magnet_fixed_tip": "Not available with the fixed cursor in the middle: you drag the track under the cursor. Untick “Fixed cursor in the middle” to use the magnet.",
     "grid.magnet_beat": "1 beat",
     "grid.magnet_quarter": "1/4 beat",
     "grid.two_thirds": "BPM × 2/3",
@@ -1801,6 +1802,10 @@ STRINGS = {
     "missing.merge_message": "“{missing}” (file not found) will be merged with “{kept}”.",
     "missing.merge_detail": "Its playlists move to the kept version, and its hot cues too if the kept version has none. The entry without a file is removed; no file is deleted.",
     "missing.remove_all_versions": "{n} of them have an existing version (Merge keeps their playlists): {names}",
+    "missing.remove_orphans": "Remove the {n} in no playlist",
+    "missing.remove_orphans_tip": "Missing entries that are in no playlist: nothing is lost by removing them. Tracks on a drive that is not connected are left alone.",
+    "missing.remove_orphans_one": "{n} track whose file is missing and that is in no playlist will leave the library.",
+    "missing.remove_orphans_many": "{n} tracks whose file is missing and that are in no playlist will leave the library.",
     # 1.4.1 (C140, D19): Diagnostic entry of the sidebar, "One track" tab
     "nav.diagnostic": "Diagnostic",
     "diagtab.one": "One track",

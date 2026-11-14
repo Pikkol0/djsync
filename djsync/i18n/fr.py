@@ -716,6 +716,7 @@ STRINGS = {
     "grid.bpm_entry_tip": "BPM de la grille : taper une valeur puis Entrée (ou Appliquer le BPM)",
     "grid.magnet": "Aimant",
     "grid.magnet_tip": "Aimant (comme le Quantize de Rekordbox) : un clic pose le curseur sur le temps le plus proche, et les cues se posent sur le temps ou le quart de temps le plus proche. Maintenir Alt pour poser librement. Choix gardé pour la prochaine fois.",
+    "grid.magnet_fixed_tip": "Indisponible avec le curseur fixe au centre : on fait glisser le son sous le curseur. Décocher « Curseur fixe au centre » pour utiliser l'aimant.",
     "grid.magnet_beat": "1 temps",
     "grid.magnet_quarter": "1/4 de temps",
     "grid.two_thirds": "BPM × 2/3",
@@ -1807,6 +1808,10 @@ STRINGS = {
     "missing.merge_message": "« {missing} » (fichier introuvable) sera fusionné avec « {kept} ».",
     "missing.merge_detail": "Ses playlists passent sur la version gardée, ses hot cues aussi si elle n'en a pas. L'entrée sans fichier est retirée ; aucun fichier n'est supprimé.",
     "missing.remove_all_versions": "{n} d'entre eux ont une version existante (Fusionner garde leurs playlists) : {names}",
+    "missing.remove_orphans": "Retirer les {n} dans aucune playlist",
+    "missing.remove_orphans_tip": "Entrées introuvables qui ne sont dans aucune playlist : les retirer ne fait rien perdre. Les sons d'un disque non branché ne sont pas touchés.",
+    "missing.remove_orphans_one": "{n} son introuvable et dans aucune playlist quittera la bibliothèque.",
+    "missing.remove_orphans_many": "{n} sons introuvables et dans aucune playlist quitteront la bibliothèque.",
     # 1.4.1 (C140, D19) : entrée Diagnostic du volet, onglet « Un son »
     "nav.diagnostic": "Diagnostic",
     "diagtab.one": "Un son",
