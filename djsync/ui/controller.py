@@ -205,7 +205,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         )
         self.player.set_volume(settings.volume)
         self.player.latency_offset_ms = settings.audio_latency_ms      # 1.3.0-rc.3 (C39)
-        self._apply_output()
+        self._apply_output(retry=False)        # 1.4.2 : au démarrage, self.jobs n'existe pas encore
 
         self.drive: Optional[UsbDrive] = None
         self.library: Optional[RekordboxUsbLibrary] = None
@@ -1065,7 +1065,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.slsk_disconnect()
         self._emit("settings_saved")
 
-    def _apply_output(self) -> None:
+    def _apply_output(self, retry: bool = True) -> None:
         if hasattr(self.service, "set_quality"):                          # 1.4.1 (C143)
             self.service.set_quality(self.settings.download_quality)
         if hasattr(self.service, "set_soundcloud_auth"):                  # 1.4.0 (C10.1)
@@ -1077,9 +1077,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             from ..core.soundcloud import auth_options
 
             self.service.set_youtube(auth_options(self.settings.youtube_browser))
-            retry = getattr(self, "retry_bot_failures", None)                 # 1.4.0-rc.2 (B66)
-            if retry is not None and self.settings.youtube_browser:
-                retry()
+            # 1.4.0-rc.2 (B66) : navigateur choisi -> relance des refus « robot » (pas au démarrage)
+            if retry and self.settings.youtube_browser:
+                self.retry_bot_failures()
 
     @staticmethod
     def ffmpeg_status(location: str) -> Tuple[bool, str]:

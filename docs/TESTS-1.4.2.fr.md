@@ -56,6 +56,7 @@ Le lot 2 (C23 transferts clé ↔ ordinateur, C24 clé vierge) aura ses scénari
 | REC-2 | Tous | Windows, macOS, Linux | (**C169**) Rechercher ▸ Haute qualité ▸ bouton « ? ». | Un petit panneau explique place libre, file d'attente, vitesse, fiabilité, qualité annoncée et l'absence d'écoute Soulseek. Les en-têtes de colonnes gardent leurs bulles. |
 | REC-3 | Tous | Windows, macOS, Linux | (**C172**) Lien ou playlist : une playlist YouTube ou SoundCloud de plus de 200 titres. | Bandeau « Seuls les 200 premiers titres sur 534 sont affichés » et « Charger les 200 suivants » ; chaque clic ajoute la suite, les cases déjà décochées le restent ; le bandeau disparaît quand tout est chargé. |
 | DEM-1 | Testeur Windows | Windows | (**C174**) PC modeste (ou Paramètres ▸ Général ▸ Mode léger : Activé), lancer DJSync deux fois ; puis la version portable sur un autre PC modeste. | Sur chaque PC, la fenêtre d'explication du mode léger ne s'ouvre qu'une fois. Ensuite, à chaque lancement, une bulle discrète « Mode léger actif sur ce PC (…) » avec « Réglages ». |
+| DEM-2 | Tous | Windows, macOS, Linux | (**B97**) Paramètres ▸ Téléchargement : choisir un navigateur connecté à YouTube, enregistrer, fermer DJSync et le relancer. | DJSync démarre normalement (plus de fenêtre « 'AppController' object has no attribute 'jobs' »). Le navigateur reste choisi. |
 
 ## Tests automatiques (C183)
 
