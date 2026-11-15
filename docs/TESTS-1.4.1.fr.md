@@ -190,3 +190,9 @@ Référence : captures Rekordbox du 13/11 (« Tribus disparues », 3 bandes, RGB
 | INT-7 | Tous | Windows, macOS, Linux | (**C195**) Liste avec des introuvables dans aucune playlist (et, sur l'ordinateur, un disque débranché). | « Dans aucune playlist » apparaît dans la ligne de la liste et en orange dans le détail. **Retirer les n dans aucune playlist** : confirmation, puis seuls ceux-là quittent la bibliothèque ; ceux d'un disque débranché et ceux dans une playlist restent. |
 | OR-3 | Tous | Windows, macOS, Linux | (**C190**) Mêmes écrans qu'OR-1 (MP3 320 dans Bibliothèque, Haute qualité, Recherche). | Le texte et la pastille « argent » sont en bleu acier métallisé avec le reflet : on ne les confond plus avec le gris ou le blanc. L'or ne change pas. |
 | GRI-6 | Tous | Windows, macOS, Linux | (**141-GRI-2**) Grille et cues : cocher « Curseur fixe au centre ». | « Aimant » et son choix sont grisés ; la bulle explique pourquoi. Décocher le curseur fixe : l'aimant revient tel qu'il était réglé. |
+
+## Bilan (15/11/2026) : 1.4.1 stable
+
+Les 8 scénarios de la rc.2 (DEM-1, DIA-6, INT-4 à INT-7, OR-3, GRI-6) sont OK sous Windows ; GRI-6 remplace
+GRI-2 (KO de la rc.1). La 1.4.1 stable est la rc.2 sans changement de code. Restent ouverts, sans bloquer :
+GRI-5 et REA-6 (platines). Reporté à la 1.4.2 : texte de la bulle de « Fusionner avec celle-ci ».
