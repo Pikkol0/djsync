@@ -570,6 +570,20 @@ class LocalRekordboxLibrary:
                     self._batch_backed_up = False
 
     @contextmanager
+    def long_batch(self) -> Iterator[None]:
+        """1.4.2 (C23) : comme batch() (une seule sauvegarde de master.db), sans garder le verrou entre deux
+        écritures : pendant un long transfert, les lectures de l'interface passent."""
+        with self._lock:
+            self._batch_depth += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._batch_depth -= 1
+                if self._batch_depth == 0:
+                    self._batch_backed_up = False
+
+    @contextmanager
     def _write(self) -> Iterator[Any]:
         with self._lock:
             self._ensure_fresh()

@@ -209,6 +209,23 @@ class LibraryBase:
                     self._batch_backed_up = False
                     self._pdb_flush()          # UNE seule réécriture d'export.pdb pour tout le lot
 
+    @contextmanager
+    def long_batch(self) -> Iterator[None]:
+        """1.4.2 (C23) : comme batch() (une seule sauvegarde, UNE seule réécriture d'export.pdb à la fin), mais
+        le verrou n'est pas gardé entre deux écritures : pendant un long transfert (copie de centaines de
+        fichiers), les lectures de l'interface passent. Une écriture venue d'ailleurs pendant ce temps rejoint
+        le lot (export.pdb mis à jour à la fin)."""
+        with self._lock:
+            self._batch_depth += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._batch_depth -= 1
+                if self._batch_depth == 0:
+                    self._batch_backed_up = False
+                    self._pdb_flush()
+
     def session_point(self) -> None:
         """V1.2.0 : point de restauration complet (exportLibrary.db + export.pdb) avant la première
         modification de la session ; la toute première fois sur cette clé, c'est l'« origine »."""
