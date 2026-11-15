@@ -240,10 +240,32 @@ class HomeView(View):
         mid.addLayout(top)
         key = "home.unprepared_legacy" if u.kind == "legacy" else "home.unprepared_blank"
         mid.addWidget(label(t(key), "dim", wrap=True))
+        if u.kind == "legacy":                                 # 1.4.2 (C24) : quoi faire, en clair
+            mid.addWidget(label(t("home.unprepared_legacy_todo"), wrap=True))
         if compat == "unsupported":
             mid.addWidget(label(t("home.unprepared_fs", fs=u.filesystem), "dim", wrap=True))
+        elif u.kind == "blank":                                # 1.4.2 (C24) : « Préparer cette clé »
+            actions = hbox()
+            prep = button(t("prepare.button"), lambda _c=False, d=u: self.prepare_drive(d), kind="primary", icon="usb")
+            prep.setToolTip(t("prepare.button_tip"))
+            prep.setObjectName("prepare_drive")
+            actions.addWidget(prep)
+            actions.addStretch(1)
+            mid.addLayout(actions)
         lay.addLayout(mid, 1)
         return box
+
+    def prepare_drive(self, u: Any) -> None:
+        """1.4.2 (C24) : confirmation avec le nom et le lecteur, puis le gabarit de clé vide est posé."""
+        from ..dialogs import ConfirmDialog
+
+        drive = u.drive
+        letter = getattr(drive, "letter", "")
+        where = f"{letter}:" if letter else str(drive.root)
+        name = drive.label or where
+        ConfirmDialog(self, t("prepare.title"), t("prepare.confirm", name=name, where=where),
+                      lambda: self.ctrl.prepare_blank_drive(drive.root), confirm_text=t("prepare.ok"),
+                      detail=t("prepare.detail"))
 
     def _card(self, s: DriveSummary) -> QWidget:
         box = panel()
@@ -366,8 +388,18 @@ class HomeView(View):
             win.show_view("search")
 
     def act_prepare(self) -> None:
-        """« Préparer une clé » : la clé ouverte est vérifiée (« Prêt pour le set ? ») ; sans clé, Paramètres ▸
-        Bibliothèques (brancher, ouvrir une clé)."""
+        """« Préparer une clé » : une clé vierge branchée est préparée (C24, avec confirmation) ; sinon la clé
+        ouverte est vérifiée (« Prêt pour le set ? ») ; sans clé, Paramètres ▸ Bibliothèques."""
+        blank = [u for u in (getattr(self.ctrl, "unprepared", []) or []) if u.kind == "blank"]
+        if blank:                                              # 1.4.2 (C24) : une clé vierge est branchée
+            from ...db.usb import filesystem_compat
+
+            ready = [u for u in blank if filesystem_compat(u.filesystem) != "unsupported"]
+            if len(ready) == 1:
+                self.prepare_drive(ready[0])
+            else:                                              # plusieurs, ou à reformater : voir les cartes
+                self.ctrl.message("info", t("prepare.see_cards" if ready else "prepare.reformat_first"))
+            return
         lib = self.ctrl.library
         if lib is not None and not getattr(self.ctrl, "is_local", False):
             self.set_check()

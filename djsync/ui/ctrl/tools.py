@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from ...i18n import t
@@ -47,6 +48,42 @@ class ToolsMixin:
                                       pdb_allow_growth=s.pdb_allow_growth, **common).connect()
         lib.auto_cue = s.auto_cue
         return lib
+
+    # ------------------------------------------------- 1.4.2 (C24) : préparer une clé vierge
+    def prepare_blank_drive(self, root: Any, ok: Optional[Callable[[Any], None]] = None,
+                            err: Optional[Callable[[BaseException], None]] = None) -> None:
+        """Pose le gabarit de clé vide (db/blank_key.py) sur une clé listée comme « vierge » par la détection,
+        puis ouvre la clé. Tous les refus (PIONEER présent, disque système, système de fichiers) sont refaits
+        ici, au moment d'écrire."""
+        from ...db import blank_key, usb
+
+        root = Path(str(root))
+
+        def work() -> Any:
+            listed = next((u for u in usb.find_unprepared_drives()
+                           if _same_root(u.drive.root, root) and u.kind == "blank"), None)
+            if listed is None:
+                raise blank_key.PrepareError("not_listed", str(root))
+            return blank_key.prepare_drive(listed.drive.root, listed.filesystem or None)
+
+        def done(drive: Any) -> None:
+            self.message("ok", t("prepare.done", name=drive.label or str(drive.root)))
+            self.refresh_drives(then=lambda: self.connect(drive))
+            if ok:
+                ok(drive)
+
+        def failed(exc: BaseException) -> None:
+            if isinstance(exc, blank_key.PrepareError):
+                log.warning("Drive not prepared: %s", exc)
+                self.message("error", prepare_error_text(exc))
+                self.refresh_drives()
+            else:
+                self._on_error(exc)
+            if err:
+                err(exc)
+
+        self.message("info", t("prepare.running", name=str(root)))
+        self.dispatcher.submit(work, done, failed, pool="db")
 
     def copy_playlist(self, playlist_id: int, target: Any, ok: Optional[Callable[[Any], None]] = None) -> None:
         src = self.library
@@ -136,3 +173,17 @@ class ToolsMixin:
 
         self.message("info", t("meta.start", n=len(ids)))
         self.dispatcher.submit(work, done, fail, pool="tools")
+
+
+def _same_root(a: Any, b: Any) -> bool:
+    import os
+
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
+
+
+def prepare_error_text(exc: Any) -> str:
+    """Message pour l'utilisateur d'un refus ou d'un échec de « Préparer cette clé » (C24)."""
+    reason = getattr(exc, "reason", "")
+    key = f"prepare.err_{reason}"
+    text = t(key, fs=getattr(exc, "detail", ""), detail=getattr(exc, "detail", ""))
+    return text if text != key else str(exc)
