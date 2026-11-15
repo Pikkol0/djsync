@@ -263,7 +263,8 @@ class HqView(View):
         self.equiv.hide()
         free: List[TrackResult] = []
         slsk: List[TrackResult] = []
-        sources = self.ctrl.free_sources_list() + (["soulseek"] if self.ctrl.slsk_ready else [])
+        free_names, use_slsk = self._queried_sources()                 # 1.4.2 (C193)
+        sources = free_names + (["soulseek"] if use_slsk else [])
         self.progress.start(sources, SLSK_WAIT_S)
         self.table.show_skeleton()
 
@@ -283,12 +284,12 @@ class HqView(View):
         def got_free(rs: List[TrackResult]) -> None:
             free[:] = rs
             if live():
-                for name in self.ctrl.free_sources_list():
+                for name in free_names:
                     self.progress.source_done(name)
             show()
 
         def got_free_part(rs: List[TrackResult]) -> None:
-            if live() and not all(self.progress.finished.get(n) for n in self.ctrl.free_sources_list()):
+            if live() and not all(self.progress.finished.get(n) for n in free_names):
                 free[:] = rs
                 show()
 
@@ -302,12 +303,23 @@ class HqView(View):
                 self.progress.source_done("soulseek")
             show()
 
-        self.ctrl.free_search(query, got_free, got_free_part, source_done)
-        if self.ctrl.slsk_ready:
+        if free_names:
+            if free_names == self.ctrl.free_sources_list():
+                self.ctrl.free_search(query, got_free, got_free_part, source_done)
+            else:
+                self.ctrl.free_search(query, got_free, got_free_part, source_done, only=free_names)
+        if use_slsk:
             self.ctrl.slsk_search(query, lambda rs: got_slsk(rs, True), lambda rs: got_slsk(rs, False))
         if not sources:
             self.progress.finish()
             show()
+
+    def _queried_sources(self) -> tuple:
+        """1.4.2 (C193) : les sources décochées dans le filtre ne sont pas interrogées (plus rapide, moins de
+        bruit). Filtre sans source cochée : toutes les sources activées."""
+        wanted = set(self._filter.sources)
+        free = [x for x in self.ctrl.free_sources_list() if not wanted or x in wanted]
+        return free, bool(self.ctrl.slsk_ready and (not wanted or "soulseek" in wanted))
 
     @staticmethod
     def _ordered(results: List[TrackResult], query: str) -> List[TrackResult]:

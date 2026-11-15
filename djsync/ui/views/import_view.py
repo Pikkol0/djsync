@@ -574,8 +574,10 @@ class ImportView(View):
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
         n = len(self._checked_tracks()) if self.mode else 0
-        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else t("import.download_selection"))
-        self.dl_btn.setEnabled(bool(n))
+        present = len(self._present_tracks()) if self.mode and not n else 0       # 1.4.2 (C186)
+        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else
+                            t("import.add_present_n", n=present) if present else t("import.download_selection"))
+        self.dl_btn.setEnabled(bool(n or present))
         total = sum(1 for r in self.table.all_rows() if self._checkable(self.table, r.iid)) if self.mode else 0
         self.count_lbl.setText(t("import.checked_count", n=n, total=total) if total else "")
         sel = self.table.selected_iids() if self.mode else []
@@ -608,7 +610,20 @@ class ImportView(View):
             name = self.playlist.name if self.playlist else ""
         else:
             name = self.resolved.name if self.resolved and self.resolved.is_playlist else ""
-        ask_and_download(self, self.ctrl, tracks, new_name=name)
+        ask_and_download(self, self.ctrl, tracks, new_name=name, existing=self._present_tracks())
+
+    def _present_tracks(self) -> List[TrackResult]:
+        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque (non cochés) : ajoutés à la playlist choisie
+        au lieu d'être sautés."""
+        if self.mode == "spotify":
+            out = []
+            for r in self.sp_table.all_rows():
+                m = self.matches[int(r.iid)]
+                if m.status == "duplicate" and m.candidate is not None and r.values.get("chk") != CHECKED:
+                    out.append(m.candidate.track)
+            return out
+        return [self._tracks[r.iid] for r in self.dl_table.all_rows()
+                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate and r.values.get("chk") != CHECKED]
 
     def _menu(self, iids: List[str]) -> list:
         if not iids:

@@ -228,6 +228,7 @@ class GridEditor(QWidget):
         self.magnet = magnet if magnet in MAGNET_DIVISIONS else 0
         self._label_top, self._label_bottom = 14, 32               # bande des étiquettes (B16, recalculée au dessin)
         self._lead_ms = self._timeline_lead(track)
+        self._kick1: Optional[float] = None     # 1.4.2 (C194) : 1er kick posé, en attente du second
         self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
 
         head = hbox()
@@ -339,6 +340,17 @@ class GridEditor(QWidget):
         bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
         bar_row.addStretch(1)
         gv.addLayout(bar_row)
+        # 1.4.2 (C194) : deux kicks : le curseur sur un 1er temps, puis sur un kick plusieurs mesures plus loin ;
+        # BPM calculé, grille réécrite (« Annuler les modifications » pour revenir)
+        kick_row = hbox(spacing=theme.px(6))
+        self.kick_btn = button(t("grid.kick1"), self._kick, icon="grid", tooltip=t("grid.kicks_tip"))
+        kick_row.addWidget(self.kick_btn)
+        self.kick_cancel = button(t("action.cancel"), self._kick_cancel, kind="flat")
+        self.kick_cancel.hide()
+        kick_row.addWidget(self.kick_cancel)
+        self.kick_hint = label("", "dim", wrap=True)
+        kick_row.addWidget(self.kick_hint, 1)
+        gv.addLayout(kick_row)
 
         # carte « Tempo » : ÷ 2 [BPM] × 2, Appliquer ; × 2/3, × 3/2
         tempo_card = panel()
@@ -676,6 +688,12 @@ class GridEditor(QWidget):
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
         self._paint_cues(p, w, h)
+        if self._kick1 is not None:                               # 1.4.2 (C194) : 1er kick posé
+            xk = self._x(self._kick1)
+            if -10 <= xk <= w + 10:
+                p.setPen(QPen(QColor(theme.WARN), theme.px(2), Qt.DashLine))
+                p.drawLine(QPointF(xk, 0), QPointF(xk, h))
+                p.drawText(QPointF(xk + 4, h - theme.px(6)), t("grid.kick1_mark"))
         xc = self._x(self.cursor_ms)
         if -10 <= xc <= w + 10:                   # 1.3.2 (C52) : trait rouge vif, net au centre
             draw_cursor(p, xc, 0, h)
@@ -918,6 +936,36 @@ class GridEditor(QWidget):
             self._refresh_info()
             self.draw()
 
+    def _kick(self) -> None:
+        """1.4.2 (C194) : 1er appui, le kick sous le curseur ; 2e appui, le second kick : grille réécrite."""
+        if not self.beats:
+            return
+        if self._kick1 is None:
+            self._kick1 = float(self.cursor_ms)
+            self.kick_btn.setText(t("grid.kick2"))
+            self.kick_cancel.show()
+            self.kick_hint.setText(t("grid.kick2_hint"))
+            self.draw()
+            return
+        tempos = sorted(b[1] for b in self.beats)
+        found = G.from_two_beats(self._kick1, self.cursor_ms, tempos[len(tempos) // 2] / 100.0, self.duration_ms)
+        if found is None:
+            self.ctrl.message("warn", t("grid.kicks_bad"))
+            return
+        beats, bpm, n = found
+        self.beats = beats
+        self.selected = G.nearest(self.beats, min(self._kick1, self.cursor_ms))
+        self._kick_cancel()
+        self.kick_hint.setText(t("grid.kicks_done", bpm=f"{bpm:.2f}", n=n))
+        self._refresh_info()
+
+    def _kick_cancel(self) -> None:
+        self._kick1 = None
+        self.kick_btn.setText(t("grid.kick1"))
+        self.kick_cancel.hide()
+        self.kick_hint.setText("")
+        self.draw()
+
     def _scale(self, factor: float) -> None:
         if not self.beats:
             return
@@ -946,6 +994,9 @@ class GridEditor(QWidget):
         self.draw()
 
     def _reset(self) -> None:
+        if self._kick1 is not None:
+            self._kick_cancel()
+        self.kick_hint.setText("")
         self.beats = list(self.original)
         self.cues = copy.deepcopy(self.original_cues)
         self.active_loop = None
@@ -1003,7 +1054,9 @@ class GridEditor(QWidget):
         x = min(max(0.0, x), float(w))
         if not dragging:
             self.active_loop = None
-        self.cursor_ms = min(max(0.0, self.snap_ms(self._ms(x), cursor=True)), float(self.duration_ms))
+        # 1.4.2 (C194) : en posant les kicks, le curseur va où l'on clique (pas d'aimant sur l'ancienne grille)
+        raw = self._ms(x) if self._kick1 is not None else self.snap_ms(self._ms(x), cursor=True)
+        self.cursor_ms = min(max(0.0, raw), float(self.duration_ms))
         self._scrubbing = True
         if self.beats:
             self.selected = G.nearest(self.beats, self.cursor_ms)

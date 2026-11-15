@@ -36,6 +36,7 @@ ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlis
 MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
 NOCUE = "nocues"           # 1.4.1 (C60) : titres sans hot cue
 SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE)
+AUTO = "autolists"         # 1.4.2 (C188) : groupe repliable des listes automatiques (jamais ouvert)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -245,6 +246,8 @@ class LibraryView(View):
         self.nav = NavTree(self)
         self.nav.itemSelectionChanged.connect(self._nav_selected)
         self.nav.customContextMenuRequested.connect(self._nav_context)
+        self.nav.itemExpanded.connect(lambda it: self._auto_group_toggled(it, True))      # 1.4.2 (C188)
+        self.nav.itemCollapsed.connect(lambda it: self._auto_group_toggled(it, False))
         lv.addWidget(self.nav, 1)
         nb = hbox(spacing=theme.px(4))
         nb.addWidget(button(t("lib.playlist"), self._create_playlist, icon="plus", tooltip=t("lib.new_playlist")))
@@ -522,15 +525,23 @@ class LibraryView(View):
             return it
 
         item(None, ALL, t("lib.all_tracks"), icon="music", count=len(self.all_tracks))
+        # 1.4.2 (C188) : les listes automatiques sous un groupe repliable ; rien ne disparaît sans trace (le
+        # groupe garde sa place, prend la couleur de la liste la plus urgente et dit ce qu'il contient).
         todo = self._unanalysed_count()
-        item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
-        orph = getattr(self, "_orphans", None)
-        item(None, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                   # C56
-             count="" if orph is None else len(orph))
         miss = len(self._missing_tracks())                                                            # C124
-        item(None, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
+        group = item(None, AUTO, t("lib.auto_lists"), theme.ERR if miss else theme.WARN if todo else "",
+                     icon="folder")
+        group.setFlags(Qt.ItemIsEnabled)                     # pas une liste : jamais sélectionné ni ouvert
+        group.setToolTip(0, t("lib.auto_lists_tip"))
+        item(group, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
+        orph = getattr(self, "_orphans", None)
+        item(group, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                  # C56
+             count="" if orph is None else len(orph))
+        item(group, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
         marks = getattr(self, "_cue_marks", None)                                                     # C60
-        item(None, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        item(group, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        group.setExpanded(bool(getattr(self.ctrl.settings, "auto_lists_open", True)))
+        self._auto_group_counts(group)
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -556,6 +567,23 @@ class LibraryView(View):
             self.current = ALL
         self._select_nav(self.current)
         self._reverting = False
+
+    def _auto_group_counts(self, group: QTreeWidgetItem) -> None:
+        """1.4.2 (C188) : groupe replié, son total à droite (sons à analyser + introuvables) ; déplié, rien."""
+        if group.isExpanded():
+            group.setText(1, "")
+            return
+        todo, miss = self._unanalysed_count(), len(self._missing_tracks())
+        group.setText(1, str(todo + miss) if todo + miss else "")
+
+    def _auto_group_toggled(self, it: QTreeWidgetItem, opened: bool) -> None:
+        """1.4.2 (C188) : état du groupe retenu entre les sessions."""
+        if self._reverting or it.data(0, Qt.UserRole) != AUTO:
+            return
+        self._auto_group_counts(it)
+        if bool(getattr(self.ctrl.settings, "auto_lists_open", True)) != opened:
+            self.ctrl.settings.auto_lists_open = opened
+            self.ctrl.settings.save()
 
     def _select_nav(self, iid: str) -> None:
         it = self._items.get(iid)
@@ -1451,7 +1479,7 @@ class LibraryView(View):
             popup_menu(self.nav, [(t("missing.see_in_diagnostic"), lambda: self.window().open_diagnostic("missing"),
                                    "warn")], self.nav.viewport().mapToGlobal(pos))
             return
-        if not iid or iid in SPECIAL:
+        if not iid or iid in SPECIAL or iid == AUTO:
             return
         self.nav.setCurrentItem(it)
         p = self._by_iid.get(iid)

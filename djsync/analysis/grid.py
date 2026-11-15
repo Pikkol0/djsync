@@ -10,7 +10,7 @@ Une grille = liste de (n° du temps dans la mesure 1-4, tempo x100, position ms)
 from __future__ import annotations
 
 from bisect import bisect_left
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 Beat = Tuple[int, int, int]
 
@@ -108,3 +108,24 @@ def nearest(beats: Sequence[Beat], ms: float) -> int:
     if i >= len(pos):
         return len(pos) - 1
     return i if pos[i] - ms < ms - pos[i - 1] else i - 1
+
+
+def from_two_beats(first_ms: float, second_ms: float, ref_bpm: float,
+                   duration_ms: int) -> Optional[Tuple[List[Beat], float, int]]:
+    """1.4.2 (C194) : grille constante posée par deux kicks, chacun sur le 1er temps d'une mesure. Le premier
+    devient un 1er temps ; entre les deux, le nombre entier de mesures le plus proche au tempo actuel
+    (`ref_bpm`), d'où le BPM exact. Renvoie (grille, BPM, nombre de temps), ou None (kicks trop proches, BPM hors de 40-300)."""
+    a, b = sorted((float(first_ms), float(second_ms)))
+    span = b - a
+    if span < 250 or ref_bpm <= 0:
+        return None
+    beats_between = span / (60000.0 / ref_bpm)
+    # deux 1ers temps de mesure : un nombre entier de mesures (tolère ±2 temps d'erreur du tempo actuel)
+    n = 4 * max(1, int(round(beats_between / 4))) if beats_between >= 3 else int(round(beats_between))
+    if n < 1:
+        return None
+    bpm = 60000.0 * n / span
+    if not 40 <= bpm <= 300:
+        return None
+    beats = extend([(1, int(round(bpm * 100)), int(round(a)))], duration_ms)
+    return beats, bpm, n

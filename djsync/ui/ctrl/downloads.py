@@ -52,6 +52,43 @@ class DownloadsMixin:
         self.message("info", plural("msg.queued_one", "msg.queued_many", len(created), where=where))
         return created
 
+    def add_existing(self, tracks: Sequence[TrackResult], playlist_ids: Sequence[int]) -> None:
+        """1.4.2 (C186) : résultats « déjà dans la bibliothèque » ajoutés aux playlists choisies, sans nouveau
+        téléchargement. Le son est retrouvé par son adresse d'origine, sinon par titre et artiste (mêmes seuils
+        que le marquage « déjà là ») ; ceux qu'on ne retrouve pas sont comptés dans le message."""
+        from ...core.duplicates import match_library_track
+
+        tracks = [x for x in tracks if x is not None]
+        if not tracks or not playlist_ids:
+            return
+        names = {p.playlist_id: p.name for p in self.playlists}
+
+        def run(lib: Any) -> Tuple[int, int]:
+            library = None
+            ids: List[int] = []
+            for x in tracks:
+                hit = lib.find_by_source_url(x.url) if x.url else None
+                if hit is None:
+                    if library is None:
+                        library = lib.list_tracks()
+                    hit = match_library_track(x.title, x.artist, library)
+                if hit is not None and hit.content_id not in ids:
+                    ids.append(hit.content_id)
+            with lib.batch():
+                for pid in playlist_ids:
+                    lib.add_to_playlist(pid, ids)
+            return len(ids), len(tracks) - len(ids)
+
+        def done(result: Tuple[int, int]) -> None:
+            found, lost = result
+            where = ", ".join(names.get(p, "?") for p in playlist_ids)
+            text = plural("msg.existing_added_one", "msg.existing_added_many", found, where=where)
+            if lost:
+                text += " " + plural("msg.existing_lost_one", "msg.existing_lost_many", lost)
+            self.message("warn" if lost else "ok", text)
+
+        self._write(run, done)
+
     def check_originals(self, tracks: Sequence[TrackResult], ok: Any) -> None:
         """1.4.0 (C10.1) : pour chaque son SoundCloud, le fichier d'origine est-il téléchargeable ?
         `ok(tracks)` reçoit les sons mis à jour (original_available renseigné). Réseau, 50 au plus."""

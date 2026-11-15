@@ -148,13 +148,23 @@ class WelcomeDialog(BaseDialog):
         self.yt_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
         self.yt_warn.setStyleSheet(f"color: {theme.WARN};")
         self.body.addWidget(self.yt_warn)
-        self.body.addWidget(label(t("welcome.yt_later"), "faint", wrap=True))
+        # 1.4.2 (C187) : deux choix pour débuter ; « Plus de choix… » ouvre les 6 qualités des réglages
+        more = hbox(spacing=theme.px(8))
+        more.addWidget(label(t("welcome.yt_later"), "faint", wrap=True), 1)
+        more.addWidget(button(t("welcome.more_choices"), self._more_choices, kind="flat", icon="settings",
+                              tooltip=t("welcome.more_choices_tip")))
+        self.body.addLayout(more)
         self._pick_yt("best" if self.ctrl.settings.download_quality == "yt_best" else "m4a")
         self.body.addStretch(1)
         foot = hbox(spacing=theme.px(8))
         foot.addStretch(1)
         foot.addWidget(button(t("welcome.start"), self._finish, kind="primary", icon="go"))
         self.body.addLayout(foot)
+
+    def _more_choices(self) -> None:
+        """1.4.2 (C187) : termine l'accueil (choix en cours gardé) et ouvre Paramètres ▸ Téléchargement."""
+        self._finish()
+        self.ctrl._emit("open_settings_section", "download")
 
     def _pick_yt(self, key: str) -> None:
         self._yt = key

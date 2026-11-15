@@ -148,6 +148,8 @@ class Settings:
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
     soundcloud_token: str = ""         # ou jeton « oauth_token » du compte
     suggestions_open: bool = False     # 1.3.1 (C30) : panneau « Suggestions » de la Bibliothèque
+    auto_lists_open: bool = True       # 1.4.2 (C188) : groupe « Listes automatiques » déplié
+    panels_folded: dict = field(default_factory=dict)  # 1.4.2 (C189) : {"downloads"|"analysis": replié}
     suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
     settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres
     settings_version: int = 0          # migrations des réglages enregistrés
@@ -216,6 +218,7 @@ class Settings:
         self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
         self.hq_filters = self.hq_filters if isinstance(self.hq_filters, dict) else {}
+        self.panels_folded = self.panels_folded if isinstance(self.panels_folded, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         if self.merge_undo_s not in (5, 10, 30):
@@ -236,7 +239,7 @@ class Settings:
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
                    "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut",
-                   "diag_tab")
+                   "diag_tab", "auto_lists_open", "panels_folded")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 

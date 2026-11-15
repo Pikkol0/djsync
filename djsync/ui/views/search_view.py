@@ -323,6 +323,13 @@ class SearchView(View):
         if len(iids) == 1 and iids[0] in self._tracks and self._tracks[iids[0]].is_album:
             return [(t("search.open_album"), lambda: self._open_album(self._tracks[iids[0]]), "go")]
         entries = [(t("action.listen"), self._preview, "play"), (t("dl.picker_title"), self._download, "download")]
+        present = [self._tracks[i] for i in iids if i in self._tracks and self._tracks[i].is_duplicate
+                   and not self._tracks[i].is_album]
+        if present:                                         # 1.4.2 (C186) : le son déjà là, sans le retélécharger
+            from .common import ask_add_existing
+
+            entries.append((plural("search.add_existing_one", "search.add_existing_many", len(present)),
+                            lambda p=present: ask_add_existing(self, self.ctrl, p), "playlist"))
         if len(iids) == 1 and iids[0] in self._tracks:                     # 1.4.0 (C10.3) : acheter en WAV
             from .common import buy_entry
 

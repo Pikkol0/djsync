@@ -2,7 +2,7 @@
 
 Lot 1 de la 1.4.2, « prête pour la vidéo » : tout ce qui change l'interface. Numérotation : thème en 3 lettres + n°
 (voir `revues/numerotation-tests.md`) ; dans le suivi : « 142 · NAV-1 ». Rangés par bloc, pour tester en plusieurs fois.
-Le lot 2 (C23 transferts clé ↔ ordinateur, C24 clé vierge) aura ses scénarios quand il sera codé.
+Le lot 2 (C23 transferts clé ↔ ordinateur, C24 clé vierge) aura ses scénarios quand il sera codé. Le lot 3 (retours de la 1.4.1) est en fin de fichier.
 
 ## Volet, Rechercher, menus (C182, reste d'A06)
 
@@ -57,6 +57,19 @@ Le lot 2 (C23 transferts clé ↔ ordinateur, C24 clé vierge) aura ses scénari
 | REC-3 | Tous | Windows, macOS, Linux | (**C172**) Lien ou playlist : une playlist YouTube ou SoundCloud de plus de 200 titres. | Bandeau « Seuls les 200 premiers titres sur 534 sont affichés » et « Charger les 200 suivants » ; chaque clic ajoute la suite, les cases déjà décochées le restent ; le bandeau disparaît quand tout est chargé. |
 | DEM-1 | Testeur Windows | Windows | (**C174**) PC modeste (ou Paramètres ▸ Général ▸ Mode léger : Activé), lancer DJSync deux fois ; puis la version portable sur un autre PC modeste. | Sur chaque PC, la fenêtre d'explication du mode léger ne s'ouvre qu'une fois. Ensuite, à chaque lancement, une bulle discrète « Mode léger actif sur ce PC (…) » avec « Réglages ». |
 | DEM-2 | Tous | Windows, macOS, Linux | (**B97**) Paramètres ▸ Téléchargement : choisir un navigateur connecté à YouTube, enregistrer, fermer DJSync et le relancer. | DJSync démarre normalement (plus de fenêtre « 'AppController' object has no attribute 'jobs' »). Le navigateur reste choisi. |
+
+## Lot 3 : retours de la 1.4.1 (C188, C189, C186, C193, C187, C194)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| BIB-5 | Tous | Windows, macOS, Linux | (**C188**) Bibliothèque : replier le groupe « Listes automatiques », fermer DJSync, le relancer ; puis le déplier. | Non analysés, Hors playlist, Fichiers introuvables et Sans hot cue sont dans le groupe. Replié, le groupe garde sa place, sa couleur (rouge s'il y a des introuvables, orange s'il reste des sons à analyser) et un total à droite ; il reste replié après relance. Le groupe lui-même ne s'ouvre pas comme une liste. |
+| REC-4 | Tous | Windows, macOS, Linux | (**C189**) Téléchargements et analyse : flèche à gauche de « Téléchargements », puis de « Analyse » ; relancer DJSync. | Replié, un panneau ne garde que sa ligne de titre (résumé, barre, boutons) ; l'autre prend la place. Les deux états sont retenus après relance. |
+| REC-5 | Tous | Windows, macOS, Linux | (**C186**) Rechercher : clic droit sur un résultat marqué « déjà dans la bibliothèque » ▸ « Ajouter le son de la bibliothèque à une playlist… » ; choisir une playlist. | Le son déjà présent est ajouté à la playlist, sans nouveau téléchargement ; message « 1 son déjà dans la bibliothèque ajouté à … ». Rien ne s'ajoute deux fois si on recommence. |
+| REC-6 | Tous | Windows, macOS, Linux | (**C186**) Lien ou playlist (ou import Spotify) d'une playlist dont certains titres sont déjà dans la bibliothèque : télécharger la sélection vers une playlist. | La fenêtre dit « n déjà dans la bibliothèque : ajoutés aux playlists choisies, pas retéléchargés ». Les nouveaux se téléchargent ; les déjà présents rejoignent la playlist tout de suite. S'il n'y a que des déjà présents, le bouton devient « Ajouter les n déjà présents ». |
+| REC-7 | Tous | Windows, macOS, Linux | (**C193**) Haute qualité ▸ Filtres : ne garder qu'Audius, chercher ; puis ne garder que Soulseek (s'il est activé). | Seules les sources cochées sont interrogées (la progression n'affiche qu'elles, la recherche est plus courte). Le filtre est gardé après relance. Sans source cochée : toutes. |
+| DEM-3 | Tous | Windows, macOS, Linux | (**C187**) Premier lancement (ou Paramètres ▸ « Revoir l'accueil ») jusqu'au choix de la qualité ; cliquer « Plus de choix… ». | Toujours deux choix (M4A recommandé, meilleur flux) ; « Plus de choix… » termine l'accueil (choix en cours gardé) et ouvre Paramètres ▸ Téléchargement avec les 6 qualités. |
+| GRI-1 | Tous | Windows, macOS, Linux | (**C194**) Grille et cues d'un son à la grille fausse : curseur sur le 1er temps d'une mesure, « 1er kick ici » ; curseur sur le 1er temps d'une mesure 8 mesures plus loin, « 2e kick ici ». | Trait pointillé « Kick 1 » entre les deux appuis (« Annuler » l'efface). Ensuite : BPM recalculé, grille constante réécrite avec une mesure sur le 1er kick ; message « n temps entre les deux kicks ». « Annuler les modifs » revient à l'ancienne grille ; Enregistrer l'écrit. Kicks trop proches : message, rien ne change. |
+| PLA-1 | Testeur platines | Platines | (**C194**) Grille enregistrée avec deux kicks, clé mise à jour (export.pdb) : charger le son sur les platines. | Grille et BPM des platines identiques à ceux de DJSync ; les mesures tombent sur les kicks. |
 
 ## Tests automatiques (C183)
 

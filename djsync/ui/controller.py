@@ -841,13 +841,16 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     # ---------------------------------------------------------------- recherche
     def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None,
-                    source_done: Optional[Callable[[str], None]] = None) -> None:
+                    source_done: Optional[Callable[[str], None]] = None,
+                    only: Optional[List[str]] = None) -> None:
         """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués.
         1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source.
         1.4.1 (C171) : `source_done(nom)` dans le fil de l'interface quand une source a répondu (ou échoué)."""
         from ..core import freesources
 
         sources = list(self.settings.free_sources or [])
+        if only is not None:                       # 1.4.2 (C193) : seulement les sources gardées par le filtre
+            sources = [x for x in sources if x in only]
         got: list = []
 
         def part(_name: str, rs: Any) -> None:
