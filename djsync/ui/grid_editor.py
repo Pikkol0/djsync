@@ -340,7 +340,7 @@ class GridEditor(QWidget):
         bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
         bar_row.addStretch(1)
         gv.addLayout(bar_row)
-        # 1.4.2 (C194) : deux kicks : le curseur sur un 1er temps, puis sur un kick plusieurs mesures plus loin ;
+        # 1.4.2 (C194) : deux kicks : 1er temps de deux mesures qui se suivent, ou temps 1 et 2 d'une mesure ;
         # BPM calculé, grille réécrite (« Annuler les modifications » pour revenir)
         kick_row = hbox(spacing=theme.px(6))
         self.kick_btn = button(t("grid.kick1"), self._kick, icon="grid", tooltip=t("grid.kicks_tip"))
@@ -956,7 +956,8 @@ class GridEditor(QWidget):
         self.beats = beats
         self.selected = G.nearest(self.beats, min(self._kick1, self.cursor_ms))
         self._kick_cancel()
-        self.kick_hint.setText(t("grid.kicks_done", bpm=f"{bpm:.2f}", n=n))
+        self.kick_hint.setText(t("grid.kicks_done", bpm=f"{bpm:.2f}",
+                                 case=t("grid.kicks_bar") if n == 4 else t("grid.kicks_beat")))
         self._refresh_info()
 
     def _kick_cancel(self) -> None:

@@ -12,21 +12,28 @@ from .test_ui_v020 import demo  # noqa: E402,F401
 
 
 # ------------------------------------------------------------------ C194 : grille par deux kicks
-def test_c194_two_kicks_give_the_bpm_and_a_bar_on_the_first_kick():
+def test_c194_two_kicks_bar_or_beat_give_the_bpm_and_a_bar_on_the_first_kick():
     from djsync.analysis import grid as G
 
-    found = G.from_two_beats(1000.0, 1000.0 + 32 * 60000.0 / 128.0, 126.0, 240000)
+    bar = 4 * 60000.0 / 128.0                                          # 1er temps de deux mesures qui se suivent
+    found = G.from_two_beats(1000.0, 1000.0 + bar, 120.0, 240000)
     assert found is not None
     beats, bpm, n = found
-    assert n == 32 and bpm == pytest.approx(128.0)
+    assert n == 4 and bpm == pytest.approx(128.0, abs=0.01)
     i = G.nearest(beats, 1000)
     assert beats[i][2] == 1000 and beats[i][0] == 1                   # 1er kick = 1er temps de mesure
     assert all(b[1] == 12800 for b in beats)                          # grille constante
     assert beats[0][2] < 1000 and beats[-1][2] > 16000                # prolongée des deux côtés
-    swapped = G.from_two_beats(16000.0, 1000.0, 126.0, 240000)          # ordre des clics indifférent
-    assert swapped is not None and swapped[2] == 32
+    beat = 60000.0 / 128.0                                             # temps 1 et 2 d'une même mesure
+    one = G.from_two_beats(1000.0, 1000.0 + beat, 120.0, 240000)
+    assert one is not None and one[2] == 1 and one[1] == pytest.approx(128.0, abs=0.01)
+    swapped = G.from_two_beats(1000.0 + bar, 1000.0, 120.0, 240000)     # ordre des clics indifférent
+    assert swapped is not None and swapped[2] == 4
+    amb = 1000.0                                                       # 60 (1 temps) ou 240 (4 temps) : le plus proche
+    assert G.from_two_beats(0.0, amb, 70.0, 240000)[2] == 1
+    assert G.from_two_beats(0.0, amb, 200.0, 240000)[2] == 4
     assert G.from_two_beats(1000.0, 1100.0, 120.0, 240000) is None     # trop proches
-    assert G.from_two_beats(1000.0, 1000.0 + 60000.0, 400.0, 240000) is None   # BPM hors de 40-300
+    assert G.from_two_beats(1000.0, 1000.0 + 7000.0, 120.0, 240000) is None   # ni une mesure ni un temps
 
 
 def test_c194_grid_editor_two_presses_rewrite_the_grid(demo):  # noqa: F811
@@ -44,7 +51,7 @@ def test_c194_grid_editor_two_presses_rewrite_the_grid(demo):  # noqa: F811
         ed.cursor_ms = float(start)
         ed._kick()
         assert ed._kick1 == float(start) and not ed.kick_cancel.isHidden()
-        ed.cursor_ms = float(start) + 16 * 60000.0 / 125.0
+        ed.cursor_ms = float(start) + 4 * 60000.0 / 125.0              # mesure suivante
         ed._kick()
         assert ed._kick1 is None and ed.kick_cancel.isHidden()
         assert ed.bpm_entry.text().startswith("125")

@@ -112,20 +112,21 @@ def nearest(beats: Sequence[Beat], ms: float) -> int:
 
 def from_two_beats(first_ms: float, second_ms: float, ref_bpm: float,
                    duration_ms: int) -> Optional[Tuple[List[Beat], float, int]]:
-    """1.4.2 (C194) : grille constante posée par deux kicks, chacun sur le 1er temps d'une mesure. Le premier
-    devient un 1er temps ; entre les deux, le nombre entier de mesures le plus proche au tempo actuel
-    (`ref_bpm`), d'où le BPM exact. Renvoie (grille, BPM, nombre de temps), ou None (kicks trop proches, BPM hors de 40-300)."""
+    """1.4.2 (C194) : grille constante posée par deux kicks. Deux cas : le 1er temps de deux mesures qui se
+    suivent (4 temps d'écart), ou le 1er et le 2e temps d'une même mesure (1 temps). Le cas retenu est celui
+    dont le BPM est dans 40-300 et le plus proche du tempo actuel (`ref_bpm`). Le premier kick devient un 1er
+    temps de mesure. Renvoie (grille, BPM, temps d'écart : 1 ou 4), ou None (aucun cas plausible)."""
+    import math
+
     a, b = sorted((float(first_ms), float(second_ms)))
     span = b - a
-    if span < 250 or ref_bpm <= 0:
+    if span < 150:
         return None
-    beats_between = span / (60000.0 / ref_bpm)
-    # deux 1ers temps de mesure : un nombre entier de mesures (tolère ±2 temps d'erreur du tempo actuel)
-    n = 4 * max(1, int(round(beats_between / 4))) if beats_between >= 3 else int(round(beats_between))
-    if n < 1:
+    options = [(n, 60000.0 * n / span) for n in (1, 4)]
+    options = [(n, bpm) for n, bpm in options if 40 <= bpm <= 300]
+    if not options:
         return None
-    bpm = 60000.0 * n / span
-    if not 40 <= bpm <= 300:
-        return None
+    ref = ref_bpm if ref_bpm > 0 else 120.0
+    n, bpm = min(options, key=lambda o: abs(math.log(o[1] / ref)))
     beats = extend([(1, int(round(bpm * 100)), int(round(a)))], duration_ms)
     return beats, bpm, n
