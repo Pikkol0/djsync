@@ -597,3 +597,52 @@ class SideBar(QWidget):
         else:
             self._top.addWidget(self.right)
         self.updateGeometry()
+
+
+class ColumnsBox(QWidget):
+    """1.4.2 (A2-17) : rangée de tuiles de même largeur qui passe sur 2 colonnes (puis 1) quand la largeur
+    manque, au lieu de couper les textes ou de déborder (Accueil à 860 × 560)."""
+
+    def __init__(self, parent: Any = None, spacing: int = 8) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QGridLayout
+
+        self._items: list = []
+        self._cols = 0
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(theme.px(spacing))
+
+    def add(self, w: QWidget) -> QWidget:
+        self._items.append(w)
+        self._cols = 0
+        self._arrange(self.width() or 10000)
+        return w
+
+    def _need(self, cols: int) -> int:
+        widest = max((w.sizeHint().width() for w in self._items), default=0)
+        return widest * cols + self.grid.spacing() * (cols - 1)
+
+    def _arrange(self, width: int) -> None:
+        n = len(self._items) or 1
+        cols = n
+        while cols > 1 and self._need(cols) > width:
+            cols = max(1, cols // 2) if cols > 2 else 1
+        if cols == self._cols:
+            return
+        self._cols = cols
+        for w in self._items:
+            self.grid.removeWidget(w)
+        for i, w in enumerate(self._items):
+            self.grid.addWidget(w, i // cols, i % cols)
+        for c in range(n):
+            self.grid.setColumnStretch(c, 1 if c < cols else 0)
+        self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        widest = max((w.minimumSizeHint().width() for w in self._items), default=0)
+        return QSize(widest, super().minimumSizeHint().height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        self._arrange(self.width())

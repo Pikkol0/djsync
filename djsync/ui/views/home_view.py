@@ -14,7 +14,7 @@ from ...i18n import plural, t
 from .. import theme
 from ..ctrl.library_ops import DriveSummary
 from ..icons import qicon
-from ..widgets import FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
+from ..widgets import ColumnsBox, FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
 
 
@@ -117,8 +117,7 @@ class HomeView(View):
         self.root.addSpacing(theme.px(8))
         self.actions_title = label(t("home.actions"), "h2")
         self.root.addWidget(self.actions_title)
-        self.actions_row = QWidget()
-        acts = hbox(self.actions_row, spacing=theme.px(10))
+        self.actions_row = ColumnsBox(spacing=10)          # 1.4.2 (A2-17) : 2 colonnes si la place manque
         self.actions: dict = {}
         for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
                                ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
@@ -126,7 +125,7 @@ class HomeView(View):
             b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
             b.clicked.connect(lambda _c=False, f=cmd: f())
             b.setToolTip(t(f"home.act_{key}_tip"))
-            acts.addWidget(b, 1)
+            self.actions_row.add(b)
             self.actions[key] = b
         self.root.addWidget(self.actions_row)
 
@@ -134,13 +133,12 @@ class HomeView(View):
         self.root.addSpacing(theme.px(8))
         self.todo_title = label(t("home.todo"), "h2")
         self.root.addWidget(self.todo_title)
-        self.todo_row = QWidget()
-        tools = hbox(self.todo_row, spacing=theme.px(8))
+        self.todo_row = ColumnsBox(spacing=8)              # 1.4.2 (A2-17) : 2 colonnes si la place manque
         self.todo: dict = {}
         for key, icon in TODO_TILES:
             b = button("", lambda k=key: self._open_todo(k), icon=icon)
             b.setIcon(qicon(icon, 16, theme.ACCENT))
-            tools.addWidget(b, 1)
+            self.todo_row.add(b)
             self.todo[key] = b
         self.root.addWidget(self.todo_row)
         self.todo_hint = label(t("home.todo_none"), "dim", wrap=True)
