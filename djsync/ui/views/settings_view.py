@@ -78,6 +78,31 @@ def quality_grid(rows_text: str) -> QWidget:
     return box
 
 
+class _RowLabel(QLabel):
+    """1.4.2 (A2-1) : libellé de début de ligne des Paramètres : colonne de 170 px, qui peut descendre à
+    100 px (texte à la ligne) quand la page est étroite, au lieu d'imposer sa largeur à la page."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.setWordWrap(True)
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+        self.setMaximumWidth(theme.px(170))
+
+    def sizeHint(self) -> Any:  # noqa: N802
+        from PySide6.QtCore import QSize
+
+        return QSize(theme.px(170), super().sizeHint().height())
+
+    def minimumSizeHint(self) -> Any:  # noqa: N802
+        from PySide6.QtCore import QSize
+
+        return QSize(theme.px(100), super().minimumSizeHint().height())
+
+
 class SettingsView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
@@ -678,7 +703,8 @@ class SettingsView(View):
         card = self._card(t("about.updates"), "refresh", t("about.hint"), key="updates")
         row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
-        row.addWidget(self._fixed(self.version_lbl))
+        self.version_lbl = self._fixed(self.version_lbl)          # 1.4.2 (A2-1) : nouveau libellé
+        row.addWidget(self.version_lbl)
         self.update_state = label("", "dim", wrap=True)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 1000)
@@ -1156,9 +1182,14 @@ class SettingsView(View):
     @staticmethod
     def _fixed(w: Any) -> Any:
         # 1.3.2-rc.2 (B45) : un libellé trop long passe à la ligne au lieu d'être coupé
-        w.setFixedWidth(theme.px(170))
         if isinstance(w, QLabel):
-            w.setWordWrap(True)
+            # 1.4.2 (A2-1) : 170 px quand la place le permet, jusqu'à 100 px (texte à la ligne) sinon
+            lbl = _RowLabel(w.text())
+            lbl.setProperty("role", w.property("role"))
+            lbl.setToolTip(w.toolTip())
+            w.deleteLater()
+            return lbl
+        w.setFixedWidth(theme.px(170))
         return w
 
     def on_show(self) -> None:
@@ -1241,7 +1272,8 @@ class SettingsView(View):
         self.connect_btn.setEnabled(bool(self._drives))
         self.eject_btn.setEnabled(self.ctrl.drive is not None and not self.ctrl.is_local)
         if self.ctrl.drive:
-            self.drive_state.setText(t("settings.connected", drive=str(self.ctrl.drive)))
+            drive = str(self.ctrl.drive).replace("\\", "\\\u200b").replace("/", "/\u200b")   # 1.4.2 (A2-1)
+            self.drive_state.setText(t("settings.connected", drive=drive))
         else:
             self.drive_state.setText(t("msg.no_drive_short"))
 
