@@ -87,8 +87,11 @@ class ImportsMixin:
 
         folder = (getattr(self.settings, "watch_folder", "") or "").strip()
         skip = ("" if not folder else "no library open" if self.library is None
-                else "import running" if getattr(self, "_importing", False)
-                else "busy" if getattr(self, "_watch_busy", False) else "")
+                else self._watch_wrong_target()
+                or ("import running" if getattr(self, "_importing", False)
+                    else "busy" if getattr(self, "_watch_busy", False) else ""))
+        if skip.startswith("waiting for"):
+            self._watch_waiting(folder)
         if not folder or skip:
             if skip and skip != getattr(self, "_watch_skip", ""):      # 1.4.0-rc.4 (B77) : raison notée
                 log.info("Watched folder skipped: %s", skip)
@@ -132,6 +135,36 @@ class ImportsMixin:
             log.warning("Watched folder: %s", exc)
 
         self.dispatcher.submit(work, done, failed, pool="watch")   # 1.4.0-rc.4 (B77) : jamais derrière les outils
+
+    # ------------------------------------------------------------- 1.4.2 (B102)
+    def watch_target(self) -> str:
+        return "usb" if getattr(self.settings, "watch_target", "local") == "usb" else "local"
+
+    def _watch_wrong_target(self) -> str:
+        """Raison d'attendre quand la bibliothèque ouverte n'est pas celle choisie pour le dossier surveillé
+        (vide sinon). Les fichiers restent dans le dossier et sont pris dès qu'elle est ouverte."""
+        local = bool(self.is_local)
+        if self.watch_target() == "local" and not local:
+            return "waiting for the computer library"
+        if self.watch_target() == "usb" and local:
+            return "waiting for a USB drive"
+        return ""
+
+    def _watch_waiting(self, folder: str) -> None:
+        """Une fois par bibliothèque ouverte : si des fichiers attendent, le dire (et où ils iront)."""
+        key = (id(self.library), self.watch_target())
+        if getattr(self, "_watch_told", None) == key:
+            return
+        from ...core.watcher import FolderWatch
+
+        try:
+            n = len(FolderWatch(Path(folder))._candidates())
+        except OSError:
+            n = 0
+        if n:
+            self._watch_told = key
+            where = t("watch.target_local") if self.watch_target() == "local" else t("watch.target_usb")
+            self.message("info", plural("watch.waiting_one", "watch.waiting_many", n, target=where))
 
     # ------------------------------------------------------------- 1.4.1 (B95)
     def _watch_scan_key(self, folder: str) -> str:

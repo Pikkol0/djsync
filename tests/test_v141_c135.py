@@ -103,6 +103,9 @@ def test_scope_playlist_and_selection(aac):
     assert pump(aac, 6, lambda: not page._loading and len(page.rows) == len(tracks))
     pl = next(p for p in ctrl.playlists if ctrl.quality_playlist_ids(p.playlist_id))
     ids = set(ctrl.quality_playlist_ids(pl.playlist_id))
+    # 1.4.2 : sous Windows (ci/full), la liste des playlists arrive parfois après la page : on l'attend
+    assert pump(aac, 6, lambda: any(tuple(page.scope.itemData(i)) == ("pl", pl.playlist_id)
+                                    for i in range(page.scope.count())))
     idx = next(i for i in range(page.scope.count()) if tuple(page.scope.itemData(i)) == ("pl", pl.playlist_id))
     page.scope.setCurrentIndex(idx)
     assert pump(aac, 6, lambda: not page._loading and {int(k) for k in page.rows} == ids)

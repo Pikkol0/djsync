@@ -8,23 +8,90 @@ from __future__ import annotations
 from typing import Any, List
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QProgressBar, QWidget
+from PySide6.QtWidgets import QProgressBar, QPushButton, QWidget
 
 from ...i18n import plural, t
 from .. import theme
 from ..ctrl.library_ops import DriveSummary
 from ..icons import qicon
-from ..widgets import button, chip, hbox, icon_label, label, line_edit, panel, vbox
+from ..widgets import ColumnsBox, FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
+
+
+# 1.4.2 (C182) : « À régler » : onglets du Diagnostic avec leur compteur
+TODO_TILES = (("missing", "warn"), ("dup", "duplicates"), ("quality", "wave"), ("uniformize", "tag"))
+
+
+class _ActionTile(QPushButton):
+    """1.4.2 (A2-17) : tuile d'action de l'Accueil : icône, titre en gras, sous-titre en gris normal."""
+
+    def __init__(self, icon: str, title: str, sub: str) -> None:
+        super().__init__()
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.setProperty("kind", "tile")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)      # même hauteur pour les 4
+        lay = hbox(self, margins=theme.px(12), spacing=theme.px(10))
+        lay.addWidget(icon_label(icon, 24, theme.ACCENT), 0, Qt.AlignVCenter)
+        text = vbox(spacing=theme.px(1))
+        self.title_lbl = label(title)
+        self.title_lbl.setStyleSheet("font-weight: 600; background: transparent;")
+        self.sub_lbl = label(sub, "dim", wrap=True)
+        self.sub_lbl.setStyleSheet("font-weight: 400; background: transparent;")
+        for w in (self.title_lbl, self.sub_lbl):
+            w.setAttribute(Qt.WA_TransparentForMouseEvents)
+            text.addWidget(w)
+        lay.addLayout(text, 1)
+        self._title = title
+
+    def text(self) -> str:  # noqa: D401 - lisible par les tests et l'accessibilité
+        return f"{self._title}\n{self.sub_lbl.text()}"
+
+    # Hauteur selon la largeur, mais sans « heightForWidth » (sinon la rangée donne à chaque tuile une
+    # hauteur différente) : les quatre tuiles prennent la hauteur de la plus haute.
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return False
+
+    def _height(self) -> int:
+        lay = self.layout()
+        w = self.width() if self.width() > 50 else lay.sizeHint().width()
+        return max(lay.minimumSize().height(), lay.totalHeightForWidth(w) if lay.hasHeightForWidth() else 0)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self.layout().sizeHint().width(), self._height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self.layout().minimumSize().width(), self._height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        if e.oldSize().width() != e.size().width():
+            self.updateGeometry()
 
 
 class HomeView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
+        # 1.4.2 (A2-17) : la page défile quand la fenêtre est basse (860 × 560) : les pastilles et les boutons
+        # des cartes passent à la ligne au lieu de se chevaucher
+        from PySide6.QtWidgets import QFrame, QScrollArea
+
+        outer = self.root
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        inner.setObjectName("home_inner")
+        self.root = vbox(inner, margins=theme.px(18), spacing=theme.px(8))
+        self.scroll.setWidget(inner)
+        outer.addWidget(self.scroll)
         self._summaries: List[DriveSummary] = []
         self._pending_diag: str = ""          # bibliothèque à diagnostiquer dès qu'elle est ouverte
         self.root.setSpacing(theme.px(10))
-        self.root.addWidget(label(t("home.title"), "title"))
+        self.root.addWidget(label(t("home.title"), "title"))     # 1.4.2 (A2-17) : « Accueil »
 
         row = hbox(spacing=theme.px(8))
         self.omnibar = line_edit(t("home.omnibar"), "search", big=True)
@@ -46,18 +113,38 @@ class HomeView(View):
         self.cards_lay = vbox(self.cards, spacing=theme.px(8))
         self.root.addWidget(self.cards)
 
+        # 1.4.2 (C178, maquette A) : les cartes des bibliothèques en haut, les 4 actions principales dessous
         self.root.addSpacing(theme.px(8))
-        self.root.addWidget(label(t("home.tools"), "h2"))
-        tools = hbox(spacing=theme.px(10))
-        for key, icon, cmd in (("home.tool_analysis", "wave", self._analysis),
-                               ("home.tool_duplicates", "duplicates", self._duplicates),
-                               ("home.tool_uniformize", "tag", self._uniformize),
-                               ("home.tool_import", "import", lambda: self.ctrl._emit("navigate", "import"))):
-            b = button(t(key), cmd, kind="tile", icon=icon)
-            b.setIconSize(QSize(theme.px(20), theme.px(20)))
-            b.setIcon(qicon(icon, 20, theme.ACCENT))
-            tools.addWidget(b, 1)
-        self.root.addLayout(tools)
+        self.actions_title = label(t("home.actions"), "h2")
+        self.root.addWidget(self.actions_title)
+        self.actions_row = ColumnsBox(spacing=10)          # 1.4.2 (A2-17) : 2 colonnes si la place manque
+        self.actions: dict = {}
+        for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
+                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
+            # 1.4.2 (A2-17) : titre en gras, sous-titre en gris normal (même graisse partout avant)
+            b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
+            b.clicked.connect(lambda _c=False, f=cmd: f())
+            b.setToolTip(t(f"home.act_{key}_tip"))
+            self.actions_row.add(b)
+            self.actions[key] = b
+        self.root.addWidget(self.actions_row)
+
+        # 1.4.2 (C182, A06) : les tuiles Outils (doublons du volet) laissent la place aux compteurs du Diagnostic
+        self.root.addSpacing(theme.px(8))
+        self.todo_title = label(t("home.todo"), "h2")
+        self.root.addWidget(self.todo_title)
+        self.todo_row = ColumnsBox(spacing=8)              # 1.4.2 (A2-17) : 2 colonnes si la place manque
+        self.todo: dict = {}
+        for key, icon in TODO_TILES:
+            b = button("", lambda k=key: self._open_todo(k), icon=icon)
+            b.setIcon(qicon(icon, 16, theme.ACCENT))
+            self.todo_row.add(b)
+            self.todo[key] = b
+        self.root.addWidget(self.todo_row)
+        self.todo_hint = label(t("home.todo_none"), "dim", wrap=True)
+        self.root.addWidget(self.todo_hint)
+        self._todo_refresh()
+        controller.on("diag_counts", self._todo_refresh)
         self.root.addStretch(1)
         # 1.3.2 (C73) : version de DJSync, discrète, en bas ; cliquable vers Paramètres ▸ DJSync
         foot = hbox()
@@ -128,9 +215,45 @@ class HomeView(View):
     # ------------------------------------------------------------------- clés
     def on_show(self) -> None:
         self.refresh()
+        self._todo_refresh()
+        try:
+            counted = "missing" in self.ctrl.diag_counts
+        except Exception:  # noqa: BLE001
+            counted = True
+        # 1.4.2 (B103) : seulement avec « Analyser à l'ouverture » ; sinon les derniers chiffres retenus
+        if self.ctrl.has_library and not counted and self.ctrl.diag_auto():
+            self.ctrl.diag_quick_counts()           # C182 : compte rapide (sans lire les sons)
+
+    # ------------------------------------------------- 1.4.2 (C182) : « À régler »
+    def _todo_refresh(self) -> None:
+        try:
+            counts = dict(self.ctrl.diag_counts)
+        except Exception:  # noqa: BLE001
+            counts = {}
+        has = bool(self.ctrl.has_library)
+        try:
+            self.todo_title.setVisible(has)
+            self.todo_row.setVisible(has)
+            self.todo_hint.setVisible(not has)
+        except RuntimeError:                       # vue reconstruite
+            return
+        for key, b in self.todo.items():
+            n = counts.get(key)
+            # 1.4.2 (A2-17) : « à mesurer » plutôt qu'un tiret, avec sa bulle
+            b.setText(t(f"diagtab.{key}") + "  ·  " + (t("home.todo_count", n=n) if n is not None
+                                                        else t("home.todo_unknown")))
+            b.setToolTip(t("home.todo_tip") if n is not None else t("home.todo_unknown_tip"))
+            b.setProperty("todo", bool(n))
+
+    def _open_todo(self, key: str) -> None:
+        if not self.ctrl.has_library:
+            self.ctrl.message("error", t("msg.no_drive"))
+            return
+        self.window().open_diagnostic(key)
 
     def refresh(self) -> None:
         self.ctrl.drive_summaries(self._show)
+        self._todo_refresh()
         if self._pending_diag and self.ctrl.has_library and self.ctrl.drive is not None \
                 and str(self.ctrl.drive.db_path) == self._pending_diag:
             self._pending_diag = ""
@@ -152,6 +275,9 @@ class HomeView(View):
             text = vbox(spacing=theme.px(2))
             text.addWidget(label(t("home.no_drive_title"), "h2"))
             text.addWidget(label(t("home.no_drive_sub"), "dim", wrap=True))
+            # 1.4.2 (A2-10) : depuis C24 une clé vierge suffit ; lien vers les Premiers pas de l'aide
+            start = button(t("start.tab"), lambda: self.window().open_help(start=True), kind="flat", icon="go")
+            text.addWidget(start, 0, Qt.AlignLeft)
             lay.addLayout(text, 1)
             self.cards_lay.addWidget(box)
             return
@@ -181,10 +307,32 @@ class HomeView(View):
         mid.addLayout(top)
         key = "home.unprepared_legacy" if u.kind == "legacy" else "home.unprepared_blank"
         mid.addWidget(label(t(key), "dim", wrap=True))
+        if u.kind == "legacy":                                 # 1.4.2 (C24) : quoi faire, en clair
+            mid.addWidget(label(t("home.unprepared_legacy_todo"), wrap=True))
         if compat == "unsupported":
             mid.addWidget(label(t("home.unprepared_fs", fs=u.filesystem), "dim", wrap=True))
+        elif u.kind == "blank":                                # 1.4.2 (C24) : « Préparer cette clé »
+            actions = hbox()
+            prep = button(t("prepare.button"), lambda _c=False, d=u: self.prepare_drive(d), kind="primary", icon="usb")
+            prep.setToolTip(t("prepare.button_tip"))
+            prep.setObjectName("prepare_drive")
+            actions.addWidget(prep)
+            actions.addStretch(1)
+            mid.addLayout(actions)
         lay.addLayout(mid, 1)
         return box
+
+    def prepare_drive(self, u: Any) -> None:
+        """1.4.2 (C24) : confirmation avec le nom et le lecteur, puis le gabarit de clé vide est posé."""
+        from ..dialogs import ConfirmDialog
+
+        drive = u.drive
+        letter = getattr(drive, "letter", "")
+        where = f"{letter}:" if letter else str(drive.root)
+        name = drive.label or where
+        ConfirmDialog(self, t("prepare.title"), t("prepare.confirm", name=name, where=where),
+                      lambda: self.ctrl.prepare_blank_drive(drive.root), confirm_text=t("prepare.ok"),
+                      detail=t("prepare.detail"))
 
     def _card(self, s: DriveSummary) -> QWidget:
         box = panel()
@@ -203,7 +351,7 @@ class HomeView(View):
             top.addWidget(busy)
         top.addStretch(1)
         mid.addLayout(top)
-        chips = hbox(spacing=theme.px(6))
+        chips = FlowLayout(spacing=theme.px(6))        # 1.4.2 (A2-9, A2-17) : à la ligne si étroit
         stale_detail = None                         # 1.3.0-rc.3 (C36) : export.pdb pas à jour sur cette clé
         if s.tracks >= 0:
             chips.addWidget(chip(plural("lib.tracks_one", "lib.tracks_many", s.tracks)))
@@ -234,18 +382,21 @@ class HomeView(View):
                 tips = {"ok": "home.fs_ok", "recent_only": "home.fs_recent_only", "unsupported": "home.fs_unsupported"}
                 fs.setToolTip(t(tips.get(compat, "home.fs_ok"), fs=s.filesystem))
                 chips.addWidget(fs)
-        chips.addStretch(1)
         mid.addLayout(chips)
         if stale_detail is not None:
             detail = label(t("home.pdb_detail", detail=stale_detail or "?"), "dim")
             detail.setWordWrap(True)
             mid.addWidget(detail)
-        actions = hbox()
+        actions = FlowLayout(spacing=theme.px(6))      # 1.4.2 : boutons à la ligne si étroit
         if s.connected:
             actions.addWidget(button(t("home.open_library"), lambda: self.ctrl._emit("navigate", "library"),
                                      kind="primary", icon="library"))
             if s.unanalysed > 0:
                 actions.addWidget(button(t("action.analyse"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
+            if not s.is_local:                                   # 1.4.2 (C67) : « Prêt pour le set ? »
+                ready = button(t("set.button"), self.set_check, icon="check")
+                ready.setToolTip(t("set.button_tip"))
+                actions.addWidget(ready)
             if stale_detail is not None:
                 upd = button(t("home.pdb_update"), icon="refresh")
                 upd.setToolTip(t("home.pdb_update_tip"))
@@ -257,7 +408,6 @@ class HomeView(View):
         diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
         diag.setToolTip(t("diag.button_tip"))
         actions.addWidget(diag)
-        actions.addStretch(1)
         mid.addLayout(actions)
         lay.addLayout(mid, 1)
 
@@ -296,7 +446,38 @@ class HomeView(View):
 
         self.ctrl.pdb_sync_now(ok=restore, failed=restore)
 
+    # ------------------------------------------------- 1.4.2 (C178) : actions principales
+    def act_download(self) -> None:
+        win = self.window()
+        if hasattr(win, "show_view"):
+            win.show_view("search")
+
+    def act_prepare(self) -> None:
+        """« Préparer une clé » : une clé vierge branchée est préparée (C24, avec confirmation) ; sinon la clé
+        ouverte est vérifiée (« Prêt pour le set ? ») ; sans clé, Paramètres ▸ Bibliothèques."""
+        blank = [u for u in (getattr(self.ctrl, "unprepared", []) or []) if u.kind == "blank"]
+        if blank:                                              # 1.4.2 (C24) : une clé vierge est branchée
+            from ...db.usb import filesystem_compat
+
+            ready = [u for u in blank if filesystem_compat(u.filesystem) != "unsupported"]
+            if len(ready) == 1:
+                self.prepare_drive(ready[0])
+            else:                                              # plusieurs, ou à reformater : voir les cartes
+                self.ctrl.message("info", t("prepare.see_cards" if ready else "prepare.reformat_first"))
+            return
+        lib = self.ctrl.library
+        if lib is not None and not getattr(self.ctrl, "is_local", False):
+            self.set_check()
+            return
+        self.ctrl.message("info", t("home.prepare_no_drive"))
+        self.open_settings("libraries")
+
     # ------------------------------------------------------------------- outils
+    def set_check(self) -> None:
+        from ..set_check_dialog import open_set_check
+
+        open_set_check(self, self.ctrl)
+
     def diagnose(self, drive: Any, connected: bool) -> None:
         """Bouton « Diagnostic » d'une carte : ouvre d'abord cette bibliothèque si besoin."""
         if connected and self.ctrl.has_library:

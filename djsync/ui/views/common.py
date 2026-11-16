@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Sequence
 
 from PySide6.QtWidgets import QWidget
 
-from ...i18n import get_language, plural, t
+from ...i18n import get_language, num, plural, t
 from ...models import TrackResult
 from .. import theme
 from ..dialogs import PlaylistPicker
@@ -136,8 +136,8 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
             values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
         if r.speed:                            # 1.4.0-rc.2 (B60) : repérer les pairs rapides
-            values["type"] += f" · {r.speed / 1e6:.1f} " + t("unit.mbps_short")
-        values["size"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")    # 1.4.0-rc.5 (B92) : plus dans « Vues »
+            values["type"] += f" · {num(r.speed / 1e6, '.1f')} " + t("unit.mbps_short")
+        values["size"] = t("unit.mb", n=num(r.size / 1e6, ".1f"))    # 1.4.0-rc.5 (B92) : plus dans « Vues »
         values["views"] = ""
     elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
         from .. import theme
@@ -185,19 +185,37 @@ def buy_entry(ctrl: Any, artist: str, title: str) -> Any:
 
 
 def ask_and_download(parent: Any, ctrl: Any, tracks: Sequence[TrackResult], new_name: str = "",
-                     original: Optional[bool] = None) -> None:
-    """Popup « playlists de destination » puis mise en file des téléchargements."""
-    if not tracks:
+                     original: Optional[bool] = None, existing: Sequence[TrackResult] = ()) -> None:
+    """Popup « playlists de destination » puis mise en file des téléchargements.
+    1.4.2 (C186) : `existing` : sons déjà dans la bibliothèque (lot importé) ; pas retéléchargés, mais
+    ajoutés aux playlists choisies."""
+    existing = [x for x in existing if x is not None]
+    if not tracks and not existing:
         return
     if not ctrl.has_library:
         ctrl.message("error", t("msg.no_drive"))
         return
     dups = sum(1 for x in tracks if x.is_duplicate)
-    sub = plural("dl.to_download_one", "dl.to_download_many", len(tracks))
+    sub = plural("dl.to_download_one", "dl.to_download_many", len(tracks)) if tracks else ""
     if dups:
         sub += " " + plural("dl.already_one", "dl.already_many", dups)
+    if existing:
+        sub = (sub + " " if sub else "") + plural("dl.existing_one", "dl.existing_many", len(existing))
+
+    def ok(ids: List[int]) -> None:
+        if tracks:
+            ctrl.enqueue(list(tracks), ids, original=original)
+        if existing and ids:
+            ctrl.add_existing(existing, ids)
+
     PlaylistPicker(
-        parent, ctrl, t("dl.picker_title"), t("dl.picker_ok", n=len(tracks)),
-        on_ok=lambda ids: ctrl.enqueue(list(tracks), ids, original=original), multi=True,
-        preselect=ctrl.last_playlist_ids, new_name=new_name, allow_empty=True, subtitle=sub,
+        parent, ctrl, t("dl.picker_title"),
+        t("dl.picker_ok", n=len(tracks)) if tracks else t("dl.add_existing_ok", n=len(existing)),
+        on_ok=ok, multi=True, preselect=ctrl.last_playlist_ids, new_name=new_name,
+        allow_empty=bool(tracks), subtitle=sub,
     )
+
+
+def ask_add_existing(parent: Any, ctrl: Any, tracks: Sequence[TrackResult]) -> None:
+    """1.4.2 (C186) : « Ajouter à une playlist… » sur des résultats déjà dans la bibliothèque."""
+    ask_and_download(parent, ctrl, [], existing=tracks)

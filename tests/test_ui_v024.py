@@ -186,7 +186,7 @@ def test_downloads_and_analysis_page(demo_grid):
     app = demo_grid
     app.show_view("downloads")
     view = app.views["downloads"]
-    assert app._nav["downloads"].text().startswith("Downloads && analysis")
+    assert app._nav["downloads"].text().startswith("Downloads")             # 1.4.2 (C182) : libellé court
     assert pump(app, 6, lambda: view.an_table.total == 10)            # les 10 sons non analysés
     assert all(not r.data.is_analysed for r in view.an_table.all_rows())
     assert "10" in view.analyse_btn.text()

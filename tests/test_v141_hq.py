@@ -151,14 +151,16 @@ def _fake_sources(monkeypatch, ctrl, free, slsk=None, order=("audius", "archive"
 def test_c133_page_in_the_sidebar_and_opened_from_search(demo, monkeypatch):  # noqa: F811
     from djsync.ui.app import TABS
 
-    assert [k for k, *_ in TABS][:4] == ["home", "search", "hq", "library"]       # D10 : ordre du volet
+    assert [k for k, *_ in TABS][:4] == ["home", "search", "hq", "library"]
     calls = _fake_sources(monkeypatch, demo.ctrl, [])
     search = demo.views["search"]
+    demo.show_view("search")
     search.entry.setText("bicep glue")
-    search.mode.setCurrentIndex(1)                                               # D9 : ouvre la page
+    search.search_tabs.buttons["hq"].click()                     # 1.4.2 (C182) : onglet Haute qualité (D9)
     hq = demo.views["hq"]
     assert demo.current == "hq" and hq.entry.text() == "bicep glue" and "free" in calls
-    assert search.mode.currentIndex() == 0                                       # un seul code
+    assert demo._nav["search"].isChecked()                       # une seule entrée « Rechercher » cochée
+    assert not hasattr(search, "mode")                           # menu de mode retiré
     assert not hq.p2p.isVisibleTo(hq)                                            # Soulseek coupé : pas de P2P
     assert "Settings ▸ Download" in hq.slsk_state.text()
     opened = []

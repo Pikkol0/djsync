@@ -36,6 +36,7 @@ def _watch_setup(demo, tmp_path):  # noqa: F811
     assert len(rep.added) == 2
     ctrl.service.refresh_library()
     ctrl.settings.watch_folder = str(folder)
+    ctrl.settings.watch_target = "usb"          # 1.4.2 (B102) : la clé de démonstration
     ctrl.settings.watch_playlist = True
     ctrl.settings.watch_scanned = ""
     return ctrl, lib, folder, (a, b, c), {x.content_id for x in rep.added}
@@ -113,6 +114,7 @@ def test_b95_no_empty_playlist_and_none_when_the_option_is_off(demo, tmp_path): 
     ctrl.settings.watch_playlist = True
     ctrl.settings.watch_scanned = ""
     ctrl.settings.watch_folder = str(folder.parent / "empty_watch")       # dossier sans rien de rangé
+    ctrl.settings.watch_target = "usb"          # 1.4.2 (B102) : la clé de démonstration
     (folder.parent / "empty_watch").mkdir(exist_ok=True)
     _tick(demo, ctrl)
     assert _watch_pl(lib) is None

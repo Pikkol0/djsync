@@ -56,7 +56,7 @@ class QualityPage(BaseDialog):
         head.addWidget(label(t("quality.page_title"), "h2"))
         self.scope = QComboBox()
         self._fill_scopes()
-        self.scope.currentIndexChanged.connect(lambda _i: self._scan())
+        self.scope.currentIndexChanged.connect(lambda _i: self.analyse_now())     # 1.4.2 (B103)
         head.addWidget(self.scope)
         head.addStretch(1)
         self.count = label(t("improve.scanning"), "dim")
@@ -132,6 +132,30 @@ class QualityPage(BaseDialog):
         if not getattr(controller, "playlists", None) and hasattr(controller, "fetch_playlists"):
             controller.fetch_playlists(self._playlists_changed)
         self.show_dialog()
+        if ids or controller.diag_ready("quality"):            # 1.4.2 (B103) : rien à l'ouverture par défaut
+            self.analyse_now()
+        else:
+            self._idle()
+
+    def _idle(self) -> None:
+        from .diag_tabs import idle_panel
+
+        self._is_idle = True
+        self.count.setText("")
+        self.table.hide()
+        self._idle_box = idle_panel(self, self.ctrl, "quality", self.analyse_now)
+        self.body.insertWidget(self.body.indexOf(self.table), self._idle_box, 1)
+
+    def analyse_now(self) -> None:
+        """1.4.2 (B103) : « Analyser maintenant » (ou ouverture avec le réglage coché, ou une sélection)."""
+        self._is_idle = False
+        self.ctrl.diag_mark_run("quality")
+        box = getattr(self, "_idle_box", None)
+        if box is not None:
+            self._idle_box = None
+            box.hide()
+            box.deleteLater()
+        self.table.show()
         self._scan()
 
     # ------------------------------------------------------------------ portée
@@ -165,7 +189,7 @@ class QualityPage(BaseDialog):
         self.scope.blockSignals(True)
         self.scope.setCurrentIndex(0 if ids else max(0, self.scope.findData(("lib", None))))
         self.scope.blockSignals(False)
-        self._scan()
+        self.analyse_now()                                    # 1.4.2 (B103) : choix explicite
 
     def _scope_ids(self) -> Optional[List[int]]:
         kind, pid = self.scope.currentData() or ("lib", None)
@@ -202,7 +226,7 @@ class QualityPage(BaseDialog):
         self.ctrl.quality_scan(done, progress, ids=self._scope_ids())
 
     def _quality_changed(self, *_a: Any) -> None:
-        if self.winfo_exists() and not self._loading:
+        if self.winfo_exists() and not self._loading and not getattr(self, "_is_idle", False):
             self._scan()
 
     def _kbps_changed(self, value: int) -> None:
@@ -443,6 +467,12 @@ class QualityPage(BaseDialog):
 
             entries += [None, buy_entry(self.ctrl, sel[0].track.artist or "", sel[0].track.title)]
         entries.append((t("diag.ignore"), lambda: self._ignore(sel), "close"))
+        if len(sel) == 1:                                   # 1.4.2 (C182) : le même menu d'un son partout
+            from .track_menu import track_entries
+
+            common = [e for e in track_entries(self, self.ctrl, [sel[0].track], where="quality")
+                      if e is None or e[0] != t("buy.menu")]          # Acheter : déjà plus haut
+            entries += [None] + common
         return entries
 
 

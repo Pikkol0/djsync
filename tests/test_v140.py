@@ -304,6 +304,7 @@ def test_watch_tick_imports_into_the_imported_playlist(tmp_path, monkeypatch):
         old = time.time() - 60
         os.utime(w, (old, old))
         ctrl.settings.watch_folder = str(folder)
+        ctrl.settings.watch_target = "usb"          # 1.4.2 (B102) : la clé de démonstration
         ctrl.settings.watch_playlist = True
         ctrl.watch_tick()                                          # 1er passage : rien n'est pris
         assert pump(app, 3, lambda: not ctrl._watch_busy)

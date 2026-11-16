@@ -125,6 +125,10 @@ class Settings:
     youtube_best: bool = False         # 1.4.0 (C48) : meilleur flux YouTube (AAC 256), plus lourd
     light_mode: str = "auto"           # 1.4.0 (C65) : mode léger auto | on | off
     light_prompt_off: bool = False     # 1.4.0 (C65) : ne plus proposer le mode léger au démarrage
+    light_offered: list = field(default_factory=list)  # 1.4.2 (C174) : PC (identifiants hachés) où il a été proposé
+    set_players: str = "all"           # 1.4.2 (C67) : platines visées par « Prêt pour le set ? »
+    mytags_column_shown: bool = False  # 1.4.2 (C113) : colonne My Tags affichée d'elle-même une fois
+    tour_state: str = ""               # 1.4.2 (C178) : visite guidée "" | later | done | never
     youtube_browser: str = ""          # navigateur connecté à YouTube (Premium : AAC 256 natif)
     improve_threshold: int = 256       # 1.4.0 (C47) : « Améliorer ma bibliothèque » sous ce débit réel (kbps)
     free_sources: list = field(default_factory=lambda: ["archive", "audius"])   # 1.4.0 (C45) : recherche Haute qualité
@@ -139,11 +143,22 @@ class Settings:
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Dossier surveillé »
     watch_first_done: bool = False     # 1.4.0-rc.5 (C160) : message du tout premier son importé déjà montré
+    # 1.4.2 (B102) : bibliothèque que remplit le dossier surveillé : « local » (bibliothèque de l'ordinateur,
+    # par défaut) ou « usb » (la clé ouverte). Si elle n'est pas ouverte, les fichiers attendent dans le dossier.
+    watch_target: str = "local"
+    # 1.4.2 (B103) : le Diagnostic ne calcule plus rien à l'ouverture (bouton « Analyser maintenant ») ;
+    # coché, il recalcule à chaque ouverture comme avant. Derniers chiffres gardés par bibliothèque, avec leur date.
+    diag_auto: bool = False
+    uni_scope: str = "problems"         # 1.4.2 (C198) : dernière portée d'Uniformiser (présélectionnée)
+    uni_scope_playlist: str = ""
+    diag_last: dict = field(default_factory=dict)
     watch_scanned: str = ""            # 1.4.1 (B95) : dossier (et bibliothèque) déjà rattrapés à l'activation
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)
     soundcloud_token: str = ""         # ou jeton « oauth_token » du compte
     suggestions_open: bool = False     # 1.3.1 (C30) : panneau « Suggestions » de la Bibliothèque
+    auto_lists_open: bool = True       # 1.4.2 (C188) : groupe « Listes automatiques » déplié
+    panels_folded: dict = field(default_factory=dict)  # 1.4.2 (C189) : {"downloads"|"analysis": replié}
     suggest_tolerance: int = 6         # 1.3.1 (C30) : écart de BPM accepté (%)
     settings_section: str = "general"  # 1.3.1 (C28) : dernière section ouverte des Paramètres
     settings_version: int = 0          # migrations des réglages enregistrés
@@ -183,6 +198,9 @@ class Settings:
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
         self.key_notation = self.key_notation if self.key_notation in ("auto", "camelot", "musical") else "auto"
+        self.set_players = self.set_players if self.set_players in ("all", "recent", "nxs2", "old") else "all"
+        if not isinstance(self.light_offered, list):
+            self.light_offered = []
         self.volume = max(0.0, min(1.0, float(self.volume)))
         self.audio_latency_ms = max(-200, min(2000, int(self.audio_latency_ms or 0)))
         if self.settings_version < 1:      # V1.0.0 : l'ajout de pages à export.pdb devient le défaut
@@ -209,6 +227,7 @@ class Settings:
         self.search_max_minutes = max(0, min(600, int(self.search_max_minutes or 0)))
         self.genre_playlists = self.genre_playlists if isinstance(self.genre_playlists, dict) else {}
         self.hq_filters = self.hq_filters if isinstance(self.hq_filters, dict) else {}
+        self.panels_folded = self.panels_folded if isinstance(self.panels_folded, dict) else {}
         self.local_hosts = [str(h) for h in self.local_hosts][:50]
         self.diag_ignored = [str(k) for k in self.diag_ignored][-500:]
         if self.merge_undo_s not in (5, 10, 30):
@@ -229,7 +248,7 @@ class Settings:
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
                    "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut",
-                   "diag_tab")
+                   "diag_tab", "auto_lists_open", "panels_folded")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 

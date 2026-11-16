@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QFrame, QListWidget, QListWidgetItem, QRadioButton, QScrollArea
+from PySide6.QtWidgets import (
+    QButtonGroup, QFrame, QListWidget, QListWidgetItem, QRadioButton, QScrollArea, QWidget,
+)
 
 from ..core.duplicates import split_display
 from ..i18n import plural, t
@@ -54,7 +56,8 @@ class MissingFilesDialog(BaseDialog):
         self.body.addLayout(head)
 
         main = hbox(spacing=theme.px(10))
-        left = vbox(spacing=theme.px(4))
+        self.left_box = QWidget()                    # 1.4.2 (A2-16) : masqué quand il n'y a rien
+        left = vbox(self.left_box, spacing=theme.px(4))
         # 1.3.2-rc.3 (C126) : cocher pour retirer en lot (tout, ou tous ceux d'un disque absent)
         self.check_row = hbox(spacing=theme.px(4))
         left.addLayout(self.check_row)
@@ -63,7 +66,7 @@ class MissingFilesDialog(BaseDialog):
         self.list.currentRowChanged.connect(self._select)
         self.list.itemChanged.connect(lambda _i: self._refresh_actions())
         left.addWidget(self.list, 1)
-        main.addLayout(left)
+        main.addWidget(self.left_box)
         self.detail = panel()
         self.detail_lay = vbox(self.detail, margins=theme.px(10), spacing=theme.px(6))
         self.detail_lay.addWidget(label(t("missing.searching_sub"), "faint", wrap=True))
@@ -97,7 +100,30 @@ class MissingFilesDialog(BaseDialog):
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
-        controller.find_missing(self._loaded)
+        if controller.diag_ready("missing"):                  # 1.4.2 (B103) : rien à l'ouverture par défaut
+            self.analyse_now()
+        else:
+            self._idle()
+
+    def _idle(self) -> None:
+        from .diag_tabs import idle_panel
+
+        self._is_idle = True
+        self.count.setText("")
+        self._clear_detail()
+        self.detail_lay.addWidget(idle_panel(self, self.ctrl, "missing", self.analyse_now))
+        self.detail_lay.addStretch(1)
+        self._show_empty(True)
+
+    def analyse_now(self) -> None:
+        """1.4.2 (B103) : « Analyser maintenant » (ou ouverture avec le réglage coché)."""
+        self._is_idle = False
+        self.ctrl.diag_mark_run("missing")
+        self.count.setText(t("missing.searching"))
+        self._clear_detail()
+        self.detail_lay.addWidget(label(t("missing.searching_sub"), "faint", wrap=True))
+        self.detail_lay.addStretch(1)
+        self.ctrl.find_missing(self._loaded)
 
     # ------------------------------------------------------------------ liste
     def _loaded(self, items: List[Any]) -> None:
@@ -106,6 +132,13 @@ class MissingFilesDialog(BaseDialog):
         self.items = items
         self._fill_list()
         self._select(0 if items else -1)
+
+    def _show_empty(self, empty: bool) -> None:
+        """1.4.2 (A2-16) : sans fichier introuvable, ni liste vide à gauche ni boutons « Retirer… 0 »."""
+        self.left_box.setVisible(not empty)
+        for b in (self.remove_all_btn, self.remove_checked_btn, self.remove_orphans_btn, self.skip_btn,
+                  self.apply_btn):
+            b.setVisible(not empty)
 
     def _fill_list(self) -> None:
         self.list.blockSignals(True)
@@ -134,6 +167,7 @@ class MissingFilesDialog(BaseDialog):
             self.list.addItem(item)
         self.list.blockSignals(False)
         self._fill_check_row(sorted(gone))
+        self._show_empty(not self.items)
 
     def _fill_check_row(self, drives: List[str]) -> None:
         """1.3.2-rc.3 (C126) : « Tout cocher », puis « Cocher ceux de E: » par disque absent."""
@@ -171,6 +205,7 @@ class MissingFilesDialog(BaseDialog):
             item = self.detail_lay.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()                                    # 1.4.2 (B103) : rien ne reste en dessous
                 w.deleteLater()
             elif item.layout() is not None:
                 _drop_layout(item.layout())

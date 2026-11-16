@@ -43,8 +43,8 @@ def test_plural_rules():
     assert i18n.plural("lib.tracks_one", "lib.tracks_many", 1) == "1 track"
     assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 tracks"
     i18n.set_language("fr")
-    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 titre"
-    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 2) == "2 titres"
+    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 son"            # 1.4.2 (A2-8)
+    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 2) == "2 sons"
 
 
 def test_model_labels_follow_the_language():
@@ -95,7 +95,11 @@ def test_palettes():
     pytest.importorskip("PySide6")
     from djsync.ui import theme
 
-    assert len(theme.PALETTES) == 12 and theme.DEFAULT_THEME == "violet_light"     # 1.4.0 (C50)
+    assert len(theme.PALETTES) == 24 and theme.DEFAULT_THEME == "violet_light"     # 1.4.0 (C50), 1.4.2 (C144)
+    from djsync.ui.palettes import FAMILIES, MIN_CONTRAST, SURFACE
+
+    assert sorted(n for names in FAMILIES.values() for n in names) == sorted(theme.PALETTES)
+    assert all(theme.contrast(c, SURFACE) >= MIN_CONTRAST for c in theme.PALETTES.values())
     for name, accent in theme.PALETTES.items():
         assert i18n.en.STRINGS[f"theme.{name}"] and i18n.fr.STRINGS[f"theme.{name}"]   # nom traduit
         colors = theme.palette_colors(accent)

@@ -36,6 +36,7 @@ def test_b77_watcher_kept_between_ticks_and_file_taken(demo, tmp_path, monkeypat
     os.utime(song, (old, old))
     # le réglage écrit avec l'autre séparateur (comme la boîte de choix de dossier sous Windows)
     ctrl.settings.watch_folder = str(folder) + os.sep            # autre écriture du même dossier
+    ctrl.settings.watch_target = "usb"          # 1.4.2 (B102) : la clé de démonstration
     taken = []
     monkeypatch.setattr(ctrl, "import_files", lambda files, **kw: taken.extend(files))
     ctrl.watch_tick()
@@ -170,7 +171,7 @@ def test_c146_welcome_quality_step(demo, monkeypatch):  # noqa: F811
     w = WelcomeDialog(demo, demo.ctrl)
     w._choose(s.language)
     w._to_quality()
-    assert w._step == 3 and w.yt_buttons["m4a"].isChecked() and w.yt_warn.isHidden()
+    assert w._step == 2 and w.yt_buttons["m4a"].isChecked() and w.yt_warn.isHidden()
     w._pick_yt("best")
     assert not w.yt_warn.isHidden()
     w._finish()

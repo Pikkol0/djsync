@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QGridLayout, QWidget
 
 from ..core import space
-from ..i18n import t
+from ..i18n import num, plural, t
 from . import theme
 from .views.common import human_size
 from .widgets import button, hbox, label
@@ -99,6 +99,10 @@ class SpaceCard:
         self.grid.setHorizontalSpacing(theme.px(10))
         self.grid.setVerticalSpacing(theme.px(4))
         layout.addLayout(self.grid)
+        from .widgets import FlowLayout
+
+        self.actions_flow = FlowLayout(spacing=theme.px(6))   # 1.4.2 (A2-1) : actions sous la liste, à la ligne
+        layout.addLayout(self.actions_flow)
         self.result = label("", "accent", wrap=True)
         layout.addWidget(self.result)
         self._rows: List[Any] = []
@@ -208,7 +212,7 @@ class SpaceCard:
         text = t("space.summary", free=human_size(usage.free), total=human_size(usage.total))
         if usage.total:                             # 1.4.0 (C129) : part de la bibliothèque sur tout le disque
             text = t("space.summary_lib", lib=human_size(usage.library),
-                     pct=f"{100.0 * usage.library / usage.total:.1f}", other=human_size(usage.parts.get("other", 0)),
+                     pct=num(100.0 * usage.library / usage.total, ".1f"), other=human_size(usage.parts.get("other", 0)),
                      free=human_size(usage.free), total=human_size(usage.total))
         for drive, size in sorted(getattr(usage, "music_elsewhere", {}).items()):
             text += "\n" + t("space.music_elsewhere", size=human_size(size), drive=drive)
@@ -228,6 +232,7 @@ class SpaceCard:
     def _fill(self, usage: Any, actions: Dict[str, Any]) -> None:
         for w in self._rows:            # 1.3.1 : sans setParent(None), qui en faisait des fenêtres visibles
             self.grid.removeWidget(w)
+            self.actions_flow.removeWidget(w)
             w.hide()
             w.deleteLater()
         self._rows = []
@@ -254,7 +259,7 @@ class SpaceCard:
             if key in actions:
                 text, fn = actions[key]
                 b = button(text, fn, kind="flat", icon="trash")
-                self.grid.addWidget(b, row, col)
+                self.actions_flow.addWidget(b)                  # 1.4.2 (A2-1) : plus dans la grille (trop large)
                 cells.append(b)
             self._rows += cells
             self.grid.setRowMinimumHeight(row, theme.px(30))     # lignes égales, avec ou sans bouton
@@ -276,6 +281,24 @@ class SpaceCard:
         self.ctrl.dispatcher.submit(lambda: space.clear_caches(target["data"]), done, self._failed, pool="tools")
 
     def _trim(self, target: Dict[str, Any]) -> None:
+        """1.4.2 (A2-13) : confirmation avec le nombre de points et la place libérée avant de supprimer."""
+        def preview(res: Any) -> None:
+            n, size = res
+            if n <= 0:
+                self.result.setText(t("space.trim_none", n=TRIM_KEEP))
+                return
+            from .dialogs import ConfirmDialog
+
+            ConfirmDialog(self.result.window(), t("space.trim_confirm_title"),
+                          plural("space.trim_confirm_one", "space.trim_confirm_many", n, size=human_size(size),
+                                 keep=TRIM_KEEP),
+                          lambda: self._do_trim(target), confirm_text=t("space.trim_confirm_ok"), danger=True,
+                          detail=t("space.trim_confirm_detail"))
+
+        self.ctrl.dispatcher.submit(lambda: space.trim_preview(target["backup"], TRIM_KEEP), preview, self._failed,
+                                    pool="tools")
+
+    def _do_trim(self, target: Dict[str, Any]) -> None:
         def done(res: Any) -> None:
             n, freed = res
             self.compute(force=True)

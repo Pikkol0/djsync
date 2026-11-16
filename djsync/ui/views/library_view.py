@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.camelot import neighbors
-from ...i18n import plural, t
+from ...i18n import date_text, num, plural, t
 from ...models import LibraryTrack, PlaylistInfo, format_duration, source_from_url
 from .. import theme
 from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
@@ -36,6 +36,7 @@ ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlis
 MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
 NOCUE = "nocues"           # 1.4.1 (C60) : titres sans hot cue
 SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE)
+AUTO = "autolists"         # 1.4.2 (C188) : groupe repliable des listes automatiques (jamais ouvert)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
 
@@ -43,6 +44,7 @@ def _fmt(track: LibraryTrack) -> str:
     return _FORMATS.get(track.file_type) or Path(track.path).suffix.lstrip(".").upper()
 
 
+C113_COLUMNS = ("mytags", "last_played", "analysis", "dup")      # 1.4.2 : masquées par défaut (My Tags : voir _extras_ok)
 EXTRA_COLUMNS = ("genre", "year", "label", "bitrate", "real", "rate", "rating", "color", "plays", "created", "size",
                  "comment", "path")
 # Couleurs des sons Rekordbox (identifiants 1 à 8, même ordre dans exportLibrary.db et master.db)
@@ -59,11 +61,11 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "genre": x.genre, "year": str(x.year) if x.year else "", "label": x.label,
         "bitrate": t("unit.kbps", n=x.bitrate) if x.bitrate else "",
-        "rate": t("unit.khz", n=f"{x.sample_rate / 1000:g}") if x.sample_rate else "",
+        "rate": t("unit.khz", n=num(x.sample_rate / 1000)) if x.sample_rate else "",
         "rating": "★" * x.rating + "☆" * (5 - x.rating) if x.rating else "",
         "color": t(f"color.{x.color}") if color else "",
         "plays": str(x.play_count) if x.play_count else "",
-        "created": x.created, "size": t("unit.mb", n=f"{x.file_size / 1e6:.1f}") if x.file_size else "",
+        "created": x.created, "size": t("unit.mb", n=num(x.file_size / 1e6, ".1f")) if x.file_size else "",
         "comment": x.comment, "path": x.path,
     }
     if color:
@@ -221,6 +223,14 @@ class LibraryView(View):
             # 1.4.0 (C103) : playlists du son, affichée par défaut (bulle : chemin des dossiers)
             Column("playlists", t("track.playlists"), 170, sort=lambda r: r.values.get("playlists") or None),
             cue_column(),                                                     # 1.4.1 (C60) : cues placés
+            # 1.4.2 (C113) : My Tags, dernière lecture, état de l'analyse, doublon (calculés en arrière-plan)
+            Column("mytags", t("track.mytags"), 140, tip=t("track.mytags_tip")),
+            Column("last_played", t("track.last_played"), 100, "center", tip=t("track.last_played_tip"),
+                   sort=lambda r: r.values.get("last_played") or None),
+            Column("analysis", t("track.analysis"), 84, "center", tip=t("track.analysis_tip"),
+                   sort=lambda r: r.values.get("analysis__n", 0)),
+            Column("dup", t("track.dup"), 64, "center", tip=t("track.dup_tip"),
+                   sort=lambda r: 1 if r.values.get("dup") else 0),
             Column("grid", "", 40, "center", sortable=False, min_width=34),   # 1.3.2 (C58) : bouton Grille et cues
         ]
 
@@ -236,6 +246,8 @@ class LibraryView(View):
         self.nav = NavTree(self)
         self.nav.itemSelectionChanged.connect(self._nav_selected)
         self.nav.customContextMenuRequested.connect(self._nav_context)
+        self.nav.itemExpanded.connect(lambda it: self._auto_group_toggled(it, True))      # 1.4.2 (C188)
+        self.nav.itemCollapsed.connect(lambda it: self._auto_group_toggled(it, False))
         lv.addWidget(self.nav, 1)
         nb = hbox(spacing=theme.px(4))
         nb.addWidget(button(t("lib.playlist"), self._create_playlist, icon="plus", tooltip=t("lib.new_playlist")))
@@ -252,7 +264,7 @@ class LibraryView(View):
         head = hbox()
         titles = vbox(spacing=0)
         self.title_lbl = label(t("lib.all_tracks"), "title")
-        self.sub_lbl = label("", "dim")
+        self.sub_lbl = label("", "dim", wrap=True)                    # 1.4.2 (A2-3) : plus coupé à 860 px
         titles.addWidget(self.title_lbl)
         titles.addWidget(self.sub_lbl)
         head.addLayout(titles, 1)
@@ -316,9 +328,9 @@ class LibraryView(View):
         self.banner.hide()
         mv.addWidget(self.banner)
 
-        self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid",))
-        self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS,
-                             new_keys=EXTRA_COLUMNS + ("cues",))
+        self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
+        self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS + C113_COLUMNS,
+                             new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
@@ -475,6 +487,7 @@ class LibraryView(View):
                 self.current, self._dirty = ALL, False
             self._count_orphans()
             self._read_cue_marks()                                      # 1.4.1 (C60)
+            self._read_extras()                                         # 1.4.2 (C113)
             self.ctrl.check_missing_files(self.all_tracks)              # 1.3.2-rc.3 (C124)
             if self._harmonic is not None:
                 self._harmonic = next((x for x in self.all_tracks if x.content_id == self._harmonic.content_id), None)
@@ -512,15 +525,23 @@ class LibraryView(View):
             return it
 
         item(None, ALL, t("lib.all_tracks"), icon="music", count=len(self.all_tracks))
+        # 1.4.2 (C188) : les listes automatiques sous un groupe repliable ; rien ne disparaît sans trace (le
+        # groupe garde sa place, prend la couleur de la liste la plus urgente et dit ce qu'il contient).
         todo = self._unanalysed_count()
-        item(None, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
-        orph = getattr(self, "_orphans", None)
-        item(None, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                   # C56
-             count="" if orph is None else len(orph))
         miss = len(self._missing_tracks())                                                            # C124
-        item(None, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
+        group = item(None, AUTO, t("lib.auto_lists"), theme.ERR if miss else theme.WARN if todo else "",
+                     icon="folder")
+        group.setFlags(Qt.ItemIsEnabled)                     # pas une liste : jamais sélectionné ni ouvert
+        group.setToolTip(0, t("lib.auto_lists_tip"))
+        item(group, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
+        orph = getattr(self, "_orphans", None)
+        item(group, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                  # C56
+             count="" if orph is None else len(orph))
+        item(group, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
         marks = getattr(self, "_cue_marks", None)                                                     # C60
-        item(None, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        item(group, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        group.setExpanded(bool(getattr(self.ctrl.settings, "auto_lists_open", True)))
+        self._auto_group_counts(group)
         children: Dict[int, List[PlaylistInfo]] = {}
         for p in self.playlists:
             children.setdefault(p.parent_id, []).append(p)
@@ -536,6 +557,7 @@ class LibraryView(View):
                     it.setIcon(0, qicon("watch", 16, theme.ACCENT))
                     it.setToolTip(0, t("watch.empty_title"))
                 if p.is_folder:
+                    it.setFirstColumnSpanned(True)                         # 1.4.2 (A2-3) : pas de nombre
                     add(it, p.playlist_id)
                     it.setExpanded(True)
 
@@ -546,6 +568,25 @@ class LibraryView(View):
             self.current = ALL
         self._select_nav(self.current)
         self._reverting = False
+
+    def _auto_group_counts(self, group: QTreeWidgetItem) -> None:
+        """1.4.2 (C188) : groupe replié, son total à droite (sons à analyser + introuvables) ; déplié, rien."""
+        # 1.4.2 (A2-3) : sans nombre, le nom prend aussi la place de la colonne des nombres (« Listes automatiqu… »)
+        group.setFirstColumnSpanned(group.isExpanded())
+        if group.isExpanded():
+            group.setText(1, "")
+            return
+        todo, miss = self._unanalysed_count(), len(self._missing_tracks())
+        group.setText(1, str(todo + miss) if todo + miss else "")
+
+    def _auto_group_toggled(self, it: QTreeWidgetItem, opened: bool) -> None:
+        """1.4.2 (C188) : état du groupe retenu entre les sessions."""
+        if self._reverting or it.data(0, Qt.UserRole) != AUTO:
+            return
+        self._auto_group_counts(it)
+        if bool(getattr(self.ctrl.settings, "auto_lists_open", True)) != opened:
+            self.ctrl.settings.auto_lists_open = opened
+            self.ctrl.settings.save()
 
     def _select_nav(self, iid: str) -> None:
         it = self._items.get(iid)
@@ -732,7 +773,7 @@ class LibraryView(View):
         info = watched.lookup_track(x)
         if info:
             return {"source": t("watch.source"), "source__icon": "watch",
-                    "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=info.get("date", ""))}
+                    "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=date_text(info.get("date", "")))}
         src = source_from_url(x.source_url)
         if src:
             return {"source": src}
@@ -745,9 +786,10 @@ class LibraryView(View):
             str(x.content_id),
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
-             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
+             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": date_text(x.date_added),
              **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
-             **self._playlist_values(x), **self._cue_values(x), "_tip": self._missing_tip(x.content_id)},
+             **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x),
+             "_tip": self._missing_tip(x.content_id)},
             ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
 
@@ -778,6 +820,75 @@ class LibraryView(View):
 
         self.ctrl.cue_marks(tracks, ok)
 
+    # ------------------------------------------------------------------ 1.4.2 (C113) : nouvelles colonnes
+    def _read_extras(self) -> None:
+        key, tracks = self._drive_key(), list(self.all_tracks)
+
+        def ok(extras: Dict[int, Dict[str, Any]]) -> None:
+            if not self.winfo_exists() or key != self._drive_key():
+                return
+            self._extras = dict(extras)
+            self._show_mytags_once()
+            self.table.update_many({r.iid: self._extra_values(r.data)
+                                    for r in self.table.all_rows() if r.data is not None})
+
+        self.ctrl.track_extras(tracks, ok)
+
+    def _show_mytags_once(self) -> None:
+        """La colonne My Tags s'affiche d'elle-même la première fois qu'une bibliothèque en a (ensuite, le
+        choix de l'utilisateur est gardé)."""
+        s = self.ctrl.settings
+        if getattr(s, "mytags_column_shown", False):
+            return
+        if not any((d or {}).get("mytags") for d in (getattr(self, "_extras", None) or {}).values()):
+            return
+        s.mytags_column_shown = True
+        self.ctrl.save_settings_quiet()
+        try:
+            self.table.set_column_visible("mytags", True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _extra_values(self, x: Optional[LibraryTrack]) -> Dict[str, Any]:
+        if x is None:
+            return {}
+        d = (getattr(self, "_extras", None) or {}).get(x.content_id)
+        checked = bool(d and d.get("grid_checked"))
+        if not x.is_analysed:
+            an, n, color = t("lib.an_none"), 0, theme.WARN
+        elif checked:
+            an, n, color = t("lib.an_checked"), 2, theme.ACCENT
+        else:
+            an, n, color = t("lib.an_auto"), 1, ""
+        out: Dict[str, Any] = {"analysis": an, "analysis__n": n}
+        if color:
+            out["analysis__color"] = color
+        if d is None:
+            out.update({"mytags": "", "last_played": "", "dup": ""})
+            return out
+        out["mytags"] = ", ".join(d.get("mytags") or [])
+        out["last_played"] = d.get("last_played") or ""
+        dup = d.get("dup") or []
+        out["dup"] = "⧉" if dup else ""
+        if dup:
+            out["dup__tip"] = plural("lib.dup_one", "lib.dup_many", len(dup))
+            out["dup__color"] = theme.WARN
+        return out
+
+    def _open_dup(self, x: LibraryTrack) -> None:
+        d = (getattr(self, "_extras", None) or {}).get(x.content_id) or {}
+        ids = [x.content_id] + list(d.get("dup") or [])
+        if len(ids) < 2:
+            return
+        from ..duplicates_dialog import DuplicatesDialog
+
+        win = self.window()
+        current = win.stack.currentWidget() if hasattr(win, "stack") else None
+        if hasattr(win, "_diag_pages") and current in win._diag_pages():
+            win._drop_diag_page(current, then=lambda: DuplicatesDialog(win, self.ctrl, focus_ids=ids))
+        else:
+            DuplicatesDialog(win, self.ctrl, focus_ids=ids)
+
     def _no_cue_tracks(self) -> List[LibraryTrack]:
         marks = getattr(self, "_cue_marks", None) or {}
         return [x for x in self.all_tracks if x.content_id in marks and not marks[x.content_id].hot]
@@ -794,6 +905,8 @@ class LibraryView(View):
         x = row.data if row is not None else None
         if key == "grid" and x is not None and x.is_analysed:
             self.ctrl._emit("open_grid", x)
+        elif key == "dup" and x is not None and row.values.get("dup"):          # 1.4.2 (C113)
+            self._open_dup(x)
 
     def _columns_menu(self) -> None:
         b = self.cols_btn if self.cols_btn.isVisible() else self.tools_btn     # 1.4.0-rc.5 (B85) : bouton replié
@@ -893,7 +1006,7 @@ class LibraryView(View):
             if st is not None and st.total_seconds:
                 parts.append(total_duration(st.total_seconds))
             if st is not None and st.last_added:
-                parts.append(t("lib.last_added", date=st.last_added))
+                parts.append(t("lib.last_added", date=date_text(st.last_added)))
             orph = getattr(self, "_orphans", None)                # 1.3.2-rc.2 (C56) : le rappel, visible ici
             if orph:
                 parts.append(plural("lib.orphans_count_one", "lib.orphans_count_many", len(orph)))
@@ -910,7 +1023,7 @@ class LibraryView(View):
                 if st is not None and st.total_seconds:
                     parts.append(total_duration(st.total_seconds))
                 if st is not None and st.last_added:
-                    parts.append(t("lib.updated", date=st.last_added))
+                    parts.append(t("lib.updated", date=date_text(st.last_added)))
             self.title_lbl.setText(p.name)
             self.sub_lbl.setText("  ·  ".join(parts))
         else:
@@ -1103,7 +1216,7 @@ class LibraryView(View):
             return
         PlaylistPicker(self, self.ctrl, t("lib.move_to"), t("lib.move"),
                        on_ok=lambda pids: self.ctrl.move_tracks(ids, src.playlist_id, pids[0]), multi=False,
-                       exclude=[src.playlist_id], subtitle=t("lib.move_sub", n=len(ids), name=src.name))
+                       exclude=[src.playlist_id], subtitle=plural("lib.move_sub", "lib.move_sub_many", len(ids), name=src.name))
 
     def _remove(self) -> None:
         ids, p = self._ids(), self.playlist
@@ -1293,22 +1406,22 @@ class LibraryView(View):
 
     def _tools_menu(self) -> None:
         sel = self._selected_tracks()
+        # 1.4.2 (C182, A06) : seulement les outils de liste ; ce qui touche un son est dans son menu (clic droit)
         entries: list = []
-        if sel:
-            entries.append((t("lib.analyse_selection", n=len(sel)), lambda: self._analyse(sel), "wave"))
-        entries += [(t("lib.analyse_missing"), lambda: self._analyse(None), "wave"), None]
-        if len(sel) == 1:
-            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
-                        (t("action.edit_metadata"), self._edit_metadata, "edit")]
-        entries.append((t("lib.find_duplicates"), self._duplicates, "duplicates"))
         entries.append((t("uni.menu_scope", scope=self._scope_name()) + "…", self._uniformize, "tag"))
         entries.append((t("genre.menu") + "…", self._genre_playlists, "playlist"))
         target = sel or None
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
+        entries.append((t("transfer.menu") + "…", lambda: self._transfer(), "copy"))       # 1.4.2 (C23)
         entries += self._overflow_entries()
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
+
+    def _transfer(self, precheck: tuple = ()) -> None:
+        win = self.window()
+        if hasattr(win, "open_transfer"):
+            win.open_transfer(precheck)
 
     def _overflow_entries(self) -> list:
         """1.4.0-rc.5 (B85) : boutons sortis de la barre faute de place, repris dans le menu ☰."""
@@ -1332,34 +1445,19 @@ class LibraryView(View):
         if self.in_playlist and self.playlist.is_editable:
             entries += [(t("lib.move_to"), self._move_to, "move"), (t("lib.remove"), self._remove, "close")]
         tracks = self._selected_tracks()
-        entries += [None, (t("lib.analyse_selection", n=len(iids)), lambda: self._analyse(tracks), "wave"),
-                    (t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
-                     "wave"),                                               # 1.4.0-rc.6 (C180)
-                    (t("quality.open_sel", n=len(tracks)), lambda: self._open_quality(tracks), "wave")]   # C135
-        if len(tracks) == 1:
-            from ..reveal import reveal_entry
+        # 1.4.2 (C182) : bloc commun du menu d'un son (même ordre dans le lecteur, Téléchargements, Diagnostic)
+        from ..track_menu import track_entries
 
-            if tracks[0].is_analysed:                                             # 1.4.1 (C131, D20)
-                entries.append((t("player.analyse_again"), lambda: self._analyse_again(tracks[0]), "wave"))
-                if tracks[0].content_id in self.ctrl.rekordbox_originals:
-                    entries.append((t("reanalyse.restore"), lambda: self._restore_rekordbox(tracks[0]), "back"))
-            entries += [(t("lib.edit_grid"), self._edit_grid, "grid"),
-                        (t("action.edit_metadata"), self._edit_metadata, "edit"),
-                        reveal_entry(self.ctrl, tracks[0])]                       # 1.4.0-rc.2 (C139)
-            if tracks[0].camelot:
-                entries.append((t("lib.show_compatible", code=tracks[0].camelot), lambda: self.set_harmonic(tracks[0]),
-                                "key"))
-        entries.append((t("meta.complete_sel", n=len(tracks)), lambda: self._complete_metadata(tracks), "tag"))
+        entries.append(None)
+        entries += track_entries(self, self.ctrl, tracks, where="library", harmonic=self.set_harmonic)
+        entries.append((t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
+                        "wave"))                                            # 1.4.0-rc.6 (C180)
         if len(tracks) == 1:                                      # 1.4.0 (C103) : ouvrir une de ses playlists
             paths = self._playlist_paths(tracks[0].content_id)[:8]
             if paths:
                 entries.append(None)
                 entries += [(t("lib.open_playlist", name=path), lambda pid=pid: self._goto(f"p{pid}"), "playlist")
                             for pid, path in paths]
-        if len(tracks) == 1:                                      # 1.4.0 (C10.3)
-            from .common import buy_entry
-
-            entries.append(buy_entry(self.ctrl, tracks[0].artist, tracks[0].title))
         entries += [None, (self._delete_label() + "…", self._delete, "trash")]
         return entries
 
@@ -1390,7 +1488,7 @@ class LibraryView(View):
             popup_menu(self.nav, [(t("missing.see_in_diagnostic"), lambda: self.window().open_diagnostic("missing"),
                                    "warn")], self.nav.viewport().mapToGlobal(pos))
             return
-        if not iid or iid in SPECIAL:
+        if not iid or iid in SPECIAL or iid == AUTO:
             return
         self.nav.setCurrentItem(it)
         p = self._by_iid.get(iid)
@@ -1408,8 +1506,10 @@ class LibraryView(View):
             for name, target in self.ctrl.copy_targets():
                 entries.append((t("copy.to", target=name) + "…",
                                 lambda pid=p.playlist_id, tg=target, n=name: self._copy_playlist(pid, tg, n), "copy"))
-            if entries:
-                entries.append(None)
+        if p.is_editable or p.is_folder:                                # 1.4.2 (C23) : en lot, avec les dossiers
+            entries.append((t("transfer.menu") + "…", lambda pid=p.playlist_id: self._transfer((pid,)), "copy"))
+        if entries:
+            entries.append(None)
         if not p.is_folder:
             entries.append((t("uni.menu") + "…", lambda pl=p: self._uniformize_playlist(pl), "tag"))
             entries.append(None)

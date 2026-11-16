@@ -214,6 +214,14 @@ def _up(p: _Pen) -> None:
     p.line(6, 11, 12, 5, 18, 11)
 
 
+def _chevron_down(p: _Pen) -> None:          # 1.4.2 (C189) : panneau déplié
+    p.line(6, 9, 12, 15, 18, 9)
+
+
+def _chevron_right(p: _Pen) -> None:         # 1.4.2 (C189) : panneau replié
+    p.line(9, 6, 15, 12, 9, 18)
+
+
 def _down(p: _Pen) -> None:
     p.line(12, 5, 12, 19)
     p.line(6, 13, 12, 19, 18, 13)
@@ -365,6 +373,7 @@ def _gem(p: _Pen) -> None:
 
 
 DRAW: Dict[str, Callable[[_Pen], None]] = {
+    "chevron_down": _chevron_down, "chevron_right": _chevron_right,
     "home": _home, "search": _search, "library": _library, "downloads": _downloads, "import": _link,
     "settings": _settings, "help": _help, "filter": _filter, "download": _download, "play": _play,
     "pause": _pause, "stop": _stop, "next": _next, "prev": _prev, "volume": _volume, "wave": _wave,

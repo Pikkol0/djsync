@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from ...i18n import t
@@ -14,8 +16,19 @@ from ...i18n import t
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class TransferEnd:
+    """1.4.2 (C23) : une bibliothèque de départ ou d'arrivée d'un transfert."""
+    key: str                # "local" ou racine de la clé
+    name: str               # nom affiché, et « Nom (origine) » de « Garder les deux »
+    target: Any             # UsbDrive ou LocalRekordbox
+    is_local: bool = False
+    active: bool = False    # c'est la bibliothèque ouverte
+
+
 class ToolsMixin:
     _tool_busy = False
+    _transfer_stop = False
 
     @property
     def tool_busy(self) -> bool:
@@ -33,12 +46,12 @@ class ToolsMixin:
                 out.append((d.label or str(d.root), d))
         return out
 
-    def _open_target(self, target: Any) -> Any:
+    def _open_target(self, target: Any, read_only: bool = False) -> Any:
         from ...db.local_library import LocalRekordbox, LocalRekordboxLibrary
         from ...db import RekordboxUsbLibrary
 
         s = self.settings
-        common = dict(backup_keep=s.backup_keep, analyze=False, artwork=True,
+        common = dict(backup_keep=s.backup_keep, analyze=False, artwork=True, read_only=read_only,
                       ffmpeg_location=s.ffmpeg_location or None, key_notation=s.key_notation)
         if isinstance(target, LocalRekordbox):
             lib: Any = LocalRekordboxLibrary(target, **common).connect()
@@ -47,6 +60,187 @@ class ToolsMixin:
                                       pdb_allow_growth=s.pdb_allow_growth, **common).connect()
         lib.auto_cue = s.auto_cue
         return lib
+
+    # ------------------------------------------------- 1.4.2 (C23) : transférer des playlists en lot
+    def transfer_ends(self) -> List["TransferEnd"]:
+        """Bibliothèques entre lesquelles transférer : l'ordinateur, puis chaque clé préparée."""
+        out: List[TransferEnd] = []
+        active = str(self.drive.db_path) if self.drive is not None and self.library is not None else ""
+        if self.local is not None:
+            out.append(TransferEnd("local", t("local.name"), self.local, True, str(self.local.db_path) == active))
+        for d in self.drives:
+            out.append(TransferEnd(str(d.root), d.label or str(d.root), d, False, str(d.db_path) == active))
+        if self.drive is not None and self.library is not None and not any(e.active for e in out):
+            d = self.drive                                    # bibliothèque ouverte à la main (lecteur forcé)
+            local = bool(getattr(d, "is_local", False))
+            out.append(TransferEnd("local" if local else str(d.root), t("local.name") if local
+                                   else (d.label or str(d.root)), d, local, True))
+        return out
+
+    def _transfer_libs(self, ends: Sequence["TransferEnd"], read_only: bool) -> Tuple[dict, List[Any]]:
+        """{clé: bibliothèque ouverte} : la bibliothèque active est reprise telle quelle, les autres sont
+        ouvertes le temps du travail (à refermer : seconde valeur)."""
+        libs: dict = {}
+        opened: List[Any] = []
+        try:
+            for end in ends:
+                if end.key in libs:
+                    continue
+                active = self.library is not None and self.drive is not None \
+                    and str(self.drive.db_path) == str(end.target.db_path)
+                if active:
+                    libs[end.key] = self.library
+                else:
+                    libs[end.key] = self._open_target(end.target, read_only=read_only)
+                    opened.append(libs[end.key])
+        except BaseException:
+            for lib in opened:
+                lib.close()
+            raise
+        return libs, opened
+
+    def transfer_playlists(self, end: "TransferEnd", ok: Callable[[Any], None],
+                           err: Optional[Callable[[BaseException], None]] = None) -> None:
+        """Arbre des playlists d'une bibliothèque (lecture seule)."""
+        def work() -> Any:
+            libs, opened = self._transfer_libs([end], read_only=True)
+            try:
+                return libs[end.key].list_playlists()
+            finally:
+                for lib in opened:
+                    lib.close()
+
+        self.dispatcher.submit(work, ok, err or self._on_error, pool="tools")
+
+    def transfer_compare(self, jobs: Sequence[Tuple["TransferEnd", "TransferEnd", Sequence[int]]],
+                         ok: Callable[[List[Any]], None], err: Optional[Callable[[BaseException], None]] = None,
+                         progress: Optional[Callable[[int, int, str], None]] = None) -> None:
+        """« Comparer » : une comparaison par sens, toutes calculées avant toute écriture. Ne fait que lire."""
+        jobs = [(a, b, list(ids)) for a, b, ids in jobs]
+        last = [0.0]
+
+        def report(i: int, total: int, name: str) -> None:
+            now = time.monotonic()
+            if progress and (now - last[0] > 0.2 or i == total):
+                last[0] = now
+                self.dispatcher.post(progress, i, total, name)
+
+        def work() -> List[Any]:
+            from ...db import transfer
+
+            libs, opened = self._transfer_libs([e for a, b, _ids in jobs for e in (a, b)], read_only=True)
+            try:
+                return [transfer.compare(libs[a.key], libs[b.key], ids, a.name, report) for a, b, ids in jobs]
+            finally:
+                for lib in opened:
+                    lib.close()
+
+        self.dispatcher.submit(work, ok, err or self._on_error, pool="tools")
+
+    def transfer_apply(self, jobs: Sequence[Tuple["TransferEnd", "TransferEnd", Any]],
+                       ok: Callable[[List[Any]], None], err: Optional[Callable[[BaseException], None]] = None,
+                       progress: Optional[Callable[[int, int, str], None]] = None) -> bool:
+        """« Appliquer » : un transfert à sens unique par comparaison, l'un après l'autre. Point de restauration
+        de chaque clé touchée et sauvegarde de master.db avant (db/transfer.apply). False si un outil tourne."""
+        if self._tool_busy:
+            return False
+        self._tool_busy = True
+        self._transfer_stop = False
+        jobs = list(jobs)
+        totals = [sum(len(line.src_track_ids) for line in comp.lines if line.will_write) for _a, _b, comp in jobs]
+        grand = sum(totals)
+        task = self.tasks.start("transfer", "task.transfer", icon="copy", open="transfer", total=grand,
+                                can_stop=True, stop=self.transfer_stop)
+        last = [0.0]
+
+        def work() -> List[Any]:
+            from ...db import transfer
+
+            results: List[Any] = []
+            libs, opened = self._transfer_libs([e for a, b, _c in jobs for e in (a, b)], read_only=False)
+            try:
+                base = 0
+                for (a, b, comp), total in zip(jobs, totals):
+                    def report(i: int, _n: int, title: str, base: int = base) -> None:
+                        now = time.monotonic()
+                        if now - last[0] > 0.3 or base + i == grand:
+                            last[0] = now
+                            task.progress(base + i, grand, title)
+                            if progress:
+                                self.dispatcher.post(progress, base + i, grand, title)
+
+                    if self._transfer_stop:
+                        break
+                    results.append(transfer.apply(libs[a.key], libs[b.key], comp, report,
+                                                  lambda: self._transfer_stop,
+                                                  backup_label=t("transfer.backup_label", origin=a.name)))
+                    base += total
+                    if results[-1].stopped:
+                        break
+            finally:
+                for lib in opened:
+                    lib.close()
+            return results
+
+        def done(results: List[Any]) -> None:
+            self._tool_busy = False
+            task.finish()
+            for res in results:
+                if res.problems:
+                    log.warning("Transfer problems: %s", "; ".join(res.problems))
+            self._emit("library")
+            self.refresh_drives()
+            ok(results)
+
+        def fail(exc: BaseException) -> None:
+            self._tool_busy = False
+            task.fail(str(exc))
+            self._emit("library")
+            (err or self._on_error)(exc)
+
+        self.dispatcher.submit(work, done, fail, pool="tools")
+        return True
+
+    def transfer_stop(self) -> None:
+        """Arrêt demandé : pris en compte entre deux playlists (ce qui est fait reste cohérent)."""
+        self._transfer_stop = True
+        self.tasks.mark_stopping("transfer")
+
+    # ------------------------------------------------- 1.4.2 (C24) : préparer une clé vierge
+    def prepare_blank_drive(self, root: Any, ok: Optional[Callable[[Any], None]] = None,
+                            err: Optional[Callable[[BaseException], None]] = None) -> None:
+        """Pose le gabarit de clé vide (db/blank_key.py) sur une clé listée comme « vierge » par la détection,
+        puis ouvre la clé. Tous les refus (PIONEER présent, disque système, système de fichiers) sont refaits
+        ici, au moment d'écrire."""
+        from ...db import blank_key, usb
+
+        root = Path(str(root))
+
+        def work() -> Any:
+            listed = next((u for u in usb.find_unprepared_drives()
+                           if _same_root(u.drive.root, root) and u.kind == "blank"), None)
+            if listed is None:
+                raise blank_key.PrepareError("not_listed", str(root))
+            return blank_key.prepare_drive(listed.drive.root, listed.filesystem or None)
+
+        def done(drive: Any) -> None:
+            self.message("ok", t("prepare.done", name=drive.label or str(drive.root)))
+            self.refresh_drives(then=lambda: self.connect(drive))
+            if ok:
+                ok(drive)
+
+        def failed(exc: BaseException) -> None:
+            if isinstance(exc, blank_key.PrepareError):
+                log.warning("Drive not prepared: %s", exc)
+                self.message("error", prepare_error_text(exc))
+                self.refresh_drives()
+            else:
+                self._on_error(exc)
+            if err:
+                err(exc)
+
+        self.message("info", t("prepare.running", name=str(root)))
+        self.dispatcher.submit(work, done, failed, pool="db")
 
     def copy_playlist(self, playlist_id: int, target: Any, ok: Optional[Callable[[Any], None]] = None) -> None:
         src = self.library
@@ -136,3 +330,17 @@ class ToolsMixin:
 
         self.message("info", t("meta.start", n=len(ids)))
         self.dispatcher.submit(work, done, fail, pool="tools")
+
+
+def _same_root(a: Any, b: Any) -> bool:
+    import os
+
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
+
+
+def prepare_error_text(exc: Any) -> str:
+    """Message pour l'utilisateur d'un refus ou d'un échec de « Préparer cette clé » (C24)."""
+    reason = getattr(exc, "reason", "")
+    key = f"prepare.err_{reason}"
+    text = t(key, fs=getattr(exc, "detail", ""), detail=getattr(exc, "detail", ""))
+    return text if text != key else str(exc)

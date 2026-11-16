@@ -570,6 +570,20 @@ class LocalRekordboxLibrary:
                     self._batch_backed_up = False
 
     @contextmanager
+    def long_batch(self) -> Iterator[None]:
+        """1.4.2 (C23) : comme batch() (une seule sauvegarde de master.db), sans garder le verrou entre deux
+        écritures : pendant un long transfert, les lectures de l'interface passent."""
+        with self._lock:
+            self._batch_depth += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._batch_depth -= 1
+                if self._batch_depth == 0:
+                    self._batch_backed_up = False
+
+    @contextmanager
     def _write(self) -> Iterator[Any]:
         with self._lock:
             self._ensure_fresh()
@@ -1686,6 +1700,45 @@ class LocalRekordboxLibrary:
                 out.setdefault(int(cid), []).append(self._pid(pid))
             except (TypeError, ValueError):
                 continue
+        return out
+
+    def track_extras(self, content_ids: Sequence[int]) -> Dict[int, Dict[str, Any]]:
+        """1.4.2 (C113) : My Tags (djmdMyTag / djmdSongMyTag) et dernière lecture (djmdHistory / djmdSongHistory)."""
+        from .library.common import history_date
+
+        ids = [int(i) for i in content_ids]
+        out: Dict[int, Dict[str, Any]] = {i: {"mytags": [], "last_played": ""} for i in ids}
+        for k in range(0, len(ids), 800):
+            part = ids[k:k + 800]
+            params = {f"c{n}": str(i) for n, i in enumerate(part)}
+            inside = ",".join(f":c{n}" for n in range(len(part)))
+            try:
+                rows = self._read("SELECT s.ContentID, m.Name FROM djmdSongMyTag s JOIN djmdMyTag m ON m.ID = s.MyTagID "
+                                  "WHERE COALESCE(s.rb_local_deleted,0) = 0 AND COALESCE(m.rb_local_deleted,0) = 0 "
+                                  f"AND s.ContentID IN ({inside}) ORDER BY m.Seq, m.ID", params)
+            except Exception:  # noqa: BLE001 - tables absentes (ancienne version de Rekordbox)
+                rows = []
+            for cid, name in rows:
+                try:
+                    d = out.setdefault(int(cid), {"mytags": [], "last_played": ""})
+                except (TypeError, ValueError):
+                    continue
+                if name and name not in d["mytags"]:
+                    d["mytags"].append(str(name))
+            try:
+                rows = self._read("SELECT s.ContentID, h.DateCreated, h.Name FROM djmdSongHistory s JOIN djmdHistory h "
+                                  "ON h.ID = s.HistoryID WHERE COALESCE(s.rb_local_deleted,0) = 0 "
+                                  f"AND s.ContentID IN ({inside})", params)
+            except Exception:  # noqa: BLE001
+                rows = []
+            for cid, created, name in rows:
+                day = history_date(created) or history_date(name)
+                try:
+                    d = out.setdefault(int(cid), {"mytags": [], "last_played": ""})
+                except (TypeError, ValueError):
+                    continue
+                if day and day > d["last_played"]:
+                    d["last_played"] = day
         return out
 
     def merge_duplicates(self, keep_id: int, remove_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:

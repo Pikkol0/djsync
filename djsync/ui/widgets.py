@@ -8,7 +8,9 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QSize, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+)
 
 from . import theme
 from .icons import qicon
@@ -349,6 +351,21 @@ class FitBar(QWidget):
         super().resizeEvent(e)
         self.fit()
 
+    def showEvent(self, e: Any) -> None:         # noqa: N802
+        """1.4.2 (A2-3) : fenêtre redimensionnée pendant que la page était cachée : la barre reçoit sa
+        nouvelle largeur avant d'être visible (palier remis à 0) et rien ne refaisait le calcul ensuite
+        (boutons qui se chevauchaient à 860 px)."""
+        super().showEvent(e)
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._refit_shown)
+
+    def _refit_shown(self) -> None:
+        try:
+            self.fit()
+        except RuntimeError:                    # barre détruite entre-temps
+            pass
+
     def event(self, e: Any) -> bool:
         """Zoom, police ou texte d'un bouton changés : le palier est recalculé (une fois, juste après).
         1.4.0-rc.6 (B85) : sans changement de mesure ni de largeur, ce calcul ne touche à rien (pas de boucle)."""
@@ -371,3 +388,288 @@ class FitBar(QWidget):
 
     def sizeHint(self) -> QSize:                 # noqa: N802
         return QSize(0, max((w.sizeHint().height() for w, *_r in self._items), default=0))
+
+
+class FlowLayout(QLayout):
+    """1.4.2 (C149) : éléments en ligne, qui passent à la ligne suivante quand la largeur manque (pastilles)."""
+
+    def __init__(self, parent: Any = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._space = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item: Any) -> None:  # noqa: N802 (API Qt)
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i: int) -> Any:  # noqa: N802
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i: int) -> Any:  # noqa: N802
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self) -> Any:  # noqa: N802
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._place(0, 0, width, apply=False)
+
+    def setGeometry(self, rect: Any) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._place(rect.x(), rect.y(), rect.width(), apply=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802
+        size = QSize()
+        for item in self._items:
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, x0: int, y0: int, width: int, apply: bool) -> int:
+        from PySide6.QtCore import QPoint, QRect
+
+        x, y, line = x0, y0, 0
+        for item in self._items:
+            if item.isEmpty():                  # 1.4.2 (A2-1) : élément masqué, sans place ni espacement
+                continue
+            hint = item.sizeHint()
+            if x > x0 and x + hint.width() > x0 + width:
+                x, y, line = x0, y + line + self._space, 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._space
+            line = max(line, hint.height())
+        return y + line - y0
+
+
+class WrapCheckBox(QCheckBox):
+    """1.4.2 (A2-1) : case à cocher dont le texte passe à la ligne quand la largeur manque (une QCheckBox
+    garde son texte sur une ligne et imposait sa largeur à toute la page des Paramètres). Même API que
+    QCheckBox (text, isChecked, toggled…)."""
+
+    MIN_TEXT = 140          # px à 100 % : largeur minimale réservée au texte
+
+    def __init__(self, text: str = "", parent: Any = None) -> None:
+        super().__init__(text, parent)
+        from PySide6.QtWidgets import QSizePolicy
+
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+
+    def _opt(self, width: int = 0) -> Any:
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QStyleOptionButton
+
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        if width:
+            opt.rect = QRect(0, 0, width, max(self.height(), 1))
+        return opt
+
+    def _text_rect(self, width: int) -> Any:
+        from PySide6.QtWidgets import QStyle
+
+        return self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(width), self)
+
+    def _indicator_width(self) -> int:
+        return max(0, super().sizeHint().width() - self.fontMetrics().horizontalAdvance(self.text()))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        base = super().minimumSizeHint()
+        return QSize(self._indicator_width() + theme.px(self.MIN_TEXT), base.height())
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        from PySide6.QtCore import QRect
+
+        rect = self._text_rect(width)
+        tw = max(1, rect.width())
+        text_h = self.fontMetrics().boundingRect(QRect(0, 0, tw, 100000), Qt.TextWordWrap, self.text()).height()
+        return max(super().sizeHint().height(), text_h + 2)
+
+    def paintEvent(self, _e: Any) -> None:  # noqa: N802
+        from PySide6.QtGui import QPalette
+        from PySide6.QtWidgets import QStyle, QStylePainter
+
+        p = QStylePainter(self)
+        opt = self._opt()
+        text = opt.text
+        opt.text = ""
+        p.drawControl(QStyle.CE_CheckBox, opt)
+        rect = self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(), self)
+        role = QPalette.WindowText
+        p.drawItemText(rect, int(Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap), self.palette(),
+                       self.isEnabled(), text, role)
+
+    def hitButton(self, pos: Any) -> bool:  # noqa: N802
+        return self.rect().contains(pos)
+
+
+def flow_row(*widgets: Any, spacing: int = 6) -> "FlowLayout":
+    """1.4.2 (A2-1) : rangée de contrôles qui passe à la ligne quand la carte est trop étroite."""
+    lay = FlowLayout(spacing=theme.px(spacing))
+    for w in widgets:
+        lay.addWidget(w)
+    return lay
+
+
+class ShrinkCombo(QComboBox):
+    """1.4.2 (A2-1) : liste déroulante qui garde sa largeur naturelle quand la place le permet, mais peut
+    rétrécir (texte choisi raccourci par Qt) au lieu d'imposer la largeur de son plus long choix à la page."""
+
+    MIN = 120               # px à 100 %
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(min(super().minimumSizeHint().width(), theme.px(self.MIN)), super().minimumSizeHint().height())
+
+
+class SideBar(QWidget):
+    """1.4.2 (A2-4) : barre d'actions « à gauche … à droite » qui passe sur deux lignes (gauche au-dessus,
+    droite en dessous, alignée à droite) quand la largeur manque, au lieu de couper les textes des boutons."""
+
+    def __init__(self, parent: Any = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.left, self.right = QWidget(), QWidget()
+        self.left_lay = hbox(self.left, spacing=theme.px(spacing))
+        self.right_lay = hbox(self.right, spacing=theme.px(spacing))
+        lay = vbox(self, spacing=theme.px(4))
+        self._top, self._bottom = hbox(spacing=0), hbox(spacing=0)
+        lay.addLayout(self._top)
+        lay.addLayout(self._bottom)
+        self._top.addWidget(self.left)
+        self._top.addStretch(1)
+        self._top.addWidget(self.right)
+        self._bottom.addStretch(1)
+        self.two_lines = False
+        lay.setSizeConstraint(QLayout.SetNoConstraint)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+    def add_left(self, w: QWidget) -> QWidget:
+        self.left_lay.addWidget(w)
+        return w
+
+    def add_right(self, w: QWidget) -> QWidget:
+        self.right_lay.addWidget(w)
+        return w
+
+    def _need(self) -> int:
+        return self.left.sizeHint().width() + self.right.sizeHint().width() + theme.px(16)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(max(self.left.sizeHint().width(), self.right.sizeHint().width()), super().minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        h = self.left.sizeHint().height()
+        if self.two_lines:
+            h += self.right.sizeHint().height() + theme.px(4)
+        return QSize(self._need(), max(h, self.right.sizeHint().height()))
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        self._arrange()
+
+    def showEvent(self, e: Any) -> None:  # noqa: N802
+        super().showEvent(e)
+        self._arrange()
+
+    def _arrange(self) -> None:
+        two = self.width() < self._need()
+        if two == self.two_lines:
+            return
+        self.two_lines = two
+        (self._top if two else self._bottom).removeWidget(self.right)
+        if two:
+            self._bottom.addWidget(self.right)
+        else:
+            self._top.addWidget(self.right)
+        self.updateGeometry()
+
+
+class ColumnsBox(QWidget):
+    """1.4.2 (A2-17) : rangée de tuiles de même largeur qui passe sur 2 colonnes (puis 1) quand la largeur
+    manque, au lieu de couper les textes ou de déborder (Accueil à 860 × 560)."""
+
+    def __init__(self, parent: Any = None, spacing: int = 8) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QGridLayout
+
+        self._items: list = []
+        self._cols = 0
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(theme.px(spacing))
+
+    def add(self, w: QWidget) -> QWidget:
+        self._items.append(w)
+        self._cols = 0
+        self._arrange(self.width() or 10000)
+        return w
+
+    def _need(self, cols: int) -> int:
+        """Largeur de la ligne la plus large avec `cols` colonnes (la grille ne descend pas sous le minimum)."""
+        hints = [w.sizeHint().width() for w in self._items]
+        rows = [hints[i:i + cols] for i in range(0, len(hints), cols)]
+        return max((sum(r) + self.grid.spacing() * (len(r) - 1) for r in rows), default=0)
+
+    def _arrange(self, width: int) -> None:
+        n = len(self._items) or 1
+        cols = n
+        while cols > 1 and self._need(cols) > width:
+            cols = max(1, cols // 2) if cols > 2 else 1
+        if cols == self._cols:
+            return
+        self._cols = cols
+        for w in self._items:
+            self.grid.removeWidget(w)
+        for i, w in enumerate(self._items):
+            self.grid.addWidget(w, i // cols, i % cols)
+        for c in range(n):
+            self.grid.setColumnStretch(c, 1 if c < cols else 0)
+        self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        widest = max((w.minimumSizeHint().width() for w in self._items), default=0)
+        return QSize(widest, super().minimumSizeHint().height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        self._arrange(self.width())
+
+
+class ShrinkLabel(QLabel):
+    """1.4.2 (A2-1) : libellé sur une ligne quand la place le permet, à la ligne sinon (titre de carte) :
+    largeur naturelle = son texte, largeur minimale réduite, hauteur selon la largeur."""
+
+    MIN = 120
+
+    def __init__(self, text: str, role: str = "") -> None:
+        super().__init__(text)
+        from PySide6.QtWidgets import QSizePolicy
+
+        if role:
+            self.setProperty("role", role)
+        self.setWordWrap(True)
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        one = self.fontMetrics().horizontalAdvance(self.text()) + 2 * self.margin() + 4
+        return QSize(one, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(min(theme.px(self.MIN), self.sizeHint().width()), super().minimumSizeHint().height())

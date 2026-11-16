@@ -323,7 +323,7 @@ def test_ui_fixes(env):
         ctrl = app.ctrl
         assert pump(app, 6, lambda: ctrl.has_library)
         # B06 : traductions
-        assert t("tab.import") == "Importer un lien"
+        assert t("tab.import") == "Lien ou playlist"           # 1.4.2 (A2-7)
         assert app.usb_label.text() == "Cet ordinateur"
         # B09 : la barre latérale se déplie et se replie à la demande, choix retenu
         before = bool(app._compact)

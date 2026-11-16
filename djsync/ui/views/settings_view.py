@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -18,13 +18,15 @@ from PySide6.QtWidgets import (
 )
 
 from ...db import UsbDrive
-from ...i18n import LANGUAGES, t
+from ...i18n import LANGUAGES, num, t
 from ...settings import ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
 from ..palettes import PALETTES
 from ..icons import qicon
-from ..widgets import button, hbox, icon_button, icon_label, label, line_edit, panel, vbox
+from ..widgets import (
+    ShrinkCombo, ShrinkLabel, WrapCheckBox, button, flow_row, hbox, icon_button, icon_label, label, line_edit, panel, vbox,
+)
 from .common import View
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
@@ -48,7 +50,7 @@ QUALITY_KBPS = {"original": 128, "yt_best": 256, "mp3_320": 320, "mp3_256": 256,
 def quality_label(q: str) -> str:
     """« M4A · AAC ≈ 128 kbps, sans conversion  —  ≈ 1 Mo/min » : vrai format, puis taille par minute."""
     mb = QUALITY_KBPS.get(q, 128) * 60 / 8 / 1000
-    return t(f"settings.quality_{q}") + "  —  " + t("settings.quality_per_min", mb=f"{mb:.1f}")
+    return t(f"settings.quality_{q}") + "  —  " + t("settings.quality_per_min", mb=num(mb, ".1f"))
 
 
 def quality_grid(rows_text: str) -> QWidget:
@@ -74,6 +76,31 @@ def quality_grid(rows_text: str) -> QWidget:
             box.cells.append(lab)                    # type: ignore[attr-defined]
     box.setFixedHeight(box.sizeHint().height())
     return box
+
+
+class _RowLabel(QLabel):
+    """1.4.2 (A2-1) : libellé de début de ligne des Paramètres : colonne de 170 px, qui peut descendre à
+    100 px (texte à la ligne) quand la page est étroite, au lieu d'imposer sa largeur à la page."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.setWordWrap(True)
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+        self.setMaximumWidth(theme.px(170))
+
+    def sizeHint(self) -> Any:  # noqa: N802
+        from PySide6.QtCore import QSize
+
+        return QSize(theme.px(170), super().sizeHint().height())
+
+    def minimumSizeHint(self) -> Any:  # noqa: N802
+        from PySide6.QtCore import QSize
+
+        return QSize(theme.px(100), super().minimumSizeHint().height())
 
 
 class SettingsView(View):
@@ -125,7 +152,7 @@ class SettingsView(View):
         self.search.setMaximumWidth(theme.px(320))
         self.search.textChanged.connect(lambda _t: self._apply_filter())
         top.addWidget(self.search)
-        self.section_menu = QComboBox()          # fenêtre étroite : le volet devient une liste déroulante
+        self.section_menu = ShrinkCombo()          # fenêtre étroite : le volet devient une liste déroulante
         for key, icon in SECTIONS:
             self.section_menu.addItem(qicon(icon, 16, theme.ACCENT), t(f"settings.section_{key}"), key)
         self.section_menu.currentIndexChanged.connect(
@@ -169,7 +196,7 @@ class SettingsView(View):
         card = self._card(t("settings.appearance"), "settings")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.language"))))
-        self.lang_menu = QComboBox()
+        self.lang_menu = ShrinkCombo()
         self.lang_menu.addItems(list(LANGUAGES.values()))
         self.lang_menu.setCurrentText(LANGUAGES.get(s.language, "English"))
         self.lang_menu.currentTextChanged.connect(self._language_changed)
@@ -189,12 +216,16 @@ class SettingsView(View):
         self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.theme_btn.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.theme_btn)
-        for name, accent in PALETTES.items():
-            act = menu.addAction(logo_pixmap(theme.px(18), accent), t(f"theme.{name}"))
-            act.setCheckable(True)
-            act.setChecked(name == theme.CURRENT_THEME)
-            act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
-            self._swatches[name] = act
+        from ..palettes import FAMILIES
+
+        for family, names in FAMILIES.items():                      # 1.4.2 (C144) : par famille
+            menu.addSection(t(f"theme.family_{family}"))
+            for name in names:
+                act = menu.addAction(logo_pixmap(theme.px(18), PALETTES[name]), t(f"theme.{name}"))
+                act.setCheckable(True)
+                act.setChecked(name == theme.CURRENT_THEME)
+                act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
+                self._swatches[name] = act
         self.theme_btn.setMenu(menu)
         row.addWidget(self.theme_btn)
         row.addStretch(1)
@@ -221,7 +252,7 @@ class SettingsView(View):
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
         self._sidebar_labels = {m: t(f"settings.sidebar_{m}") for m in SIDEBAR_MODES}
-        self.sidebar_menu = QComboBox()
+        self.sidebar_menu = ShrinkCombo()
         self.sidebar_menu.addItems(list(self._sidebar_labels.values()))
         self.sidebar_menu.setCurrentText(self._sidebar_labels.get(s.sidebar_compact, self._sidebar_labels["auto"]))
         self.sidebar_menu.currentTextChanged.connect(self._sidebar_changed)
@@ -235,35 +266,31 @@ class SettingsView(View):
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.light"))))
         self._light_labels = {m: t(f"settings.light_{m}") for m in MODES}
-        self.light_menu = QComboBox()
+        self.light_menu = ShrinkCombo()
         self.light_menu.addItems(list(self._light_labels.values()))
         self.light_menu.setCurrentText(self._light_labels.get(s.light_mode, self._light_labels["auto"]))
         self.light_menu.setToolTip(t("settings.light_tip"))
         row.addWidget(self.light_menu)
         info = machine_info()
         self.light_state = label(t("settings.light_state_on" if light_active(s, info) else "settings.light_state_off",
-                                   machine=info.describe()), "dim")
-        row.addWidget(self.light_state)
-        row.addStretch(1)
+                                   machine=info.describe_ui()), "dim", wrap=True)
+        row.addWidget(self.light_state, 1)
         card.addLayout(row)
 
         # ---- clé USB
         self._section = "libraries"
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"), key="drive")
-        row = hbox()
-        self.drive_menu = QComboBox()
-        self.drive_menu.setMinimumWidth(theme.px(280))
-        row.addWidget(self.drive_menu)
-        row.addWidget(icon_button("refresh", self.ctrl.refresh_drives, t("action.refresh")))
+        # 1.4.2 (A2-1) : la liste et les boutons passent à la ligne quand la page est étroite
+        self.drive_menu = ShrinkCombo()
+        self.drive_menu.setMinimumWidth(theme.px(200))
         self.connect_btn = button(t("action.connect"), self._connect, kind="primary", icon="usb")
-        row.addWidget(self.connect_btn)
-        row.addWidget(button(t("action.disconnect"), lambda: self.ctrl.disconnect(True), icon="close"))
         self.eject_btn = button(t("action.eject"), self.ctrl.eject, icon="eject")
         self.eject_btn.setToolTip(t("eject.hint"))
-        row.addWidget(self.eject_btn)
-        row.addStretch(1)
-        card.addLayout(row)
-        self.drive_state = label("", "dim")
+        card.addLayout(flow_row(self.drive_menu, icon_button("refresh", self.ctrl.refresh_drives, t("action.refresh")),
+                                self.connect_btn,
+                                button(t("action.disconnect"), lambda: self.ctrl.disconnect(True), icon="close"),
+                                self.eject_btn))
+        self.drive_state = label("", "dim", wrap=True)
         card.addWidget(self.drive_state)
 
         # ---- dossier de destination
@@ -312,24 +339,24 @@ class SettingsView(View):
         row.addWidget(self.ffmpeg, 1)
         row.addWidget(button(t("action.browse"), self._browse_ffmpeg, icon="folder"))
         card.addLayout(row)
-        self.ffmpeg_state = label("", "dim")
+        self.ffmpeg_state = label("", "dim", wrap=True)     # 1.4.2 (A2-1) : long chemin (Windows) à la ligne
         card.addWidget(self.ffmpeg_state)
 
         # ---- analyse
         self._section = "analysis"
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
-        self.analyze_usb_var = QCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
+        self.analyze_usb_var = WrapCheckBox(t("settings.analyze_after_usb"))       # 1.3.0-rc.3 (C32)
         self.analyze_usb_var.setChecked(s.analyze_after_download_usb)
         card.addWidget(self.analyze_usb_var)
-        self.analyze_local_var = QCheckBox(t("settings.analyze_after_local"))
+        self.analyze_local_var = WrapCheckBox(t("settings.analyze_after_local"))
         self.analyze_local_var.setChecked(s.analyze_after_download_local)
         card.addWidget(self.analyze_local_var)
-        self.cue_var = QCheckBox(t("settings.auto_cue"))
+        self.cue_var = WrapCheckBox(t("settings.auto_cue"))
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
         card.addWidget(self.cue_var)
-        card.addWidget(label(t("settings.reanalyse_rekordbox")))                  # 1.4.1 (C131, D20)
-        row = hbox()
+        card.addWidget(label(t("settings.reanalyse_rekordbox"), wrap=True))       # 1.4.1 (C131, D20)
+        row = flow_row(spacing=12)                                                  # 1.4.2 (A2-1)
         self.reanalyse_vars = {}
         for part in ("grid", "key", "waves"):
             box = QCheckBox(t(f"reanalyse.part_{part}"))
@@ -337,12 +364,11 @@ class SettingsView(View):
             box.setToolTip(t(f"reanalyse.hint_{part}"))
             row.addWidget(box)
             self.reanalyse_vars[part] = box
-        row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("settings.reanalyse_rekordbox_hint"), "faint", wrap=True))
         row = hbox()                                                                # 1.4.1 (C77)
         row.addWidget(self._fixed(label(t("settings.waveform_style"))))
-        self.wave_style = QComboBox()
+        self.wave_style = ShrinkCombo()
         for key in ("blue", "rgb", "3band"):
             self.wave_style.addItem(t(f"settings.waveform_{key}"), key)
         self.wave_style.setCurrentIndex(max(0, self.wave_style.findData(s.waveform_style)))
@@ -353,12 +379,16 @@ class SettingsView(View):
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.key_notation"))))
         self._notation_labels = {k: t(f"settings.notation_{k}") for k in KEY_NOTATIONS}
-        self.notation = QComboBox()
+        self.notation = ShrinkCombo()
         self.notation.addItems(list(self._notation_labels.values()))
         self.notation.setCurrentText(self._notation_labels.get(s.key_notation, self._notation_labels["auto"]))
         row.addWidget(self.notation)
         row.addStretch(1)
         card.addLayout(row)
+        self.diag_auto_var = WrapCheckBox(t("settings.diag_auto"))                   # 1.4.2 (B103)
+        self.diag_auto_var.setChecked(bool(getattr(s, "diag_auto", False)))
+        self.diag_auto_var.setToolTip(t("settings.diag_auto_tip"))
+        card.addWidget(self.diag_auto_var)
         row = hbox()
         row.addWidget(button(t("settings.analyse_now"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
         row.addStretch(1)
@@ -369,18 +399,15 @@ class SettingsView(View):
         self._section = "libraries"
         card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"), key="pdb")
         self.pdb_card = self._cards[-1][1]
-        row = hbox()
-        row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
         self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary", icon="refresh")
-        row.addWidget(self.pdb_sync_btn)
-        row.addStretch(1)
-        card.addLayout(row)
+        card.addLayout(flow_row(button(t("settings.check"), self._pdb_refresh, icon="check"),
+                                self.pdb_sync_btn))                     # 1.4.2 (A2-1) : à la ligne si étroit
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
         row = hbox()                                          # 1.4.0 (C26 sens C)
         row.addWidget(self._fixed(label(t("players.settings_flac"))))
         self._player_formats = {"": t("players.keep"), "wav": t("players.wav"), "aiff": t("players.aiff")}
-        self.player_format = QComboBox()
+        self.player_format = ShrinkCombo()
         self.player_format.addItems(list(self._player_formats.values()))
         self.player_format.setCurrentText(self._player_formats.get(s.player_format, self._player_formats[""]))
         self.player_format.setToolTip(t("players.settings_tip"))
@@ -389,10 +416,10 @@ class SettingsView(View):
         card.addLayout(row)
         self._section = "advanced"
         card = self._card(t("settings.pdb_options"), "library", t("settings.pdb_hint"))
-        self.pdb_var = QCheckBox(t("settings.pdb_sync"))
+        self.pdb_var = WrapCheckBox(t("settings.pdb_sync"))
         self.pdb_var.setChecked(s.pdb_sync == "auto")
         card.addWidget(self.pdb_var)
-        self.pdb_growth_var = QCheckBox(t("settings.pdb_growth"))
+        self.pdb_growth_var = WrapCheckBox(t("settings.pdb_growth"))
         self.pdb_growth_var.setChecked(s.pdb_allow_growth)
         card.addWidget(self.pdb_growth_var)
 
@@ -401,9 +428,9 @@ class SettingsView(View):
         # Recherche, Format et qualité, YouTube
         self._section = "download"
         card = self._card(t("settings.search_card"), "search", key="search")
-        self.views_var = QCheckBox(t("settings.fetch_views"))
+        self.views_var = WrapCheckBox(t("settings.fetch_views"))
         self.views_var.setChecked(s.fetch_views)
-        self.meta_var = QCheckBox(t("settings.fetch_metadata"))
+        self.meta_var = WrapCheckBox(t("settings.fetch_metadata"))
         self.meta_var.setChecked(s.fetch_metadata)
         card.addWidget(self.views_var)
         card.addWidget(self.meta_var)
@@ -415,13 +442,12 @@ class SettingsView(View):
         from ...settings import DOWNLOAD_QUALITIES
 
         self._format_labels = {q: quality_label(q) for q in DOWNLOAD_QUALITIES}
-        self.format_menu = QComboBox()
+        self.format_menu = ShrinkCombo()
         for i, q in enumerate(DOWNLOAD_QUALITIES):
             self.format_menu.addItem(self._format_labels[q], q)
             self.format_menu.setItemData(i, t(f"settings.quality_{q}_tip"), Qt.ToolTipRole)
         self.format_menu.setCurrentText(self._format_labels.get(s.download_quality, self._format_labels["original"]))
-        row.addWidget(self.format_menu)
-        row.addStretch(1)
+        row.addWidget(self.format_menu, 1)               # 1.4.2 (A2-1) : toute la largeur libre, texte entier
         card.addLayout(row)
         # 1.4.0-rc.2 (C137) : convertir en MP3 ne rend pas la qualité perdue ; on le dit au moment du choix
         self.format_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
@@ -461,7 +487,7 @@ class SettingsView(View):
 
         self._yt_browsers = {"": t("yt.settings_no_account")}
         self._yt_browsers.update({b: t("sc.settings_browser", name=b.capitalize()) for b in _YT_BROWSERS})
-        self.yt_browser = QComboBox()
+        self.yt_browser = ShrinkCombo()
         self.yt_browser.addItems(list(self._yt_browsers.values()))
         self.yt_browser.setCurrentText(self._yt_browsers.get(s.youtube_browser, self._yt_browsers[""]))
         self.yt_browser.setToolTip(t("yt.settings_account_tip"))
@@ -471,7 +497,7 @@ class SettingsView(View):
 
         # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
         card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"), key="soundcloud")
-        self.sc_original_var = QCheckBox(t("sc.settings_original"))
+        self.sc_original_var = WrapCheckBox(t("sc.settings_original"))
         self.sc_original_var.setChecked(s.soundcloud_original)
         self.sc_original_var.setToolTip(t("sc.settings_original_tip"))
         card.addWidget(self.sc_original_var)
@@ -484,7 +510,7 @@ class SettingsView(View):
         self._sc_browsers.update({b: t("sc.settings_browser_unreliable" if sys.platform == "win32"
                                        and b in ("chrome", "edge", "brave", "opera", "vivaldi", "chromium")
                                        else "sc.settings_browser", name=b.capitalize()) for b in BROWSERS})
-        self.sc_browser = QComboBox()
+        self.sc_browser = ShrinkCombo()
         self.sc_browser.addItems(list(self._sc_browsers.values()))
         self.sc_browser.setCurrentText(self._sc_browsers.get(s.soundcloud_browser, self._sc_browsers[""]))
         self.sc_browser.setToolTip(t("sc.settings_browser_tip"))
@@ -504,7 +530,7 @@ class SettingsView(View):
 
         # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
         card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"), key="soulseek")
-        self.slsk_var = QCheckBox(t("slsk.settings_enable"))
+        self.slsk_var = WrapCheckBox(t("slsk.settings_enable"))
         self.slsk_var.setChecked(s.soulseek_enabled)
         self.slsk_var.toggled.connect(self._slsk_toggled)
         card.addWidget(self.slsk_var)
@@ -525,7 +551,7 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
         card.addWidget(label(t("slsk.settings_account_hint"), "faint", wrap=True))
-        self.slsk_share_var = QCheckBox(t("slsk.settings_share"))
+        self.slsk_share_var = WrapCheckBox(t("slsk.settings_share"))
         self.slsk_share_var.setChecked(s.soulseek_share)
         self.slsk_share_var.setToolTip(t("slsk.settings_share_tip"))
         card.addWidget(self.slsk_share_var)
@@ -543,7 +569,18 @@ class SettingsView(View):
         row.addWidget(button(t("watch.settings_browse"), lambda: self._browse_into(self.watch_folder), icon="folder"))
         row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), icon="close"))
         card.addLayout(row)
-        self.watch_playlist_var = QCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
+        # 1.4.2 (B102) : où ranger ce qui arrive (bibliothèque de l'ordinateur par défaut, ou clé ouverte)
+        row = hbox(spacing=theme.px(8))
+        row.addWidget(self._fixed(label(t("watch.settings_target"))))
+        self.watch_target = ShrinkCombo()
+        self.watch_target.addItem(t("watch.target_local"), "local")
+        self.watch_target.addItem(t("watch.target_usb"), "usb")
+        self.watch_target.setCurrentIndex(1 if s.watch_target == "usb" else 0)
+        self.watch_target.setToolTip(t("watch.settings_target_tip"))
+        row.addWidget(self.watch_target)
+        row.addStretch(1)
+        card.addLayout(row)
+        self.watch_playlist_var = WrapCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
         self.watch_playlist_var.setChecked(s.watch_playlist)
         card.addWidget(self.watch_playlist_var)
 
@@ -570,7 +607,7 @@ class SettingsView(View):
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"), key="backups")
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.backups_keep"))))
-        self.keep = QComboBox()
+        self.keep = ShrinkCombo()
         self.keep.addItems(BACKUP_CHOICES)
         self.keep.setCurrentText(str(s.backup_keep) if str(s.backup_keep) in BACKUP_CHOICES else "10")
         row.addWidget(self.keep)
@@ -578,7 +615,7 @@ class SettingsView(View):
         card.addLayout(row)
         row = hbox()                                       # 1.3.2 (C82) : délai pour annuler une fusion
         row.addWidget(self._fixed(label(t("settings.merge_undo"))))
-        self.merge_undo = QComboBox()
+        self.merge_undo = ShrinkCombo()
         for v in (5, 10, 30):
             self.merge_undo.addItem(t("settings.seconds", n=v), v)
         self.merge_undo.setCurrentIndex(max(0, self.merge_undo.findData(s.merge_undo_s)))
@@ -661,9 +698,10 @@ class SettingsView(View):
         # 1.4.0-rc.5 (C165) : trois cartes au lieu d'une (Mises à jour, À propos, Cette installation) ;
         # la version et « Rechercher » sur la même ligne
         card = self._card(t("about.updates"), "refresh", t("about.hint"), key="updates")
-        row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
-        row.addWidget(self._fixed(self.version_lbl))
+        self.version_lbl = self._fixed(self.version_lbl)          # 1.4.2 (A2-1) : nouveau libellé
+        row = flow_row()                                          # 1.4.2 (A2-1) : boutons à la ligne si étroit
+        row.addWidget(self.version_lbl)
         self.update_state = label("", "dim", wrap=True)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 1000)
@@ -683,38 +721,35 @@ class SettingsView(View):
                                          icon="refresh")
         self.update_restart_btn.hide()
         row.addWidget(self.update_restart_btn)
-        row.addWidget(self.update_state, 1)
         card.addLayout(row)
+        card.addWidget(self.update_state)
         row = hbox()
-        self.update_var = QCheckBox(t("update.auto"))
+        self.update_var = WrapCheckBox(t("update.auto"))
         self.update_var.setChecked(s.check_updates)
         row.addWidget(self.update_var)
         row.addStretch(1)
         card.addLayout(row)
-        row = hbox()
         # 1.3.2 (C96) : une case au lieu du menu « Versions proposées » (auto / stables / stables et test),
         # et le choix de la version à installer, plus ancienne comprise
         from ..version_dialog import show_test_versions
 
         # 1.3.2-rc.2 (C96, test MAJ-1) : sur une ligne, la liste des versions à gauche de la case, le bouton
         # d'installation à droite (plus de fenêtre « Choisir une version… »)
-        row.addWidget(self._fixed(label(t("update.pick_label"))))
-        self.version_menu = QComboBox()
-        self.version_menu.setMinimumWidth(theme.px(260))
+        pick_lbl = self._fixed(label(t("update.pick_label")))
+        self.version_menu = ShrinkCombo()
+        self.version_menu.setMinimumWidth(theme.px(180))
         self.version_menu.addItem(t("update.pick_loading"))
         self.version_menu.setEnabled(False)
         self.version_menu.currentIndexChanged.connect(lambda _i: self._version_refresh())
-        row.addWidget(self.version_menu)
-        self.show_rc_var = QCheckBox(t("update.show_rc"))
-        self.show_rc_var.setChecked(show_test_versions(s.update_channel, full_version()))
-        self.show_rc_var.toggled.connect(self._show_rc_toggled)
-        row.addWidget(self.show_rc_var)
-        row.addStretch(1)
         self.version_install_btn = button(t("update.pick_install"), self._install_picked, kind="primary",
                                           icon="download")
         self.version_install_btn.setEnabled(False)
-        row.addWidget(self.version_install_btn)
-        card.addLayout(row)
+        card.addLayout(flow_row(pick_lbl, self.version_menu, self.version_install_btn))
+        # 1.4.2 (A2-1) : la case sur sa propre ligne (la rangée imposait 880 px à la page)
+        self.show_rc_var = WrapCheckBox(t("update.show_rc"))
+        self.show_rc_var.setChecked(show_test_versions(s.update_channel, full_version()))
+        self.show_rc_var.toggled.connect(self._show_rc_toggled)
+        card.addWidget(self.show_rc_var)
         self._versions: list = []
         self._versions_loaded = False
         card = self._card(t("about.card"), "info", key="about")
@@ -742,19 +777,18 @@ class SettingsView(View):
         card.addWidget(thanks)
         # 1.3.2-rc.2 (C70) : liens, raccourci et accueil dans la carte DJSync (ils tombaient dans
         # « Retours et confidentialité », créée juste avant)
-        row = hbox()
-        row.addWidget(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
+        links = []                                       # 1.4.2 (A2-1) : passent à la ligne si besoin
+        links.append(button(t("about.github"), lambda: self.ctrl._emit("open_url", "https://github.com/Pikkol0/djsync"),
                              icon="go"))
-        row.addWidget(button(t("about.license"), lambda: self._show_text("LICENSE", t("about.license")), icon="info"))
-        row.addWidget(button(t("about.third_party"),
+        links.append(button(t("about.license"), lambda: self._show_text("LICENSE", t("about.license")), icon="info"))
+        links.append(button(t("about.third_party"),
                              lambda: self._show_text("THIRD_PARTY_NOTICES.md", t("about.third_party")), icon="info"))
-        row.addStretch(1)
-        card.addLayout(row)
+        card.addLayout(flow_row(*links))
         # 1.3.2 (C70) : lancer DJSync depuis la recherche du système ; (C54) revoir l'accueil
         from ...core import shortcut as _sc
 
         card = install_card
-        self.shortcut_var = QCheckBox(t("settings.shortcut"))
+        self.shortcut_var = WrapCheckBox(t("settings.shortcut"))
         self.shortcut_var.setChecked(bool(s.start_menu_shortcut))
         self.shortcut_var.setEnabled(_sc.target() is not None)
         self.shortcut_var.setToolTip(t("settings.shortcut_tip") if _sc.target() is not None else t("settings.shortcut_source"))
@@ -772,7 +806,7 @@ class SettingsView(View):
         row.addWidget(self._fixed(label(t("err_report.setting"))))
         self._report_labels = {"ask": t("err_report.mode_ask"), "always": t("err_report.mode_always"),
                                "never": t("err_report.mode_never")}
-        self.report_menu = QComboBox()
+        self.report_menu = ShrinkCombo()
         self.report_menu.addItems(list(self._report_labels.values()))
         self.report_menu.setCurrentText(self._report_labels.get(s.error_reports, self._report_labels["ask"]))
         self.report_menu.setToolTip(t("err_report.what"))
@@ -938,14 +972,14 @@ class SettingsView(View):
             head.addWidget(arrow)
         if icon:
             head.addWidget(icon_label(icon, 18, theme.ACCENT))
-        head.addWidget(label(title, "h2"))
+        head.addWidget(ShrinkLabel(title, "h2"))             # 1.4.2 (A2-1) : titre à la ligne si étroit
         if hint and not show_hint:
             info = icon_label("info", 14, theme.FAINT)
             info.setToolTip(hint)
             head.addWidget(info)
         summary = None
         if fold:
-            summary = label("", "dim")
+            summary = label("", "dim", wrap=True)                # 1.4.2 (A2-1)
             head.addWidget(summary, 1)
         head.addStretch(1)
         lay.addLayout(head)
@@ -1145,9 +1179,14 @@ class SettingsView(View):
     @staticmethod
     def _fixed(w: Any) -> Any:
         # 1.3.2-rc.2 (B45) : un libellé trop long passe à la ligne au lieu d'être coupé
-        w.setFixedWidth(theme.px(170))
         if isinstance(w, QLabel):
-            w.setWordWrap(True)
+            # 1.4.2 (A2-1) : 170 px quand la place le permet, jusqu'à 100 px (texte à la ligne) sinon
+            lbl = _RowLabel(w.text())
+            lbl.setProperty("role", w.property("role"))
+            lbl.setToolTip(w.toolTip())
+            w.deleteLater()
+            return lbl
+        w.setFixedWidth(theme.px(170))
         return w
 
     def on_show(self) -> None:
@@ -1230,7 +1269,8 @@ class SettingsView(View):
         self.connect_btn.setEnabled(bool(self._drives))
         self.eject_btn.setEnabled(self.ctrl.drive is not None and not self.ctrl.is_local)
         if self.ctrl.drive:
-            self.drive_state.setText(t("settings.connected", drive=str(self.ctrl.drive)))
+            drive = str(self.ctrl.drive).replace("\\", "\\\u200b").replace("/", "/\u200b")   # 1.4.2 (A2-1)
+            self.drive_state.setText(t("settings.connected", drive=drive))
         else:
             self.drive_state.setText(t("msg.no_drive_short"))
 
@@ -1303,7 +1343,8 @@ class SettingsView(View):
 
     def _ffmpeg_status(self) -> None:
         found, text = self.ctrl.ffmpeg_status(self.ffmpeg.text().strip())
-        self.ffmpeg_state.setText(text)
+        # 1.4.2 (A2-1) : un chemin sans espace ne passe pas à la ligne : coupure possible après chaque séparateur
+        self.ffmpeg_state.setText(text.replace("\\", "\\\u200b").replace("/", "/\u200b"))
         if not found or not self._folds[self.ffmpeg_card][3]:      # C89 : ouverte d'office en cas de problème
             self.set_folded(self.ffmpeg_card, not found or self._folds[self.ffmpeg_card][3],
                             t("settings.ffmpeg_ok_short") if found else t("settings.ffmpeg_missing_short"))
@@ -1636,6 +1677,82 @@ class SettingsView(View):
         except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
             pass
 
+    def unsaved(self) -> List[str]:
+        """1.4.2 (A2-18) : réglages modifiés à l'écran mais pas encore enregistrés (ceux qui attendent
+        « Enregistrer »). Même lecture que `_save`, sans rien écrire."""
+        from ... import full_version
+        from ..version_dialog import show_test_versions
+
+        s = self.ctrl.settings
+
+        def pick(mapping: Dict[str, str], text: str, default: str) -> str:
+            return next((k for k, v in mapping.items() if v == text), default)
+
+        try:
+            _w = self.watch_folder.text().strip()
+            form = {
+                "forced_drive": self.forced.text().strip(),
+                "contents_dir": self.contents.text().strip().strip("/\\") or "Contents",
+                "ffmpeg_location": self.ffmpeg.text().strip(),
+                "fetch_views": self.views_var.isChecked(),
+                "fetch_metadata": self.meta_var.isChecked(),
+                "backup_keep": int(self.keep.currentText()),
+                "merge_undo_s": int(self.merge_undo.currentData() or 10),
+                "pdb_sync": "auto" if self.pdb_var.isChecked() else "off",
+                "pdb_allow_growth": self.pdb_growth_var.isChecked(),
+                "analyze_after_download_usb": self.analyze_usb_var.isChecked(),
+                "analyze_after_download_local": self.analyze_local_var.isChecked(),
+                "auto_cue": self.cue_var.isChecked(),
+                "diag_auto": self.diag_auto_var.isChecked(),
+                "waveform_style": self.wave_style.currentData() or "3band",
+                "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
+                "download_quality": self.format_menu.currentData() or "original",
+                "soundcloud_original": self.sc_original_var.isChecked(),
+                "soundcloud_browser": pick(self._sc_browsers, self.sc_browser.currentText(), ""),
+                "soundcloud_token": self.sc_token.text().strip(),
+                "youtube_browser": pick(self._yt_browsers, self.yt_browser.currentText(), ""),
+                "watch_folder": str(Path(_w)) if _w else "",
+                "soulseek_enabled": self.slsk_var.isChecked() and s.soulseek_accepted,
+                "soulseek_user": self.slsk_user.text().strip(),
+                "soulseek_password": self.slsk_password.text(),
+                "soulseek_share": self.slsk_share_var.isChecked(),
+                "player_format": pick(self._player_formats, self.player_format.currentText(), ""),
+                "watch_playlist": self.watch_playlist_var.isChecked(),
+                "watch_target": self.watch_target.currentData() or "local",
+                "light_mode": pick(self._light_labels, self.light_menu.currentText(), "auto"),
+                "audio_latency_ms": int(self.latency_box.value()),
+                "check_updates": self.update_var.isChecked(),
+                "update_channel": "test" if self.show_rc_var.isChecked() else "stable",
+                "error_reports": pick(self._report_labels, self.report_menu.currentText(), "ask"),
+                "key_notation": pick(self._notation_labels, self.notation.currentText(), "auto"),
+                "local_db_dir": self.local_db.text().strip(),
+                "local_music_dir": self.local_music.text().strip(),
+            }
+        except (RuntimeError, AttributeError, ValueError):     # page en cours de construction ou détruite
+            return []
+        out = []
+        for key, value in form.items():
+            cur = getattr(s, key, None)
+            if key == "update_channel":
+                cur = "test" if show_test_versions(s.update_channel, full_version()) else "stable"
+            if key == "watch_folder" and cur:
+                cur = str(Path(cur))
+            if key == "reanalyze_rekordbox":
+                cur = list(cur or [])
+            if value != cur:
+                out.append(key)
+        return out
+
+    def save_now(self) -> None:
+        """1.4.2 (A2-18) : « Enregistrer » depuis l'alerte en quittant la page."""
+        self._save()
+
+    def discard(self) -> None:
+        """1.4.2 (A2-18) : « Ne pas enregistrer » : la page est remise sur les réglages enregistrés."""
+        win = self.window()
+        if hasattr(win, "rebuild_ui"):
+            win.rebuild_ui()
+
     def _save(self) -> None:
         s = self.ctrl.settings
         forced = self.forced.text().strip()
@@ -1652,6 +1769,7 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
             s.waveform_style = style
@@ -1672,6 +1790,7 @@ class SettingsView(View):
         s.soulseek_share = self.slsk_share_var.isChecked()
         s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
         s.watch_playlist = self.watch_playlist_var.isChecked()
+        s.watch_target = self.watch_target.currentData() or "local"             # 1.4.2 (B102)
         s.light_mode = next((k for k, v in self._light_labels.items() if v == self.light_menu.currentText()), "auto")
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()

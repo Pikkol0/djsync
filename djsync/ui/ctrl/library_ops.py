@@ -469,6 +469,42 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, done, lambda exc: log.info("Cue marks not read: %s", exc), pool="cues")
 
+    def track_extras(self, tracks: Sequence[LibraryTrack], ok: Callable[[Dict[int, Dict[str, Any]]], None]) -> None:
+        """1.4.2 (C113) : colonnes My Tags, Dernière lecture, Analyse (grille vérifiée à la main) et Doublon,
+        lues hors du fil de l'interface ; ok() n'est pas appelé si la bibliothèque a changé entre-temps."""
+        lib = self.library
+        items = [x for x in tracks if x is not None]
+        if lib is None or not items:
+            ok({})
+            return
+
+        def work() -> Dict[int, Dict[str, Any]]:
+            from ...core.duplicates import find_duplicate_groups
+            from ...db import grid_marks
+
+            ids = [x.content_id for x in items]
+            out: Dict[int, Dict[str, Any]] = {i: {"mytags": [], "last_played": ""} for i in ids}
+            if hasattr(lib, "track_extras"):
+                for cid, d in lib.track_extras(ids).items():
+                    out.setdefault(int(cid), {}).update(d)
+            try:
+                checked = grid_marks.load(lib.backup_dir)
+            except Exception:  # noqa: BLE001
+                checked = set()
+            for cid in ids:
+                out[cid]["grid_checked"] = cid in checked
+            for group in find_duplicate_groups(items):           # comme « Ses doublons » de l'onglet Un son
+                gids = [y.content_id for y in group]
+                for cid in gids:
+                    out.setdefault(cid, {})["dup"] = [g for g in gids if g != cid]
+            return out
+
+        def done(extras: Dict[int, Dict[str, Any]]) -> None:
+            if self.library is lib:
+                ok(extras)
+
+        self.dispatcher.submit(work, done, lambda exc: log.info("Track extras not read: %s", exc), pool="tools")
+
     def unanalysed(self, ok: Callable[[List[LibraryTrack]], None]) -> None:
         lib = self.library
         if lib is None:
@@ -843,7 +879,12 @@ class LibraryOpsMixin:
             if err:
                 err(exc)
 
-        self._write(lambda lib: lib.save_beat_grid(content_id, beats), ok, t("msg.grid_saved"), fail)
+        def work(lib: Any) -> Any:
+            out = lib.save_beat_grid(content_id, beats)
+            _mark_grid(lib, content_id)                  # 1.4.2 (C113) : grille vérifiée à la main
+            return out
+
+        self._write(work, ok, t("msg.grid_saved"), fail)
 
     def save_grid_and_cues(self, content_id: int, beats: Optional[Sequence[Any]], cues: Optional[Sequence[Any]],
                            ok: Optional[Callback] = None, err: Optional[Callback] = None) -> None:
@@ -857,6 +898,7 @@ class LibraryOpsMixin:
             out = None
             if beats is not None:
                 out = lib.save_beat_grid(content_id, beats)
+                _mark_grid(lib, content_id)              # 1.4.2 (C113) : grille vérifiée à la main
             if cues is not None:
                 out = lib.save_track_cues(content_id, cues)
             return out
@@ -1097,3 +1139,13 @@ class LibraryOpsMixin:
                 err(exc)
 
         self._write(run, done, err=fail)
+
+
+def _mark_grid(lib: Any, content_id: int) -> None:
+    """1.4.2 (C113) : note la grille comme vérifiée à la main (pastille de la colonne « Analyse »)."""
+    from ...db import grid_marks
+
+    try:
+        grid_marks.mark(lib.backup_dir, content_id)
+    except Exception as exc:  # noqa: BLE001 - jamais bloquant pour l'enregistrement de la grille
+        log.info("Grid mark: %s", exc)

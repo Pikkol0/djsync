@@ -64,6 +64,25 @@ def plural(key_one: str, key_many: str, n: int, **params: Any) -> str:
     return t(key_one if singular else key_many, n=n, **params)
 
 
+def num(value: float, spec: str = "g") -> str:
+    """1.4.2 (A2-6) : nombre à décimales à la façon de la langue (« 44,1 » en français, « 44.1 » en anglais)."""
+    text = format(value, spec)
+    return text.replace(".", ",") if _current == "fr" else text
+
+
+def date_text(value: Any) -> str:
+    """1.4.2 (A2-6) : date affichée à la façon de la langue : « 16/11/2026 » (fr), « 2026-11-16 » (en).
+    Accepte une date, un datetime ou un texte qui commence par « AAAA-MM-JJ » ; sinon le texte tel quel."""
+    if value is None or value == "":
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y" if _current == "fr" else "%Y-%m-%d")
+    text = str(value)[:10]
+    if _current == "fr" and len(text) == 10 and text[4] == "-" and text[7] == "-" and text.replace("-", "").isdigit():
+        return f"{text[8:10]}/{text[5:7]}/{text[:4]}"
+    return text
+
+
 class LazyLabels(Mapping):
     """Mapping clé -> texte traduit À LA LECTURE (suit le changement de langue)."""
 

@@ -127,6 +127,36 @@ def camelot_color(code: Optional[str]) -> str:
 
 
 # ----------------------------------------------------------------------- feuille de style
+def check_image(color: str) -> str:
+    """1.4.2 (A2-14) : image de la coche des cases cochées (la feuille de style ne sait pas dessiner une coche).
+    PNG grand (réduit par Qt, net à 125-200 %), écrit une fois par couleur dans le dossier temporaire ;
+    Pillow, pour ne pas dépendre de QApplication ni du module SVG (absent de l'exécutable)."""
+    import tempfile
+    from pathlib import Path
+
+    folder = Path(tempfile.gettempdir()) / "djsync-ui"
+    path = folder / f"check_{color.lstrip('#').lower()}.png"
+    if not path.is_file():
+        try:
+            from PIL import Image, ImageDraw
+
+            big, out = 256, 64
+            img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            pts = [(big * 0.24, big * 0.53), (big * 0.43, big * 0.72), (big * 0.77, big * 0.32)]
+            width = int(big * 0.13)
+            draw.line(pts, fill=_rgb(color) + (255,), width=width, joint="curve")
+            for x, y in (pts[0], pts[-1]):                  # bouts arrondis
+                draw.ellipse((x - width / 2, y - width / 2, x + width / 2, y + width / 2), fill=_rgb(color) + (255,))
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            img.resize((out, out), Image.LANCZOS).save(tmp, "PNG")
+            tmp.replace(path)
+        except (OSError, ImportError, ValueError):
+            return ""
+    return path.as_posix()
+
+
 def stylesheet() -> str:
     """Feuille de style de toute l'application (couleurs + marges au zoom courant)."""
     p = px
@@ -134,6 +164,9 @@ def stylesheet() -> str:
     hover = mix(ELEV, TEXT, 0.07)
     row_hover = mix(SURFACE, TEXT, 0.045)
     accent_hover = mix(ACCENT, "#FFFFFF", 0.15)
+    box_border = mix(FAINT, DIM, 0.55)          # 1.4.2 (A2-14) : case non cochée visible sur fond sombre
+    check_png = check_image(ON_ACCENT or BG)    # 1.4.2 (A2-14) : coche dessinée dans la case cochée
+    check_rule = f'QCheckBox::indicator:checked {{ image: url("{check_png}"); }}' if check_png else ""
     return f"""
 * {{ outline: 0; }}
 QWidget {{ background: {BG}; color: {TEXT}; }}
@@ -211,11 +244,12 @@ QLineEdit[role="big"] {{ padding: {p(9)}px {p(10)}px; font-size: {font_pt(1.5):.
 QComboBox::drop-down {{ border: 0; width: {p(20)}px; }}
 QComboBox QAbstractItemView {{ background: {ELEV}; border: 1px solid {BORDER}; selection-background-color: {ACCENT_DIM}; padding: {p(4)}px; }}
 QCheckBox, QRadioButton {{ background: transparent; spacing: {p(8)}px; }}
-QCheckBox::indicator, QRadioButton::indicator {{ width: {p(15)}px; height: {p(15)}px; border: 1px solid {FAINT};
+QCheckBox::indicator, QRadioButton::indicator {{ width: {p(15)}px; height: {p(15)}px; border: 1px solid {box_border};
               background: {SURFACE}; border-radius: {p(4)}px; }}
 QRadioButton::indicator {{ border-radius: {(p(15) + 2) // 2}px; }}
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{ border-color: {ACCENT}; }}
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+{check_rule}
 
 QTableView, QTreeWidget, QListWidget {{ background: {SURFACE}; alternate-background-color: {mix(SURFACE, BG, 0.35)};
               border: 1px solid {BORDER}; border-radius: {r8}px; gridline-color: transparent;

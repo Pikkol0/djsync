@@ -17,14 +17,67 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.duplicates import best_keeper, split_display
-from ..i18n import plural, t
+from ..i18n import date_text, plural, t
 from ..models import SOURCE_LABELS, LibraryTrack, format_duration
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog
-from .widgets import CamelotPill, button, chip, hbox, icon_button, label, panel, vbox
+from .widgets import CamelotPill, SideBar, button, chip, hbox, icon_button, label, panel, vbox
 
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 ALT = 100          # 1.3.1 (C42) : boutons des versions à retélécharger (100, 101…)
+
+
+class _VersionRow(QFrame):
+    """1.4.2 (A2-4) : ligne d'une version. Les boutons (écouter, cues, écarter) restent au bout de la ligne
+    quand la place suffit, et passent sous les infos sinon : la ligne n'impose plus sa largeur au panneau
+    (défilement horizontal). Sa largeur minimale est celle de la disposition étroite."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setProperty("role", "banner")
+        self._wide = True
+        self._actions: Optional[QWidget] = None
+
+    def place(self, top: Any, outer: Any, actions: QWidget, indent: int) -> None:
+        from PySide6.QtWidgets import QLayout
+
+        self._top, self._actions = top, actions
+        self._below = hbox(spacing=0)
+        self._below.addSpacing(indent)
+        self._below.addStretch(1)
+        outer.addLayout(self._below)
+        outer.setSizeConstraint(QLayout.SetNoConstraint)
+        top.addWidget(actions, 0, Qt.AlignVCenter)
+
+    def _top_need(self) -> int:
+        lay = self._top
+        need = sum(lay.itemAt(i).sizeHint().width() for i in range(lay.count())
+                   if lay.itemAt(i).widget() is not self._actions)
+        return need + self._actions.sizeHint().width() + lay.spacing() * lay.count() + theme.px(12)
+
+    def minimumSizeHint(self) -> Any:  # noqa: N802
+        from PySide6.QtCore import QSize
+
+        base = super().minimumSizeHint()
+        if self._actions is None:
+            return base
+        narrow = max(self._actions.sizeHint().width() + theme.px(40), theme.px(320))
+        return QSize(min(base.width(), narrow), base.height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        if self._actions is None:
+            return
+        wide = self.width() >= self._top_need()
+        if wide != self._wide:
+            self._wide = wide
+            if wide:
+                self._below.removeWidget(self._actions)
+                self._top.addWidget(self._actions, 0, Qt.AlignVCenter)
+            else:
+                self._top.removeWidget(self._actions)
+                self._below.insertWidget(1, self._actions)
+            self.updateGeometry()
 
 
 class DuplicatesDialog(BaseDialog):
@@ -111,29 +164,56 @@ class DuplicatesDialog(BaseDialog):
         main.addWidget(self.detail_scroll, 1)
         self.body.addLayout(main, 1)
 
-        bar = hbox()
+        bar = SideBar()                                       # 1.4.2 (A2-4) : sur deux lignes si étroit
         # 1.3.0-rc.5 (C62) : choix « pas un doublon » retenus, réversibles
         self.ignored_btn = button("", self._show_ignored, kind="flat", icon="menu", tooltip=t("dup.ignored_tip"))
-        bar.addWidget(self.ignored_btn)
-        bar.addWidget(button(t("dup.full_scan"), self._full_scan, kind="flat", icon="search",
-                             tooltip=t("dup.full_scan_tip")))
-        bar.addStretch(1)
+        bar.add_left(self.ignored_btn)
+        bar.add_left(button(t("dup.full_scan"), self._full_scan, kind="flat", icon="search",
+                            tooltip=t("dup.full_scan_tip")))
         self.undo_btn = button("", self._undo_last, kind="flat", icon="back")      # C82
         self.undo_btn.hide()
-        bar.addWidget(self.undo_btn)
+        bar.add_right(self.undo_btn)
         self.later_btn = button(t("dup.later"), self._skip, kind="flat", tooltip=t("dup.later_tip"))
         self.skip_btn = button(t("dup.skip"), self._not_duplicates, icon="close", tooltip=t("dup.skip_tip"))
         self.apply_btn = button(t("dup.apply"), self._apply, kind="primary", icon="check")
-        bar.addWidget(self.later_btn)
-        bar.addWidget(self.skip_btn)
-        bar.addWidget(self.apply_btn)
-        bar.addWidget(button(t("action.close"), self.close))
-        self.body.addLayout(bar)
+        bar.add_right(self.later_btn)
+        bar.add_right(self.skip_btn)
+        bar.add_right(self.apply_btn)
+        bar.add_right(button(t("action.close"), self.close))
+        self.body.addWidget(bar)
         self._refresh_actions()
         self.show_dialog()
         if full:
             controller.message("info", t("dup.full_running"))
-        controller.find_duplicates(self._loaded, self._progress, full=full)
+        if full or controller.diag_ready("dup"):              # 1.4.2 (B103) : rien à l'ouverture par défaut
+            self.analyse_now()
+        else:
+            self._idle()
+
+    def _idle(self) -> None:
+        from .diag_tabs import idle_panel
+
+        self.count.setText("")
+        self.bar.hide()
+        self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
+        self._clear_detail()
+        self.list.hide()
+        self.detail_lay.addWidget(idle_panel(self, self.ctrl, "dup", self.analyse_now))
+        self.detail_lay.addStretch(1)
+        for b in (self.later_btn, self.skip_btn, self.apply_btn):
+            b.setEnabled(False)
+
+    def analyse_now(self) -> None:
+        """1.4.2 (B103) : « Analyser maintenant » (ou ouverture avec le réglage coché, ou détection complète)."""
+        self.ctrl.diag_mark_run("dup")
+        self.list.show()
+        self.bar.setRange(0, 0)
+        self.bar.show()
+        self.count.setText(t("dup.searching"))
+        self._clear_detail()
+        self.detail_lay.addWidget(label(t("dup.searching"), "faint"))
+        self.detail_lay.addStretch(1)
+        self.ctrl.find_duplicates(self._loaded, self._progress, full=self._full)
 
     def _progress(self, i: int, n: int) -> None:
         if self.winfo_exists() and not self.groups:
@@ -305,6 +385,7 @@ class DuplicatesDialog(BaseDialog):
             item = self.detail_lay.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()                                    # 1.4.2 (B103) : rien ne reste en dessous
                 w.deleteLater()
             elif item.layout() is not None:
                 _drop_layout(item.layout())
@@ -542,8 +623,10 @@ class DuplicatesDialog(BaseDialog):
         return c
 
     def _version_row(self, k: int, x: LibraryTrack, checked: bool) -> QWidget:
-        row = panel(role="banner")
-        lay = hbox(row, margins=theme.px(6))
+        row = _VersionRow()                                   # 1.4.2 (A2-4) : boutons sous les infos si étroit
+        outer = vbox(row, margins=theme.px(6), spacing=theme.px(4))
+        lay = hbox(spacing=theme.px(6))
+        outer.addLayout(lay)
         radio = QRadioButton()
         radio.setChecked(checked)
         self._keep.addButton(radio, k)
@@ -553,7 +636,7 @@ class DuplicatesDialog(BaseDialog):
         name = label(x.title)
         name.setStyleSheet("font-weight:600;")
         text.addWidget(name)
-        info_lbl = label("", "dim")
+        info_lbl = label("", "dim", wrap=True)               # 1.4.2 (A2-4)
         info_lbl.setTextFormat(Qt.RichText)
         self._info_labels[x.content_id] = info_lbl
         info_lbl.setText(self._info_text(x))
@@ -592,12 +675,15 @@ class DuplicatesDialog(BaseDialog):
                         tooltip=t("dup.listen_middle_tip"))
         cues = button(t("dup.open_cues"), lambda: self._open_cues(x), kind="flat", icon="grid",
                       tooltip=t("dup.open_cues_tip"))           # 1.3.2 (C79) : sans passer par le lecteur
+        actions = QWidget()
+        al = hbox(actions, spacing=theme.px(6))
         for b in (start, middle, cues):
             b.setEnabled(not missing)
-            add(b)
+            al.addWidget(b, 0, Qt.AlignVCenter)
         out = button(t("dup.exclude"), lambda: self._exclude(k), kind="flat", icon="close",
                      tooltip=t("dup.exclude_tip"))              # rc.5 (C62)
-        add(out)
+        al.addWidget(out, 0, Qt.AlignVCenter)
+        row.place(lay, outer, actions, indent=radio.sizeHint().width() + theme.px(6))
         return row
 
     # ------------------------------------------------------------ 1.3.1 (C42) : qualité
@@ -609,7 +695,7 @@ class DuplicatesDialog(BaseDialog):
         missing = self.ctrl.file_missing(x)
         fmt, lvl = levels.audio_text(self._quality.get(x.content_id), x.file_type, missing)
         info = [escape(x.artist or t("dup.no_artist")), format_duration(x.duration_seconds), levels.html(fmt, lvl),
-                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), (x.date_added or "")[:10]]
+                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), date_text(x.date_added)]
         return "  ·  ".join(i for i in info if i)
 
     def _best(self, group: List[LibraryTrack]) -> Optional[LibraryTrack]:
@@ -642,11 +728,11 @@ class DuplicatesDialog(BaseDialog):
             if q is not None:
                 badge = levels.tier_chip(q.effective_kbps, q.real_lossless)
                 if badge is not None:
-                    slot.addWidget(badge)
+                    slot.addWidget(badge, 0, Qt.AlignVCenter)
             if best is not None and x is best:
                 c = chip(t("dup.best_quality"), "chip_good")
                 c.setToolTip(t("dup.best_quality_tip"))
-                slot.addWidget(c)
+                slot.addWidget(c, 0, Qt.AlignVCenter)
         # proposer par défaut de garder la meilleure qualité (le titre proposé reste le plus propre)
         if best is not None and not self._keep_touched and self.keep_index() != group.index(best):
             b = self._keep.button(group.index(best))
@@ -776,7 +862,7 @@ class DuplicatesDialog(BaseDialog):
 
     def _plain_info(self, x: LibraryTrack) -> str:
         bits = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds),
-                f"{x.bpm:.0f} BPM" if x.bpm else "", (x.date_added or "")[:10]]
+                f"{x.bpm:.0f} BPM" if x.bpm else "", date_text(x.date_added)]
         return "  ·  ".join(b for b in bits if b)
 
     def _show_same_titles(self, row: int, j: int) -> None:

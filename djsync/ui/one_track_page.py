@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFormLayout, QFrame, QGridLayout, QListWidget, QListWidgetItem, QScrollArea
 
-from ..i18n import t
+from ..i18n import num, t
 from ..models import LibraryTrack
 from . import theme
 from .dialogs import BaseDialog
@@ -120,6 +120,12 @@ class OneTrackPage(BaseDialog):
             return
         found = search(self.tracks, self.entry.text())
         self.shown = found[:MAX_RESULTS]
+        # 1.4.2 (C182) : son demandé par « Diagnostic de ce son » hors des premiers résultats : en tête de liste
+        want_id = self._want
+        if want_id is not None and all(x.content_id != want_id for x in self.shown):
+            wanted = next((x for x in found if x.content_id == want_id), None)
+            if wanted is not None:
+                self.shown = [wanted] + self.shown[:MAX_RESULTS - 1]
         self.list.blockSignals(True)
         self.list.clear()
         for x in self.shown:
@@ -142,7 +148,17 @@ class OneTrackPage(BaseDialog):
         elif self.track is not None and all(x.content_id != self.track.content_id for x in self.tracks):
             self.track = None                         # son retiré de la bibliothèque
             self._empty_card(t("one.pick"))
-        self._want = None
+        if self.tracks:                     # 1.4.2 (C182) : gardé tant que la liste n'est pas lue
+            self._want = None
+
+    def select_track(self, content_id: int) -> None:
+        """1.4.2 (C182) : « Diagnostic de ce son » : ce son choisi (recherche vidée s'il n'y figure pas)."""
+        self._want = content_id
+        if self.entry.text() and all(x.content_id != content_id for x in self.shown):
+            self.entry.blockSignals(True)
+            self.entry.clear()
+            self.entry.blockSignals(False)
+        self._filter()
 
     def _pick_first(self) -> None:
         if self.shown:
@@ -200,7 +216,7 @@ class OneTrackPage(BaseDialog):
 
         row("track.album", x.album or "")
         row("track.duration", _duration(x.duration_seconds))
-        row("track.bpm", f"{x.bpm:.2f}".rstrip("0").rstrip(".") if x.bpm else t("one.not_analysed"))
+        row("track.bpm", num(float(f"{x.bpm:.2f}")) if x.bpm else t("one.not_analysed"))
         key = CamelotPill(x.camelot)
         if x.camelot:
             box = hbox(spacing=theme.px(6))

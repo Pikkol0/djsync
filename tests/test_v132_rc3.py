@@ -243,7 +243,7 @@ def test_welcome_has_a_size_hierarchy_and_centred_thanks(demo):  # noqa: F811
     from djsync.ui.welcome import WelcomeDialog
 
     d = WelcomeDialog(demo, demo.ctrl)
-    d._step = 2
+    d._step = 1                                   # 1.4.2 (A2-11) : bienvenue et langue sur le premier écran
     d._build()
     roles = {lbl.property("role") for lbl in d.findChildren(QLabel)}
     assert {"title", "h2", "faint"} <= roles

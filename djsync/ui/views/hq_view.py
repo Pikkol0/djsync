@@ -112,7 +112,9 @@ class HqView(View):
         self._query = ""
         self._filter = ResultFilter.from_dict(controller.settings.hq_filters)
 
-        self.root.addLayout(self.header(t("tab.hq")))
+        from ..search_tabs import add_search_tabs
+
+        add_search_tabs(self, "hq")                 # 1.4.2 (C182) : onglets de « Rechercher »
         bar = hbox(spacing=theme.px(8))
         self.entry = line_edit(t("search.placeholder_hq"), "search", big=True)
         self.entry.returnPressed.connect(lambda: self.run_search(force=True))
@@ -121,6 +123,12 @@ class HqView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
+        # 1.4.2 (C169) : « ? » : ce que veulent dire place libre, file d'attente, vitesse, fiabilité
+        from ..widgets import icon_button
+
+        self.help_btn = icon_button("help", self.show_help, t("hq.help_tip"))
+        self.help_btn.setMinimumHeight(self.entry.sizeHint().height())
+        bar.addWidget(self.help_btn)
         self.root.addLayout(bar)
         self.progress = SearchProgress()                 # C171
         self.root.addWidget(self.progress)
@@ -233,6 +241,9 @@ class HqView(View):
         self._refresh_slsk()
         self.entry.setFocus()
 
+    def show_help(self) -> Any:
+        return _help_dialog(self)
+
     def search_for(self, query: str) -> None:
         """Depuis Rechercher (mode Haute qualité), le Diagnostic, ou un faux sans perte signalé (C46)."""
         self.ctrl._emit("navigate", "hq")
@@ -252,7 +263,8 @@ class HqView(View):
         self.equiv.hide()
         free: List[TrackResult] = []
         slsk: List[TrackResult] = []
-        sources = self.ctrl.free_sources_list() + (["soulseek"] if self.ctrl.slsk_ready else [])
+        free_names, use_slsk = self._queried_sources()                 # 1.4.2 (C193)
+        sources = free_names + (["soulseek"] if use_slsk else [])
         self.progress.start(sources, SLSK_WAIT_S)
         self.table.show_skeleton()
 
@@ -272,12 +284,12 @@ class HqView(View):
         def got_free(rs: List[TrackResult]) -> None:
             free[:] = rs
             if live():
-                for name in self.ctrl.free_sources_list():
+                for name in free_names:
                     self.progress.source_done(name)
             show()
 
         def got_free_part(rs: List[TrackResult]) -> None:
-            if live() and not all(self.progress.finished.get(n) for n in self.ctrl.free_sources_list()):
+            if live() and not all(self.progress.finished.get(n) for n in free_names):
                 free[:] = rs
                 show()
 
@@ -291,12 +303,23 @@ class HqView(View):
                 self.progress.source_done("soulseek")
             show()
 
-        self.ctrl.free_search(query, got_free, got_free_part, source_done)
-        if self.ctrl.slsk_ready:
+        if free_names:
+            if free_names == self.ctrl.free_sources_list():
+                self.ctrl.free_search(query, got_free, got_free_part, source_done)
+            else:
+                self.ctrl.free_search(query, got_free, got_free_part, source_done, only=free_names)
+        if use_slsk:
             self.ctrl.slsk_search(query, lambda rs: got_slsk(rs, True), lambda rs: got_slsk(rs, False))
         if not sources:
             self.progress.finish()
             show()
+
+    def _queried_sources(self) -> tuple:
+        """1.4.2 (C193) : les sources décochées dans le filtre ne sont pas interrogées (plus rapide, moins de
+        bruit). Filtre sans source cochée : toutes les sources activées."""
+        wanted = set(self._filter.sources)
+        free = [x for x in self.ctrl.free_sources_list() if not wanted or x in wanted]
+        return free, bool(self.ctrl.slsk_ready and (not wanted or "soulseek" in wanted))
 
     @staticmethod
     def _ordered(results: List[TrackResult], query: str) -> List[TrackResult]:
@@ -455,3 +478,21 @@ class HqView(View):
             self._fill()
 
         self.ctrl.reannotate(tracks, done)
+
+
+def _help_dialog(parent: Any) -> Any:
+    """1.4.2 (C169) : petit panneau d'explication des colonnes de la recherche haute qualité (Soulseek)."""
+    from ..dialogs import BaseDialog
+
+    dlg = BaseDialog(parent, t("hq.help_title"), 520)
+    dlg.heading(t("hq.help_title"), t("hq.help_sub"))
+    for key in ("free_slot", "queue", "speed", "reliable", "quality", "preview"):
+        row = hbox(spacing=theme.px(8))
+        name = label(t(f"hq.help_{key}"), "accent")
+        name.setFixedWidth(theme.px(130))
+        row.addWidget(name, 0)
+        row.addWidget(label(t(f"hq.help_{key}_text"), "dim", wrap=True), 1)
+        dlg.body.addLayout(row)
+    dlg.footer(t("action.close"), dlg.close, show_cancel=False)
+    dlg.show_dialog()
+    return dlg

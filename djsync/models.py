@@ -230,6 +230,8 @@ class ResolvedUrl:
     is_playlist: bool = False
     note: str = ""           # information à afficher (ex. « seule la vidéo est importée »)
     truncated: bool = False
+    total: int = 0           # 1.4.2 (C172) : nombre de titres de la playlist (0 : inconnu)
+    start: int = 1           # 1.4.2 (C172) : position (à partir de 1) du premier titre lu
 
 
 # ======================================================================================

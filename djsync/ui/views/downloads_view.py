@@ -17,7 +17,7 @@ from ...models import DownloadJob, LibraryTrack
 from .. import theme
 from ..icons import qicon
 from ..table import camelot_sort
-from ..widgets import Column, Row, TrackTable, button, hbox, icon_label, label, line_edit, restyle, vbox
+from ..widgets import Column, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, restyle, vbox
 from .common import focus_list, View
 from .cue_column import cue_column, cue_values
 from .cue_column import fill as cue_column_fill
@@ -37,6 +37,8 @@ class DownloadsView(View):
         top = QWidget()
         tv = vbox(top, spacing=theme.px(6))
         head = hbox(spacing=theme.px(8))
+        self._dl_fold = self._fold_button("downloads")                  # 1.4.2 (C189) : panneau repliable
+        head.addWidget(self._dl_fold)
         head.addWidget(icon_label("download", 18, theme.ACCENT))
         head.addWidget(label(t("dl.section"), "h2"))
         self.summary = label("", "dim")
@@ -54,6 +56,9 @@ class DownloadsView(View):
         for b in (self.play_btn, self.retry_btn, self.clear_btn):
             head.addWidget(b)
         tv.addLayout(head)
+        dl_body = QWidget()
+        tv.addWidget(dl_body, 1)
+        tv = vbox(dl_body, spacing=theme.px(6))
         cols = [
             Column("title", t("track.title"), 260, stretch=True, min_width=160),
             Column("artist", t("track.artist"), 170, priority=2),
@@ -82,6 +87,8 @@ class DownloadsView(View):
         bv = vbox(bottom, spacing=theme.px(6))
         bv.setContentsMargins(0, theme.px(10), 0, 0)
         head = hbox(spacing=theme.px(8))
+        self._an_fold = self._fold_button("analysis")                   # 1.4.2 (C189)
+        head.addWidget(self._an_fold)
         head.addWidget(icon_label("wave", 18, theme.ACCENT))
         head.addWidget(label(t("an.section"), "h2"))
         self.an_summary = label("", "dim")
@@ -101,6 +108,9 @@ class DownloadsView(View):
         self.analyse_btn = button("", self._analyse_toggle, kind="primary", icon="wave")
         head.addWidget(self.analyse_btn)
         bv.addLayout(head)
+        an_body = QWidget()
+        bv.addWidget(an_body, 1)
+        bv = vbox(an_body, spacing=theme.px(6))
         an_cols = [
             Column("key", t("track.key"), 44, "center", sort=camelot_sort),
             Column("title", t("track.title"), 260, stretch=True, min_width=160),
@@ -123,6 +133,10 @@ class DownloadsView(View):
         bv.addWidget(self.an_table, 1)
         split.addWidget(bottom)
         split.setSizes([theme.px(300), theme.px(360)])
+        self._split = split
+        self._panels = {"downloads": (top, dl_body, self._dl_fold), "analysis": (bottom, an_body, self._an_fold)}
+        for key in self._panels:
+            self._apply_fold(key)
 
         controller.on("downloads", self.rebuild)
         controller.on("download_update", self._update)
@@ -140,6 +154,35 @@ class DownloadsView(View):
         self._an_timer.timeout.connect(self._an_tick)
         self.rebuild()
         self._refresh_analysis()
+
+    # ======================================================= panneaux repliables (C189)
+    def _folded(self) -> Dict[str, bool]:
+        value = getattr(self.ctrl.settings, "panels_folded", None)
+        return value if isinstance(value, dict) else {}
+
+    def _fold_button(self, key: str) -> Any:
+        return icon_button("chevron_down", lambda k=key: self._toggle_fold(k), t("dl.fold_tip"), color=theme.DIM)
+
+    def _toggle_fold(self, key: str) -> None:
+        folded = dict(self._folded())
+        folded[key] = not folded.get(key, False)
+        self.ctrl.settings.panels_folded = folded
+        self.ctrl.settings.save()
+        self._apply_fold(key)
+
+    def _apply_fold(self, key: str) -> None:
+        """1.4.2 (C189) : replié, le panneau ne garde que son en-tête (titre, résumé, boutons) ; l'autre
+        panneau prend la place. État retenu entre les sessions."""
+        panel, body, btn = self._panels[key]
+        folded = bool(self._folded().get(key, False))
+        body.setVisible(not folded)
+        btn.setIcon(qicon("chevron_right" if folded else "chevron_down", 16, theme.DIM))
+        btn.setToolTip(t("dl.unfold_tip") if folded else t("dl.fold_tip"))
+        if folded:
+            m = panel.layout().contentsMargins()
+            panel.setMaximumHeight(panel.layout().itemAt(0).sizeHint().height() + m.top() + m.bottom())
+        else:
+            panel.setMaximumHeight(16777215)
 
     # ================================================================ téléchargements
     @staticmethod
@@ -176,7 +219,7 @@ class DownloadsView(View):
         done = sum(1 for j in jobs if j.status == "done")
         err = sum(1 for j in jobs if j.status == "error")
         active = self.ctrl.active_jobs
-        parts = [t("dl.done_n", n=done)]
+        parts = [plural("dl.done_n", "dl.done_n_many", done)]
         if active:
             parts.append(t("dl.active_n", n=active))
         if err:
@@ -210,8 +253,18 @@ class DownloadsView(View):
             self.ctrl.retry(job)
 
     def _menu(self, iids: List[str]) -> list:
-        return [(t("action.listen"), lambda: self._play(None), "play"),
-                (t("action.retry"), self._retry, "refresh")] if iids else []
+        if not iids:
+            return []
+        entries: list = [(t("action.listen"), lambda: self._play(None), "play"),
+                         (t("action.retry"), self._retry, "refresh")]
+        # 1.4.2 (C182) : un son téléchargé est dans la bibliothèque : même menu qu'ailleurs
+        jobs = [j for j in self._selected_jobs() if j.status == "done" and j.content_id is not None]
+        tracks = [self._tracks.get(str(j.content_id)) for j in jobs]
+        if len(iids) == 1 and tracks and tracks[0] is not None:
+            from ..track_menu import track_entries
+
+            entries += [None] + track_entries(self, self.ctrl, tracks[:1], where="downloads")
+        return entries
 
     # ======================================================================= analyse
     def on_show(self) -> None:
@@ -421,8 +474,7 @@ class DownloadsView(View):
         sel = self._selected_tracks()
         if not sel:
             return []
-        entries: list = [(t("action.listen"), lambda: self._play_track(iids[0]), "play"),
-                         (t("lib.analyse_selection", n=len(sel)), self._analyse_selection, "wave")]
-        if len(sel) == 1 and sel[0].is_analysed:
-            entries.append((t("lib.edit_grid"), lambda: self._edit_grid(sel[0]), "grid"))
-        return entries
+        from ..track_menu import track_entries          # 1.4.2 (C182) : le même menu partout
+
+        return [(t("action.listen"), lambda: self._play_track(iids[0]), "play"), None] \
+            + track_entries(self, self.ctrl, sel, where="downloads")

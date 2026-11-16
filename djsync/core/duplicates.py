@@ -115,6 +115,31 @@ class DuplicateChecker:
         return out
 
 
+def match_library_track(title: str, artist: str, tracks: Iterable[Any], title_threshold: int = 88,
+                        artist_threshold: int = 75) -> Optional[Any]:
+    """1.4.2 (C186) : le son de la bibliothèque (objet avec .title, .artist) qu'un résultat « déjà dans la
+    bibliothèque » désigne, avec les mêmes seuils que `DuplicateChecker` (titre « Artiste - Titre » compris)."""
+    n_title, n_artist = normalize(title), normalize(artist)
+    best: Optional[Tuple[float, Any]] = None
+    for x in tracks:
+        raw_title, raw_artist = getattr(x, "title", "") or "", getattr(x, "artist", "") or ""
+        pairs = [(raw_title, raw_artist)]
+        if " - " in raw_title:
+            left, right = raw_title.split(" - ", 1)
+            pairs.append((right, left))
+        for lt, la in pairs:
+            t_score = fuzz.ratio(n_title, normalize(lt))
+            if t_score < title_threshold:
+                continue
+            a_score = fuzz.token_set_ratio(n_artist, normalize(la))
+            if a_score < artist_threshold:
+                continue
+            score = (t_score + a_score) / 2
+            if best is None or score > best[0]:
+                best = (score, x)
+    return best[1] if best else None
+
+
 # ======================================================================================
 # V0.2.0 : doublons DANS la bibliothèque (outil « Doublons »)
 # ======================================================================================

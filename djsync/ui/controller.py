@@ -841,13 +841,16 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
     # ---------------------------------------------------------------- recherche
     def free_search(self, query: str, ok: Callback, partial: Optional[Callback] = None,
-                    source_done: Optional[Callable[[str], None]] = None) -> None:
+                    source_done: Optional[Callable[[str], None]] = None,
+                    only: Optional[List[str]] = None) -> None:
         """1.4.0 (C45) : sources gratuites et légales (Internet Archive, Audius), doublons marqués.
         1.4.0-rc.4 (B78) : `partial(résultats)` reçoit ce qui est déjà arrivé, source par source.
         1.4.1 (C171) : `source_done(nom)` dans le fil de l'interface quand une source a répondu (ou échoué)."""
         from ..core import freesources
 
         sources = list(self.settings.free_sources or [])
+        if only is not None:                       # 1.4.2 (C193) : seulement les sources gardées par le filtre
+            sources = [x for x in sources if x in only]
         got: list = []
 
         def part(_name: str, rs: Any) -> None:
@@ -990,6 +993,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.engine_failure(str(exc))
 
         self.dispatcher.submit(work, lambda r: ok(*r), failed, pool="net")
+
+    def import_more(self, url: str, start: int, ok: Callable[[Any], None], err: Optional[Callback] = None) -> None:
+        """1.4.2 (C172) : titres suivants d'une longue playlist YouTube / SoundCloud (à partir du titre `start`)."""
+        self.dispatcher.submit(lambda: self.service.resolve_direct(url, start=start), ok, err or self._on_error,
+                               pool="net")
 
     def is_url(self, text: str) -> bool:
         """Omnibar : lien à importer (Spotify, YouTube, SoundCloud) ou texte à chercher ?"""

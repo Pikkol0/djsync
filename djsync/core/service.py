@@ -123,9 +123,10 @@ class MusicService:
 
         return fetch_deezer(url)
 
-    def resolve_direct(self, url: str) -> ResolvedUrl:
-        """YouTube / SoundCloud : morceaux listés par yt-dlp, doublons marqués, SANS recherche."""
-        resolved = resolve_direct(url)
+    def resolve_direct(self, url: str, start: int = 1) -> ResolvedUrl:
+        """YouTube / SoundCloud : morceaux listés par yt-dlp, doublons marqués, SANS recherche. 1.4.2 (C172) :
+        `start` : titres suivants d'une longue playlist."""
+        resolved = resolve_direct(url, start=start)
         resolved.tracks = self._duplicates.annotate(resolved.tracks)
         return resolved
 

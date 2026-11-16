@@ -19,7 +19,7 @@ from ...models import (
 )
 from ..dialogs import BaseDialog
 from .. import theme
-from ..widgets import Column, Row, TrackTable, button, chip, hbox, label, line_edit
+from ..widgets import Column, Row, TrackTable, button, chip, hbox, icon_label, label, line_edit, panel
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
@@ -64,7 +64,9 @@ class ImportView(View):
         except ValueError:
             self.preference = MatchPreference.AUTO
 
-        self.root.addLayout(self.header(t("tab.import")))
+        from ..search_tabs import add_search_tabs
+
+        add_search_tabs(self, "import")                 # 1.4.2 (C182) : onglets de « Rechercher »
         bar = hbox(spacing=theme.px(8))
         from ...core.urlimport import source_names
 
@@ -92,6 +94,16 @@ class ImportView(View):
         self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat", icon="playlist")
         opts.addWidget(self.paste_list)
         self.root.addLayout(opts)
+        # 1.4.2 (C172) : longue playlist : « 200 premiers titres sur 534 » et « Charger les 200 suivants »
+        self.more_box = panel(role="banner")
+        more = hbox(self.more_box, margins=theme.px(8), spacing=theme.px(8))
+        more.addWidget(icon_label("info", 16, theme.ACCENT))
+        self.more_lbl = label("", wrap=True)
+        more.addWidget(self.more_lbl, 1)
+        self.more_btn = button("", self.load_more, icon="download")
+        more.addWidget(self.more_btn)
+        self.more_box.hide()
+        self.root.addWidget(self.more_box)
 
         spotify_cols = [
             Column("chk", "", 36, "center", sortable=False, min_width=34),
@@ -158,6 +170,8 @@ class ImportView(View):
         self.pref_menu.setVisible(spotify)
         self.pref_label.setVisible(spotify)
         self.other_btn.setVisible(spotify)
+        if mode != "direct":
+            self.more_box.hide()                           # C172 : seulement pour une playlist YouTube / SoundCloud
         self._refresh_buttons()
 
     @property
@@ -223,7 +237,10 @@ class ImportView(View):
 
         from ...core.urlimport import SOURCES
 
-        row = hbox(spacing=theme.px(6))
+        from ..widgets import FlowLayout, vbox
+
+        box = vbox(spacing=theme.px(4))
+        row = FlowLayout(spacing=theme.px(6))          # 1.4.2 (A2-3) : pastilles à la ligne si besoin
         head = label(t("import.sources"), "dim")
         head.setToolTip(t("import.src_list"))
         row.addWidget(head)
@@ -235,10 +252,10 @@ class ImportView(View):
             c.setToolTip(t(f"import.src_{src.key}", n=src.limit) + "\n" + t("import.src_example", ex=src.example))
             row.addWidget(c)
             self.source_chips.append(c)
-        tail = label(t("import.src_list"), "faint")
-        row.addWidget(tail)
-        row.addStretch(1)
-        return row
+        box.addLayout(row)
+        tail = label(t("import.src_list"), "faint", wrap=True)     # 1.4.2 (A2-3) : sur sa ligne, plus coupé
+        box.addWidget(tail)
+        return box
 
     def _paste_list(self) -> None:
         def run(text: str) -> None:
@@ -293,11 +310,11 @@ class ImportView(View):
         counts = {"ok": 0, "review": 0, "missing": 0, "duplicate": 0}
         for m in self.matches:
             counts[m.status] += 1
-        parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.matches)), t("import.sum_found", n=counts["ok"])]
+        parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.matches)), plural("import.sum_found", "import.sum_found_many", counts["ok"])]
         if counts["review"]:
             parts.append(t("import.sum_review", n=counts["review"]))
         if counts["missing"]:
-            parts.append(t("import.sum_missing", n=counts["missing"]))
+            parts.append(plural("import.sum_missing", "import.sum_missing_many", counts["missing"]))
         if counts["duplicate"]:
             parts.append(t("import.sum_duplicate", n=counts["duplicate"]))
         return " · ".join(parts)
@@ -371,8 +388,7 @@ class ImportView(View):
         self._apply_direct_checks(resolved.tracks)
         source = "SoundCloud" if resolved.kind == UrlKind.SOUNDCLOUD else "YouTube"
         extra = [resolved.note] if resolved.note else []
-        if resolved.truncated:
-            extra.append(t("import.truncated"))
+        self._show_more(resolved)                                        # 1.4.2 (C172)
         protected = sum(1 for tr in resolved.tracks if tr.protected)         # 1.4.0-rc.2 (B64)
         if protected:
             extra.append(plural("sc.protected_one", "sc.protected_many", protected))
@@ -382,6 +398,54 @@ class ImportView(View):
         self.ctrl.reannotate(resolved.tracks, self._direct_annotated)
         if resolved.kind == UrlKind.SOUNDCLOUD:                         # 1.4.0 (C10.1)
             self.ctrl.check_originals(resolved.tracks, self._originals_checked)
+
+    # ------------------------------------------------- 1.4.2 (C172) : longues playlists, page par page
+    def _show_more(self, resolved: ResolvedUrl) -> None:
+        """« 200 premiers titres sur 534 » au-dessus du tableau et « Charger les 200 suivants »."""
+        from ...core.urlimport import MAX_ENTRIES
+
+        n = len(resolved.tracks)
+        if not resolved.truncated:
+            self.more_box.hide()
+            return
+        self.more_lbl.setText(t("import.first_of", n=n, total=resolved.total) if resolved.total
+                              else t("import.first_n", n=n))
+        left = resolved.total - n if resolved.total else MAX_ENTRIES
+        self.more_btn.setText(t("import.load_more", n=min(MAX_ENTRIES, max(1, left))))
+        self.more_btn.setEnabled(True)
+        self.more_box.show()
+
+    def load_more(self) -> None:
+        resolved = self.resolved
+        if resolved is None or not resolved.truncated:
+            return
+        token = self._token
+        self.more_btn.setEnabled(False)
+        self.more_btn.setText(t("import.loading_more"))
+        start = resolved.start + len(resolved.tracks)
+
+        def ok(more: ResolvedUrl) -> None:
+            if token != self._token or not self.winfo_exists() or self.resolved is not resolved:
+                return
+            known = {tr.video_id for tr in resolved.tracks}
+            added = [tr for tr in more.tracks if tr.video_id not in known]
+            from dataclasses import replace
+
+            whole = replace(resolved, tracks=resolved.tracks + added, total=more.total or resolved.total,
+                            truncated=more.truncated and bool(added))
+            off = [r.iid for r in self.dl_table.all_rows() if r.values.get("chk") == UNCHECKED]
+            self._load_direct(whole)
+            for iid in off:                                  # les choix déjà faits sont gardés
+                self.dl_table.update_values(iid, chk=UNCHECKED)
+            self._refresh_buttons()
+
+        def err(exc: BaseException) -> None:
+            if token == self._token and self.winfo_exists():
+                self.more_btn.setEnabled(True)
+                self._show_more(resolved)
+            self.ctrl._on_error(exc)
+
+        self.ctrl.import_more(resolved.source_url, start, ok, err)
 
     def _originals_checked(self, tracks: List[TrackResult]) -> None:
         if self.mode != "direct" or not self.winfo_exists():
@@ -513,8 +577,10 @@ class ImportView(View):
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
         n = len(self._checked_tracks()) if self.mode else 0
-        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else t("import.download_selection"))
-        self.dl_btn.setEnabled(bool(n))
+        present = len(self._present_tracks()) if self.mode and not n else 0       # 1.4.2 (C186)
+        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else
+                            t("import.add_present_n", n=present) if present else t("import.download_selection"))
+        self.dl_btn.setEnabled(bool(n or present))
         total = sum(1 for r in self.table.all_rows() if self._checkable(self.table, r.iid)) if self.mode else 0
         self.count_lbl.setText(t("import.checked_count", n=n, total=total) if total else "")
         sel = self.table.selected_iids() if self.mode else []
@@ -547,7 +613,20 @@ class ImportView(View):
             name = self.playlist.name if self.playlist else ""
         else:
             name = self.resolved.name if self.resolved and self.resolved.is_playlist else ""
-        ask_and_download(self, self.ctrl, tracks, new_name=name)
+        ask_and_download(self, self.ctrl, tracks, new_name=name, existing=self._present_tracks())
+
+    def _present_tracks(self) -> List[TrackResult]:
+        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque (non cochés) : ajoutés à la playlist choisie
+        au lieu d'être sautés."""
+        if self.mode == "spotify":
+            out = []
+            for r in self.sp_table.all_rows():
+                m = self.matches[int(r.iid)]
+                if m.status == "duplicate" and m.candidate is not None and r.values.get("chk") != CHECKED:
+                    out.append(m.candidate.track)
+            return out
+        return [self._tracks[r.iid] for r in self.dl_table.all_rows()
+                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate and r.values.get("chk") != CHECKED]
 
     def _menu(self, iids: List[str]) -> list:
         if not iids:

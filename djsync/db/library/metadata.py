@@ -312,6 +312,35 @@ class MetadataMixin:
             out.setdefault(int(cid), []).append(int(pid))
         return out
 
+    def track_extras(self, content_ids: Sequence[int]) -> Dict[int, Dict[str, Any]]:
+        """1.4.2 (C113) : My Tags (noms, dans l'ordre de Rekordbox) et dernière lecture (date du plus récent
+        historique qui contient le son), sans nouvelle analyse. Tables absentes (ancienne clé) : rien."""
+        ids = [int(i) for i in content_ids]
+        out: Dict[int, Dict[str, Any]] = {i: {"mytags": [], "last_played": ""} for i in ids}
+        for k in range(0, len(ids), 800):
+            part = ids[k:k + 800]
+            q = ",".join("?" * len(part))
+            try:
+                rows = self._read(f"SELECT mc.content_id, m.name FROM myTag_content mc JOIN myTag m "
+                                  f"ON m.myTag_id = mc.myTag_id WHERE mc.content_id IN ({q}) "
+                                  f"ORDER BY m.sequenceNo, m.myTag_id", part)
+            except Exception:  # noqa: BLE001 - table absente
+                rows = []
+            for cid, name in rows:
+                if name and name not in out.setdefault(int(cid), {"mytags": [], "last_played": ""})["mytags"]:
+                    out[int(cid)]["mytags"].append(str(name))
+            try:
+                rows = self._read(f"SELECT hc.content_id, h.name FROM history_content hc JOIN history h "
+                                  f"ON h.history_id = hc.history_id WHERE hc.content_id IN ({q})", part)
+            except Exception:  # noqa: BLE001
+                rows = []
+            for cid, name in rows:
+                day = history_date(name)
+                d = out.setdefault(int(cid), {"mytags": [], "last_played": ""})
+                if day and day > d["last_played"]:
+                    d["last_played"] = day
+        return out
+
     def merge_duplicates(self, keep_id: int, remove_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
         """Garde `keep_id` et supprime `remove_ids` : dans chaque playlist, le son gardé PREND LA
         PLACE du doublon (même position ; s'il y était déjà, le doublon est simplement retiré).
