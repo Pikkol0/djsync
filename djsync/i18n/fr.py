@@ -2120,4 +2120,10 @@ STRINGS = {
     "welcome.tour": "Faire la visite guidée d'une minute ensuite (relançable à tout moment depuis l'Aide)",
     "set.fs_format_warn": "Formater efface la clé : copiez d'abord son contenu sur l'ordinateur, puis préparez-la de nouveau avec DJSync (Accueil ▸ Préparer cette clé).",
     "set.pdb_absent_how": "Pour jouer sur d'anciennes platines : dans Rekordbox, exportez une fois cette clé au format « Device Library » ; DJSync la tiendra ensuite à jour.",
+    "space.trim_none": "Rien à supprimer : il n'y a pas plus de {n} points de restauration automatiques.",
+    "space.trim_confirm_title": "Supprimer les anciens points de restauration ?",
+    "space.trim_confirm_one": "{n} point de restauration automatique sera supprimé ({size} libérés). Les {keep} plus récents sont gardés.",
+    "space.trim_confirm_many": "{n} points de restauration automatiques seront supprimés ({size} libérés). Les {keep} plus récents sont gardés.",
+    "space.trim_confirm_detail": "L'état d'origine et vos propres points ne sont jamais supprimés. Impossible à annuler.",
+    "space.trim_confirm_ok": "Supprimer",
 }

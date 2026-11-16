@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QGridLayout, QWidget
 
 from ..core import space
-from ..i18n import num, t
+from ..i18n import num, plural, t
 from . import theme
 from .views.common import human_size
 from .widgets import button, hbox, label
@@ -276,6 +276,24 @@ class SpaceCard:
         self.ctrl.dispatcher.submit(lambda: space.clear_caches(target["data"]), done, self._failed, pool="tools")
 
     def _trim(self, target: Dict[str, Any]) -> None:
+        """1.4.2 (A2-13) : confirmation avec le nombre de points et la place libérée avant de supprimer."""
+        def preview(res: Any) -> None:
+            n, size = res
+            if n <= 0:
+                self.result.setText(t("space.trim_none", n=TRIM_KEEP))
+                return
+            from .dialogs import ConfirmDialog
+
+            ConfirmDialog(self.result.window(), t("space.trim_confirm_title"),
+                          plural("space.trim_confirm_one", "space.trim_confirm_many", n, size=human_size(size),
+                                 keep=TRIM_KEEP),
+                          lambda: self._do_trim(target), confirm_text=t("space.trim_confirm_ok"), danger=True,
+                          detail=t("space.trim_confirm_detail"))
+
+        self.ctrl.dispatcher.submit(lambda: space.trim_preview(target["backup"], TRIM_KEEP), preview, self._failed,
+                                    pool="tools")
+
+    def _do_trim(self, target: Dict[str, Any]) -> None:
         def done(res: Any) -> None:
             n, freed = res
             self.compute(force=True)

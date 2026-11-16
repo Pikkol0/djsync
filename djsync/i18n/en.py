@@ -2121,4 +2121,10 @@ STRINGS = {
     "welcome.tour": "Take the one-minute guided tour after this (you can start it any time from Help)",
     "set.fs_format_warn": "Formatting erases the drive: copy its contents to the computer first, then prepare it again with DJSync (Home ▸ Prepare this drive).",
     "set.pdb_absent_how": "To play on older players: in Rekordbox, export this drive once in the “Device Library” format; DJSync then keeps it up to date.",
+    "space.trim_none": "Nothing to remove: there are no more than {n} automatic restore points.",
+    "space.trim_confirm_title": "Remove old restore points?",
+    "space.trim_confirm_one": "{n} automatic restore point will be deleted ({size} freed). The {keep} most recent are kept.",
+    "space.trim_confirm_many": "{n} automatic restore points will be deleted ({size} freed). The {keep} most recent are kept.",
+    "space.trim_confirm_detail": "The original state and your own restore points are never deleted. This cannot be undone.",
+    "space.trim_confirm_ok": "Delete",
 }

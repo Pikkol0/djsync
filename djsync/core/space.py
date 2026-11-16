@@ -216,6 +216,21 @@ def clear_caches(data_dir: Path) -> int:
     return freed
 
 
+def _trimmable(backup_dir: Path, keep: int) -> list:
+    from ..db import backups
+
+    keep = max(1, int(keep))
+    points = [p for p in backups.list_points(Path(backup_dir)) if p.kind in ("auto", "restore")]
+    points.sort(key=lambda p: p.created, reverse=True)
+    return points[keep:]
+
+
+def trim_preview(backup_dir: Path, keep: int) -> Tuple[int, int]:
+    """1.4.2 (A2-13) : ce que `trim_points` supprimerait (nombre de points, octets), sans rien toucher."""
+    points = _trimmable(backup_dir, keep)
+    return len(points), sum(tree_size(p.path) for p in points)
+
+
 def trim_points(backup_dir: Path, keep: int) -> Tuple[int, int]:
     """Ne garde que les `keep` points automatiques (et « avant restauration ») les plus récents.
     L'origine et les points manuels ne sont jamais touchés. Renvoie (points supprimés, octets)."""
