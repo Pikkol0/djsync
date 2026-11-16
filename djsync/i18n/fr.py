@@ -889,7 +889,6 @@ STRINGS = {
     "help.button": "Raccourcis et aide",
     "help.title": "Aide",
     "help.shortcuts": "Raccourcis clavier",
-    "help.guide": "Guide rapide",
     "help.key_space": "Espace",
     "help.sc_omnibar": "Chercher ou coller un lien (omnibar de l'Accueil), depuis n'importe où",
     "help.sc_tabs": "Ctrl+1 Accueil, 2 Rechercher, 3 Bibliothèque, 4 Téléchargements, 5 Diagnostic, 6 Paramètres, 7 Haute qualité, 8 Lien ou playlist, 9 Retours",
@@ -902,36 +901,6 @@ STRINGS = {
     "help.sc_select_all": "Sélectionner toutes les lignes d'un tableau",
     "help.sc_settings": "Paramètres",
     "help.sc_help": "Cette aide",
-    "help.topic_search_title": "Rechercher et télécharger",
-    "help.topic_search": "Tapez dans Recherche : les résultats s'affichent pendant la frappe. L'icône ↓ en bout de ligne "
-                         "télécharge ce titre ; sélectionnez plusieurs lignes pour les télécharger ensemble. "
-                         "Double-clic : préécoute avant téléchargement. Les liens Spotify, YouTube et SoundCloud vont "
-                         "dans Importer un lien (ou la barre de recherche de l'Accueil).",
-    "help.topic_library_title": "Bibliothèque et playlists",
-    "help.topic_library": "« Tous les titres » liste tout le contenu de la clé. Glissez des titres sur une playlist à "
-                          "gauche pour les y ajouter. Dans une playlist, glissez les lignes ou utilisez ↑ / ↓ puis "
-                          "« Enregistrer l'ordre ». Clic droit pour plus d'options.",
-    "help.topic_analysis_title": "Analyse",
-    "help.topic_analysis": "BPM, grille, tonalité et formes d'onde sont calculés à la demande (Bibliothèque ▸ Outils ▸ "
-                           "Analyser), ou à chaque téléchargement si vous l'activez dans les Paramètres. Les titres "
-                           "analysés par Rekordbox sont conservés tels quels.",
-    "help.topic_grid_title": "Corriger une grille de temps",
-    "help.topic_grid": "Si la grille est décalée sur les platines : Bibliothèque ▸ clic droit ▸ Modifier la grille. "
-                       "Décalez-la de 1 ou 10 ms, choisissez le 1er temps de la mesure ou imposez le BPM, écoutez, "
-                       "puis enregistrez.",
-    "help.topic_duplicates_title": "Doublons",
-    "help.topic_duplicates": "Bibliothèque ▸ Outils ▸ Trouver les doublons regroupe les titres qui semblent identiques "
-                             "(« Artiste - Titre (Clip Officiel) » et « Titre »). Choisissez celui à garder, corrigez son "
-                             "titre et son artiste : il remplace les autres dans leurs playlists.",
-    "help.topic_diagnostic_title": "Diagnostic",
-    "help.topic_diagnostic": "Accueil ▸ Diagnostic (sur la carte de la clé ou du PC) cherche les doublons, les fichiers de faible débit (MP3 < 192 kbit/s) et les mauvaises sources (clip officiel, live, lyrics…). Gardez une version, ou téléchargez une version propre : elle remplace l'ancienne dans ses playlists, à la même position.",
-    "help.topic_harmonic_title": "Mix harmonique",
-    "help.topic_harmonic": "Les tonalités sont affichées en notation Camelot avec leur couleur. Sélectionnez un titre "
-                           "puis « Harmonique » pour ne garder que les titres compatibles (même clé, ±1, relative "
-                           "majeure/mineure).",
-    "help.topic_safety_title": "Sécurité",
-    "help.topic_safety": "Avant chaque modification, DJSync copie exportLibrary.db (et export.pdb) dans le dossier "
-                         "DJSync_Backups de la clé. Fermez Rekordbox pendant que DJSync écrit sur la clé.",
 
     # ---- paramètres
     "settings.title": "Paramètres",
@@ -2143,4 +2112,6 @@ STRINGS = {
     "transfer.again": "Nouveau transfert",
     "transfer.backup_label": "Avant transfert de playlists depuis {origin}",
     "task.transfer": "Transfert de playlists",
+    "help.key_enter": "Entrée",
+    "help.key_delete": "Suppr",
 }

@@ -351,6 +351,21 @@ class FitBar(QWidget):
         super().resizeEvent(e)
         self.fit()
 
+    def showEvent(self, e: Any) -> None:         # noqa: N802
+        """1.4.2 (A2-3) : fenêtre redimensionnée pendant que la page était cachée : la barre reçoit sa
+        nouvelle largeur avant d'être visible (palier remis à 0) et rien ne refaisait le calcul ensuite
+        (boutons qui se chevauchaient à 860 px)."""
+        super().showEvent(e)
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._refit_shown)
+
+    def _refit_shown(self) -> None:
+        try:
+            self.fit()
+        except RuntimeError:                    # barre détruite entre-temps
+            pass
+
     def event(self, e: Any) -> bool:
         """Zoom, police ou texte d'un bouton changés : le palier est recalculé (une fois, juste après).
         1.4.0-rc.6 (B85) : sans changement de mesure ni de largeur, ce calcul ne touche à rien (pas de boucle)."""

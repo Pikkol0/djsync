@@ -237,7 +237,10 @@ class ImportView(View):
 
         from ...core.urlimport import SOURCES
 
-        row = hbox(spacing=theme.px(6))
+        from ..widgets import FlowLayout, vbox
+
+        box = vbox(spacing=theme.px(4))
+        row = FlowLayout(spacing=theme.px(6))          # 1.4.2 (A2-3) : pastilles à la ligne si besoin
         head = label(t("import.sources"), "dim")
         head.setToolTip(t("import.src_list"))
         row.addWidget(head)
@@ -249,10 +252,10 @@ class ImportView(View):
             c.setToolTip(t(f"import.src_{src.key}", n=src.limit) + "\n" + t("import.src_example", ex=src.example))
             row.addWidget(c)
             self.source_chips.append(c)
-        tail = label(t("import.src_list"), "faint")
-        row.addWidget(tail)
-        row.addStretch(1)
-        return row
+        box.addLayout(row)
+        tail = label(t("import.src_list"), "faint", wrap=True)     # 1.4.2 (A2-3) : sur sa ligne, plus coupé
+        box.addWidget(tail)
+        return box
 
     def _paste_list(self) -> None:
         def run(text: str) -> None:

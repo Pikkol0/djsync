@@ -1,4 +1,7 @@
-"""Aide (F1 ou bouton « Aide ») : raccourcis clavier et mode d'emploi rapide."""
+"""Aide (F1 ou bouton « Aide ») : premiers pas et raccourcis clavier.
+
+1.4.2 (A2-7) : l'onglet « Guide rapide » (interface d'avant la 1.4.1) est retiré : les Premiers pas et la visite
+guidée le remplacent."""
 from __future__ import annotations
 
 from typing import Any, List, Tuple
@@ -25,8 +28,8 @@ SHORTCUTS: List[Tuple[str, str]] = [
     ("Ctrl + ,", "help.sc_settings"),
     ("F1", "help.sc_help"),
 ]
-TOPICS = ["help.topic_search", "help.topic_library", "help.topic_analysis", "help.topic_grid",
-          "help.topic_duplicates", "help.topic_diagnostic", "help.topic_harmonic", "help.topic_safety"]
+# 1.4.2 (A2-6) : noms des touches traduits (« Entrée », « Suppr »)
+KEY_NAMES = {"Space": "help.key_space", "Enter": "help.key_enter", "Delete": "help.key_delete"}
 
 
 def _scroll(inner: QWidget) -> QScrollArea:
@@ -66,24 +69,13 @@ class HelpDialog(BaseDialog):
         grid = QGridLayout(sc)
         grid.setHorizontalSpacing(theme.px(16))
         for i, (keys, key) in enumerate(SHORTCUTS):
-            k = label(t("help.key_space") if keys == "Space" else keys, "accent")
+            k = label(t(KEY_NAMES[keys]) if keys in KEY_NAMES else keys, "accent")
             k.setStyleSheet("font-family: monospace;")
-            grid.addWidget(k, i, 0)
-            grid.addWidget(label(t(key), "dim"), i, 1)
+            grid.addWidget(k, i, 0, Qt.AlignTop)
+            grid.addWidget(label(t(key), "dim", wrap=True), i, 1)     # 1.4.2 (A2-3) : plus de défilement horizontal
         grid.setColumnStretch(1, 1)
         grid.setRowStretch(len(SHORTCUTS), 1)
         tabs.addTab(_scroll(sc), t("help.shortcuts"))
-
-        guide = QWidget()
-        lay = vbox(guide, margins=theme.px(8), spacing=theme.px(4))
-        for key in TOPICS:
-            title = label(t(key + "_title"))
-            title.setStyleSheet("font-weight:600;")
-            lay.addSpacing(theme.px(6))
-            lay.addWidget(title)
-            lay.addWidget(label(t(key), "dim", wrap=True))
-        lay.addStretch(1)
-        tabs.addTab(_scroll(guide), t("help.guide"))
 
         tabs.setCurrentIndex(0 if start else 1)
         self.body.addWidget(tabs, 1)

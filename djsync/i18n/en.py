@@ -890,7 +890,6 @@ STRINGS = {
     "help.button": "Shortcuts & help",
     "help.title": "Help",
     "help.shortcuts": "Keyboard shortcuts",
-    "help.guide": "Quick guide",
     "help.key_space": "Space",
     "help.sc_omnibar": "Search or paste a link (Home omnibar), from anywhere",
     "help.sc_tabs": "Ctrl+1 Home, 2 Search, 3 Library, 4 Downloads, 5 Diagnostic, 6 Settings, 7 High quality, 8 Link or playlist, 9 Feedback",
@@ -903,31 +902,6 @@ STRINGS = {
     "help.sc_select_all": "Select every row of a table",
     "help.sc_settings": "Settings",
     "help.sc_help": "This help",
-    "help.topic_search_title": "Search and download",
-    "help.topic_search": "Type in Search: results appear as you type. The ↓ icon at the end of a row downloads that "
-                         "track; select several rows to download them together. Double-click to preview before "
-                         "downloading. Spotify, YouTube and SoundCloud links go in Import URL (or the Home omnibar).",
-    "help.topic_library_title": "Library and playlists",
-    "help.topic_library": "\"All tracks\" lists everything on the drive. Drag tracks onto a playlist on the left to add "
-                          "them. In a playlist, drag rows or use ↑ / ↓ then \"Save order\". Right-click for more.",
-    "help.topic_analysis_title": "Analysis",
-    "help.topic_analysis": "BPM, beat grid, key and waveforms are computed on demand (Library ▸ Tools ▸ Analyse), or "
-                           "at every download if you enable it in Settings. Tracks analysed by Rekordbox are kept.",
-    "help.topic_grid_title": "Fixing a beat grid",
-    "help.topic_grid": "If the grid is off on the decks: Library ▸ right-click ▸ Edit beat grid. Shift the grid by "
-                       "1 or 10 ms, choose the first beat of the bar, or set the BPM, listen, then save.",
-    "help.topic_duplicates_title": "Duplicates",
-    "help.topic_duplicates": "Library ▸ Tools ▸ Find duplicates groups tracks that look identical (\"Artist - Title "
-                             "(Official Video)\" vs \"Title\"). Choose the one to keep, fix its title and artist: it "
-                             "replaces the others in their playlists.",
-    "help.topic_diagnostic_title": "Diagnostic",
-    "help.topic_diagnostic": "Home ▸ Diagnostic (on the drive or computer card) looks for duplicates, low-bitrate files (MP3 < 192 kbps) and bad sources (music video, live, lyrics…). Keep one version, or download a clean one: it replaces the old one in its playlists, at the same position.",
-    "help.topic_harmonic_title": "Harmonic mixing",
-    "help.topic_harmonic": "Keys are shown in Camelot notation with their colour. Select a track and click "
-                           "\"Harmonic\" to keep only compatible tracks (same key, ±1, relative major/minor).",
-    "help.topic_safety_title": "Safety",
-    "help.topic_safety": "Before every change, DJSync copies exportLibrary.db (and export.pdb) into the "
-                         "DJSync_Backups folder of the drive. Close Rekordbox while DJSync writes to the drive.",
 
     # ---- settings
     "settings.title": "Settings",
@@ -2137,4 +2111,6 @@ STRINGS = {
     "transfer.again": "New transfer",
     "transfer.backup_label": "Before playlist transfer from {origin}",
     "task.transfer": "Playlist transfer",
+    "help.key_enter": "Enter",
+    "help.key_delete": "Delete",
 }

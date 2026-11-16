@@ -264,7 +264,7 @@ class LibraryView(View):
         head = hbox()
         titles = vbox(spacing=0)
         self.title_lbl = label(t("lib.all_tracks"), "title")
-        self.sub_lbl = label("", "dim")
+        self.sub_lbl = label("", "dim", wrap=True)                    # 1.4.2 (A2-3) : plus coupé à 860 px
         titles.addWidget(self.title_lbl)
         titles.addWidget(self.sub_lbl)
         head.addLayout(titles, 1)
@@ -557,6 +557,7 @@ class LibraryView(View):
                     it.setIcon(0, qicon("watch", 16, theme.ACCENT))
                     it.setToolTip(0, t("watch.empty_title"))
                 if p.is_folder:
+                    it.setFirstColumnSpanned(True)                         # 1.4.2 (A2-3) : pas de nombre
                     add(it, p.playlist_id)
                     it.setExpanded(True)
 
@@ -570,6 +571,8 @@ class LibraryView(View):
 
     def _auto_group_counts(self, group: QTreeWidgetItem) -> None:
         """1.4.2 (C188) : groupe replié, son total à droite (sons à analyser + introuvables) ; déplié, rien."""
+        # 1.4.2 (A2-3) : sans nombre, le nom prend aussi la place de la colonne des nombres (« Listes automatiqu… »)
+        group.setFirstColumnSpanned(group.isExpanded())
         if group.isExpanded():
             group.setText(1, "")
             return
