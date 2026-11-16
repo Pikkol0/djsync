@@ -43,8 +43,8 @@ def test_plural_rules():
     assert i18n.plural("lib.tracks_one", "lib.tracks_many", 1) == "1 track"
     assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 tracks"
     i18n.set_language("fr")
-    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 titre"
-    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 2) == "2 titres"
+    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 0) == "0 son"            # 1.4.2 (A2-8)
+    assert i18n.plural("lib.tracks_one", "lib.tracks_many", 2) == "2 sons"
 
 
 def test_model_labels_follow_the_language():

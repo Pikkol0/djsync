@@ -234,7 +234,7 @@ def test_c162_estimated_quality_wording():
     fr_text, en_text = texts(fr), texts(en)
     assert "Qualité réelle" not in fr_text and "qualité réelle" not in fr_text
     assert "Real quality" not in en_text and "real quality" not in en_text
-    assert "Qualité supposée" in fr_text and "Estimated quality" in en_text
+    assert "Qualité estimée" in fr_text and "Estimated quality" in en_text          # 1.4.2 (A2-8) : « estimée »
 
 
 # ------------------------------------------------------------------ C165 : Paramètres rangés
