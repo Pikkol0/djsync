@@ -33,6 +33,22 @@ def test_a2_1_settings_fit_the_page(demo, size):  # noqa: F811
         wide = [(type(w).__name__, w.minimumSizeHint().width(), getattr(w, "text", lambda: "")()[:60])
                 for w in page.findChildren(QWidget) if w.isVisibleTo(page) and not w.layout()
                 and w.minimumSizeHint().width() > room]
+
+        def rows(lay, out):                     # rangées trop larges, avec ce qu'elles contiennent
+            for i in range(lay.count()):
+                it = lay.itemAt(i)
+                sub = it.layout() or (it.widget().layout() if it.widget() is not None else None)
+                if sub is None:
+                    continue
+                if sub.minimumSize().width() > room - 40:
+                    out.append((sub.minimumSize().width(), [
+                        (type(sub.itemAt(k).widget()).__name__, sub.itemAt(k).widget().minimumSizeHint().width(),
+                         getattr(sub.itemAt(k).widget(), "text", lambda: "")()[:30])
+                        for k in range(sub.count()) if sub.itemAt(k).widget() is not None]))
+                rows(sub, out)
+            return out
+
+        wide += rows(page.layout(), [])[-6:]
         assert page.minimumSizeHint().width() <= room, (lang, size, wide)
     set_language("en")
     demo.ctrl.settings.language = "en"
