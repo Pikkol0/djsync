@@ -63,6 +63,7 @@ TABS = [  # (clé, clé i18n, icône, classe)
 NAV = [("home", "tab.home", "home"), ("search", "nav.find", "search"), ("library", "tab.library", "library"),
        ("downloads", "nav.downloads", "downloads"), ("diagnostic", "nav.diagnostic", "diagnostic"),
        ("settings", "tab.settings", "settings")]
+DIAG_ALERTS = ("missing", "dup", "quality")             # 1.4.2 (A2-15) : compteur du volet
 NAV_OF = {"hq": "search", "import": "search"}           # vue -> entrée du volet cochée
 # 1.4.2 (C182) : raccourcis Ctrl+chiffre attachés aux pages (plus à leur position dans le volet)
 SHORTCUT_KEYS = {"home": 1, "search": 2, "library": 3, "downloads": 4, "diagnostic": 5, "settings": 6,
@@ -814,8 +815,11 @@ class DJSyncApp(QMainWindow):
     def diag_total(self) -> Optional[int]:
         """1.4.1 (C140) : somme des compteurs déjà connus du Diagnostic (None si aucun) ; jamais de calcul
         lancé pour ce chiffre."""
+        # 1.4.2 (A2-15) : seulement ce qui demande d'agir (introuvables, doublons, qualité) ; les sons
+        # « à uniformiser » gonflaient le chiffre (12 sur 11 sons)
         try:
-            known = [n for n in self.ctrl.diag_counts.values() if n is not None]
+            counts = self.ctrl.diag_counts
+            known = [counts.get(k) for k in DIAG_ALERTS if counts.get(k) is not None]
         except Exception:  # noqa: BLE001
             return None
         return sum(known) if known else None
