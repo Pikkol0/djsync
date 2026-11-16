@@ -311,11 +311,11 @@ def test_uniformize_from_home_and_search_differently(demo, monkeypatch):
         "title": "Ma Version", "artists": ["Quelqu'un", "Invité"], "album": "Album X", "year": 2001, "genre": "House",
         "score": 100, "sure": True, "id": tid})
     demo.show_view("home")
-    dlg = ScopeDialog(demo, demo.ctrl)
-    dlg.choice.setCurrentIndex(1)                                             # toute la bibliothèque
-    dlg._ok()
+    ScopeDialog(demo, demo.ctrl)                       # 1.4.2 (C198) : portée choisie dans l'onglet
     assert pump(demo, 6, lambda: getattr(demo, "uniformize_page", None) is not None)
     page = demo.uniformize_page
+    page.scope_bar.choice.setCurrentIndex(1)                                 # toute la bibliothèque
+    page.scope_bar.start()
     assert pump(demo, 10, lambda: page.scan_finished)
     page.filter.setCurrentText(page._filters["all"])
     cid = next(c for c, x in page.tracks.items() if x.title == "Mon Survet")

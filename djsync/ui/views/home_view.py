@@ -222,7 +222,8 @@ class HomeView(View):
             counted = "missing" in self.ctrl.diag_counts
         except Exception:  # noqa: BLE001
             counted = True
-        if self.ctrl.has_library and not counted:
+        # 1.4.2 (B103) : seulement avec « Analyser à l'ouverture » ; sinon les derniers chiffres retenus
+        if self.ctrl.has_library and not counted and self.ctrl.diag_auto():
             self.ctrl.diag_quick_counts()           # C182 : compte rapide (sans lire les sons)
 
     # ------------------------------------------------- 1.4.2 (C182) : « À régler »

@@ -26,11 +26,11 @@ def test_uniformize_blocks_are_never_squeezed(demo, monkeypatch):  # noqa: F811
     monkeypatch.setattr(lib, "list_tracks", lambda: many)
     monkeypatch.setattr(lib, "track_details", lambda cid: {})
     monkeypatch.setattr(metadata, "match", lambda *a, **k: {})
-    dlg = ScopeDialog(demo, demo.ctrl)
-    dlg.choice.setCurrentIndex(1)
-    dlg._ok()
+    ScopeDialog(demo, demo.ctrl)                       # 1.4.2 (C198) : portée choisie dans l'onglet
     assert pump(demo, 6, lambda: getattr(demo, "uniformize_page", None) is not None)
     page = demo.uniformize_page
+    page.scope_bar.choice.setCurrentIndex(1)                                 # toute la bibliothèque
+    page.scope_bar.start()
     seen = []
     orig = page._flush_pending
 

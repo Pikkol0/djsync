@@ -360,6 +360,10 @@ class SettingsView(View):
         row.addWidget(self.notation)
         row.addStretch(1)
         card.addLayout(row)
+        self.diag_auto_var = WrapCheckBox(t("settings.diag_auto"))                   # 1.4.2 (B103)
+        self.diag_auto_var.setChecked(bool(getattr(s, "diag_auto", False)))
+        self.diag_auto_var.setToolTip(t("settings.diag_auto_tip"))
+        card.addWidget(self.diag_auto_var)
         row = hbox()
         row.addWidget(button(t("settings.analyse_now"), lambda: self.ctrl._emit("show_unanalysed"), icon="wave"))
         row.addStretch(1)
@@ -543,6 +547,17 @@ class SettingsView(View):
         row.addWidget(self.watch_folder, 1)
         row.addWidget(button(t("watch.settings_browse"), lambda: self._browse_into(self.watch_folder), icon="folder"))
         row.addWidget(button(t("watch.settings_clear"), lambda: self.watch_folder.setText(""), icon="close"))
+        card.addLayout(row)
+        # 1.4.2 (B102) : où ranger ce qui arrive (bibliothèque de l'ordinateur par défaut, ou clé ouverte)
+        row = hbox(spacing=theme.px(8))
+        row.addWidget(self._fixed(label(t("watch.settings_target"))))
+        self.watch_target = ShrinkCombo()
+        self.watch_target.addItem(t("watch.target_local"), "local")
+        self.watch_target.addItem(t("watch.target_usb"), "usb")
+        self.watch_target.setCurrentIndex(1 if s.watch_target == "usb" else 0)
+        self.watch_target.setToolTip(t("watch.settings_target_tip"))
+        row.addWidget(self.watch_target)
+        row.addStretch(1)
         card.addLayout(row)
         self.watch_playlist_var = WrapCheckBox(t("watch.settings_playlist", name=t("watch.playlist")))
         self.watch_playlist_var.setChecked(s.watch_playlist)
@@ -1659,6 +1674,7 @@ class SettingsView(View):
                 "analyze_after_download_usb": self.analyze_usb_var.isChecked(),
                 "analyze_after_download_local": self.analyze_local_var.isChecked(),
                 "auto_cue": self.cue_var.isChecked(),
+                "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
                 "download_quality": self.format_menu.currentData() or "original",
@@ -1673,6 +1689,7 @@ class SettingsView(View):
                 "soulseek_share": self.slsk_share_var.isChecked(),
                 "player_format": pick(self._player_formats, self.player_format.currentText(), ""),
                 "watch_playlist": self.watch_playlist_var.isChecked(),
+                "watch_target": self.watch_target.currentData() or "local",
                 "light_mode": pick(self._light_labels, self.light_menu.currentText(), "auto"),
                 "audio_latency_ms": int(self.latency_box.value()),
                 "check_updates": self.update_var.isChecked(),
@@ -1723,6 +1740,7 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
             s.waveform_style = style
@@ -1743,6 +1761,7 @@ class SettingsView(View):
         s.soulseek_share = self.slsk_share_var.isChecked()
         s.player_format = next((k for k, v in self._player_formats.items() if v == self.player_format.currentText()), "")
         s.watch_playlist = self.watch_playlist_var.isChecked()
+        s.watch_target = self.watch_target.currentData() or "local"             # 1.4.2 (B102)
         s.light_mode = next((k for k, v in self._light_labels.items() if v == self.light_menu.currentText()), "auto")
         s.audio_latency_ms = int(self.latency_box.value())
         s.check_updates = self.update_var.isChecked()

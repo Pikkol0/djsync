@@ -36,6 +36,7 @@ def test_b77_watcher_kept_between_ticks_and_file_taken(demo, tmp_path, monkeypat
     os.utime(song, (old, old))
     # le réglage écrit avec l'autre séparateur (comme la boîte de choix de dossier sous Windows)
     ctrl.settings.watch_folder = str(folder) + os.sep            # autre écriture du même dossier
+    ctrl.settings.watch_target = "usb"          # 1.4.2 (B102) : la clé de démonstration
     taken = []
     monkeypatch.setattr(ctrl, "import_files", lambda files, **kw: taken.extend(files))
     ctrl.watch_tick()

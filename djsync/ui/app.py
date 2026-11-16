@@ -212,6 +212,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("tasks", self._analysis_changed)                           # 1.4.1 (C145)
         self.ctrl.on("open_grid", self.open_grid_editor)
         self.ctrl.on("open_uniformize", self.open_uniformize)
+        self.ctrl.on("open_uniformize_choose", self._open_uniformize_choose)                     # 1.4.2 (C198)
         self.ctrl.on("error_report_ask", self._ask_error_report)
         self.ctrl.on("engine_offer", self._engine_offer)
         self.ctrl.on("app_update", self._app_update)
@@ -1031,8 +1032,9 @@ class DJSyncApp(QMainWindow):
         else:
             go()
 
-    def open_uniformize(self, tracks: Any, scope: str) -> None:
-        """1.2.2 (C14) : page « Uniformiser » dans la zone de contenu (comme l'éditeur de grille)."""
+    def open_uniformize(self, tracks: Any, scope: str, choose: bool = False) -> None:
+        """1.2.2 (C14) : page « Uniformiser » dans la zone de contenu (comme l'éditeur de grille).
+        1.4.2 (C198) : `choose` : portée choisie dans l'onglet, rien d'analysé avant « Commencer »."""
         from .uniformize_page import UniformizePage
 
         page = getattr(self, "uniformize_page", None)
@@ -1041,9 +1043,18 @@ class DJSyncApp(QMainWindow):
             page.close()
         self._uni_return = self._current or "library"
         # 1.4.1-rc.2 (B99) : les autres onglets du Diagnostic restent ouverts derrière (tâche en cours gardée)
-        self.uniformize_page = UniformizePage(self.stack, self.ctrl, list(tracks), scope, on_close=self._uni_closed)
+        self.uniformize_page = UniformizePage(self.stack, self.ctrl, list(tracks), scope, on_close=self._uni_closed,
+                                              choose=choose)
         self.stack.addWidget(self.uniformize_page)
         self._show_page(self.uniformize_page)
+
+    def _open_uniformize_choose(self) -> None:
+        """1.4.2 (C198) : l'onglet Uniformiser déjà ouvert revient tel quel ; sinon il s'ouvre sur le choix."""
+        page = getattr(self, "uniformize_page", None)
+        if page is not None and page.winfo_exists():
+            self._show_page(page)
+            return
+        self.open_uniformize([], "", choose=True)
 
     def _uni_closed(self) -> None:
         page, self.uniformize_page = getattr(self, "uniformize_page", None), None
@@ -1162,7 +1173,8 @@ class DJSyncApp(QMainWindow):
                 return
             page_cls(self, self.ctrl)
 
-        self.ctrl.diag_quick_counts()
+        if self.ctrl.diag_auto():                   # 1.4.2 (B103) : plus de calcul à l'ouverture par défaut
+            self.ctrl.diag_quick_counts()
         if from_page is None or tab == "uniformize":
             go()                      # Uniformiser : la page actuelle reste tant que la portée n'est pas choisie
             return

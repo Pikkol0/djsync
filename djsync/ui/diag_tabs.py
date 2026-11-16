@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from ..i18n import t
@@ -128,3 +129,31 @@ def add_tabs(dialog: Any, controller: Any, current: str) -> Optional[DiagTabs]:
     tabs = DiagTabs(dialog, controller, current)
     dialog.body.insertWidget(1, tabs)
     return tabs
+
+
+def idle_panel(page: Any, controller: Any, tab: str, start: Any) -> QWidget:
+    """1.4.2 (B103) : onglet ouvert sans calcul : derniers chiffres et leur date, « Analyser maintenant »,
+    et le rappel du réglage qui recalcule à chaque ouverture."""
+    from ..i18n import date_text
+    from .widgets import button, label, panel, vbox
+
+    box = panel()
+    lay = vbox(box, margins=theme.px(14), spacing=theme.px(8))
+    last = controller.diag_last(tab)
+    if last is not None:
+        lay.addWidget(label(t("diag.idle_last", n=last[0], date=date_text(last[1])), "h2"))
+    else:
+        lay.addWidget(label(t("diag.idle_never"), "h2"))
+    lay.addWidget(label(t("diag.idle_why"), "dim", wrap=True))
+    go = button(t("diag.analyse_now"), start, kind="primary", icon="refresh")
+    go.setObjectName("diag_analyse_now")
+    lay.addWidget(go, 0, Qt.AlignLeft)
+
+    def open_setting() -> None:
+        win = page.window()
+        if hasattr(win, "_open_settings_section"):
+            win._open_settings_section("analysis")
+
+    lay.addWidget(button(t("diag.idle_setting"), open_setting, kind="flat", icon="settings"), 0, Qt.AlignLeft)
+    page.analyse_now_btn = go
+    return box

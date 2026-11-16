@@ -72,6 +72,17 @@ def _rekordbox_closed(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _diag_computes_on_open(monkeypatch):
+    """1.4.2 (B103) : les tests d'avant B103 ouvrent le Diagnostic et attendent ses calculs ; ceux de B103
+    remettent ALWAYS_READY à False."""
+    try:
+        from djsync.ui.ctrl import diagnostic
+    except ImportError:              # PySide6 absent
+        return
+    monkeypatch.setattr(diagnostic, "ALWAYS_READY", True)
+
+
+@pytest.fixture(autouse=True)
 def _no_tour_offer(monkeypatch):
     """1.4.2 (C178) : pas de proposition de visite guidée au démarrage des tests (ses propres tests la testent)."""
     try:

@@ -100,7 +100,30 @@ class MissingFilesDialog(BaseDialog):
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
-        controller.find_missing(self._loaded)
+        if controller.diag_ready("missing"):                  # 1.4.2 (B103) : rien à l'ouverture par défaut
+            self.analyse_now()
+        else:
+            self._idle()
+
+    def _idle(self) -> None:
+        from .diag_tabs import idle_panel
+
+        self._is_idle = True
+        self.count.setText("")
+        self._clear_detail()
+        self.detail_lay.addWidget(idle_panel(self, self.ctrl, "missing", self.analyse_now))
+        self.detail_lay.addStretch(1)
+        self._show_empty(True)
+
+    def analyse_now(self) -> None:
+        """1.4.2 (B103) : « Analyser maintenant » (ou ouverture avec le réglage coché)."""
+        self._is_idle = False
+        self.ctrl.diag_mark_run("missing")
+        self.count.setText(t("missing.searching"))
+        self._clear_detail()
+        self.detail_lay.addWidget(label(t("missing.searching_sub"), "faint", wrap=True))
+        self.detail_lay.addStretch(1)
+        self.ctrl.find_missing(self._loaded)
 
     # ------------------------------------------------------------------ liste
     def _loaded(self, items: List[Any]) -> None:
@@ -182,6 +205,7 @@ class MissingFilesDialog(BaseDialog):
             item = self.detail_lay.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()                                    # 1.4.2 (B103) : rien ne reste en dessous
                 w.deleteLater()
             elif item.layout() is not None:
                 _drop_layout(item.layout())

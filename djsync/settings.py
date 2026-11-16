@@ -143,6 +143,15 @@ class Settings:
     watch_folder: str = ""             # 1.4.0 (C10.3) : dossier surveillé (vide = désactivé)
     watch_playlist: bool = True        # ranger les sons importés du dossier dans la playlist « Dossier surveillé »
     watch_first_done: bool = False     # 1.4.0-rc.5 (C160) : message du tout premier son importé déjà montré
+    # 1.4.2 (B102) : bibliothèque que remplit le dossier surveillé : « local » (bibliothèque de l'ordinateur,
+    # par défaut) ou « usb » (la clé ouverte). Si elle n'est pas ouverte, les fichiers attendent dans le dossier.
+    watch_target: str = "local"
+    # 1.4.2 (B103) : le Diagnostic ne calcule plus rien à l'ouverture (bouton « Analyser maintenant ») ;
+    # coché, il recalcule à chaque ouverture comme avant. Derniers chiffres gardés par bibliothèque, avec leur date.
+    diag_auto: bool = False
+    uni_scope: str = "problems"         # 1.4.2 (C198) : dernière portée d'Uniformiser (présélectionnée)
+    uni_scope_playlist: str = ""
+    diag_last: dict = field(default_factory=dict)
     watch_scanned: str = ""            # 1.4.1 (B95) : dossier (et bibliothèque) déjà rattrapés à l'activation
     soundcloud_original: bool = True   # 1.4.0 (C10.1) : fichier d'origine SoundCloud quand l'artiste le permet
     soundcloud_browser: str = ""       # navigateur où l'utilisateur est connecté à SoundCloud (cookies)

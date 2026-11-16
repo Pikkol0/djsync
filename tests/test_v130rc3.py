@@ -383,11 +383,11 @@ def test_search_results_are_two_line_cards_that_fit(demo, monkeypatch):  # noqa:
 
     from .qt_util import pump
 
-    dlg = ScopeDialog(demo, demo.ctrl)
-    dlg.choice.setCurrentIndex(1)
-    dlg._ok()
+    ScopeDialog(demo, demo.ctrl)                       # 1.4.2 (C198) : portée choisie dans l'onglet
     assert pump(demo, 6, lambda: getattr(demo, "uniformize_page", None) is not None)
     page = demo.uniformize_page
+    page.scope_bar.choice.setCurrentIndex(1)                                 # toute la bibliothèque
+    page.scope_bar.start()
     assert pump(demo, 10, lambda: page.scan_finished)
     assert page.scan_bar.isHidden()                                           # avancement fini : barre cachée
     page.filter.setCurrentText(page._filters["all"])

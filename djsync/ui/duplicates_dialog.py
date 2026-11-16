@@ -185,7 +185,35 @@ class DuplicatesDialog(BaseDialog):
         self.show_dialog()
         if full:
             controller.message("info", t("dup.full_running"))
-        controller.find_duplicates(self._loaded, self._progress, full=full)
+        if full or controller.diag_ready("dup"):              # 1.4.2 (B103) : rien à l'ouverture par défaut
+            self.analyse_now()
+        else:
+            self._idle()
+
+    def _idle(self) -> None:
+        from .diag_tabs import idle_panel
+
+        self.count.setText("")
+        self.bar.hide()
+        self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
+        self._clear_detail()
+        self.list.hide()
+        self.detail_lay.addWidget(idle_panel(self, self.ctrl, "dup", self.analyse_now))
+        self.detail_lay.addStretch(1)
+        for b in (self.later_btn, self.skip_btn, self.apply_btn):
+            b.setEnabled(False)
+
+    def analyse_now(self) -> None:
+        """1.4.2 (B103) : « Analyser maintenant » (ou ouverture avec le réglage coché, ou détection complète)."""
+        self.ctrl.diag_mark_run("dup")
+        self.list.show()
+        self.bar.setRange(0, 0)
+        self.bar.show()
+        self.count.setText(t("dup.searching"))
+        self._clear_detail()
+        self.detail_lay.addWidget(label(t("dup.searching"), "faint"))
+        self.detail_lay.addStretch(1)
+        self.ctrl.find_duplicates(self._loaded, self._progress, full=self._full)
 
     def _progress(self, i: int, n: int) -> None:
         if self.winfo_exists() and not self.groups:
@@ -357,6 +385,7 @@ class DuplicatesDialog(BaseDialog):
             item = self.detail_lay.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()                                    # 1.4.2 (B103) : rien ne reste en dessous
                 w.deleteLater()
             elif item.layout() is not None:
                 _drop_layout(item.layout())

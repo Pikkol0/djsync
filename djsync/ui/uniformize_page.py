@@ -466,7 +466,9 @@ class TrackBlock(QFrame):
 # ============================================================================ la page
 class UniformizePage(QWidget):
     def __init__(self, parent: Any, controller: Any, tracks: List[LibraryTrack], scope: str,
-                 on_close: Optional[Any] = None) -> None:
+                 on_close: Optional[Any] = None, choose: bool = False) -> None:
+        """`choose` (1.4.2, C198) : ouvert depuis le Diagnostic ou l'Accueil : la portée se choisit en haut de
+        l'onglet (dernier choix présélectionné) et rien n'est analysé avant « Commencer »."""
         super().__init__(parent)
         self.ctrl, self.scope = controller, scope
         self._on_close = on_close
@@ -509,7 +511,8 @@ class UniformizePage(QWidget):
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
         titles = vbox(spacing=0)
-        titles.addWidget(label(t("uni.title", scope=scope), "title"))
+        self.title_lbl = label(t("uni.title", scope=scope) if not choose else t("uni.title_choose"), "title")
+        titles.addWidget(self.title_lbl)
         info_row = hbox(spacing=theme.px(8))
         self.scan_bar = QProgressBar()                     # B18 : avancement à gauche, à place fixe
         self.scan_bar.setTextVisible(False)
@@ -531,6 +534,11 @@ class UniformizePage(QWidget):
         self.save_btn = button("", self._save, kind="primary", icon="check")
         head.addWidget(self.save_btn)
         body.addLayout(head)
+        # 1.4.2 (C198) : portée choisie dans l'onglet (plus de fenêtre avant l'ouverture)
+        self.scope_bar = ScopeBar(self, controller, self._scope_chosen)
+        body.addWidget(self.scope_bar)
+        self.scope_bar.setVisible(choose)
+        self._choosing = choose
         body.addWidget(label(t("uni.intro2"), "faint", wrap=True))
 
         self.scroll = QScrollArea()
@@ -548,7 +556,29 @@ class UniformizePage(QWidget):
             sc.setContext(Qt.WidgetWithChildrenShortcut)
             sc.activated.connect(fn)
         self._fill(reset_limit=True)
+        if not choose:
+            self._start_scan()
+
+    def _scope_chosen(self, tracks: List[LibraryTrack], scope: str) -> None:
+        """1.4.2 (C198) : « Commencer » : les sons de la portée choisie remplacent ceux affichés (une analyse
+        en cours sur l'ancienne portée est abandonnée ; les choix déjà faits restent gardés par son)."""
+        if not self.winfo_exists():
+            return
+        self._scan_gen += 1                             # analyses de l'ancienne portée : ignorées
+        self._choosing = False
+        self.scope = scope
+        self.title_lbl.setText(t("uni.title", scope=scope))
+        self.tracks = {x.content_id: x for x in tracks}
+        self.order = [x.content_id for x in tracks]
+        self.props, self.details = {}, {}
+        self._pending = []
+        self._scanned = self._to_scan = 0
+        self._current = None
+        self._touched = False
+        self.scan_finished = False
+        self._fill(reset_limit=True)
         self._start_scan()
+        self._fill(reset_limit=True)
 
     def winfo_exists(self) -> bool:
         from shiboken6 import isValid
@@ -598,6 +628,8 @@ class UniformizePage(QWidget):
         self.blocks = {}
         if not shown:
             msg = t("uni.scan_wait") if self._scanned < self._to_scan and not self._cancel else t("uni.empty")
+            if not self.tracks and getattr(self, "_choosing", False):
+                msg = t("uni.choose_first")                  # 1.4.2 (C198) : rien avant « Commencer »
             self.list_lay.addWidget(label(msg, "faint", wrap=True))
         for cid in shown:
             blk = TrackBlock(self, cid)
@@ -961,67 +993,111 @@ class UniformizePage(QWidget):
 
 
 # ============================================================================ portée (Accueil)
-class ScopeDialog:
-    """1.3.0 (C25) : depuis l'Accueil, choisir les sons à uniformiser."""
+SCOPES = ("problems", "all", "recent", "playlist")
 
-    def __init__(self, parent: Any, controller: Any) -> None:
-        from .dialogs import BaseDialog
 
-        self.ctrl = controller
-        lib = controller.library
-        if lib is None:
-            controller.message("error", t("msg.no_drive"))
-            return
-        dlg = BaseDialog(parent, t("uni.scope_title"), 460)
-        self.dlg = dlg
-        dlg.heading(t("uni.scope_title"), t("uni.scope_sub"))
+def scope_tracks(lib: Any, kind: str, playlist_id: Optional[int] = None) -> List[LibraryTrack]:
+    """Sons d'une portée (fil « db ») : à problèmes, tous, les 50 derniers ajoutés, une playlist."""
+    from ..core.uniformize import needs_review
+
+    if kind == "playlist":
+        return list(lib.get_playlist_tracks(playlist_id)) if playlist_id is not None else []
+    tracks = list(lib.list_tracks())
+    if kind == "problems":
+        return [x for x in tracks if needs_review(x)]
+    if kind == "recent":
+        return sorted(tracks, key=lambda x: x.date_added or "", reverse=True)[:50]
+    return tracks
+
+
+class ScopeBar(QWidget):
+    """1.4.2 (C198) : choix de la portée en haut de l'onglet Uniformiser : à problèmes, tous, récents ou une
+    playlist ; le dernier choix est présélectionné (réglages `uni_scope`, `uni_scope_playlist`) ; rien n'est
+    lu ni analysé avant « Commencer »."""
+
+    def __init__(self, page: Any, controller: Any, on_start: Any) -> None:
+        super().__init__()
+        self.ctrl, self.on_start = controller, on_start
+        row = hbox(self, spacing=theme.px(8))
+        row.addWidget(label(t("uni.scope_label"), "dim"))
         self.choice = QComboBox()
         self.choice.addItems([t("uni.scope_problems"), t("uni.scope_all"), t("uni.scope_recent"),
                               t("uni.scope_playlist")])
-        dlg.body.addWidget(self.choice)
+        s = controller.settings
+        last = getattr(s, "uni_scope", "problems")
+        self.choice.setCurrentIndex(SCOPES.index(last) if last in SCOPES else 0)
+        row.addWidget(self.choice, 1)
         self.playlists = QComboBox()
         self._pls: List[Any] = []
-        dlg.body.addWidget(self.playlists)
-        self.playlists.hide()
-        self.choice.currentIndexChanged.connect(lambda i: self.playlists.setVisible(i == 3))
-        dlg.footer(t("uni.scope_open"), self._ok)
-        controller.dispatcher.submit(lambda: [p for p in lib.list_playlists() if not p.is_folder],
-                                     self._playlists, lambda exc: None, pool="db")
-        dlg.show_dialog()
+        row.addWidget(self.playlists, 1)
+        self.playlists.setVisible(self.kind == "playlist")
+        self.choice.currentIndexChanged.connect(lambda _i: self.playlists.setVisible(self.kind == "playlist"))
+        self.start_btn = button(t("uni.start"), self.start, kind="primary", icon="go")
+        row.addWidget(self.start_btn)
+        lib = controller.library
+        if lib is not None:
+            controller.dispatcher.submit(lambda: [p for p in lib.list_playlists() if not p.is_folder],
+                                         self._got_playlists, lambda exc: None, pool="db")
 
-    def _playlists(self, pls: List[Any]) -> None:
-        if not self.dlg.winfo_exists():
+    @property
+    def kind(self) -> str:
+        return SCOPES[max(0, self.choice.currentIndex())]
+
+    def _got_playlists(self, pls: List[Any]) -> None:
+        from shiboken6 import isValid
+
+        if not isValid(self):
             return
         self._pls = pls
         self.playlists.addItems([p.name for p in pls])
+        last = getattr(self.ctrl.settings, "uni_scope_playlist", "")
+        names = [p.name for p in pls]
+        if last in names:
+            self.playlists.setCurrentIndex(names.index(last))
 
-    def _ok(self) -> None:
-        from ..core.uniformize import needs_review
-
-        i = self.choice.currentIndex()
+    def start(self) -> None:
         lib = self.ctrl.library
-        self.dlg.close()
         if lib is None:
+            self.ctrl.message("error", t("msg.no_drive"))
             return
-        name = self.choice.currentText()
-
-        def work() -> List[LibraryTrack]:
-            if i == 3:
-                if not self._pls:
-                    return []
-                return list(lib.get_playlist_tracks(self._pls[self.playlists.currentIndex()].playlist_id))
-            tracks = list(lib.list_tracks())
-            if i == 0:
-                return [x for x in tracks if needs_review(x)]
-            if i == 2:
-                return sorted(tracks, key=lambda x: x.date_added or "", reverse=True)[:50]
-            return tracks
+        kind = self.kind
+        pl = self._pls[self.playlists.currentIndex()] if kind == "playlist" and self._pls else None
+        if kind == "playlist" and pl is None:
+            self.ctrl.message("info", t("uni.no_tracks"))
+            return
+        s = self.ctrl.settings
+        s.uni_scope = kind
+        if pl is not None:
+            s.uni_scope_playlist = pl.name
+        self.ctrl.save_settings_quiet()
+        name = pl.name if pl is not None else self.choice.currentText()
+        pid = pl.playlist_id if pl is not None else None
+        self.start_btn.setEnabled(False)
 
         def ok(tracks: List[LibraryTrack]) -> None:
+            from shiboken6 import isValid
+
+            if not isValid(self):
+                return
+            self.start_btn.setEnabled(True)
             if not tracks:
                 self.ctrl.message("info", t("uni.no_tracks"))
-                return
-            scope = self._pls[self.playlists.currentIndex()].name if i == 3 and self._pls else name
-            self.ctrl._emit("open_uniformize", tracks, scope)
+            self.on_start(tracks, name)
 
-        self.ctrl.dispatcher.submit(work, ok, self.ctrl._on_error, pool="db")
+        def failed(exc: BaseException) -> None:
+            from shiboken6 import isValid
+
+            if isValid(self):
+                self.start_btn.setEnabled(True)
+            self.ctrl._on_error(exc)
+
+        self.ctrl.dispatcher.submit(lambda: scope_tracks(lib, kind, pid), ok, failed, pool="db")
+
+
+def ScopeDialog(parent: Any, controller: Any) -> None:  # noqa: N802 - ancien nom gardé (Accueil, Diagnostic)
+    """1.4.2 (C198) : plus de fenêtre de portée : l'onglet Uniformiser s'ouvre tout de suite, avec le choix
+    en haut et rien d'analysé avant « Commencer »."""
+    if controller.library is None:
+        controller.message("error", t("msg.no_drive"))
+        return
+    controller._emit("open_uniformize_choose")

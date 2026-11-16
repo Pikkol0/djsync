@@ -16,6 +16,8 @@ from ...i18n import plural, t
 from ...models import LOW_SCORE, Candidate, DownloadJob, LibraryTrack, SpotifyTrack, TrackResult
 
 log = logging.getLogger(__name__)
+# 1.4.2 (B103) : vrai = calcul à l'ouverture comme avant (suite de tests d'avant B103 ; ses propres tests le coupent)
+ALWAYS_READY = False
 
 
 @dataclass
@@ -253,10 +255,69 @@ class DiagnosticMixin:
         if not hasattr(self, "_diag_counts"):
             self._diag_counts: Dict[str, Optional[int]] = {}
         lib = getattr(self, "library", None)                    # 1.4.2 (C182) : comptes d'une autre bibliothèque
-        if getattr(self, "_diag_counts_lib", lib) is not lib:
+        if getattr(self, "_diag_counts_lib", None) is not lib:
             self._diag_counts.clear()
-        self._diag_counts_lib = lib
+            self._diag_counts_lib = lib
+            if lib is not None:                                 # 1.4.2 (B103) : derniers chiffres retenus
+                for tab, (n, _at) in self._diag_saved(lib).items():
+                    self._diag_counts.setdefault(tab, n)
         return self._diag_counts
+
+    # ------------------------------------------------- 1.4.2 (B103) : rien n'est calculé à l'ouverture
+    def _diag_key(self, lib: Any = None) -> str:
+        lib = lib if lib is not None else getattr(self, "library", None)
+        if lib is None:
+            return ""
+        if getattr(lib, "is_local", False):
+            return "local"
+        drive = getattr(lib, "drive", None)
+        return "usb:" + str(getattr(drive, "label", "") or "") + "|" + str(getattr(drive, "root", "") or "")
+
+    def _diag_saved(self, lib: Any = None) -> Dict[str, Any]:
+        store = getattr(self.settings, "diag_last", None) or {}
+        out = {}
+        for tab, v in (store.get(self._diag_key(lib)) or {}).items():
+            try:
+                out[tab] = (int(v[0]), str(v[1]))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+
+    def _diag_remember(self, counts: Dict[str, Optional[int]], lib: Any = None) -> None:
+        from datetime import date
+
+        key = self._diag_key(lib)
+        if not key:
+            return
+        store = dict(getattr(self.settings, "diag_last", None) or {})
+        mine = dict(store.get(key) or {})
+        today = date.today().isoformat()
+        for tab, n in counts.items():
+            if n is not None:
+                mine[tab] = [int(n), today]
+        store[key] = mine
+        if len(store) > 20:                                  # pas de liste sans fin de clés oubliées
+            store = dict(list(store.items())[-20:])
+        self.settings.diag_last = store
+        self.save_settings_quiet()
+
+    def diag_last(self, tab: str) -> Optional[Any]:
+        """(nombre, date ISO) du dernier calcul de cet onglet pour la bibliothèque ouverte, ou None."""
+        return self._diag_saved().get(tab)
+
+    def diag_auto(self) -> bool:
+        """Réglage « Analyser à l'ouverture du Diagnostic » (ALWAYS_READY : comportement d'avant, pour les tests)."""
+        return ALWAYS_READY or bool(getattr(self.settings, "diag_auto", False))
+
+    def diag_ready(self, tab: str) -> bool:
+        """Vrai si l'onglet peut calculer tout de suite à l'ouverture : réglage « Analyser à l'ouverture »
+        coché, ou déjà calculé pendant cette session sur cette bibliothèque."""
+        if self.diag_auto():
+            return True
+        return (self._diag_key(), tab) in getattr(self, "_diag_run", set())
+
+    def diag_mark_run(self, tab: str) -> None:
+        self.__dict__.setdefault("_diag_run", set()).add((self._diag_key(), tab))
 
     def diag_quick_counts(self) -> None:
         """Compte rapide (sans lire le son) : introuvables, groupes de doublons, infos à uniformiser.
@@ -277,12 +338,15 @@ class DiagnosticMixin:
         def ok(counts: Dict[str, int]) -> None:
             if self.library is lib:
                 self.diag_counts.update(counts)
+                self._diag_remember(counts, lib)                # 1.4.2 (B103)
                 self._emit("diag_counts")
 
         self.dispatcher.submit(work, ok, lambda _e: None, pool="tools")
 
     def set_diag_count(self, tab: str, n: Optional[int]) -> None:
         self.diag_counts[tab] = n
+        if n is not None:
+            self._diag_remember({tab: n})                       # 1.4.2 (B103)
         self._emit("diag_counts")
 
     def find_missing(self, ok: Callable[[List[MissingItem]], None]) -> None:
