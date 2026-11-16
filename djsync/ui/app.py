@@ -626,6 +626,9 @@ class DJSyncApp(QMainWindow):
         if key == "uniformize" and page is not None and page.winfo_exists():
             self._show_page(page)
             return
+        if key == "transfer":                                       # 1.4.2 (C23)
+            self.open_transfer()
+            return
         self.open_diagnostic(key)
 
     # --------------------------------------------------------------- barre repliable
@@ -1055,6 +1058,8 @@ class DJSyncApp(QMainWindow):
         if drive and not local:
             entries += [None, (t("set.button"), self.open_set_check, "check"),         # 1.4.2 (C67)
                         (t("eject.hint"), self.ctrl.eject, "eject")]
+        if drive:
+            entries += [None, (t("transfer.menu") + "…", self.open_transfer, "copy")]  # 1.4.2 (C23)
         if not drive:
             entries = [(t("nav.libraries"), lambda: self._open_settings_section("libraries"), "library")]
         return entries
@@ -1078,6 +1083,12 @@ class DJSyncApp(QMainWindow):
             except RuntimeError:
                 pass
         QTimer.singleShot(0, scroll)
+
+    def open_transfer(self, precheck: tuple = ()) -> None:
+        """1.4.2 (C23) : page « Transférer des playlists »."""
+        from .transfer_page import open_transfer
+
+        open_transfer(self, self.ctrl, tuple(precheck or ()))
 
     def open_set_check(self) -> None:
         from .set_check_dialog import open_set_check

@@ -413,3 +413,121 @@ def test_large_batch_is_one_reconciliation_and_export_pdb_matches(key, key2):
     assert (res.created, res.folders, res.failed) == (40, 12, 0) and len(calls) == 1
     assert _paths(key2) == _paths(key)
     _pdb_matches(key2)
+
+
+# ================================================================== page « Transférer des playlists »
+@pytest.fixture
+def app(tmp_path, monkeypatch, key, key2):
+    pytest.importorskip("PySide6")
+    import djsync.ui.controller as controller
+    from djsync.settings import Settings
+
+    from .qt_util import close_window, make_window, pump
+
+    monkeypatch.setenv("DJSYNC_HOME", str(tmp_path / "home"))
+    a = _add(key, "a1")
+    folder = key.create_folder("Dossier")
+    _playlist(key, "Dedans", [a, _add(key, "a2")], folder.playlist_id)
+    _playlist(key, "B", [a])
+    key.create_playlist("Vide")
+    _playlist(key2, "B", [_add(key2, "b1")])
+    drives = [key.drive, key2.drive]
+    key.close(), key2.close()
+    monkeypatch.setattr(controller, "find_usb_drives", lambda: list(drives))
+    monkeypatch.setattr(controller, "find_unprepared_drives", lambda: [])
+    monkeypatch.setattr(controller.AppController, "find_local", lambda self: None)
+    window = make_window(Settings(), monkeypatch)
+    assert pump(window, 10, lambda: len(window.ctrl.drives) == 2)
+    window.ctrl.connect(drives[0])
+    assert pump(window, 10, lambda: window.ctrl.has_library), window.errors
+    yield window
+    close_window(window)
+
+
+def _titles(root: Path) -> dict:
+    from djsync.db.usb import drive_from_letter
+
+    lib = RekordboxUsbLibrary(drive_from_letter(str(root)), read_only=True).connect()
+    try:
+        return _paths(lib)
+    finally:
+        lib.close()
+
+
+def test_page_compare_review_mandatory_choice_then_apply(app, tmp_path):
+    from PySide6.QtCore import Qt
+
+    from djsync.ui.transfer_page import TransferPage
+
+    from .qt_util import pump
+
+    key_b = tmp_path / "keyB"
+    app.open_transfer()
+    page = app.stack.currentWidget()
+    assert isinstance(page, TransferPage)
+    assert page.direction_key() == "usb2usb"                     # pas d'ordinateur : seuls clé → clé et synchro
+    enabled = [page.direction.model().item(i).isEnabled() for i in range(4)]
+    assert enabled == [False, False, True, True]
+    assert pump(app, 10, lambda: len(page.side_a._items) == 4)
+    assert not page.compare_btn.isEnabled()                      # rien de coché
+    page.side_a._items[next(pid for pid, p in page.side_a._kind.items() if p.is_folder)].setCheckState(0, Qt.Checked)
+    assert len(page.side_a.checked()) == 1                       # un dossier coche son contenu
+    page.side_a.select_all()
+    assert len(page.side_a.checked()) == 3 and page.compare_btn.isEnabled()
+    before = _digest(key_b)
+    page.compare()
+    assert pump(app, 20, lambda: page.pages.currentWidget() is page.review_page), app.errors
+    assert {k: v for k, v in _digest(key_b).items()} == before   # Comparer n'a rien écrit
+    (job,) = page.jobs
+    states = {ln.name: ln.status for ln in job[2].lines}
+    assert states == {"Dedans": T.NEW, "B": T.CONFLICT, "Vide": T.NEW}
+    assert page.choice_box.isVisibleTo(page) and page.choice.currentData() == ""       # rien de présélectionné
+    assert not page.apply_btn.isEnabled()                        # choix obligatoire
+    page.choice.setCurrentIndex(page.choice.findData(T.KEEP_BOTH))
+    assert all(ln.action == T.KEEP_BOTH for ln in job[2].lines if ln.status == T.CONFLICT)
+    row = next(r for r in page._rows if r[0].name == "B")
+    row[2].setCurrentIndex(row[2].findData(T.MERGE))             # modifiable ligne par ligne
+    assert row[0].action == T.MERGE and page.apply_btn.isEnabled()
+    vide = next(r for r in page._rows if r[0].name == "Vide")
+    vide[1].setCheckState(0, Qt.Unchecked)
+    assert not vide[0].selected
+    assert _digest(key_b) == before                              # toujours rien avant « Appliquer »
+    page.apply()
+    assert pump(app, 60, lambda: page.pages.currentWidget() is page.summary_page), app.errors
+    assert not app.errors and not app.ctrl._tool_busy
+    assert _titles(key_b) == {"B": ["b1", "a1"], "Dossier": None, "Dossier / Dedans": ["a1", "a2"]}
+    (res,) = page.results
+    assert (res.created, res.merged, res.copied, res.folders) == (1, 1, 2, 1)
+    text = page.sum_text.text()
+    assert "2" in text and page.sum_title.text()
+
+
+def test_page_sync_has_one_tree_per_side_and_entry_points(app, tmp_path):
+    from djsync.i18n import t
+    from djsync.ui.transfer_page import TransferPage
+
+    from .qt_util import pump
+
+    assert any(e and e[0].startswith(t("transfer.menu")) for e in app.drive_menu_entries())
+    lib_view = app.views["library"]
+    pid = next(p.playlist_id for p in app.ctrl.library.list_playlists() if p.name == "B")
+    lib_view._transfer((pid,))
+    page = app.stack.currentWidget()
+    assert isinstance(page, TransferPage)
+    assert pump(app, 10, lambda: len(page.side_a._items) == 4)
+    assert page.side_a.checked() == [pid]                        # la playlist du clic droit est précochée
+    page.direction.setCurrentIndex(3)
+    assert page.direction_key() == "sync" and page.side_b.isVisibleTo(page)
+    assert pump(app, 10, lambda: len(page.side_b._items) == 1 and len(page.side_a._items) == 4)
+    page.side_a.select_all()
+    page.side_b.select_all()
+    page.compare()
+    assert pump(app, 20, lambda: page.pages.currentWidget() is page.review_page), app.errors
+    assert len(page.jobs) == 2
+    page.choice.setCurrentIndex(page.choice.findData(T.MERGE))
+    page.apply()
+    assert pump(app, 60, lambda: page.pages.currentWidget() is page.summary_page), app.errors
+    assert not app.errors
+    assert _titles(tmp_path / "keyB") == {"B": ["b1", "a1"], "Dossier": None, "Dossier / Dedans": ["a1", "a2"],
+                                           "Vide": []}
+    assert _paths(app.ctrl.library)["B"] == ["a1", "b1"]         # la clé ouverte a reçu ce qui lui manquait

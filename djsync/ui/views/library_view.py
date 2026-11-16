@@ -1410,9 +1410,15 @@ class LibraryView(View):
         target = sel or None
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
+        entries.append((t("transfer.menu") + "…", lambda: self._transfer(), "copy"))       # 1.4.2 (C23)
         entries += self._overflow_entries()
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
+
+    def _transfer(self, precheck: tuple = ()) -> None:
+        win = self.window()
+        if hasattr(win, "open_transfer"):
+            win.open_transfer(precheck)
 
     def _overflow_entries(self) -> list:
         """1.4.0-rc.5 (B85) : boutons sortis de la barre faute de place, repris dans le menu ☰."""
@@ -1497,8 +1503,10 @@ class LibraryView(View):
             for name, target in self.ctrl.copy_targets():
                 entries.append((t("copy.to", target=name) + "…",
                                 lambda pid=p.playlist_id, tg=target, n=name: self._copy_playlist(pid, tg, n), "copy"))
-            if entries:
-                entries.append(None)
+        if p.is_editable or p.is_folder:                                # 1.4.2 (C23) : en lot, avec les dossiers
+            entries.append((t("transfer.menu") + "…", lambda pid=p.playlist_id: self._transfer((pid,)), "copy"))
+        if entries:
+            entries.append(None)
         if not p.is_folder:
             entries.append((t("uni.menu") + "…", lambda pl=p: self._uniformize_playlist(pl), "tag"))
             entries.append(None)
