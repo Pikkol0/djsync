@@ -620,8 +620,10 @@ class ColumnsBox(QWidget):
         return w
 
     def _need(self, cols: int) -> int:
-        widest = max((w.sizeHint().width() for w in self._items), default=0)
-        return widest * cols + self.grid.spacing() * (cols - 1)
+        """Largeur de la ligne la plus large avec `cols` colonnes (la grille ne descend pas sous le minimum)."""
+        hints = [w.sizeHint().width() for w in self._items]
+        rows = [hints[i:i + cols] for i in range(0, len(hints), cols)]
+        return max((sum(r) + self.grid.spacing() * (len(r) - 1) for r in rows), default=0)
 
     def _arrange(self, width: int) -> None:
         n = len(self._items) or 1
