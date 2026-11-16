@@ -67,7 +67,9 @@ class VersionDialog(BaseDialog):
         self.list.clear()
         current_row = -1
         for k, up in enumerate(self.versions):
-            text = up.version + (f"  ·  {up.date}" if up.date else "")
+            from ..i18n import date_text
+
+            text = up.version + (f"  ·  {date_text(up.date)}" if up.date else "")      # 1.4.2 (A2-6)
             if up.prerelease:
                 text += "  ·  " + t("update.pick_test")
             if up.version == self.current:
@@ -150,7 +152,9 @@ def install_version(parent: Any, ctrl: Any, up: Optional[updates.Update], curren
 
 
 def version_text(up: updates.Update, current: str) -> str:
-    text = up.version + (f"  ·  {up.date}" if up.date else "")
+    from ..i18n import date_text
+
+    text = up.version + (f"  ·  {date_text(up.date)}" if up.date else "")      # 1.4.2 (A2-6)
     if up.prerelease:
         text += "  ·  " + t("update.pick_test")
     if up.version == current:

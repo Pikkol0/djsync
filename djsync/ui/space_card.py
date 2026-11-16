@@ -99,6 +99,10 @@ class SpaceCard:
         self.grid.setHorizontalSpacing(theme.px(10))
         self.grid.setVerticalSpacing(theme.px(4))
         layout.addLayout(self.grid)
+        from .widgets import FlowLayout
+
+        self.actions_flow = FlowLayout(spacing=theme.px(6))   # 1.4.2 (A2-1) : actions sous la liste, à la ligne
+        layout.addLayout(self.actions_flow)
         self.result = label("", "accent", wrap=True)
         layout.addWidget(self.result)
         self._rows: List[Any] = []
@@ -228,6 +232,7 @@ class SpaceCard:
     def _fill(self, usage: Any, actions: Dict[str, Any]) -> None:
         for w in self._rows:            # 1.3.1 : sans setParent(None), qui en faisait des fenêtres visibles
             self.grid.removeWidget(w)
+            self.actions_flow.removeWidget(w)
             w.hide()
             w.deleteLater()
         self._rows = []
@@ -254,7 +259,7 @@ class SpaceCard:
             if key in actions:
                 text, fn = actions[key]
                 b = button(text, fn, kind="flat", icon="trash")
-                self.grid.addWidget(b, row, col)
+                self.actions_flow.addWidget(b)                  # 1.4.2 (A2-1) : plus dans la grille (trop large)
                 cells.append(b)
             self._rows += cells
             self.grid.setRowMinimumHeight(row, theme.px(30))     # lignes égales, avec ou sans bouton

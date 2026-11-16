@@ -399,12 +399,9 @@ class SettingsView(View):
         self._section = "libraries"
         card = self._card(t("settings.pdb"), "library", t("settings.pdb_hint"), key="pdb")
         self.pdb_card = self._cards[-1][1]
-        row = hbox()
-        row.addWidget(button(t("settings.check"), self._pdb_refresh, icon="check"))
         self.pdb_sync_btn = button(t("settings.sync_now"), self.ctrl.pdb_sync_now, kind="primary", icon="refresh")
-        row.addWidget(self.pdb_sync_btn)
-        row.addStretch(1)
-        card.addLayout(row)
+        card.addLayout(flow_row(button(t("settings.check"), self._pdb_refresh, icon="check"),
+                                self.pdb_sync_btn))                     # 1.4.2 (A2-1) : à la ligne si étroit
         self.pdb_state = label("", "dim", wrap=True)
         card.addWidget(self.pdb_state)
         row = hbox()                                          # 1.4.0 (C26 sens C)
@@ -701,9 +698,9 @@ class SettingsView(View):
         # 1.4.0-rc.5 (C165) : trois cartes au lieu d'une (Mises à jour, À propos, Cette installation) ;
         # la version et « Rechercher » sur la même ligne
         card = self._card(t("about.updates"), "refresh", t("about.hint"), key="updates")
-        row = hbox()
         self.version_lbl = label(t("about.version", version=full_version()), "accent")
         self.version_lbl = self._fixed(self.version_lbl)          # 1.4.2 (A2-1) : nouveau libellé
+        row = flow_row()                                          # 1.4.2 (A2-1) : boutons à la ligne si étroit
         row.addWidget(self.version_lbl)
         self.update_state = label("", "dim", wrap=True)
         self.update_bar = QProgressBar()
@@ -724,8 +721,8 @@ class SettingsView(View):
                                          icon="refresh")
         self.update_restart_btn.hide()
         row.addWidget(self.update_restart_btn)
-        row.addWidget(self.update_state, 1)
         card.addLayout(row)
+        card.addWidget(self.update_state)
         row = hbox()
         self.update_var = WrapCheckBox(t("update.auto"))
         self.update_var.setChecked(s.check_updates)
