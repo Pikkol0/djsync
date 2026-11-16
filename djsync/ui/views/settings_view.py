@@ -314,7 +314,7 @@ class SettingsView(View):
         row.addWidget(self.ffmpeg, 1)
         row.addWidget(button(t("action.browse"), self._browse_ffmpeg, icon="folder"))
         card.addLayout(row)
-        self.ffmpeg_state = label("", "dim")
+        self.ffmpeg_state = label("", "dim", wrap=True)     # 1.4.2 (A2-1) : long chemin (Windows) à la ligne
         card.addWidget(self.ffmpeg_state)
 
         # ---- analyse
@@ -1314,7 +1314,8 @@ class SettingsView(View):
 
     def _ffmpeg_status(self) -> None:
         found, text = self.ctrl.ffmpeg_status(self.ffmpeg.text().strip())
-        self.ffmpeg_state.setText(text)
+        # 1.4.2 (A2-1) : un chemin sans espace ne passe pas à la ligne : coupure possible après chaque séparateur
+        self.ffmpeg_state.setText(text.replace("\\", "\\\u200b").replace("/", "/\u200b"))
         if not found or not self._folds[self.ffmpeg_card][3]:      # C89 : ouverte d'office en cas de problème
             self.set_folded(self.ffmpeg_card, not found or self._folds[self.ffmpeg_card][3],
                             t("settings.ffmpeg_ok_short") if found else t("settings.ffmpeg_missing_short"))

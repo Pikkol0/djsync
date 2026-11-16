@@ -27,7 +27,13 @@ def test_a2_1_settings_fit_the_page(demo, size):  # noqa: F811
         pump(demo, 0.5)
         view = demo.views["settings"]
         page = view.area.widget()
-        assert page.minimumSizeHint().width() <= view.area.viewport().width() + 1, (lang, size)
+        room = view.area.viewport().width() + 1
+        from PySide6.QtWidgets import QWidget
+
+        wide = [(type(w).__name__, w.minimumSizeHint().width(), getattr(w, "text", lambda: "")()[:60])
+                for w in page.findChildren(QWidget) if w.isVisibleTo(page) and not w.layout()
+                and w.minimumSizeHint().width() > room]
+        assert page.minimumSizeHint().width() <= room, (lang, size, wide)
     set_language("en")
     demo.ctrl.settings.language = "en"
 
