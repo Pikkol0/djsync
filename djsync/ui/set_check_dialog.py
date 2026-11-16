@@ -53,9 +53,20 @@ class SetCheckDialog(BaseDialog):
         self.body.addWidget(self.verdict)
         self.box = panel()
         self.rows_lay = vbox(self.box, margins=theme.px(12), spacing=theme.px(8))
-        self.body.addWidget(self.box)
+        # 1.4.2 (A2-12) : les lignes défilent dans une fenêtre basse (860 × 560) au lieu de se chevaucher
+        from PySide6.QtWidgets import QFrame, QScrollArea
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        holder = QWidget()
+        hl = vbox(holder, spacing=0)
+        hl.addWidget(self.box)
+        hl.addStretch(1)
+        self.scroll.setWidget(holder)
+        self.body.addWidget(self.scroll, 1)
         self.rows: Dict[str, Dict[str, Any]] = {}
-        self.body.addStretch(1)
         foot = hbox(spacing=theme.px(6))
         self.copy_btn = button(t("set.copy"), self.copy_report, icon="copy")
         self.save_btn = button(t("set.save"), self.save_report, icon="download")

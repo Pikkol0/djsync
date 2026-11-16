@@ -425,8 +425,7 @@ class SettingsView(View):
             self.format_menu.addItem(self._format_labels[q], q)
             self.format_menu.setItemData(i, t(f"settings.quality_{q}_tip"), Qt.ToolTipRole)
         self.format_menu.setCurrentText(self._format_labels.get(s.download_quality, self._format_labels["original"]))
-        row.addWidget(self.format_menu)
-        row.addStretch(1)
+        row.addWidget(self.format_menu, 1)               # 1.4.2 (A2-1) : toute la largeur libre, texte entier
         card.addLayout(row)
         # 1.4.0-rc.2 (C137) : convertir en MP3 ne rend pas la qualité perdue ; on le dit au moment du choix
         self.format_warn = label(t("quality.mp3_warning"), "dim", wrap=True)

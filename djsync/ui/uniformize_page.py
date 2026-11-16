@@ -527,7 +527,9 @@ class UniformizePage(QWidget):
         head.addWidget(label(t("uni.show"), "dim"))
         self._filters = {"todo": t("uni.f_todo"), "validated": t("uni.f_validated"), "ignored": t("uni.f_ignored"),
                          "done": t("uni.f_done"), "all": t("uni.f_all")}
-        self.filter = QComboBox()
+        from .widgets import ShrinkCombo
+
+        self.filter = ShrinkCombo()                        # 1.4.2 (A2-1) : rétrécit au lieu de couper « Enregistrer… »
         self.filter.addItems(list(self._filters.values()))
         self.filter.currentTextChanged.connect(lambda _t: self._fill(reset_limit=True))
         head.addWidget(self.filter)

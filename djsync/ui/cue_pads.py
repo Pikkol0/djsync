@@ -100,7 +100,7 @@ class CuePanel(QWidget):
         title = label(t("cue.hot_cues"), "section")
         title.setToolTip(t("cue.hint"))
         head.addWidget(title)
-        short = label(t("cue.hint_short"), "dim")
+        short = label(t("cue.hint_short"), "dim", wrap=True)        # 1.4.2 (A2-3) : à la ligne si étroit
         short.setToolTip(t("cue.hint"))
         head.addWidget(short, 1)
         self.suggest_btn = button(t("cue.suggest"), self.suggest, icon="grid", tooltip=t("cue.suggest_tip"))
