@@ -648,3 +648,28 @@ class ColumnsBox(QWidget):
     def resizeEvent(self, e: Any) -> None:  # noqa: N802
         super().resizeEvent(e)
         self._arrange(self.width())
+
+
+class ShrinkLabel(QLabel):
+    """1.4.2 (A2-1) : libellé sur une ligne quand la place le permet, à la ligne sinon (titre de carte) :
+    largeur naturelle = son texte, largeur minimale réduite, hauteur selon la largeur."""
+
+    MIN = 120
+
+    def __init__(self, text: str, role: str = "") -> None:
+        super().__init__(text)
+        from PySide6.QtWidgets import QSizePolicy
+
+        if role:
+            self.setProperty("role", role)
+        self.setWordWrap(True)
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        one = self.fontMetrics().horizontalAdvance(self.text()) + 2 * self.margin() + 4
+        return QSize(one, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(min(theme.px(self.MIN), self.sizeHint().width()), super().minimumSizeHint().height())

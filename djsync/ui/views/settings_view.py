@@ -25,7 +25,7 @@ from ..logo import logo_pixmap
 from ..palettes import PALETTES
 from ..icons import qicon
 from ..widgets import (
-    ShrinkCombo, WrapCheckBox, button, flow_row, hbox, icon_button, icon_label, label, line_edit, panel, vbox,
+    ShrinkCombo, ShrinkLabel, WrapCheckBox, button, flow_row, hbox, icon_button, icon_label, label, line_edit, panel, vbox,
 )
 from .common import View
 
@@ -975,7 +975,7 @@ class SettingsView(View):
             head.addWidget(arrow)
         if icon:
             head.addWidget(icon_label(icon, 18, theme.ACCENT))
-        head.addWidget(label(title, "h2"))
+        head.addWidget(ShrinkLabel(title, "h2"))             # 1.4.2 (A2-1) : titre à la ligne si étroit
         if hint and not show_hint:
             info = icon_label("info", 14, theme.FAINT)
             info.setToolTip(hint)
