@@ -8,13 +8,13 @@ from __future__ import annotations
 from typing import Any, List
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QProgressBar, QWidget
+from PySide6.QtWidgets import QProgressBar, QPushButton, QWidget
 
 from ...i18n import plural, t
 from .. import theme
 from ..ctrl.library_ops import DriveSummary
 from ..icons import qicon
-from ..widgets import button, chip, hbox, icon_label, label, line_edit, panel, vbox
+from ..widgets import FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
 
 
@@ -22,13 +22,76 @@ from .common import View, human_size
 TODO_TILES = (("missing", "warn"), ("dup", "duplicates"), ("quality", "wave"), ("uniformize", "tag"))
 
 
+class _ActionTile(QPushButton):
+    """1.4.2 (A2-17) : tuile d'action de l'Accueil : icône, titre en gras, sous-titre en gris normal."""
+
+    def __init__(self, icon: str, title: str, sub: str) -> None:
+        super().__init__()
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.setProperty("kind", "tile")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)      # même hauteur pour les 4
+        lay = hbox(self, margins=theme.px(12), spacing=theme.px(10))
+        lay.addWidget(icon_label(icon, 24, theme.ACCENT), 0, Qt.AlignVCenter)
+        text = vbox(spacing=theme.px(1))
+        self.title_lbl = label(title)
+        self.title_lbl.setStyleSheet("font-weight: 600; background: transparent;")
+        self.sub_lbl = label(sub, "dim", wrap=True)
+        self.sub_lbl.setStyleSheet("font-weight: 400; background: transparent;")
+        for w in (self.title_lbl, self.sub_lbl):
+            w.setAttribute(Qt.WA_TransparentForMouseEvents)
+            text.addWidget(w)
+        lay.addLayout(text, 1)
+        self._title = title
+
+    def text(self) -> str:  # noqa: D401 - lisible par les tests et l'accessibilité
+        return f"{self._title}\n{self.sub_lbl.text()}"
+
+    # Hauteur selon la largeur, mais sans « heightForWidth » (sinon la rangée donne à chaque tuile une
+    # hauteur différente) : les quatre tuiles prennent la hauteur de la plus haute.
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return False
+
+    def _height(self) -> int:
+        lay = self.layout()
+        w = self.width() if self.width() > 50 else lay.sizeHint().width()
+        return max(lay.minimumSize().height(), lay.totalHeightForWidth(w) if lay.hasHeightForWidth() else 0)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self.layout().sizeHint().width(), self._height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self.layout().minimumSize().width(), self._height())
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        if e.oldSize().width() != e.size().width():
+            self.updateGeometry()
+
+
 class HomeView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
+        # 1.4.2 (A2-17) : la page défile quand la fenêtre est basse (860 × 560) : les pastilles et les boutons
+        # des cartes passent à la ligne au lieu de se chevaucher
+        from PySide6.QtWidgets import QFrame, QScrollArea
+
+        outer = self.root
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        inner.setObjectName("home_inner")
+        self.root = vbox(inner, margins=theme.px(18), spacing=theme.px(8))
+        self.scroll.setWidget(inner)
+        outer.addWidget(self.scroll)
         self._summaries: List[DriveSummary] = []
         self._pending_diag: str = ""          # bibliothèque à diagnostiquer dès qu'elle est ouverte
         self.root.setSpacing(theme.px(10))
-        self.root.addWidget(label(t("home.title"), "title"))
+        self.root.addWidget(label(t("home.title"), "title"))     # 1.4.2 (A2-17) : « Accueil »
 
         row = hbox(spacing=theme.px(8))
         self.omnibar = line_edit(t("home.omnibar"), "search", big=True)
@@ -59,9 +122,9 @@ class HomeView(View):
         self.actions: dict = {}
         for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
                                ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
-            b = button(t(f"home.act_{key}") + "\n" + t(f"home.act_{key}_sub"), cmd, kind="tile", icon=icon)
-            b.setIconSize(QSize(theme.px(24), theme.px(24)))
-            b.setIcon(qicon(icon, 24, theme.ACCENT))
+            # 1.4.2 (A2-17) : titre en gras, sous-titre en gris normal (même graisse partout avant)
+            b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
+            b.clicked.connect(lambda _c=False, f=cmd: f())
             b.setToolTip(t(f"home.act_{key}_tip"))
             acts.addWidget(b, 1)
             self.actions[key] = b
@@ -177,8 +240,10 @@ class HomeView(View):
             return
         for key, b in self.todo.items():
             n = counts.get(key)
-            b.setText(t(f"diagtab.{key}") + "  ·  " + (t("home.todo_count", n=n) if n is not None else "—"))
-            b.setToolTip(t("home.todo_tip"))
+            # 1.4.2 (A2-17) : « à mesurer » plutôt qu'un tiret, avec sa bulle
+            b.setText(t(f"diagtab.{key}") + "  ·  " + (t("home.todo_count", n=n) if n is not None
+                                                        else t("home.todo_unknown")))
+            b.setToolTip(t("home.todo_tip") if n is not None else t("home.todo_unknown_tip"))
             b.setProperty("todo", bool(n))
 
     def _open_todo(self, key: str) -> None:
@@ -287,7 +352,7 @@ class HomeView(View):
             top.addWidget(busy)
         top.addStretch(1)
         mid.addLayout(top)
-        chips = hbox(spacing=theme.px(6))
+        chips = FlowLayout(spacing=theme.px(6))        # 1.4.2 (A2-9, A2-17) : à la ligne si étroit
         stale_detail = None                         # 1.3.0-rc.3 (C36) : export.pdb pas à jour sur cette clé
         if s.tracks >= 0:
             chips.addWidget(chip(plural("lib.tracks_one", "lib.tracks_many", s.tracks)))
@@ -318,13 +383,12 @@ class HomeView(View):
                 tips = {"ok": "home.fs_ok", "recent_only": "home.fs_recent_only", "unsupported": "home.fs_unsupported"}
                 fs.setToolTip(t(tips.get(compat, "home.fs_ok"), fs=s.filesystem))
                 chips.addWidget(fs)
-        chips.addStretch(1)
         mid.addLayout(chips)
         if stale_detail is not None:
             detail = label(t("home.pdb_detail", detail=stale_detail or "?"), "dim")
             detail.setWordWrap(True)
             mid.addWidget(detail)
-        actions = hbox()
+        actions = FlowLayout(spacing=theme.px(6))      # 1.4.2 : boutons à la ligne si étroit
         if s.connected:
             actions.addWidget(button(t("home.open_library"), lambda: self.ctrl._emit("navigate", "library"),
                                      kind="primary", icon="library"))
@@ -345,7 +409,6 @@ class HomeView(View):
         diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
         diag.setToolTip(t("diag.button_tip"))
         actions.addWidget(diag)
-        actions.addStretch(1)
         mid.addLayout(actions)
         lay.addLayout(mid, 1)
 

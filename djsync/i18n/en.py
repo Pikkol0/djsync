@@ -179,7 +179,7 @@ STRINGS = {
     "empty.filter_title": "Nothing matches this filter",
 
     # ---- home
-    "home.title": "Welcome to DJSync",
+    "home.title": "Home",
     "home.omnibar": "Search a track or paste a link",
     "home.drives": "Libraries",
     "home.version": "DJSync {version}",
@@ -2127,4 +2127,6 @@ STRINGS = {
     "space.trim_confirm_many": "{n} automatic restore points will be deleted ({size} freed). The {keep} most recent are kept.",
     "space.trim_confirm_detail": "The original state and your own restore points are never deleted. This cannot be undone.",
     "space.trim_confirm_ok": "Delete",
+    "home.todo_unknown": "to measure",
+    "home.todo_unknown_tip": "Not measured yet: open this tab of the Diagnostic to count.",
 }

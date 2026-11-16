@@ -179,7 +179,7 @@ STRINGS = {
     "empty.filter_title": "Rien ne correspond à ce filtre",
 
     # ---- accueil
-    "home.title": "Bienvenue dans DJSync",
+    "home.title": "Accueil",
     "home.omnibar": "Chercher un son ou coller un lien",
     "home.drives": "Bibliothèques",
     "home.version": "DJSync {version}",
@@ -2126,4 +2126,6 @@ STRINGS = {
     "space.trim_confirm_many": "{n} points de restauration automatiques seront supprimés ({size} libérés). Les {keep} plus récents sont gardés.",
     "space.trim_confirm_detail": "L'état d'origine et vos propres points ne sont jamais supprimés. Impossible à annuler.",
     "space.trim_confirm_ok": "Supprimer",
+    "home.todo_unknown": "à mesurer",
+    "home.todo_unknown_tip": "Pas encore mesuré : ouvrez cet onglet du Diagnostic pour compter.",
 }

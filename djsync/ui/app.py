@@ -797,6 +797,7 @@ class DJSyncApp(QMainWindow):
         super().resizeEvent(e)
         if getattr(self, "toast", None) is not None:
             self._place_toast()
+            QTimer.singleShot(0, self._place_toast)          # 1.4.2 (A2-5) : après la mise en page
         if self._nav:
             self._update_compact()
             QTimer.singleShot(0, self._fit_sidebar)          # C140 : après la mise en page de la fenêtre
