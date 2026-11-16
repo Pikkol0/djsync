@@ -19,9 +19,9 @@ from __future__ import annotations
 import copy
 from typing import Any, List, Optional, Tuple
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit, QScrollBar, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit, QPushButton, QScrollBar, QWidget
 
 from ..analysis import grid as G
 from ..analysis.cues import Cue, nearest_grid_ms
@@ -49,6 +49,18 @@ def bar_label(downbeats: int) -> str:
     """Numéro affiché de la mesure dont le premier temps est le `downbeats`-ième de la grille (1 = le premier)."""
     return str(FIRST_BAR + downbeats - 1)
 
+
+
+class _SegmentButton(QPushButton):
+    """1.4.2 (A2-2) : bouton du décalage (−100 … +100) : au moins 40 px, mais jamais plus étroit que son texte
+    (une largeur minimale fixe laissait la mise en page l'écraser : « -10C », « +10C »), à tout zoom."""
+
+    def sizeHint(self) -> Any:  # noqa: N802
+        hint = super().sizeHint()
+        return QSize(max(hint.width(), theme.px(40)), hint.height())
+
+    def minimumSizeHint(self) -> Any:  # noqa: N802
+        return self.sizeHint()
 
 class Zones(QWidget):
     """1.4.1 (C59) : cartes côte à côte, l'une sous l'autre quand la place manque (fenêtre étroite, gros zoom)."""
@@ -326,8 +338,10 @@ class GridEditor(QWidget):
         shift.addSpacing(theme.px(8))
         self._shift_btns = []
         for i, ms in enumerate((-100, -10, -1, 1, 10, 100)):
-            b = button(f"{ms:+d}".replace("-", "−"), lambda m=ms: self._shift(m), tooltip=t("grid.shift_tip", ms=ms))
-            b.setMinimumWidth(theme.px(40))
+            b = _SegmentButton(f"{ms:+d}".replace("-", "−"))
+            b.clicked.connect(lambda _=False, m=ms: self._shift(m))
+            b.setToolTip(t("grid.shift_tip", ms=ms))
+            b.setCursor(Qt.PointingHandCursor)
             b.setProperty("segment", "first" if i == 0 else "last" if i == 5 else "middle")
             self._shift_btns.append(b)
             shift.addWidget(b)
