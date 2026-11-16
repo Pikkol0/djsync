@@ -545,7 +545,7 @@ class TransferPage(BaseDialog):
             self.run_detail.setText(t("transfer.progress", i=i, n=n, title=title))
 
         if not self.ctrl.transfer_apply(jobs, ok, err, progress):
-            self.ctrl.message("info", t("msg.tool_busy"))
+            self.ctrl.message("info", t("tools.busy"))
             return
         self.running = True
         self.pages.setCurrentWidget(self.run_page)
