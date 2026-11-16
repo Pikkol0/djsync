@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.camelot import neighbors
-from ...i18n import plural, t
+from ...i18n import date_text, num, plural, t
 from ...models import LibraryTrack, PlaylistInfo, format_duration, source_from_url
 from .. import theme
 from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
@@ -61,11 +61,11 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "genre": x.genre, "year": str(x.year) if x.year else "", "label": x.label,
         "bitrate": t("unit.kbps", n=x.bitrate) if x.bitrate else "",
-        "rate": t("unit.khz", n=f"{x.sample_rate / 1000:g}") if x.sample_rate else "",
+        "rate": t("unit.khz", n=num(x.sample_rate / 1000)) if x.sample_rate else "",
         "rating": "★" * x.rating + "☆" * (5 - x.rating) if x.rating else "",
         "color": t(f"color.{x.color}") if color else "",
         "plays": str(x.play_count) if x.play_count else "",
-        "created": x.created, "size": t("unit.mb", n=f"{x.file_size / 1e6:.1f}") if x.file_size else "",
+        "created": x.created, "size": t("unit.mb", n=num(x.file_size / 1e6, ".1f")) if x.file_size else "",
         "comment": x.comment, "path": x.path,
     }
     if color:
@@ -773,7 +773,7 @@ class LibraryView(View):
         info = watched.lookup_track(x)
         if info:
             return {"source": t("watch.source"), "source__icon": "watch",
-                    "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=info.get("date", ""))}
+                    "source__tip": t("watch.source_tip", folder=info.get("folder", ""), date=date_text(info.get("date", "")))}
         src = source_from_url(x.source_url)
         if src:
             return {"source": src}
@@ -786,7 +786,7 @@ class LibraryView(View):
             str(x.content_id),
             {"pos": x.sequence if pos else "", "key": x.camelot or "", "title": x.title, "artist": x.artist,
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
-             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": (x.date_added or "")[:10],
+             "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": date_text(x.date_added),
              **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
              **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x),
              "_tip": self._missing_tip(x.content_id)},
@@ -1006,7 +1006,7 @@ class LibraryView(View):
             if st is not None and st.total_seconds:
                 parts.append(total_duration(st.total_seconds))
             if st is not None and st.last_added:
-                parts.append(t("lib.last_added", date=st.last_added))
+                parts.append(t("lib.last_added", date=date_text(st.last_added)))
             orph = getattr(self, "_orphans", None)                # 1.3.2-rc.2 (C56) : le rappel, visible ici
             if orph:
                 parts.append(plural("lib.orphans_count_one", "lib.orphans_count_many", len(orph)))
@@ -1023,7 +1023,7 @@ class LibraryView(View):
                 if st is not None and st.total_seconds:
                     parts.append(total_duration(st.total_seconds))
                 if st is not None and st.last_added:
-                    parts.append(t("lib.updated", date=st.last_added))
+                    parts.append(t("lib.updated", date=date_text(st.last_added)))
             self.title_lbl.setText(p.name)
             self.sub_lbl.setText("  ·  ".join(parts))
         else:
@@ -1216,7 +1216,7 @@ class LibraryView(View):
             return
         PlaylistPicker(self, self.ctrl, t("lib.move_to"), t("lib.move"),
                        on_ok=lambda pids: self.ctrl.move_tracks(ids, src.playlist_id, pids[0]), multi=False,
-                       exclude=[src.playlist_id], subtitle=t("lib.move_sub", n=len(ids), name=src.name))
+                       exclude=[src.playlist_id], subtitle=plural("lib.move_sub", "lib.move_sub_many", len(ids), name=src.name))
 
     def _remove(self) -> None:
         ids, p = self._ids(), self.playlist

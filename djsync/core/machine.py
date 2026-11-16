@@ -40,6 +40,13 @@ class MachineInfo:
         mem = f"{self.memory_gb:.0f} GB" if self.memory_gb is not None else "? GB"
         return f"{self.cores} cores, {mem}"
 
+    def describe_ui(self) -> str:
+        """1.4.2 (A2-6) : même chose, traduit (« 2 cœurs, 8 Go »). `describe()` reste pour le journal."""
+        from ..i18n import t
+
+        mem = f"{self.memory_gb:.0f}" if self.memory_gb is not None else "?"
+        return t("machine.describe", cores=self.cores, mem=mem)
+
 
 _INFO: Optional[MachineInfo] = None
 

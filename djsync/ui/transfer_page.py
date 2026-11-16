@@ -26,9 +26,10 @@ ACTION_KEYS = {T.MERGE: "transfer.act_merge", T.KEEP_BOTH: "transfer.act_both", 
 
 
 def human_size(n: int) -> str:
-    if n >= 1 << 30:
-        return f"{n / (1 << 30):.1f} GB"
-    return f"{max(0, n) / (1 << 20):.0f} MB"
+    """1.4.2 (A2-6) : unités et décimales de la langue (« 1,2 Go »)."""
+    from .views.common import human_size as _human
+
+    return _human(max(0, n))
 
 
 class _Side(QWidget):

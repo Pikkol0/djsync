@@ -358,7 +358,7 @@ class DJSyncApp(QMainWindow):
             self.ctrl.save_settings_quiet()
         dlg = BaseDialog(self, t("light.title"), 460)
         dlg.heading(t("light.title"))
-        dlg.body.addWidget(label(t("light.text", machine=info.describe()), wrap=True))
+        dlg.body.addWidget(label(t("light.text", machine=info.describe_ui()), wrap=True))
         never = QCheckBox(t("light.never"))
         dlg.body.addWidget(never)
 
@@ -384,7 +384,7 @@ class DJSyncApp(QMainWindow):
         """1.4.2 (C174) : « Mode léger actif sur ce PC », avec un lien vers son réglage."""
         if getattr(self.ctrl.settings, "first_run", False) and not self.ctrl.settings.welcome_done:
             return
-        self._message("info", t("light.notice", machine=info.describe()))
+        self._message("info", t("light.notice", machine=info.describe_ui()))
         self._message_action(t("light.notice_settings"), lambda: self._open_settings_section("general"))
 
     # ------------------------------------------------------------------ construction
@@ -1461,10 +1461,10 @@ class DJSyncApp(QMainWindow):
 
         WelcomeDialog(self, self.ctrl)
 
-    def open_help(self) -> None:
+    def open_help(self, start: bool = False) -> None:
         from .help_dialog import HelpDialog
 
-        HelpDialog(self)
+        HelpDialog(self, start=start)
 
     # ------------------------------------------------------------------- état
     def _message(self, kind: str, text: str) -> None:

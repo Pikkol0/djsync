@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...db import UsbDrive
-from ...i18n import LANGUAGES, t
+from ...i18n import LANGUAGES, num, t
 from ...settings import ZOOM_STEP
 from .. import theme
 from ..logo import logo_pixmap
@@ -50,7 +50,7 @@ QUALITY_KBPS = {"original": 128, "yt_best": 256, "mp3_320": 320, "mp3_256": 256,
 def quality_label(q: str) -> str:
     """« M4A · AAC ≈ 128 kbps, sans conversion  —  ≈ 1 Mo/min » : vrai format, puis taille par minute."""
     mb = QUALITY_KBPS.get(q, 128) * 60 / 8 / 1000
-    return t(f"settings.quality_{q}") + "  —  " + t("settings.quality_per_min", mb=f"{mb:.1f}")
+    return t(f"settings.quality_{q}") + "  —  " + t("settings.quality_per_min", mb=num(mb, ".1f"))
 
 
 def quality_grid(rows_text: str) -> QWidget:
@@ -248,7 +248,7 @@ class SettingsView(View):
         row.addWidget(self.light_menu)
         info = machine_info()
         self.light_state = label(t("settings.light_state_on" if light_active(s, info) else "settings.light_state_off",
-                                   machine=info.describe()), "dim", wrap=True)
+                                   machine=info.describe_ui()), "dim", wrap=True)
         row.addWidget(self.light_state, 1)
         card.addLayout(row)
 

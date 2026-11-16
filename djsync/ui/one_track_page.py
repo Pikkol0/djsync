@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFormLayout, QFrame, QGridLayout, QListWidget, QListWidgetItem, QScrollArea
 
-from ..i18n import t
+from ..i18n import num, t
 from ..models import LibraryTrack
 from . import theme
 from .dialogs import BaseDialog
@@ -216,7 +216,7 @@ class OneTrackPage(BaseDialog):
 
         row("track.album", x.album or "")
         row("track.duration", _duration(x.duration_seconds))
-        row("track.bpm", f"{x.bpm:.2f}".rstrip("0").rstrip(".") if x.bpm else t("one.not_analysed"))
+        row("track.bpm", num(float(f"{x.bpm:.2f}")) if x.bpm else t("one.not_analysed"))
         key = CamelotPill(x.camelot)
         if x.camelot:
             box = hbox(spacing=theme.px(6))

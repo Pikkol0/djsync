@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QLabel, QSizePolicy, QSlider, QWidget
 
 from ..audio.covers import placeholder
 from ..audio.player import LOADING, PAUSED, PLAYING, STOPPED, NowPlaying
-from ..i18n import t
+from ..i18n import num, t
 from ..models import format_duration
 from . import theme
 from .covers import CoverLoader, CoverRef, file_cover, url_cover
@@ -540,7 +540,7 @@ class PlayerBar(QWidget):
         self._shown_track = track
         self.key_pill.set(track.camelot if track is not None else None)
         if track is not None and track.bpm:
-            self.bpm.setText(f"{track.bpm:.1f} BPM".replace(".0 ", " "))
+            self.bpm.setText(f"{num(round(track.bpm, 1))} BPM")
         else:
             self.bpm.setText("")
         self._wave_token += 1

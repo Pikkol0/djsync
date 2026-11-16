@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Sequence
 
 from PySide6.QtWidgets import QWidget
 
-from ...i18n import get_language, plural, t
+from ...i18n import get_language, num, plural, t
 from ...models import TrackResult
 from .. import theme
 from ..dialogs import PlaylistPicker
@@ -136,8 +136,8 @@ def result_row(track: TrackResult, checked: Optional[bool] = None) -> Row:
             values["source__color"] = theme.GOLD if r.lossless else theme.SILVER
         values["type"] = t("slsk.free_slot") if r.free_slot else t("slsk.queue", n=r.queue)
         if r.speed:                            # 1.4.0-rc.2 (B60) : repérer les pairs rapides
-            values["type"] += f" · {r.speed / 1e6:.1f} " + t("unit.mbps_short")
-        values["size"] = t("unit.mb", n=f"{r.size / 1e6:.1f}")    # 1.4.0-rc.5 (B92) : plus dans « Vues »
+            values["type"] += f" · {num(r.speed / 1e6, '.1f')} " + t("unit.mbps_short")
+        values["size"] = t("unit.mb", n=num(r.size / 1e6, ".1f"))    # 1.4.0-rc.5 (B92) : plus dans « Vues »
         values["views"] = ""
     elif track.quality:                        # 1.4.0 (C45) : sources libres (Internet Archive, Audius)
         from .. import theme

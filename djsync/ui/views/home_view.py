@@ -211,6 +211,9 @@ class HomeView(View):
             text = vbox(spacing=theme.px(2))
             text.addWidget(label(t("home.no_drive_title"), "h2"))
             text.addWidget(label(t("home.no_drive_sub"), "dim", wrap=True))
+            # 1.4.2 (A2-10) : depuis C24 une clé vierge suffit ; lien vers les Premiers pas de l'aide
+            start = button(t("start.tab"), lambda: self.window().open_help(start=True), kind="flat", icon="go")
+            text.addWidget(start, 0, Qt.AlignLeft)
             lay.addLayout(text, 1)
             self.cards_lay.addWidget(box)
             return

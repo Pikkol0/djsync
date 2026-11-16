@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.duplicates import best_keeper, split_display
-from ..i18n import plural, t
+from ..i18n import date_text, plural, t
 from ..models import SOURCE_LABELS, LibraryTrack, format_duration
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog
@@ -666,7 +666,7 @@ class DuplicatesDialog(BaseDialog):
         missing = self.ctrl.file_missing(x)
         fmt, lvl = levels.audio_text(self._quality.get(x.content_id), x.file_type, missing)
         info = [escape(x.artist or t("dup.no_artist")), format_duration(x.duration_seconds), levels.html(fmt, lvl),
-                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), (x.date_added or "")[:10]]
+                f"{x.bpm:.0f} BPM" if x.bpm else escape(t("dup.not_analysed")), date_text(x.date_added)]
         return "  ·  ".join(i for i in info if i)
 
     def _best(self, group: List[LibraryTrack]) -> Optional[LibraryTrack]:
@@ -833,7 +833,7 @@ class DuplicatesDialog(BaseDialog):
 
     def _plain_info(self, x: LibraryTrack) -> str:
         bits = [x.artist or t("dup.no_artist"), format_duration(x.duration_seconds),
-                f"{x.bpm:.0f} BPM" if x.bpm else "", (x.date_added or "")[:10]]
+                f"{x.bpm:.0f} BPM" if x.bpm else "", date_text(x.date_added)]
         return "  ·  ".join(b for b in bits if b)
 
     def _show_same_titles(self, row: int, j: int) -> None:

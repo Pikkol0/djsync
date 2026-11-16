@@ -15,7 +15,7 @@ from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import QComboBox, QListWidget, QListWidgetItem, QSizePolicy, QSpinBox, QWidget
 
 from ..core.suggest import DEFAULT_TOLERANCE, Suggestion, suggestions
-from ..i18n import t
+from ..i18n import num, t
 from . import levels, theme
 from .table import MIME_IDS
 from .widgets import CamelotPill, hbox, icon_button, label, panel, vbox
@@ -154,7 +154,7 @@ class SuggestionsPanel(QWidget):
         texts.addWidget(name)
         who = label(x.artist or "—", "dim")
         level = levels.bpm_gap(s.bpm_gap or 0)
-        gap = f"{s.bpm_gap:+.1f} %" if s.bpm_gap else "="
+        gap = f"{num(s.bpm_gap, '+.1f')} %" if s.bpm_gap else "="
         half = {0.5: " (×½)", 2.0: " (×2)"}.get(s.ratio, "")
         detail = label("", "dim")
         detail.setTextFormat(Qt.RichText)

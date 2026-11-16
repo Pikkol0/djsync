@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from ...i18n import t
+from ...i18n import plural, t
 from ...models import LOW_SCORE, Candidate, DownloadJob, LibraryTrack, SpotifyTrack, TrackResult
 
 log = logging.getLogger(__name__)
@@ -358,7 +358,7 @@ class DiagnosticMixin:
         """Retire les entrées (fichier déjà absent) ; playlists mises à jour."""
         ids = list(content_ids)
         self._write(lambda lib: lib.delete_tracks(ids, delete_files=False), ok,
-                    success=t("missing.removed", n=len(ids)), err=err)
+                    success=plural("missing.removed", "missing.removed_many", len(ids)), err=err)
 
     def replace_missing(self, content_id: int, keep_id: int, ok: Optional[Callable[[Any], None]] = None,
                         err: Optional[Callable[[Any], None]] = None) -> None:

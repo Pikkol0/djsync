@@ -102,7 +102,8 @@ def test_dynamic_keys_exist():
     for notation in ("auto", "camelot", "musical"):
         assert f"settings.notation_{notation}" in en.STRINGS
     pytest.importorskip("PySide6")
-    from djsync.ui.help_dialog import SHORTCUTS, TOPICS
+    from djsync.ui.help_dialog import KEY_NAMES, SHORTCUTS
 
-    for key in [k for _keys, k in SHORTCUTS] + TOPICS + [k + "_title" for k in TOPICS]:
+    # 1.4.2 (A2-7) : plus de « Guide rapide » (TOPICS) ; (A2-6) noms de touches traduits
+    for key in [k for _keys, k in SHORTCUTS] + list(KEY_NAMES.values()):
         assert key in en.STRINGS and key in fr.STRINGS, key

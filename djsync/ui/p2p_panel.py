@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
-from ..i18n import t
+from ..i18n import num, t
 from . import theme
 from .widgets import button, hbox, label, panel, vbox
 
@@ -18,12 +18,12 @@ DOWN, UP = "#39C98A", "#FF9F43"
 def human_rate(bps: float) -> str:
     for unit, k in (("unit.mbps", 1e6), ("unit.kbps_s", 1e3)):
         if bps >= k:
-            return t(unit, n=f"{bps / k:.1f}")
+            return t(unit, n=num(bps / k, ".1f"))
     return t("unit.bps", n=f"{bps:.0f}")
 
 
 def human_bytes(n: int) -> str:
-    return t("unit.mb", n=f"{n / 1e6:.1f}") if n >= 1e5 else t("unit.kb", n=f"{n / 1e3:.0f}")
+    return t("unit.mb", n=num(n / 1e6, ".1f")) if n >= 1e5 else t("unit.kb", n=f"{n / 1e3:.0f}")
 
 
 class SpeedGraph(QWidget):

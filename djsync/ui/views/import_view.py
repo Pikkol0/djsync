@@ -310,11 +310,11 @@ class ImportView(View):
         counts = {"ok": 0, "review": 0, "missing": 0, "duplicate": 0}
         for m in self.matches:
             counts[m.status] += 1
-        parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.matches)), t("import.sum_found", n=counts["ok"])]
+        parts = [plural("lib.tracks_one", "lib.tracks_many", len(self.matches)), plural("import.sum_found", "import.sum_found_many", counts["ok"])]
         if counts["review"]:
             parts.append(t("import.sum_review", n=counts["review"]))
         if counts["missing"]:
-            parts.append(t("import.sum_missing", n=counts["missing"]))
+            parts.append(plural("import.sum_missing", "import.sum_missing_many", counts["missing"]))
         if counts["duplicate"]:
             parts.append(t("import.sum_duplicate", n=counts["duplicate"]))
         return " · ".join(parts)

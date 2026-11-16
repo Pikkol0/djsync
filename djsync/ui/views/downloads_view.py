@@ -219,7 +219,7 @@ class DownloadsView(View):
         done = sum(1 for j in jobs if j.status == "done")
         err = sum(1 for j in jobs if j.status == "error")
         active = self.ctrl.active_jobs
-        parts = [t("dl.done_n", n=done)]
+        parts = [plural("dl.done_n", "dl.done_n_many", done)]
         if active:
             parts.append(t("dl.active_n", n=active))
         if err:

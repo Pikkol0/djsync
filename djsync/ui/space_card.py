@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QGridLayout, QWidget
 
 from ..core import space
-from ..i18n import t
+from ..i18n import num, t
 from . import theme
 from .views.common import human_size
 from .widgets import button, hbox, label
@@ -208,7 +208,7 @@ class SpaceCard:
         text = t("space.summary", free=human_size(usage.free), total=human_size(usage.total))
         if usage.total:                             # 1.4.0 (C129) : part de la bibliothèque sur tout le disque
             text = t("space.summary_lib", lib=human_size(usage.library),
-                     pct=f"{100.0 * usage.library / usage.total:.1f}", other=human_size(usage.parts.get("other", 0)),
+                     pct=num(100.0 * usage.library / usage.total, ".1f"), other=human_size(usage.parts.get("other", 0)),
                      free=human_size(usage.free), total=human_size(usage.total))
         for drive, size in sorted(getattr(usage, "music_elsewhere", {}).items()):
             text += "\n" + t("space.music_elsewhere", size=human_size(size), drive=drive)
