@@ -185,12 +185,16 @@ def test_welcome_language_needs_confirm_and_star_is_primary(demo, monkeypatch): 
 
     monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
     w = WelcomeDialog(demo, demo.ctrl)
-    w._pick("fr" if demo.ctrl.settings.language == "en" else "en")
+    first = demo.ctrl.settings.language
+    w._pick("fr" if first == "en" else "en")
     assert w._step == 1                                   # un clic choisit, ne passe pas à la suite
-    w._pick(demo.ctrl.settings.language)
+    assert demo.ctrl.settings.language != first           # 1.4.2 (A2-11) : appliquée tout de suite
+    w._pick(first)
+    assert demo.ctrl.settings.language == first
+    # 1.4.2 (A2-11) : l'étoile n'est plus le bouton principal, c'est un lien discret du premier écran
+    assert w.star_btn.property("kind") == "flat"
     w.validate_btn.click()
     assert w._step == 2
-    assert w.star_btn.property("kind") == "primary"
     assert w.width() >= w.minimumWidth() > 0
     w._finish()
     assert not demo.errors

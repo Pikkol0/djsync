@@ -240,7 +240,8 @@ class DJSyncApp(QMainWindow):
         from . import tour
 
         if tour.should_offer(self.ctrl.settings):          # 1.4.2 (C178) : visite guidée proposée (une fois)
-            self.queue_startup("tour", lambda: tour.offer(self))
+            # 1.4.2 (A2-11) : au premier lancement, la case de l'accueil a déjà posé la question
+            self.queue_startup("tour", lambda: None if getattr(self, "_tour_asked", False) else tour.offer(self))
 
     # ----------------------------------------------------------------- fenêtre à l'écran
     def _place_window(self, settings: Settings) -> None:

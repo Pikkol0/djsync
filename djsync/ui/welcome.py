@@ -1,20 +1,23 @@
 """1.3.2 (C54) : accueil du tout premier lancement (pas après une mise à jour).
 
-Étape 1 : la langue (English / Français, celle du système présélectionnée), puis « Valider » (1.3.2-rc.2, B44).
-Étape 2 : bienvenue, remerciements, étoile sur GitHub, raccourci dans le menu Démarrer / Applications
-(C70), « Premiers pas » (C68). « Passer » partout ; rien n'est bloquant. Revu depuis Paramètres ▸ DJSync.
+1.4.2 (A2-11) : deux écrans au lieu de quatre fenêtres.
+Écran 1 : bienvenue et langue ensemble (un clic change la langue et retraduit l'écran), les trois points,
+raccourci dans le menu Démarrer / Applications (C70), étoile GitHub en lien discret, remerciements (gardés),
+« Premiers pas » (C68), « Suivant ».
+Écran 2 : qualité des téléchargements YouTube (C146, C187) et la visite guidée proposée par une case (plus
+de fenêtre à part), « Commencer ». « Passer » sur le premier écran ; rien n'est bloquant. La fenêtre prend
+la hauteur de son contenu. Revu depuis Paramètres ▸ DJSync.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from PySide6.QtCore import QLocale, Qt
-from PySide6.QtWidgets import QCheckBox
 
 from ..i18n import get_language, set_language, t
 from . import theme
 from .dialogs import BaseDialog
-from .widgets import button, hbox, icon_label, label
+from .widgets import WrapCheckBox, button, hbox, icon_label, label
 
 REPO = "https://github.com/Pikkol0/djsync"
 
@@ -30,26 +33,32 @@ class WelcomeDialog(BaseDialog):
     modal = True
 
     def __init__(self, parent: Any, controller: Any, step: int = 1) -> None:
-        # 1.3.2-rc.2 (B44) : fenêtre plus grande (aucun texte coupé), plus aérée
-        super().__init__(parent, "DJSync", 640, 500)
+        # 1.4.2 (A2-11) : largeur fixe, hauteur du contenu (plus de fenêtre à moitié vide)
+        super().__init__(parent, "DJSync", 600)
         self.ctrl = controller
         self._step = step
         pre = get_language() if self.ctrl.settings.language != "en" else system_language()
         self._lang = pre
+        self._shortcut_pref = None
+        if pre != self.ctrl.settings.language:           # 1.4.2 (A2-11) : langue du système appliquée d'office
+            self._apply_language(pre)
         self._build()
         self.show_dialog()
 
     # ------------------------------------------------------------------ étapes
     def _clear(self) -> None:
-        from .duplicates_dialog import _drop_layout
+        def drop(lay: Any) -> None:
+            while lay.count():
+                item = lay.takeAt(0)
+                if item.widget() is not None:
+                    w = item.widget()                        # 1.4.2 (A2-11) : rien ne reste visible
+                    w.hide()
+                    w.setParent(None)
+                    w.deleteLater()
+                elif item.layout() is not None:
+                    drop(item.layout())
 
-        while self.body.count():
-            item = self.body.takeAt(0)
-            if item.widget() is not None:
-                item.widget().hide()
-                item.widget().deleteLater()
-            elif item.layout() is not None:
-                _drop_layout(item.layout())
+        drop(self.body)
 
     def _logo_row(self, title: str, role: str = "h2") -> None:
         from PySide6.QtWidgets import QLabel
@@ -66,70 +75,86 @@ class WelcomeDialog(BaseDialog):
     def _build(self) -> None:
         self._clear()
         self.body.setSpacing(theme.px(12))
-        if self._step == 1:
-            self._logo_row(t("welcome.lang_title"))
-            self.body.addWidget(label(t("welcome.lang_sub"), "dim", wrap=True))
-            row = hbox(spacing=theme.px(12))
-            self.lang_buttons = {}
-            for code, name in (("en", "English"), ("fr", "Français")):
-                b = button(name, lambda c=code: self._pick(c), kind="tile")
-                b.setCheckable(True)
-                b.setMinimumHeight(theme.px(72))
-                row.addWidget(b, 1)
-                self.lang_buttons[code] = b
-            self.body.addLayout(row)
-            self._pick(self._lang)
-            self.body.addStretch(1)
-            foot = hbox(spacing=theme.px(8))
-            foot.addWidget(button(t("welcome.skip"), self._finish, kind="flat"))
-            foot.addStretch(1)
-            self.validate_btn = button(t("welcome.validate"), lambda: self._choose(self._lang), kind="primary",
-                                       icon="check")
-            foot.addWidget(self.validate_btn)
-            self.body.addLayout(foot)
-            return
-        if self._step == 3:
+        if self._step >= 2:
             self._build_quality()
-            return
+        else:
+            self._build_welcome()
+        self._fit()
+
+    def _fit(self) -> None:
+        """Hauteur du contenu (A2-11), recalculée à chaque écran et changement de langue."""
+        from PySide6.QtCore import QTimer
+
+        def go() -> None:
+            try:
+                self.body.activate()
+                w = max(self.width(), self.minimumWidth())
+                h = self.body.totalHeightForWidth(w) if self.body.hasHeightForWidth() else self.sizeHint().height()
+                self.resize(w, max(h, self.minimumSizeHint().height()))
+            except RuntimeError:
+                pass
+
+        go()
+        QTimer.singleShot(0, go)
+
+    def _build_welcome(self) -> None:
         from ..credits import thanks_text
 
         # 1.3.2-rc.3 (C128) : hiérarchie de tailles (titre, accroche, trois points avec une icône chacun,
-        # remerciements en petit et centrés) pour que le texte soit lu et pas survolé
-        self._logo_row(t("welcome.title"), role="title")
-        lead = label(t("welcome.lead"), "h2", wrap=True)
-        self.body.addWidget(lead)
+        # remerciements en petit et centrés) ; 1.4.2 (A2-11) : la langue sur le même écran
+        self._logo_row(t("welcome.lang_title"), role="title")
+        lang = hbox(spacing=theme.px(8))
+        lang.addWidget(label(t("welcome.lang_label"), "dim"))
+        self.lang_buttons = {}
+        for code, name in (("en", "English"), ("fr", "Français")):
+            b = button(name, lambda c=code: self._pick(c), kind="tile")
+            b.setCheckable(True)
+            lang.addWidget(b)
+            self.lang_buttons[code] = b
+        lang.addStretch(1)
+        self.body.addLayout(lang)
+        self._show_pick()
+        self.body.addWidget(label(t("welcome.lead"), "h2", wrap=True))
         for icon, key in (("search", "welcome.point_find"), ("wave", "welcome.point_analyse"),
                           ("usb", "welcome.point_free")):
             line = hbox(spacing=theme.px(10))
             line.addWidget(icon_label(icon, 18, theme.ACCENT), 0, Qt.AlignTop)
             line.addWidget(label(t(key), wrap=True), 1)
             self.body.addLayout(line)
-        star = button("⭐  " + t("welcome.star"), lambda: self.ctrl._emit("open_url", REPO), kind="primary")
-        star.setMinimumHeight(theme.px(48))
-        self.star_btn = star
-        self.body.addWidget(star)
-        self.body.addWidget(label(t("welcome.star_why"), "faint", wrap=True))
-        self.shortcut = QCheckBox(t("welcome.shortcut"))
+        self.shortcut = WrapCheckBox(t("welcome.shortcut"))        # A2-3 : texte à la ligne, plus coupé
         from ..core import shortcut
 
         self.shortcut.setEnabled(shortcut.target() is not None)
-        self.shortcut.setChecked(shortcut.target() is not None)
+        self.shortcut.setChecked(shortcut.target() is not None if self._shortcut_pref is None
+                                 else self._shortcut_pref)
+        self.shortcut.toggled.connect(lambda v: setattr(self, "_shortcut_pref", v))
         self.body.addWidget(self.shortcut)
-        self.body.addStretch(1)
+        # A2-11 : l'étoile devient un lien discret, avec sa raison en bulle
+        star = button("⭐  " + t("welcome.star"), lambda: self.ctrl._emit("open_url", REPO), kind="flat",
+                      tooltip=t("welcome.star_why"))
+        self.star_btn = star
         thanks = label("🙏 " + thanks_text(get_language()), "faint", wrap=True)
         thanks.setAlignment(Qt.AlignCenter)                   # 1.3.2-rc.3 (C128, DEM-12) : centré
         self.thanks_lbl = thanks
         self.body.addWidget(thanks)
+        self.body.addWidget(star, 0, Qt.AlignHCenter)
         foot = hbox(spacing=theme.px(8))
+        foot.addWidget(button(t("welcome.skip"), self._finish, kind="flat"))
         foot.addWidget(button(t("welcome.first_steps"), self._first_steps, kind="flat", icon="help"))
         foot.addStretch(1)
-        foot.addWidget(button(t("welcome.next"), self._to_quality, icon="go"))
+        self.validate_btn = button(t("welcome.next"), lambda: self._choose(self._lang), kind="primary", icon="go")
+        self.validate_btn.setDefault(True)
+        foot.addWidget(self.validate_btn)
         self.body.addLayout(foot)
 
     def _to_quality(self) -> None:
-        box = getattr(self, "shortcut", None)
-        self._shortcut_wanted = bool(box is not None and box.isChecked() and box.isEnabled())
-        self._step = 3
+        if self._step < 2:
+            box = getattr(self, "shortcut", None)
+            try:
+                self._shortcut_wanted = bool(box is not None and box.isChecked() and box.isEnabled())
+            except RuntimeError:                              # case déjà détruite
+                pass
+        self._step = 2
         self._build()
 
     def _build_quality(self) -> None:
@@ -155,10 +180,19 @@ class WelcomeDialog(BaseDialog):
                               tooltip=t("welcome.more_choices_tip")))
         self.body.addLayout(more)
         self._pick_yt("best" if self.ctrl.settings.download_quality == "yt_best" else "m4a")
-        self.body.addStretch(1)
+        # 1.4.2 (A2-11) : la visite guidée proposée ici, au lieu d'une quatrième fenêtre
+        from . import tour
+
+        self.tour_box = None
+        if tour.should_offer(self.ctrl.settings):
+            self.tour_box = WrapCheckBox(t("welcome.tour"))
+            self.tour_box.setChecked(True)
+            self.body.addWidget(self.tour_box)
         foot = hbox(spacing=theme.px(8))
         foot.addStretch(1)
-        foot.addWidget(button(t("welcome.start"), self._finish, kind="primary", icon="go"))
+        self.start_btn = button(t("welcome.start"), self._finish, kind="primary", icon="go")
+        self.start_btn.setDefault(True)
+        foot.addWidget(self.start_btn)
         self.body.addLayout(foot)
 
     def _more_choices(self) -> None:
@@ -174,25 +208,38 @@ class WelcomeDialog(BaseDialog):
             b.style().unpolish(b)
             b.style().polish(b)
         self.yt_warn.setVisible(key == "best")
+        if hasattr(self, "_step"):
+            self._fit()
 
     def _pick(self, code: str) -> None:
-        """1.3.2-rc.2 (B44) : un clic choisit la langue ; « Valider » passe à la suite."""
+        """1.3.2-rc.2 (B44) : un clic choisit la langue, « Suivant » passe à la suite. 1.4.2 (A2-11) : la langue
+        s'applique tout de suite (l'écran de bienvenue est retraduit)."""
+        changed = code != self._lang or code != self.ctrl.settings.language
         self._lang = code
+        if changed and code != self.ctrl.settings.language:
+            self._apply_language(code)
+            self._build()
+            return
+        self._show_pick()
+
+    def _apply_language(self, code: str) -> None:
+        s = self.ctrl.settings
+        s.language = code
+        set_language(code)
+        s.save()
+        self.ctrl._emit("rebuild_ui")
+
+    def _show_pick(self) -> None:
         for c, b in self.lang_buttons.items():
-            b.setChecked(c == code)
-            b.setProperty("kind", "primary" if c == code else "tile")
+            b.setChecked(c == self._lang)
+            b.setProperty("kind", "primary" if c == self._lang else "tile")
             b.style().unpolish(b)
             b.style().polish(b)
 
     def _choose(self, code: str) -> None:
-        s = self.ctrl.settings
-        if code != s.language:
-            s.language = code
-            set_language(code)
-            s.save()
-            self.ctrl._emit("rebuild_ui")
-        self._step = 2
-        self._build()
+        if code != self.ctrl.settings.language:
+            self._apply_language(code)
+        self._to_quality()
 
     def _first_steps(self) -> None:
         self._finish()
@@ -206,7 +253,10 @@ class WelcomeDialog(BaseDialog):
         box = getattr(self, "shortcut", None)
         wanted = getattr(self, "_shortcut_wanted", None)
         if wanted is None:
-            wanted = bool(box is not None and box.isChecked() and box.isEnabled())
+            try:
+                wanted = bool(box is not None and box.isChecked() and box.isEnabled())
+            except RuntimeError:
+                wanted = False
         if wanted:
             s.start_menu_shortcut = True
             self.ctrl.refresh_shortcut()
@@ -215,5 +265,20 @@ class WelcomeDialog(BaseDialog):
             if not s.download_quality.startswith("mp3"):
                 s.download_quality = "yt_best" if self._yt == "best" else "original"
             s.youtube_best = s.download_quality == "yt_best"
+        tour_box = getattr(self, "tour_box", None)
+        go_tour = False
+        if tour_box is not None:                            # 1.4.2 (A2-11) : la case remplace la fenêtre
+            go_tour = tour_box.isChecked()
+            s.tour_state = "done" if go_tour else "later"
+            win = self.parent().window() if self.parent() is not None else None
+            if win is not None:
+                win._tour_asked = True                       # pas de seconde proposition ce lancement-ci
         s.save()
         self.close()
+        if go_tour and self.parent() is not None:
+            from PySide6.QtCore import QTimer
+
+            from . import tour
+
+            win = self.parent().window()
+            QTimer.singleShot(300, lambda: tour.start(win))

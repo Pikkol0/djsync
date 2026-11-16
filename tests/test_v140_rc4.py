@@ -170,7 +170,7 @@ def test_c146_welcome_quality_step(demo, monkeypatch):  # noqa: F811
     w = WelcomeDialog(demo, demo.ctrl)
     w._choose(s.language)
     w._to_quality()
-    assert w._step == 3 and w.yt_buttons["m4a"].isChecked() and w.yt_warn.isHidden()
+    assert w._step == 2 and w.yt_buttons["m4a"].isChecked() and w.yt_warn.isHidden()
     w._pick_yt("best")
     assert not w.yt_warn.isHidden()
     w._finish()

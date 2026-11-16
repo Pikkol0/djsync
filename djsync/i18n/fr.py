@@ -2116,4 +2116,6 @@ STRINGS = {
     "lib.move_sub_many": "{n} sons quittent « {name} ».",
     "missing.removed_many": "{n} entrées retirées.",
     "dl.done_n_many": "{n} terminés",
+    "welcome.lang_label": "Langue :",
+    "welcome.tour": "Faire la visite guidée d'une minute ensuite (relançable à tout moment depuis l'Aide)",
 }

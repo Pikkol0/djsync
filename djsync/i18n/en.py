@@ -2117,4 +2117,6 @@ STRINGS = {
     "lib.move_sub_many": "{n} tracks leave \"{name}\".",
     "missing.removed_many": "{n} entries removed.",
     "dl.done_n_many": "{n} done",
+    "welcome.lang_label": "Language:",
+    "welcome.tour": "Take the one-minute guided tour after this (you can start it any time from Help)",
 }
