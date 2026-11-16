@@ -397,6 +397,7 @@ class DJSyncApp(QMainWindow):
         self.sidebar = self._build_sidebar()
         body.addWidget(self.sidebar)
         self.stack = QStackedWidget()
+        self.stack.currentChanged.connect(lambda _i: QTimer.singleShot(0, self._place_toast))   # 1.4.2 (A2-5)
         body.addWidget(self.stack, 1)
         # messages : petite bulle en bas à droite de la page, qui disparaît seule
         self.toast = panel(self.stack, role="toast")
@@ -1520,8 +1521,31 @@ class DJSyncApp(QMainWindow):
         self.toast.adjustSize()
         m = theme.px(16)
         area = self.stack.rect()
-        # au-dessus de la rangée de boutons du bas des pages
-        self.toast.move(area.right() - self.toast.width() - m, area.bottom() - self.toast.height() - theme.px(64))
+        x = area.right() - self.toast.width() - m
+        # 1.4.2 (A2-5) : au-dessus de la dernière rangée de boutons de la page affichée (la hauteur fixe de 64 px
+        # recouvrait « Télécharger » sur les pages qui ont une barre de plus, comme Haute qualité)
+        self.toast.move(x, self._toast_bottom(x, x + self.toast.width()) - self.toast.height())
+
+    def _toast_bottom(self, left: int, right: int) -> int:
+        """Bas de la bulle : juste au-dessus des boutons du bas de la page sous la bulle (bande de 160 px)."""
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QAbstractButton
+
+        area = self.stack.rect()
+        page = self.stack.currentWidget()
+        limit = area.bottom() - theme.px(16)
+        if page is None:
+            return limit
+        band = area.bottom() - theme.px(160)
+        for b in page.findChildren(QAbstractButton):
+            if not b.isVisible() or b.window() is not self:
+                continue
+            top_left = b.mapTo(self.stack, QPoint(0, 0))
+            bottom = top_left.y() + b.height()
+            if bottom < band or top_left.x() > right or top_left.x() + b.width() < left:
+                continue
+            limit = min(limit, top_left.y() - theme.px(8))
+        return limit
 
     def closeEvent(self, e: Any) -> None:      # noqa: N802
         s = self.ctrl.settings
