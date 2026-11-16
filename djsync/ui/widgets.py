@@ -533,3 +533,67 @@ class ShrinkCombo(QComboBox):
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         return QSize(min(super().minimumSizeHint().width(), theme.px(self.MIN)), super().minimumSizeHint().height())
+
+
+class SideBar(QWidget):
+    """1.4.2 (A2-4) : barre d'actions « à gauche … à droite » qui passe sur deux lignes (gauche au-dessus,
+    droite en dessous, alignée à droite) quand la largeur manque, au lieu de couper les textes des boutons."""
+
+    def __init__(self, parent: Any = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.left, self.right = QWidget(), QWidget()
+        self.left_lay = hbox(self.left, spacing=theme.px(spacing))
+        self.right_lay = hbox(self.right, spacing=theme.px(spacing))
+        lay = vbox(self, spacing=theme.px(4))
+        self._top, self._bottom = hbox(spacing=0), hbox(spacing=0)
+        lay.addLayout(self._top)
+        lay.addLayout(self._bottom)
+        self._top.addWidget(self.left)
+        self._top.addStretch(1)
+        self._top.addWidget(self.right)
+        self._bottom.addStretch(1)
+        self.two_lines = False
+        lay.setSizeConstraint(QLayout.SetNoConstraint)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+    def add_left(self, w: QWidget) -> QWidget:
+        self.left_lay.addWidget(w)
+        return w
+
+    def add_right(self, w: QWidget) -> QWidget:
+        self.right_lay.addWidget(w)
+        return w
+
+    def _need(self) -> int:
+        return self.left.sizeHint().width() + self.right.sizeHint().width() + theme.px(16)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(max(self.left.sizeHint().width(), self.right.sizeHint().width()), super().minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        h = self.left.sizeHint().height()
+        if self.two_lines:
+            h += self.right.sizeHint().height() + theme.px(4)
+        return QSize(self._need(), max(h, self.right.sizeHint().height()))
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802
+        super().resizeEvent(e)
+        self._arrange()
+
+    def showEvent(self, e: Any) -> None:  # noqa: N802
+        super().showEvent(e)
+        self._arrange()
+
+    def _arrange(self) -> None:
+        two = self.width() < self._need()
+        if two == self.two_lines:
+            return
+        self.two_lines = two
+        (self._top if two else self._bottom).removeWidget(self.right)
+        if two:
+            self._bottom.addWidget(self.right)
+        else:
+            self._top.addWidget(self.right)
+        self.updateGeometry()
