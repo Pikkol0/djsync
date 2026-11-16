@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -1632,6 +1632,80 @@ class SettingsView(View):
             dlg.body.insertWidget(max(0, dlg.body.count() - 1), keep)
         except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
             pass
+
+    def unsaved(self) -> List[str]:
+        """1.4.2 (A2-18) : réglages modifiés à l'écran mais pas encore enregistrés (ceux qui attendent
+        « Enregistrer »). Même lecture que `_save`, sans rien écrire."""
+        from ... import full_version
+        from ..version_dialog import show_test_versions
+
+        s = self.ctrl.settings
+
+        def pick(mapping: Dict[str, str], text: str, default: str) -> str:
+            return next((k for k, v in mapping.items() if v == text), default)
+
+        try:
+            _w = self.watch_folder.text().strip()
+            form = {
+                "forced_drive": self.forced.text().strip(),
+                "contents_dir": self.contents.text().strip().strip("/\\") or "Contents",
+                "ffmpeg_location": self.ffmpeg.text().strip(),
+                "fetch_views": self.views_var.isChecked(),
+                "fetch_metadata": self.meta_var.isChecked(),
+                "backup_keep": int(self.keep.currentText()),
+                "merge_undo_s": int(self.merge_undo.currentData() or 10),
+                "pdb_sync": "auto" if self.pdb_var.isChecked() else "off",
+                "pdb_allow_growth": self.pdb_growth_var.isChecked(),
+                "analyze_after_download_usb": self.analyze_usb_var.isChecked(),
+                "analyze_after_download_local": self.analyze_local_var.isChecked(),
+                "auto_cue": self.cue_var.isChecked(),
+                "waveform_style": self.wave_style.currentData() or "3band",
+                "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
+                "download_quality": self.format_menu.currentData() or "original",
+                "soundcloud_original": self.sc_original_var.isChecked(),
+                "soundcloud_browser": pick(self._sc_browsers, self.sc_browser.currentText(), ""),
+                "soundcloud_token": self.sc_token.text().strip(),
+                "youtube_browser": pick(self._yt_browsers, self.yt_browser.currentText(), ""),
+                "watch_folder": str(Path(_w)) if _w else "",
+                "soulseek_enabled": self.slsk_var.isChecked() and s.soulseek_accepted,
+                "soulseek_user": self.slsk_user.text().strip(),
+                "soulseek_password": self.slsk_password.text(),
+                "soulseek_share": self.slsk_share_var.isChecked(),
+                "player_format": pick(self._player_formats, self.player_format.currentText(), ""),
+                "watch_playlist": self.watch_playlist_var.isChecked(),
+                "light_mode": pick(self._light_labels, self.light_menu.currentText(), "auto"),
+                "audio_latency_ms": int(self.latency_box.value()),
+                "check_updates": self.update_var.isChecked(),
+                "update_channel": "test" if self.show_rc_var.isChecked() else "stable",
+                "error_reports": pick(self._report_labels, self.report_menu.currentText(), "ask"),
+                "key_notation": pick(self._notation_labels, self.notation.currentText(), "auto"),
+                "local_db_dir": self.local_db.text().strip(),
+                "local_music_dir": self.local_music.text().strip(),
+            }
+        except (RuntimeError, AttributeError, ValueError):     # page en cours de construction ou détruite
+            return []
+        out = []
+        for key, value in form.items():
+            cur = getattr(s, key, None)
+            if key == "update_channel":
+                cur = "test" if show_test_versions(s.update_channel, full_version()) else "stable"
+            if key == "watch_folder" and cur:
+                cur = str(Path(cur))
+            if key == "reanalyze_rekordbox":
+                cur = list(cur or [])
+            if value != cur:
+                out.append(key)
+        return out
+
+    def save_now(self) -> None:
+        """1.4.2 (A2-18) : « Enregistrer » depuis l'alerte en quittant la page."""
+        self._save()
+
+    def discard(self) -> None:
+        """1.4.2 (A2-18) : « Ne pas enregistrer » : la page est remise sur les réglages enregistrés."""
+        win = self.window()
+        if hasattr(win, "rebuild_ui"):
+            win.rebuild_ui()
 
     def _save(self) -> None:
         s = self.ctrl.settings

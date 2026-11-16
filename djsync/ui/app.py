@@ -828,6 +828,8 @@ class DJSyncApp(QMainWindow):
     def show_view(self, key: str) -> None:
         if key not in self.views:
             return
+        if self._current == "settings" and key != "settings" and not self._settings_ok(lambda: self.show_view(key)):
+            return
         if self._current and self._current != key:
             self._previous = self._current                     # capture d'écran de l'onglet Retours
         self._current = key
@@ -1364,6 +1366,53 @@ class DJSyncApp(QMainWindow):
             target = self._current or "home"
         self.show_view(target)
 
+    def _settings_ok(self, then: Callable[[], None]) -> bool:
+        """1.4.2 (A2-18) : en quittant les Paramètres avec des réglages pas encore enregistrés, « Enregistrer
+        avant de quitter ? » (Enregistrer / Ne pas enregistrer / Rester). Vrai si l'on peut partir tout de
+        suite ; sinon la question est posée et `then` est rappelé après « Enregistrer » ou « Ne pas
+        enregistrer »."""
+        view = self.views.get("settings")
+        if view is None or self.stack.currentWidget() is not view or getattr(self, "_settings_asking", False):
+            return True
+        try:
+            pending = view.unsaved()
+        except Exception:  # noqa: BLE001 - jamais bloquer la navigation
+            return True
+        if not pending:
+            return True
+        from .dialogs import BaseDialog
+
+        log.info("Settings not saved: %s", ", ".join(pending))
+        self._settings_asking = True
+        dlg = BaseDialog(self, t("settings.leave_title"), 440)
+        dlg.heading(t("settings.leave_title"))
+        dlg.body.addWidget(label(t("settings.leave_text"), wrap=True))
+        row = hbox(spacing=theme.px(6))
+
+        def done(action: str) -> None:
+            self._settings_asking = False
+            dlg.close()
+            if action == "save":
+                view.save_now()
+            elif action == "discard":
+                view.discard()
+            if action in ("save", "discard"):
+                then()
+
+        dlg.stay_btn = button(t("settings.leave_stay"), lambda: done("stay"), kind="flat")
+        dlg.discard_btn = button(t("settings.leave_discard"), lambda: done("discard"))
+        dlg.save_btn = button(t("settings.leave_save"), lambda: done("save"), kind="primary", icon="check")
+        dlg.save_btn.setDefault(True)
+        row.addWidget(dlg.stay_btn)
+        row.addStretch(1)
+        row.addWidget(dlg.discard_btn)
+        row.addWidget(dlg.save_btn)
+        dlg.body.addLayout(row)
+        dlg.finished.connect(lambda _r: setattr(self, "_settings_asking", False))
+        dlg.show_dialog()
+        self.settings_leave_dialog = dlg
+        return False
+
     def _show_page(self, page: QWidget) -> None:
         from .diag_tabs import DiagTabs
 
@@ -1557,6 +1606,10 @@ class DJSyncApp(QMainWindow):
         return limit
 
     def closeEvent(self, e: Any) -> None:      # noqa: N802
+        # 1.4.2 (A2-18) : réglages pas encore enregistrés -> la question d'abord, la fermeture ensuite
+        if self._current == "settings" and not self._settings_ok(self.close):
+            e.ignore()
+            return
         s = self.ctrl.settings
         try:
             s.maximized = self.isMaximized()

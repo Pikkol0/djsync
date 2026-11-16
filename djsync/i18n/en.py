@@ -2129,4 +2129,9 @@ STRINGS = {
     "space.trim_confirm_ok": "Delete",
     "home.todo_unknown": "to measure",
     "home.todo_unknown_tip": "Not measured yet: open this tab of the Diagnostic to count.",
+    "settings.leave_title": "Save before leaving?",
+    "settings.leave_text": "Some settings on this page were changed but not saved yet.",
+    "settings.leave_stay": "Stay",
+    "settings.leave_discard": "Don't save",
+    "settings.leave_save": "Save",
 }

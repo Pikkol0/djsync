@@ -2128,4 +2128,9 @@ STRINGS = {
     "space.trim_confirm_ok": "Supprimer",
     "home.todo_unknown": "à mesurer",
     "home.todo_unknown_tip": "Pas encore mesuré : ouvrez cet onglet du Diagnostic pour compter.",
+    "settings.leave_title": "Enregistrer avant de quitter ?",
+    "settings.leave_text": "Des réglages de cette page ont été modifiés mais pas encore enregistrés.",
+    "settings.leave_stay": "Rester",
+    "settings.leave_discard": "Ne pas enregistrer",
+    "settings.leave_save": "Enregistrer",
 }
