@@ -9,7 +9,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QSize, Qt
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -415,7 +415,8 @@ class FlowLayout(QLayout):
     def minimumSize(self) -> QSize:  # noqa: N802
         size = QSize()
         for item in self._items:
-            size = size.expandedTo(item.minimumSize())
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
         return size
 
     def _place(self, x0: int, y0: int, width: int, apply: bool) -> int:
@@ -423,6 +424,8 @@ class FlowLayout(QLayout):
 
         x, y, line = x0, y0, 0
         for item in self._items:
+            if item.isEmpty():                  # 1.4.2 (A2-1) : élément masqué, sans place ni espacement
+                continue
             hint = item.sizeHint()
             if x > x0 and x + hint.width() > x0 + width:
                 x, y, line = x0, y + line + self._space, 0
@@ -431,3 +434,87 @@ class FlowLayout(QLayout):
             x += hint.width() + self._space
             line = max(line, hint.height())
         return y + line - y0
+
+
+class WrapCheckBox(QCheckBox):
+    """1.4.2 (A2-1) : case à cocher dont le texte passe à la ligne quand la largeur manque (une QCheckBox
+    garde son texte sur une ligne et imposait sa largeur à toute la page des Paramètres). Même API que
+    QCheckBox (text, isChecked, toggled…)."""
+
+    MIN_TEXT = 140          # px à 100 % : largeur minimale réservée au texte
+
+    def __init__(self, text: str = "", parent: Any = None) -> None:
+        super().__init__(text, parent)
+        from PySide6.QtWidgets import QSizePolicy
+
+        pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        pol.setHeightForWidth(True)
+        self.setSizePolicy(pol)
+
+    def _opt(self, width: int = 0) -> Any:
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QStyleOptionButton
+
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        if width:
+            opt.rect = QRect(0, 0, width, max(self.height(), 1))
+        return opt
+
+    def _text_rect(self, width: int) -> Any:
+        from PySide6.QtWidgets import QStyle
+
+        return self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(width), self)
+
+    def _indicator_width(self) -> int:
+        return max(0, super().sizeHint().width() - self.fontMetrics().horizontalAdvance(self.text()))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        base = super().minimumSizeHint()
+        return QSize(self._indicator_width() + theme.px(self.MIN_TEXT), base.height())
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        from PySide6.QtCore import QRect
+
+        rect = self._text_rect(width)
+        tw = max(1, rect.width())
+        text_h = self.fontMetrics().boundingRect(QRect(0, 0, tw, 100000), Qt.TextWordWrap, self.text()).height()
+        return max(super().sizeHint().height(), text_h + 2)
+
+    def paintEvent(self, _e: Any) -> None:  # noqa: N802
+        from PySide6.QtGui import QPalette
+        from PySide6.QtWidgets import QStyle, QStylePainter
+
+        p = QStylePainter(self)
+        opt = self._opt()
+        text = opt.text
+        opt.text = ""
+        p.drawControl(QStyle.CE_CheckBox, opt)
+        rect = self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(), self)
+        role = QPalette.WindowText
+        p.drawItemText(rect, int(Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap), self.palette(),
+                       self.isEnabled(), text, role)
+
+    def hitButton(self, pos: Any) -> bool:  # noqa: N802
+        return self.rect().contains(pos)
+
+
+def flow_row(*widgets: Any, spacing: int = 6) -> "FlowLayout":
+    """1.4.2 (A2-1) : rangée de contrôles qui passe à la ligne quand la carte est trop étroite."""
+    lay = FlowLayout(spacing=theme.px(spacing))
+    for w in widgets:
+        lay.addWidget(w)
+    return lay
+
+
+class ShrinkCombo(QComboBox):
+    """1.4.2 (A2-1) : liste déroulante qui garde sa largeur naturelle quand la place le permet, mais peut
+    rétrécir (texte choisi raccourci par Qt) au lieu d'imposer la largeur de son plus long choix à la page."""
+
+    MIN = 120               # px à 100 %
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(min(super().minimumSizeHint().width(), theme.px(self.MIN)), super().minimumSizeHint().height())
