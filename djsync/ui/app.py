@@ -1364,7 +1364,10 @@ class DJSyncApp(QMainWindow):
 
         diag = page.findChild(DiagTabs) is not None        # 1.4.1 (C140) : toute page du Diagnostic
         # 1.4.2 (C182) : une page ouverte par-dessus une vue (Grille et cues, Uniformiser…) garde l'entrée d'origine
-        self._check_nav("diagnostic" if diag else nav_key(self._current))
+        if getattr(page, "no_nav", False):                  # 1.4.2 (A2-12) : page sans entrée du volet
+            self._check_nav(None)
+        else:
+            self._check_nav("diagnostic" if diag else nav_key(self._current))
         self.stack.setCurrentWidget(page)
         if diag:
             self._reveal_nav("diagnostic")

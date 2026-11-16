@@ -38,6 +38,7 @@ class Check:
     text: str
     action: str = ""                  # analyse, pdb, missing, convert, space, backup, no_cue, empty_playlists
     ids: List[int] = field(default_factory=list)
+    state: str = ""                   # 1.4.2 (A2-12) : détail (ex. « absent » pour export.pdb)
 
     @property
     def mark(self) -> str:
@@ -77,7 +78,7 @@ def check_pdb(status: Any) -> Check:
     if state == "stale":
         return Check("pdb", "warn", t("set.pdb_stale", detail=getattr(status, "detail", "") or "?"), action="pdb")
     if state == "absent":
-        return Check("pdb", "warn", t("set.pdb_absent"))
+        return Check("pdb", "warn", t("set.pdb_absent"), state="absent")
     if state == "off":
         return Check("pdb", "warn", t("set.pdb_off"))
     if state == "unsupported":

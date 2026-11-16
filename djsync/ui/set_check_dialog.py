@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QWidget
 
 from ..i18n import t
@@ -19,11 +20,14 @@ ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint"}
 ACTIONS = {"analyse": "set.do_analyse", "pdb": "set.do_pdb", "missing": "set.do_missing", "convert": "set.do_convert",
            "space": "set.do_space", "backup": "set.do_backup", "no_cue": "set.do_no_cue",
            "empty_playlists": "set.do_empty"}
+# 1.4.2 (A2-12) : lignes sans bouton : quoi faire. (clé, niveau) ou (clé, état)
+HINTS = {("fs", "error"): "set.fs_format_warn", ("pdb", "absent"): "set.pdb_absent_how"}
 
 
 class SetCheckDialog(BaseDialog):
     as_page = True
     modal = False
+    no_nav = True                    # 1.4.2 (A2-12) : le volet ne coche plus « Accueil » sur cette page
 
     def __init__(self, parent: Any, controller: Any) -> None:
         super().__init__(parent, t("set.title"), 720, 560)
@@ -143,10 +147,15 @@ class SetCheckDialog(BaseDialog):
         top.addWidget(text, 1)
         act: Optional[Any] = None
         if c.action and c.level in ("warn", "error"):
-            act = button(t(ACTIONS.get(c.action, "set.do_see"), n=len(c.ids)), lambda _c=False, ch=c: self.act(ch),
-                         kind="flat")
-            top.addWidget(act)
+            # 1.4.2 (A2-12) : un vrai bouton (le bouton plat ressemblait à du texte)
+            act = button(t(ACTIONS.get(c.action, "set.do_see"), n=len(c.ids)), lambda _c=False, ch=c: self.act(ch))
+            top.addWidget(act, 0, Qt.AlignTop)
         lay.addLayout(top)
+        hint = HINTS.get((c.key, c.level)) or HINTS.get((c.key, c.state))
+        if hint:                                        # 1.4.2 (A2-12) : la suite à donner, quand il n'y a pas de bouton
+            note = label(t(hint), "warn" if c.level == "error" else "dim", wrap=True)
+            note.setContentsMargins(theme.px(18 + 8 + 170 + 8), 0, 0, 0)
+            lay.addWidget(note)
         self.rows[c.key] = {"widget": w, "text": text, "action": act, "check": c}
         return w
 

@@ -2118,4 +2118,6 @@ STRINGS = {
     "dl.done_n_many": "{n} terminés",
     "welcome.lang_label": "Langue :",
     "welcome.tour": "Faire la visite guidée d'une minute ensuite (relançable à tout moment depuis l'Aide)",
+    "set.fs_format_warn": "Formater efface la clé : copiez d'abord son contenu sur l'ordinateur, puis préparez-la de nouveau avec DJSync (Accueil ▸ Préparer cette clé).",
+    "set.pdb_absent_how": "Pour jouer sur d'anciennes platines : dans Rekordbox, exportez une fois cette clé au format « Device Library » ; DJSync la tiendra ensuite à jour.",
 }
