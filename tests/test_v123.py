@@ -138,6 +138,8 @@ def test_send_logs_button(window, monkeypatch):
     window.show_view("feedback")
     view = window.views["feedback"]
     view.logs_note.setText("CDJ-2000NXS2 : playlist absente")
+    assert not view.logs_files.isChecked()           # 1.4.2 (A2-22) : décochée par défaut
+    view.logs_files.setChecked(True)
     view.send_logs()
     assert pump(window, 6, lambda: bool(sent))
     item = sent[0]["items"][0]

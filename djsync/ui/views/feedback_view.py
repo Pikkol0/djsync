@@ -201,7 +201,7 @@ class FeedbackView(View):
         ll.addWidget(self.logs_note)
         self.logs_files = QCheckBox(t("fb.logs_files"))
         self.logs_files.setToolTip(t("fb.logs_files_tip"))
-        self.logs_files.setChecked(True)
+        self.logs_files.setChecked(False)          # 1.4.2 (A2-22) : vie privée, décochée par défaut
         ll.addWidget(self.logs_files)
         row = hbox(spacing=theme.px(8))
         self.logs_status = label("", "dim", wrap=True)
