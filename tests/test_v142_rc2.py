@@ -135,7 +135,7 @@ def test_a66_delete_without_copy_frees_space_and_keeps_pdb(key, monkeypatch, cap
         removed, failures = key.delete_tracks([t.content_id for t in tracks[:3]], True, without_copy=point.id)
     assert (removed, failures) == (3, 0)
     assert not any(f.is_file() for f in files[:3]) and files[3].is_file()
-    assert f"retour : {point.id}" in caplog.text
+    assert f"way back: {point.id}" in caplog.text
     monkeypatch.undo()                                                  # place rendue : tout redevient normal
     _pdb_matches(key)
     key.create_playlist("After")                                        # règle 5 : écriture habituelle

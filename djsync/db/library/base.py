@@ -302,7 +302,7 @@ class LibraryBase:
                 raise
             if not self._no_copy_point:                 # A6-6 règle 3 : seulement la suppression confirmée
                 raise full from exc
-            log.warning("Écriture sans copie (clé pleine), retour : %s", self._no_copy_point)
+            log.warning("Write without backup copy (drive full), way back: %s", self._no_copy_point)
             if self._batch_depth > 0:
                 self._batch_backed_up = True
 
