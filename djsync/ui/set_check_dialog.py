@@ -153,6 +153,8 @@ class SetCheckDialog(BaseDialog):
         top.addWidget(mark)
         name = label(t(f"set.row_{c.key}"))
         name.setFixedWidth(theme.px(170))
+        if c.key == "pdb":                              # 1.4.2 (C208) : « export.pdb », l'effet dans la bulle
+            name.setToolTip(t("pdb.older_tip"))
         top.addWidget(name)
         text = label(c.text, "dim" if c.level in ("ok", "skip") else ROLE.get(c.level, "dim"), wrap=True)
         top.addWidget(text, 1)

@@ -106,7 +106,11 @@ def test_a2_7_8_9_catalogue_wording():
     assert "même clé" not in fr_text and "Aucune cue" not in fr_text
     for cat in (en.STRINGS, fr.STRINGS):
         assert not any("Import URL" in v or "omnibar" in v for v in cat.values())      # A2-7, A2-9
-        assert "export.pdb" not in cat["home.pdb_short_no"] + cat["home.pdb_short_yes"] + cat["set.row_pdb"]
+        # 1.4.2-rc.2 (C208) : « export.pdb » revient dans les libellés, l'effet est dans la bulle
+        assert all(cat[k].startswith("export.pdb") for k in ("home.pdb_short_no", "home.pdb_short_yes",
+                                                              "home.pdb_stale", "set.row_pdb"))
+        assert all("CDJ-2000NXS2" in cat[k] for k in ("home.pdb_yes", "home.pdb_no_tip", "home.pdb_stale_tip",
+                                                      "pdb.older_tip"))
     from djsync.ui import help_dialog
 
     assert not hasattr(help_dialog, "TOPICS")                              # A2-7 : plus de « Guide rapide »

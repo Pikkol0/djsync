@@ -157,3 +157,27 @@ def idle_panel(page: Any, controller: Any, tab: str, start: Any) -> QWidget:
     lay.addWidget(button(t("diag.idle_setting"), open_setting, kind="flat", icon="settings"), 0, Qt.AlignLeft)
     page.analyse_now_btn = go
     return box
+
+
+def watch_library(page: Any, controller: Any, tab: str) -> None:
+    """1.4.2 (B108) : au changement de bibliothèque, l'onglet ne garde pas les résultats de la précédente : retour
+    au panneau « Analyser maintenant » avec les derniers chiffres de la nouvelle (ou nouveau calcul si le réglage
+    « Analyser à l'ouverture » est coché, comme à l'ouverture)."""
+    state = {"key": controller._diag_key() if hasattr(controller, "_diag_key") else None}
+
+    def changed(*_a: Any) -> None:
+        try:
+            if not page.winfo_exists() or getattr(controller, "library", None) is None:
+                return
+        except RuntimeError:                       # page détruite
+            return
+        key = controller._diag_key() if hasattr(controller, "_diag_key") else id(controller.library)
+        if key == state["key"]:
+            return
+        state["key"] = key
+        if controller.diag_ready(tab):
+            page.analyse_now()
+        else:
+            page._idle()
+
+    controller.on("drive", changed)

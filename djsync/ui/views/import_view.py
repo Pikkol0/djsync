@@ -355,7 +355,8 @@ class ImportView(View):
         self.sp_table.update_values(iid, **vals)
         self.sp_table.set_tags(iid, *STATUS_TAG[m.status])
         if auto_check or m.status in ("missing", "duplicate"):
-            checked = m.status in ("ok", "review") and (auto_check or row.values.get("chk") == CHECKED)
+            # 1.4.2 (C201) : un son déjà là reste coché (il rejoindra la playlist, sans être retéléchargé)
+            checked = m.status in ("ok", "review", "duplicate") and (auto_check or row.values.get("chk") == CHECKED)
             self.sp_table.update_values(iid, chk=CHECKED if checked else UNCHECKED)
 
 
@@ -472,9 +473,17 @@ class ImportView(View):
             self.info.setText(self.info.text() + "  ·  " + plural("sc.free_one", "sc.free_many", n))
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
-        for tr in tracks:
-            self.dl_table.update_values(tr.video_id, chk=UNCHECKED if tr.is_duplicate else CHECKED)
+        for tr in tracks:                                    # 1.4.2 (C201) : déjà là = coché aussi (pastille)
+            self.dl_table.update_values(tr.video_id, chk=CHECKED)
         self._refresh_buttons()
+
+    @staticmethod
+    def _here_values(tr: TrackResult) -> dict:
+        """1.4.2 (C201) : pastille « déjà là » dans la colonne Bibliothèque."""
+        from .. import theme
+
+        return {"lib": t("import.already_here") if tr.is_duplicate else "",
+                "lib__color": theme.ACCENT if tr.is_duplicate else None}
 
     def _direct_annotated(self, tracks: List[TrackResult]) -> None:
         if self.mode != "direct":
@@ -486,7 +495,7 @@ class ImportView(View):
             row = self.dl_table.row(tr.video_id)
             if row is not None:
                 row.data = tr
-                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.update_values(tr.video_id, **self._here_values(tr))
                 self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._apply_direct_checks(tracks)
 
@@ -568,21 +577,25 @@ class ImportView(View):
             out = []
             for r in self.sp_table.all_rows():
                 m = self.matches[int(r.iid)]
-                if r.values.get("chk") == CHECKED and m.candidate is not None:
+                if r.values.get("chk") == CHECKED and m.candidate is not None and m.status != "duplicate":
                     out.append(m.candidate.track)
             return out
-        return [self._tracks[r.iid] for r in self.dl_table.all_rows()
-                if r.values.get("chk") == CHECKED and r.iid in self._tracks]
+        return [self._tracks[r.iid] for r in self.dl_table.all_rows()       # 1.4.2 (C201) : à télécharger
+                if r.values.get("chk") == CHECKED and r.iid in self._tracks and not self._tracks[r.iid].is_duplicate]
 
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
         n = len(self._checked_tracks()) if self.mode else 0
-        present = len(self._present_tracks()) if self.mode and not n else 0       # 1.4.2 (C186)
-        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else
-                            t("import.add_present_n", n=present) if present else t("import.download_selection"))
+        present = len(self._present_tracks()) if self.mode else 0       # 1.4.2 (C186, C201)
+        if n and present:                                                # C201 : « Télécharger n et ajouter m »
+            text = t("import.download_and_add", n=n, m=present)
+        else:
+            text = (t("import.download_selection_n", n=n) if n else
+                    t("import.add_present_n", n=present) if present else t("import.download_selection"))
+        self.dl_btn.setText(text)
         self.dl_btn.setEnabled(bool(n or present))
         total = sum(1 for r in self.table.all_rows() if self._checkable(self.table, r.iid)) if self.mode else 0
-        self.count_lbl.setText(t("import.checked_count", n=n, total=total) if total else "")
+        self.count_lbl.setText(t("import.checked_count", n=n + present, total=total) if total else "")
         sel = self.table.selected_iids() if self.mode else []
         free = self._free_urls()
         self.free_btn.setVisible(bool(free))
@@ -616,17 +629,17 @@ class ImportView(View):
         ask_and_download(self, self.ctrl, tracks, new_name=name, existing=self._present_tracks())
 
     def _present_tracks(self) -> List[TrackResult]:
-        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque (non cochés) : ajoutés à la playlist choisie
-        au lieu d'être sautés."""
+        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque : ajoutés à la playlist choisie au lieu d'être
+        sautés. C201 : ceux qui sont cochés (cochés d'office, avec la pastille « déjà là »)."""
         if self.mode == "spotify":
             out = []
             for r in self.sp_table.all_rows():
                 m = self.matches[int(r.iid)]
-                if m.status == "duplicate" and m.candidate is not None and r.values.get("chk") != CHECKED:
+                if m.status == "duplicate" and m.candidate is not None and r.values.get("chk") == CHECKED:
                     out.append(m.candidate.track)
             return out
         return [self._tracks[r.iid] for r in self.dl_table.all_rows()
-                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate and r.values.get("chk") != CHECKED]
+                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate and r.values.get("chk") == CHECKED]
 
     def _menu(self, iids: List[str]) -> list:
         if not iids:
@@ -670,7 +683,7 @@ class ImportView(View):
             row = self.dl_table.row(tr.video_id)
             if row is not None:
                 row.data = tr
-                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.update_values(tr.video_id, **self._here_values(tr))
                 self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._refresh_buttons()
 

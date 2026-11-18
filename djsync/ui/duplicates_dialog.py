@@ -185,6 +185,9 @@ class DuplicatesDialog(BaseDialog):
         self.show_dialog()
         if full:
             controller.message("info", t("dup.full_running"))
+        from .diag_tabs import watch_library
+
+        watch_library(self, controller, "dup")                 # 1.4.2 (B108) : changement de bibliothèque
         if full or controller.diag_ready("dup"):              # 1.4.2 (B103) : rien à l'ouverture par défaut
             self.analyse_now()
         else:

@@ -35,6 +35,8 @@ class LibraryBase:
         self._session_backed_up = False
         self._batch_depth = 0
         self._batch_backed_up = False
+        self._session_point_id = ""                 # 1.4.2 (A6-6) : point de session de cette session
+        self._no_copy_point = ""                    # 1.4.2 (A6-6) : suppression sans copie permise (point de retour)
         self._ref_tables: List[str] = []
         self._tables: set = set()
         self._content_cols: set = set()
@@ -235,10 +237,40 @@ class LibraryBase:
         try:
             fresh_origin = backups.ensure_origin(folder, self.backup_dir, conn=self._db(), key=self._key)
             if not fresh_origin:
-                backups.snapshot(folder, self.backup_dir, "auto", conn=self._db(), key=self._key)
+                point = backups.snapshot(folder, self.backup_dir, "auto", conn=self._db(), key=self._key)
+            else:
+                point = next(iter(backups.list_points(self.backup_dir)), None)
         except backups.BackupError as exc:
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
+        self._session_point_id = getattr(point, "id", "") or ""
         self._session_backed_up = True
+
+    # ------------------------------------------------------------ 1.4.2 (A6-6) : clé pleine
+    def full_state(self) -> Tuple[bool, int, int]:
+        """(pleine ?, place libre, seuil) ; seuil = base + export.pdb + 10 Mo."""
+        from .. import key_space
+
+        return key_space.state(self.db_path.parent)
+
+    def full_error(self, exc: BaseException) -> Optional[KeyFullError]:
+        """KeyFullError si `exc` est une erreur « disque plein » ET que la place libre est sous le seuil."""
+        from .. import key_space
+
+        if isinstance(exc, KeyFullError):
+            return exc
+        if not key_space.is_space_error(exc):
+            return None
+        full, free, need = self.full_state()
+        if not full:
+            return None
+        name = getattr(self.drive, "label", "") or str(self.drive.root)
+        return KeyFullError(free, need, name)
+
+    def full_return_point(self) -> Any:
+        """Point de retour pour une suppression sans copie (règle 3 b), ou None."""
+        from .. import key_space
+
+        return key_space.return_point(self.backup_dir, self._key, self._session_point_id)
 
     def create_backup(self, label: str = "") -> Any:
         """Sauvegarde manuelle (Réglages ▸ Sauvegardes de la clé)."""
@@ -262,6 +294,19 @@ class LibraryBase:
         """
         if self._batch_depth > 0 and self._batch_backed_up:
             return
+        try:
+            self._backup_copy()
+        except LibraryError as exc:
+            full = self.full_error(exc)
+            if full is None:
+                raise
+            if not self._no_copy_point:                 # A6-6 règle 3 : seulement la suppression confirmée
+                raise full from exc
+            log.warning("Écriture sans copie (clé pleine), retour : %s", self._no_copy_point)
+            if self._batch_depth > 0:
+                self._batch_backed_up = True
+
+    def _backup_copy(self) -> None:
         if not self._session_backed_up:
             self.session_point()
         tag = "auto" if self._session_backed_up else "session"
@@ -283,6 +328,10 @@ class LibraryBase:
                     old.unlink(missing_ok=True)
             log.info("Sauvegarde : %s", target.name)
         except OSError as exc:
+            try:
+                target.unlink(missing_ok=True)           # A6-6 : pas de copie à moitié écrite sur une clé pleine
+            except OSError:
+                pass
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         self._session_backed_up = True
         if self._batch_depth > 0:
@@ -307,13 +356,16 @@ class LibraryBase:
             try:
                 yield conn
                 conn.execute("COMMIT")
-            except BaseException:
+            except BaseException as exc:
                 self._txn_ops = []             # transaction annulée : rien à répercuter dans export.pdb
                 self._txn_marks = []
                 try:
                     conn.execute("ROLLBACK")
                 except sqlcipher.Error:
                     pass
+                full = self.full_error(exc) if isinstance(exc, Exception) else None
+                if full is not None and full is not exc:
+                    raise full from exc        # A6-6 : « clé pleine » au lieu de « disk I/O error »
                 raise
             self._checkpoint()
             if self._txn_ops or self._txn_marks:

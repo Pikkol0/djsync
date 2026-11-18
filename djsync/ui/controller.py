@@ -31,8 +31,8 @@ from ..db import (
     drive_from_letter, find_unprepared_drives, find_usb_drives,
 )
 from ..db.errors import (
-    DatabaseOpenError, DuplicatePlaylistError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
-    UnsupportedFormatError,
+    DatabaseOpenError, DuplicatePlaylistError, KeyFullError, PlaylistNotFoundError, ReadOnlyError,
+    TrackNotFoundError, UnsupportedFormatError,
 )
 from ..db import local_library as _local
 from ..db.local_library import LocalRekordbox, LocalRekordboxLibrary, find_local_rekordbox
@@ -430,12 +430,69 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         root = removed[0].lower().rstrip("\\/")
         return any(k in text for k in io) or bool(root and root in text)
 
+    # ------------------------------------------------------------ 1.4.2 (A6-6) : clé pleine
+    def full_error(self, exc: BaseException) -> Optional[KeyFullError]:
+        """KeyFullError si `exc` vient d'une clé pleine (erreur « disque plein » et place sous le seuil)."""
+        if isinstance(exc, KeyFullError):
+            return exc
+        lib = self.library
+        if self.is_local or lib is None or not hasattr(lib, "full_error"):
+            return None
+        try:
+            return lib.full_error(exc)
+        except Exception:  # noqa: BLE001 - simple aiguillage du message
+            return None
+
+    def key_full(self, exc: KeyFullError) -> None:
+        """Règle 2 : message traduit, bouton « Espace… » ; ni texte brut ni proposition de rapport."""
+        from .views.common import human_size
+
+        drive = self.drive
+        name = exc.name or (getattr(drive, "label", "") or str(getattr(drive, "root", "") or ""))
+        log.info("Drive full: %s (%d bytes free, %d needed)", name, exc.free, exc.needed)
+        self.message("warn", t("full.message", drive=name, free=human_size(exc.free)))
+        self._emit("message_action", t("full.space"), lambda: self._emit("open_space"))
+
+    def full_on_open(self, drive: Any) -> bool:
+        """Règle 4 : l'ouverture a échoué et la place libre est sous le seuil."""
+        from ..db import key_space
+
+        try:
+            return isinstance(drive, UsbDrive) and key_space.state(drive.db_path.parent)[0]
+        except Exception:  # noqa: BLE001
+            return False
+
+    def free_key_space(self, drive: UsbDrive) -> None:
+        """Règle 4 : « Libérer de la place » : copies automatiques purgées (2 gardées de chaque sorte, points
+        intacts), place gagnée annoncée, puis la clé est rouverte si elle n'est plus pleine."""
+        from ..db import key_space
+        from .views.common import human_size
+
+        def work() -> Any:
+            gained = key_space.purge_copies(Path(drive.root) / "DJSync_Backups")
+            return gained, key_space.state(drive.db_path.parent)[0]
+
+        def ok(result: Any) -> None:
+            gained, still_full = result
+            if still_full:
+                self.message("warn", t("full.freed", size=human_size(gained)) + " " + t("full.still"))
+                return
+            self.message("ok", t("full.freed", size=human_size(gained)))
+            self._connect_failed.discard(str(drive.root))
+            self.connect(drive)
+
+        self.dispatcher.submit(work, ok, self._on_error, pool="db")
+
     def _on_error(self, exc: BaseException) -> None:
         if self.drive_gone():                          # B22 : plus de « disk I/O error » brut
             self._drive_removed(exc)
             return
         if self._after_removal(exc):                   # rc.4 (B22) : suites du retrait, déjà annoncé
             log.info("Error after the drive was removed, not shown: %s", exc)
+            return
+        full = self.full_error(exc)                    # 1.4.2 (A6-6) : avant la piste du rebranchement (B28)
+        if full is not None:
+            self.key_full(full)
             return
         if self._io_on_open_drive(exc):                # rc.7 (B28) : retirée puis rebranchée
             self._drive_replugged(exc)
@@ -664,6 +721,10 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._connecting = False
             failed = str(drive.root if isinstance(drive, (UsbDrive, LocalRekordbox)) else drive)
             self._connect_failed.add(failed)
+            if self.full_on_open(drive):               # 1.4.2 (A6-6, règle 4) : clé pleine, ne s'ouvre plus
+                log.info("Drive %s full, cannot be opened: %s", failed, exc)
+                self._emit("key_full_open", drive)
+                return
             self._on_error(exc)
 
         self.dispatcher.submit(work, ok, err, pool="db")
@@ -797,6 +858,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             # rc.7 (B28) : clé là, mais base illisible = retirée puis rebranchée entre deux contrôles
             alive = lib.alive() if still and lib is not None and isinstance(active, UsbDrive) and \
                 hasattr(lib, "alive") else None
+            if alive is False and hasattr(lib, "full_state"):   # 1.4.2 (A6-6) : pleine, pas rebranchée
+                try:
+                    alive = "full" if lib.full_state()[0] else alive
+                except Exception:  # noqa: BLE001
+                    pass
             t1 = time.perf_counter()
             drives = find_usb_drives()
             t2 = time.perf_counter()
@@ -820,7 +886,11 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 self._connect_failed.clear()
             if changed or blank_changed:
                 self._emit("drives")
-            if self.drive is not None and self.drive is active and self.library is lib and alive is False \
+            if alive == "full" and self.drive is active and self.library is lib:
+                if getattr(self, "_full_warned", None) is not lib:     # une seule fois par ouverture
+                    self._full_warned = lib
+                    self.key_full(KeyFullError(*lib.full_state()[1:], name=active.label or str(active.root)))
+            elif self.drive is not None and self.drive is active and self.library is lib and alive is False \
                     and time.monotonic() - getattr(self, "_replug_at", -1e9) >= 30:
                 self._drive_replugged("database no longer readable")
             elif self.drive is not None and self.drive is active and not still_there:

@@ -381,7 +381,7 @@ class LibraryOpsMixin:
     def save_order(self, playlist_id: int, content_ids: Sequence[int], ok: Optional[Callback] = None) -> None:
         self._write(lambda lib: lib.set_playlist_order(playlist_id, content_ids), ok, t("msg.order_saved"))
 
-    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> None:
+    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True, without_copy: str = "") -> None:
         def done(result: Any) -> None:
             removed, failures = result
             text = plural("msg.deleted_one", "msg.deleted_many", removed)
@@ -389,7 +389,28 @@ class LibraryOpsMixin:
                 text += " " + t("msg.files_not_deleted", n=failures)
             self.message("warn" if failures else "ok", text)
 
-        self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done)
+        def failed(exc: BaseException) -> None:
+            # 1.4.2 (A6-6, règle 3) : clé pleine → suppression sans copie proposée s'il existe un point de retour
+            full = self.full_error(exc)
+            lib = self.library
+            if full is None or not delete_files or without_copy or lib is None or not hasattr(lib, "full_return_point"):
+                self._on_error(exc)
+                return
+
+            def found(point: Any) -> None:
+                if point is None:
+                    self.key_full(full)
+                    return
+                self._emit("key_full_delete", len(content_ids), point,
+                           lambda: self.delete_tracks(content_ids, True, point.id))
+
+            self.dispatcher.submit(lib.full_return_point, found, lambda _e: self.key_full(full), pool="db")
+
+        if without_copy:
+            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files, without_copy=without_copy), done,
+                        err=failed)
+        else:
+            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done, err=failed)
 
     # ------------------------------------------------------------ export.pdb (anciennes platines)
     def pdb_status(self, ok: Callback) -> None:
@@ -885,6 +906,31 @@ class LibraryOpsMixin:
             return out
 
         self._write(work, ok, t("msg.grid_saved"), fail)
+
+    def mark_grid_checked(self, content_id: int, ok: Optional[Callback] = None) -> None:
+        """1.4.2 (C204) : « Grille juste » : grille marquée vérifiée sans rien y changer (ni base ni export.pdb)."""
+        lib = self.library
+        if lib is None:
+            return
+
+        def done(_r: Any) -> None:
+            self.message("ok", t("grid.checked_done"))
+            self._emit("library")
+            if ok:
+                ok(None)
+
+        self.dispatcher.submit(lambda: _mark_grid(lib, content_id), done, self._on_error, pool="db")
+
+    def grid_checked(self, content_id: int) -> bool:
+        lib = self.library
+        if lib is None:
+            return False
+        from ...db import grid_marks
+
+        try:
+            return int(content_id) in grid_marks.load(lib.backup_dir)
+        except Exception:  # noqa: BLE001
+            return False
 
     def save_grid_and_cues(self, content_id: int, beats: Optional[Sequence[Any]], cues: Optional[Sequence[Any]],
                            ok: Optional[Callback] = None, err: Optional[Callback] = None) -> None:

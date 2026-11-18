@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractButton, QCheckBox, QComboBox, QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QProgressBar, QScrollArea, QSpinBox, QToolButton, QWidget,
+    QProgressBar, QScrollArea, QSizePolicy, QSpinBox, QToolButton, QWidget,
 )
 
 from ...db import UsbDrive
@@ -216,17 +216,8 @@ class SettingsView(View):
         self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.theme_btn.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.theme_btn)
-        from ..palettes import FAMILIES
-
-        for family, names in FAMILIES.items():                      # 1.4.2 (C144) : par famille
-            menu.addSection(t(f"theme.family_{family}"))
-            for name in names:
-                act = menu.addAction(logo_pixmap(theme.px(18), PALETTES[name]), t(f"theme.{name}"))
-                act.setCheckable(True)
-                act.setChecked(name == theme.CURRENT_THEME)
-                act.triggered.connect(lambda _=False, n=name: self._theme_changed(n))
-                self._swatches[name] = act
         self.theme_btn.setMenu(menu)
+        self._theme_families(menu)
         row.addWidget(self.theme_btn)
         row.addStretch(1)
         card.addLayout(row)
@@ -1219,6 +1210,48 @@ class SettingsView(View):
             self.ctrl.settings.language = code
             self.ctrl.settings.save()
             QTimer.singleShot(0, lambda: self.ctrl._emit("rebuild_ui"))
+
+    def _theme_families(self, menu: Any) -> None:
+        """1.4.2 (C144, C205) : les trois familles (Vives, Profondes, Douces) côte à côte, une colonne chacune ;
+        empilées seulement si l'écran est trop étroit."""
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QBoxLayout, QWidgetAction
+
+        from ..palettes import FAMILIES
+
+        box = QWidget()
+        cols = QBoxLayout(QBoxLayout.LeftToRight, box)
+        cols.setContentsMargins(theme.px(8), theme.px(6), theme.px(8), theme.px(6))
+        cols.setSpacing(theme.px(14))
+        self._family_cols = []
+        for family, names in FAMILIES.items():
+            col = vbox(spacing=theme.px(1))
+            col.addWidget(label(t(f"theme.family_{family}").upper(), "section"))
+            for name in names:
+                act = QAction(logo_pixmap(theme.px(18), PALETTES[name]), t(f"theme.{name}"), menu)
+                act.setCheckable(True)
+                act.setChecked(name == theme.CURRENT_THEME)
+                act.triggered.connect(lambda _=False, n=name: (menu.close(), self._theme_changed(n)))
+                b = QToolButton()
+                b.setDefaultAction(act)
+                b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                b.setIconSize(QSize(theme.px(18), theme.px(18)))
+                b.setAutoRaise(True)
+                b.setCursor(Qt.PointingHandCursor)
+                b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                col.addWidget(b)
+                self._swatches[name] = act
+            col.addStretch(1)
+            cols.addLayout(col)
+            self._family_cols.append(col)
+        screen = self.screen() if hasattr(self, "screen") else None
+        avail = screen.availableGeometry().width() if screen is not None else 1280
+        if box.sizeHint().width() > avail * 0.9:                    # écran étroit : familles l'une sous l'autre
+            cols.setDirection(QBoxLayout.TopToBottom)
+        self._family_box = box
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(box)
+        menu.addAction(wa)
 
     def _theme_changed(self, name: str) -> None:
         for n, b in self._swatches.items():

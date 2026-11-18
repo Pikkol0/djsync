@@ -15,9 +15,9 @@ def test_color_choice_is_one_button_with_a_menu(demo):  # noqa: F811
     demo.show_view("settings")
     view = demo.views["settings"]
     btn = view.theme_btn
-    assert isinstance(btn, QToolButton) and len([a for a in btn.menu().actions() if not a.isSeparator()]) == len(PALETTES)
+    assert isinstance(btn, QToolButton) and len(view._swatches) == len(PALETTES)   # 1.4.2 (C205) : en colonnes
     assert btn.height() <= theme.px(48)                       # une ligne, plus une grille de 2 × 10
-    next(a for a in btn.menu().actions() if a.text() == view._swatches["red"].text()).trigger()
+    view._swatches["red"].trigger()
     pump(demo, 0.3)
     assert demo.ctrl.settings.theme == "red" and theme.ACCENT.upper() == PALETTES["red"].upper()
     assert demo.views["settings"].theme_btn.text() == view._swatches["red"].text()   # vue reconstruite (B23)

@@ -147,6 +147,12 @@ class UninstallDialog(BaseDialog):
             self.body.addWidget(label(t("uninstall.restore_origin_hint"), "faint", wrap=True))
             self.backups_var = QCheckBox(t("uninstall.delete_backups"))
             self.body.addWidget(self.backups_var)
+            # 1.4.2 (A6-8) : les deux cases ensemble suppriment aussi le point « avant restauration »
+            self.both_warn = label("⚠ " + t("uninstall.both_warning"), "warn", wrap=True)
+            self.body.addWidget(self.both_warn)
+            self.both_warn.setVisible(False)
+            for box in (self.restore_var, self.backups_var):
+                box.toggled.connect(self._both_changed)
             self.body.addWidget(label(t("uninstall.keeps"), "dim", wrap=True))
         else:
             self.heading(t("uninstall.computer_title"), t("uninstall.computer_sub"))
@@ -161,6 +167,11 @@ class UninstallDialog(BaseDialog):
             self.body.addWidget(label(t("uninstall.computer_keeps"), "dim", wrap=True))
         self.footer(t("uninstall.ok"), self._go, danger=True)
         self.show_dialog()
+
+    def _both_changed(self, _on: bool = False) -> None:
+        both = bool(self.restore_var.isChecked() and self.backups_var.isChecked())
+        self.both_warn.setVisible(both)
+        self.adjustSize()
 
     def _go(self) -> None:
         delete = bool(self.backups_var is not None and self.backups_var.isChecked())

@@ -82,12 +82,31 @@ def candidate_rank(track: Any) -> int:
     return int(m.group(1)) if m else 0
 
 
-def candidate_label(track: Any) -> str:
+# 1.4.2 (B107) : réglage « Qualité des téléchargements » en cours, mis à jour par l'interface ; sert à dire
+# ce que donnera un candidat YouTube dont la qualité n'est connue qu'au téléchargement.
+download_quality = "original"
+
+
+def expected_youtube(quality: str = "") -> str:
+    """Qualité attendue d'un téléchargement YouTube selon le réglage, marquée « estimée »."""
+    from ..i18n import t
+
+    q = quality or download_quality or "original"
+    if q.startswith("mp3_"):
+        text = t("quality.yt_expect_mp3", kbps=q[4:])
+    elif q == "yt_best":
+        text = t("quality.yt_expect_best")
+    else:
+        text = t("quality.yt_expect_original")
+    return t("quality.estimated", label=text)
+
+
+def candidate_label(track: Any, quality: str = "") -> str:
     r = getattr(track, "slsk", None)
     if r is not None:
         return r.quality_label()
     if is_youtube(track) and not (getattr(track, "quality", "") or ""):
-        return "YouTube"
+        return expected_youtube(quality)              # 1.4.2 (B107) : au lieu de « YouTube »
     return getattr(track, "quality", "") or "?"
 
 

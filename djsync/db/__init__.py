@@ -6,6 +6,7 @@ from .errors import (
     DatabaseOpenError,
     DriveNotFoundError,
     DuplicatePlaylistError,
+    KeyFullError,
     LibraryError,
     PlaylistNotFoundError,
     ReadOnlyError,
@@ -21,5 +22,5 @@ __all__ = [
     "UsbDrive", "UnpreparedDrive", "find_usb_drives", "find_unprepared_drives", "drive_from_letter", "resolve_drive", "extract_video_id",
     "LibraryError", "DriveNotFoundError", "AmbiguousDriveError", "DatabaseOpenError",
     "DatabaseLockedError", "ReadOnlyError", "PlaylistNotFoundError", "TrackNotFoundError",
-    "DuplicatePlaylistError", "UnsupportedFormatError",
+    "DuplicatePlaylistError", "UnsupportedFormatError", "KeyFullError",
 ]

@@ -137,6 +137,7 @@ class DownloadsView(View):
         self._panels = {"downloads": (top, dl_body, self._dl_fold), "analysis": (bottom, an_body, self._an_fold)}
         for key in self._panels:
             self._apply_fold(key)
+        self._order_panels()
 
         controller.on("downloads", self.rebuild)
         controller.on("download_update", self._update)
@@ -183,6 +184,19 @@ class DownloadsView(View):
             panel.setMaximumHeight(panel.layout().itemAt(0).sizeHint().height() + m.top() + m.bottom())
         else:
             panel.setMaximumHeight(16777215)
+        self._order_panels()
+
+    def _order_panels(self) -> None:
+        """1.4.2 (C207) : les panneaux repliés se rangent en haut de la page, l'autre prend la place dessous."""
+        if len(getattr(self, "_panels", {})) < 2:
+            return
+        folded = self._folded()
+        keys = list(self._panels)                                    # ordre d'origine : téléchargements, analyse
+        order = [k for k in keys if folded.get(k, False)] + [k for k in keys if not folded.get(k, False)]
+        for i, key in enumerate(order):
+            panel = self._panels[key][0]
+            if self._split.indexOf(panel) != i:
+                self._split.insertWidget(i, panel)
 
     # ================================================================ téléchargements
     @staticmethod
