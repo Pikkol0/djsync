@@ -132,6 +132,7 @@ class Plan:
     delete_playlists: List[PlaylistPath] = field(default_factory=list)
     resolved: List[Mark] = field(default_factory=list)                  # marques du journal traitées par ce plan
     repair_index: List[str] = field(default_factory=list)               # B13 : liens d'index à remettre d'aplomb
+    repair_seq: List[str] = field(default_factory=list)                 # B113 : numéro de transaction à relever
 
     @property
     def changed_playlists(self) -> int:
@@ -143,7 +144,8 @@ class Plan:
     def empty(self) -> bool:
         return not (self.add_tracks or self.upgrade_tracks or self.rebuild_tracks or self.update_tracks
                     or self.delete_tracks
-                    or self.add_playlists or self.set_entries or self.delete_playlists or self.repair_index)
+                    or self.add_playlists or self.set_entries or self.delete_playlists or self.repair_index
+                    or self.repair_seq)
 
     def describe(self) -> str:
         """Résumé lisible (anglais : journal et rapports ; l'interface traduit à partir des nombres)."""
@@ -154,7 +156,8 @@ class Plan:
                  (len(self.rebuild_tracks), "track(s) to rewrite"),
                  (len(self.delete_tracks), "deleted track(s) still present"),
                  (len(self.delete_playlists), "deleted or renamed playlist(s) still present"),
-                 (len(self.repair_index), "index page(s) to repair")]
+                 (len(self.repair_index), "index page(s) to repair"),
+                 (1 if self.repair_seq else 0, "transaction number to repair")]
         return ", ".join(f"{n} {label}" for n, label in parts if n) or "up to date"
 
 
@@ -162,6 +165,7 @@ def plan(db: PdbDatabase, target: Target, marks: Sequence[Mark] = ()) -> Plan:
     """Écarts entre export.pdb (`db`) et l'état voulu. Ne modifie rien."""
     p = Plan()
     p.repair_index = db.file.repairable_index_links()
+    p.repair_seq = db.file.seq_problems()
     wanted_tracks = {_key(m.path): m for m in target.tracks if m.path}
     wanted_playlists = {tuple(path) for path, _f, _t in target.playlists}
 
@@ -256,8 +260,8 @@ def _dedup(paths: Sequence[str]) -> List[str]:
 
 def apply(db: PdbDatabase, p: Plan) -> None:
     """Applique le plan EN MÉMOIRE (l'écriture sur la clé reste celle de PdbStore)."""
-    if p.repair_index:
-        db.file._begin()                                         # répare les liens d'index (B13)
+    if p.repair_index or p.repair_seq:
+        db.file._begin()                     # répare les liens d'index (B13) et le numéro de transaction (B113)
     for path in sorted(p.delete_playlists, key=len):           # libère la place d'abord
         db.delete_playlist(path)
     for path in p.delete_tracks:

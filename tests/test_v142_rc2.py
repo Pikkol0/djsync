@@ -407,9 +407,9 @@ def test_c201_tracks_already_here_stay_checked_with_a_pill(demo, monkeypatch):  
     pump(demo, 0.2)
     rows = {r.iid: r for r in view.dl_table.all_rows()}
     assert all(r.values.get("chk") == CHECKED for r in rows.values())          # tous cochés
-    assert rows["aaaaaaaaaaa"].values["lib"] == t("import.already_here")      # pastille « déjà là »
+    assert rows["aaaaaaaaaaa"].values["lib"] == t("import.dup_add")           # pastille (C209 : état « ajouté »)
     assert len(view._checked_tracks()) == 2 and len(view._present_tracks()) == 1
-    assert view.dl_btn.text() == t("import.download_and_add", n=2, m=1)
+    assert view.dl_btn.text() == t("import.btn_download", n=2) + " · " + t("import.btn_add", n=1)
     sent = []
     import djsync.ui.views.import_view as iv
 
@@ -417,6 +417,53 @@ def test_c201_tracks_already_here_stay_checked_with_a_pill(demo, monkeypatch):  
     view._download()
     (args, kw), = sent
     assert [x.title for x in args[2]] == ["New 0", "New 1"] and [x.title for x in kw["existing"]] == ["One More Time"]
+
+
+def test_c209_already_here_cycles_add_redownload_skip(demo, monkeypatch):  # noqa: F811
+    """C209 : un clic sur un son déjà là : ajouté -> retéléchargé -> ignoré -> ajouté ; retélécharger
+    passe par une confirmation (Continuer / Les ajouter seulement)."""
+    from djsync.i18n import t
+    from djsync.models import ResolvedUrl, TrackResult, UrlKind
+    from djsync.ui.views.common import CHECKED, UNCHECKED
+    import djsync.ui.views.import_view as iv
+
+    from .qt_util import pump
+
+    view = demo.views["import"]
+    there = TrackResult(video_id="aaaaaaaaaaa", title="One More Time", artist="Daft Punk").with_duplicate("x")
+    new = TrackResult(video_id="bbbbbbbbbb0", title="New 0", artist="Someone")
+    monkeypatch.setattr(demo.ctrl, "reannotate", lambda tracks, cb: cb(list(tracks)))
+    view._load_direct(ResolvedUrl(kind=UrlKind.YOUTUBE, name="Mix", tracks=[there, new], is_playlist=True))
+    pump(demo, 0.2)
+    row = lambda: view.dl_table.row("aaaaaaaaaaa")          # noqa: E731
+
+    view._toggle(view.dl_table, "aaaaaaaaaaa")                                  # -> retéléchargé
+    assert row().values["chk"] == CHECKED and row().values["lib"] == t("import.dup_redl")
+    assert [x.title for x in view._redl_tracks()] == ["One More Time"] and view._present_tracks() == []
+    assert view.dl_btn.text() == t("import.btn_download", n=1) + " · " + t("import.btn_redownload", n=1)
+
+    sent = []
+    monkeypatch.setattr(iv, "ask_and_download", lambda *a, **k: sent.append((a, k)))
+    dialogs = []
+    monkeypatch.setattr(iv, "RedownloadDialog", lambda parent, n, go, add_only: dialogs.append((n, go, add_only)))
+    view._download()
+    (n, go, add_only), = dialogs
+    assert n == 1 and not sent
+    add_only()                                                                  # « Les ajouter seulement »
+    (args, kw), = sent
+    assert [x.title for x in args[2]] == ["New 0"] and [x.title for x in kw["existing"]] == ["One More Time"]
+    sent.clear()
+    go()                                                                        # « Continuer »
+    (args, kw), = sent
+    assert sorted(x.title for x in args[2]) == ["New 0", "One More Time"] and kw["existing"] == []
+
+    view._toggle(view.dl_table, "aaaaaaaaaaa")                                  # -> ignoré
+    assert row().values["chk"] == UNCHECKED and row().values["lib"] == t("import.dup_skip")
+    assert view._redl_tracks() == [] and view._present_tracks() == []
+    assert view.dl_btn.text() == t("import.download_selection_n", n=1)
+    view._toggle(view.dl_table, "aaaaaaaaaaa")                                  # -> ajouté
+    assert row().values["chk"] == CHECKED and row().values["lib"] == t("import.dup_add")
+    assert [x.title for x in view._present_tracks()] == ["One More Time"]
 
 
 # ------------------------------------------------------------------ B111 : boutons de décalage sur deux lignes

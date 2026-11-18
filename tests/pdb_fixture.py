@@ -16,7 +16,7 @@ L = 4096
 ALL_TABLES = list(range(20))
 
 
-def _data_page(index: int, ttype: int, next_page: int, rowbytes: List[bytes], seq: int = 7) -> bytes:
+def _data_page(index: int, ttype: int, next_page: int, rowbytes: List[bytes], seq: int = 5) -> bytes:
     page = bytearray(L)
     heap = bytearray()
     offsets = []
@@ -44,7 +44,7 @@ def _data_page(index: int, ttype: int, next_page: int, rowbytes: List[bytes], se
     return bytes(page)
 
 
-def _index_page(index: int, ttype: int, next_page: int, data_pages: List[int], seq: int = 7) -> bytes:
+def _index_page(index: int, ttype: int, next_page: int, data_pages: List[int], seq: int = 5) -> bytes:
     """Page d'index telle que constatée sur un export réel : aucune entrée pour les pages saines."""
     page = bytearray(L)
     struct.pack_into("<IIIIII", page, 0, 0, index, ttype, next_page, seq, 0)
