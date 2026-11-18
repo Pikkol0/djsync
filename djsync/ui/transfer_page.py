@@ -194,6 +194,9 @@ class TransferPage(BaseDialog):
         self._build_run()
         self._build_summary()
         self.reload_ends()
+        # 1.4.2 (B110) : une clé branchée ou retirée pendant que la page est ouverte apparaît / disparaît
+        controller.on("drives", self._libraries_changed)
+        controller.on("drive", self._libraries_changed)
 
     # ================================================================== 1. sélection
     def _build_setup(self) -> None:
@@ -234,8 +237,29 @@ class TransferPage(BaseDialog):
         self.pages.addWidget(w)
         self.setup_page = w
 
-    def reload_ends(self) -> None:
-        """Bibliothèques disponibles ; le sens proposé part de la bibliothèque ouverte."""
+    def _libraries_changed(self, *_a: Any) -> None:
+        """B110 : liste des bibliothèques relue ; les choix encore valides (sens, départ, arrivée, cases) restent.
+        Pendant la revue ou un transfert, la liste est relue au retour à la sélection."""
+        try:
+            if not self.winfo_exists():
+                return
+        except RuntimeError:
+            return
+        keys = [(e.key, e.name, e.active) for e in self.ctrl.transfer_ends()]
+        if keys == [(e.key, e.name, e.active) for e in self.ends]:
+            return
+        if self.running or self.pages.currentWidget() is not self.setup_page:
+            self._stale = True
+            return
+        self.reload_ends(keep=True)
+
+    def reload_ends(self, keep: bool = False) -> None:
+        """Bibliothèques disponibles ; le sens proposé part de la bibliothèque ouverte. `keep` (B110) : garder le
+        sens, le départ, l'arrivée et les cases s'ils sont encore possibles."""
+        before = (self.direction_key(), self.from_box.currentData(), self.to_box.currentData()) \
+            if keep and self.ends else None
+        loaded = (getattr(self.side_a.end, "key", None), getattr(self.side_b.end, "key", None))
+        self._stale = False
         self.ends = list(self.ctrl.transfer_ends())
         usb = [e for e in self.ends if not e.is_local]
         local = [e for e in self.ends if e.is_local]
@@ -246,17 +270,34 @@ class TransferPage(BaseDialog):
             model.item(i).setEnabled(ok[key])
         active = next((e for e in self.ends if e.active), None)
         want = "pc2usb" if (active is not None and active.is_local) else "usb2pc"
+        if before is not None and ok.get(before[0]):
+            want = before[0]
         first = next((k for k in (want,) + DIRECTIONS if ok[k]), None)
         self.direction.blockSignals(True)
         self.direction.setCurrentIndex(DIRECTIONS.index(first) if first else 0)
         self.direction.blockSignals(False)
         self._possible = first is not None
-        self._direction_changed()
+        if before is None:
+            self._direction_changed()
+            return
+        self._direction_changed(reload=False)
+        for box, key in ((self.from_box, before[1]), (self.to_box, before[2])):
+            i = box.findData(key)
+            if i >= 0:
+                box.blockSignals(True)
+                box.setCurrentIndex(i)
+                box.blockSignals(False)
+        now = (getattr(self._end(self.from_box), "key", None),
+               getattr(self._end(self.to_box), "key", None) if self.direction_key() == "sync" else None)
+        if now != loaded:                                      # un côté a changé : ses playlists sont relues
+            self._ends_changed()
+        else:
+            self._update_setup()
 
     def direction_key(self) -> str:
         return self.direction.currentData() or DIRECTIONS[0]
 
-    def _direction_changed(self, *_a: Any) -> None:
+    def _direction_changed(self, *_a: Any, reload: bool = True) -> None:
         key = self.direction_key()
         usb = [e for e in self.ends if not e.is_local]
         local = [e for e in self.ends if e.is_local]
@@ -279,7 +320,8 @@ class TransferPage(BaseDialog):
         self.from_label.setText(t("transfer.between") if key == "sync" else t("transfer.from"))
         self.to_label.setText(t("transfer.and") if key == "sync" else t("transfer.to"))
         self.side_b.setVisible(key == "sync")
-        self._ends_changed()
+        if reload:
+            self._ends_changed()
 
     def _end(self, box: QComboBox) -> Optional[Any]:
         return next((e for e in self.ends if e.key == box.currentData()), None)
@@ -498,6 +540,8 @@ class TransferPage(BaseDialog):
     def _back_to_setup(self) -> None:
         self.jobs = []
         self.pages.setCurrentWidget(self.setup_page)
+        if getattr(self, "_stale", False):                     # B110 : clés branchées / retirées entre-temps
+            self.reload_ends(keep=True)
         self._update_setup()
 
     # ================================================================== 3. Appliquer

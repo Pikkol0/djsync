@@ -47,3 +47,11 @@ class DuplicatePlaylistError(LibraryError):
 
 class UnsupportedFormatError(LibraryError):
     """Format audio que Rekordbox ne gère pas (ou que DJSync ne sait pas décrire)."""
+
+
+class KeyFullError(LibraryError):
+    """1.4.2 (A6-6) : la clé est pleine (place libre sous le seuil : base + export.pdb + 10 Mo)."""
+
+    def __init__(self, free: int, needed: int, name: str = "") -> None:
+        self.free, self.needed, self.name = int(free), int(needed), name
+        super().__init__(f"The drive {name} is full ({free // 1_000_000} MB free).".replace("  ", " "))

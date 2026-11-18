@@ -132,6 +132,9 @@ class QualityPage(BaseDialog):
         if not getattr(controller, "playlists", None) and hasattr(controller, "fetch_playlists"):
             controller.fetch_playlists(self._playlists_changed)
         self.show_dialog()
+        from .diag_tabs import watch_library
+
+        watch_library(self, controller, "quality")                 # 1.4.2 (B108) : changement de bibliothèque
         if ids or controller.diag_ready("quality"):            # 1.4.2 (B103) : rien à l'ouverture par défaut
             self.analyse_now()
         else:
@@ -143,6 +146,10 @@ class QualityPage(BaseDialog):
         self._is_idle = True
         self.count.setText("")
         self.table.hide()
+        old = getattr(self, "_idle_box", None)                 # 1.4.2 (B108) : panneau refait (autre bibliothèque)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
         self._idle_box = idle_panel(self, self.ctrl, "quality", self.analyse_now)
         self.body.insertWidget(self.body.indexOf(self.table), self._idle_box, 1)
 
@@ -243,7 +250,10 @@ class QualityPage(BaseDialog):
         return select(rows, under=under, video=self.f_video.isChecked(), fake=self.f_fake.isChecked())
 
     def _row(self, w: Any) -> Row:
+        from ..core import improve
         from ..core.improve import announced_label, measured_label
+
+        improve.download_quality = self.ctrl.settings.download_quality      # 1.4.2 (B107) : gain attendu
 
         best = w.best
         found = (f"{best.source_label} · {best.artist} – {best.title}" if best is not None
@@ -574,7 +584,8 @@ class QualityDetail(BaseDialog):
             r.values["gap"] = "" if gap is None else f"{gap:+d} s"
             r.values["_gap"] = gap or 0
             if id(f) in better:
-                r.values["gain"] = f"{label_of(self.row.info)} → {candidate_label(f)}"
+                r.values["gain"] = f"{label_of(self.row.info)} → " \
+                    f"{candidate_label(f, self.page.ctrl.settings.download_quality)}"
                 r.values["gain__color"] = theme.GOOD
             rows.append(r)
         self.table.set_rows(rows)

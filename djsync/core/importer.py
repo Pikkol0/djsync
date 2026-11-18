@@ -162,9 +162,15 @@ def destination(lib: Any, info: ImportInfo) -> Path:
     return target
 
 
+def _head(p: Path, n: int = 65536) -> bytes:
+    with open(p, "rb") as f:
+        return f.read(n)
+
+
 def _same_file(a: Path, b: Path) -> bool:
+    """Même taille et mêmes 64 premiers Ko (A1-1 : lit 64 Ko de chaque fichier, pas le fichier entier)."""
     try:
-        return a.stat().st_size == b.stat().st_size and a.read_bytes()[:65536] == b.read_bytes()[:65536]
+        return a.stat().st_size == b.stat().st_size and _head(a) == _head(b)
     except OSError:
         return False
 

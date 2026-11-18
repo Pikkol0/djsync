@@ -143,23 +143,31 @@ def test_c193_free_search_only_restricts_the_sources(demo, monkeypatch):  # noqa
 
 # ------------------------------------------------------------------ C187 : « Plus de choix… » à l'accueil
 def test_c187_welcome_more_choices_opens_download_settings(demo, monkeypatch):  # noqa: F811
-    from djsync.i18n import t
+    """1.4.2-rc.2 (B106) remplace « Plus de choix… » : les 6 qualités sont sur l'écran, 4 repliées."""
     from djsync.ui.welcome import WelcomeDialog
 
     s = demo.ctrl.settings
     monkeypatch.setattr(s, "save", lambda *a, **k: None)
+    s.download_quality = "original"
     w = WelcomeDialog(demo, demo.ctrl)
     w._choose(s.language)
     w._to_quality()
-    assert len(w.yt_buttons) == 2                                      # deux choix pour débuter
-    from PySide6.QtWidgets import QPushButton
-
-    more = [b for b in w.findChildren(QPushButton) if b.text() == t("welcome.more_choices")]
-    assert len(more) == 1
-    opened = []
-    demo.ctrl.on("open_settings_section", opened.append)
-    more[0].click()
-    assert s.welcome_done is True and opened == ["download"]
+    assert len(w.yt_buttons) == 6 and w.yt_buttons["m4a"].isChecked()
+    assert w.more_box.isHidden() and not w.more_toggle.isChecked()       # les 2 recommandées en tête
+    w.more_toggle.click()
+    assert not w.more_box.isHidden()
+    w.yt_buttons["mp3_256"].click()
+    assert w.yt_buttons["mp3_256"].isChecked() and not w.yt_buttons["m4a"].isChecked()
+    assert not w.mp3_warn.isHidden() and w.yt_warn.isHidden()
+    w._finish()
+    assert s.download_quality == "mp3_256" and s.welcome_done is True
+    s.download_quality = "mp3_192"                                     # un MP3 déjà choisi : déplié, présélectionné
+    w2 = WelcomeDialog(demo, demo.ctrl)
+    w2._choose(s.language)
+    w2._to_quality()
+    assert w2.yt_buttons["mp3_192"].isChecked() and not w2.more_box.isHidden()
+    w2._finish()
+    assert s.download_quality == "mp3_192"
 
 
 # ------------------------------------------------------------------ C186 : sons déjà présents

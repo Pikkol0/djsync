@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from ..core.camelot import to_musical
 from ..models import LibraryTrack
@@ -110,44 +111,49 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
     already = {t.content_id for t in dst.get_playlist_tracks(result.playlist_id)}
     ids: List[int] = []
     analyze = dst.analyze
+    # 1.4.2 (A1-3) : écritures regroupées par lots de COPY_CHUNK sons (une sauvegarde et UNE réécriture
+    # d'export.pdb par lot, au lieu de deux par son) ; la progression et l'arrêt restent son par son.
+    batch = dst.long_batch if hasattr(dst, "long_batch") else getattr(dst, "batch", None)
+    stopped = False
     try:
-        for i, (t, found) in enumerate(plan, 1):
-            if should_stop and should_stop():
+        for start in range(0, len(plan), COPY_CHUNK):
+            if stopped:
                 break
-            if on_progress:
-                on_progress(i, len(plan), t.display_name)
-            try:
-                if found is not None:
-                    result.reused += 1
-                    ids.append(found.content_id)
-                    continue
-                src_file = Path(src.absolute_path(t))
-                if not src_file.is_file():
-                    raise LibraryError(f"file missing ({src_file.name})")
-                folder = Path(dst.default_download_dir(t.artist or "Unknown", t.album))
-                folder.mkdir(parents=True, exist_ok=True)
-                target = folder / src_file.name
-                if not (target.is_file() and target.stat().st_size == src_file.stat().st_size):
-                    tmp = target.with_name(target.name + ".djsync-tmp")
-                    shutil.copyfile(src_file, tmp)
-                    tmp.replace(target)
-                anlz = _analysis(src, t)
-                dst.analyze = analyze and not anlz          # analyse reprise : pas de recalcul
-                added = dst.add_track(target, t.title, t.artist or "", t.album, t.source_url, [])
-                if anlz and not added.is_analysed:
-                    added = dst.import_analysis(added.content_id, anlz, t.bpm, to_musical(t.key))
-                result.copied += 1
-                ids.append(added.content_id)
-            except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas la copie
-                result.failed += 1
-                result.problems.append(f"{t.display_name}: {exc}")
-                log.warning("Copy of %s failed: %s", t.display_name, exc)
+            with (batch() if batch is not None else _no_batch()):
+                for i, (t, found) in enumerate(plan[start:start + COPY_CHUNK], start + 1):
+                    if should_stop and should_stop():
+                        stopped = True
+                        break
+                    if on_progress:
+                        on_progress(i, len(plan), t.display_name)
+                    try:
+                        if found is not None:
+                            result.reused += 1
+                            ids.append(found.content_id)
+                            continue
+                        # 1.4.2 (A3-1, A6-3) : même voie que le transfert C23 : jamais par-dessus le fichier
+                        # d'un autre son (« nom (2) »), cues d'un son de l'ordinateur reprises.
+                        added = _send_track(src, dst, t, analyze=analyze)
+                        result.copied += 1
+                        ids.append(added.content_id)
+                    except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas la copie
+                        result.failed += 1
+                        result.problems.append(f"{t.display_name}: {exc}")
+                        log.warning("Copy of %s failed: %s", t.display_name, exc)
     finally:
         dst.analyze = analyze
     new = [cid for cid in dict.fromkeys(ids) if cid not in already]
     if new:
         dst.add_to_playlist(result.playlist_id, new)
     return result
+
+
+COPY_CHUNK = 25
+
+
+@contextmanager
+def _no_batch() -> Iterator[None]:
+    yield
 
 
 # =====================================================================================================
@@ -512,8 +518,9 @@ def _target_file(folder: Path, src_file: Path) -> Path:
     return target
 
 
-def _send_track(src: Any, dst: Any, t: LibraryTrack) -> LibraryTrack:
-    """Copie un son absent de l'arrivée : fichier, fiche, analyse reprise telle quelle (chemin réécrit), cues."""
+def _send_track(src: Any, dst: Any, t: LibraryTrack, analyze: Optional[bool] = None) -> LibraryTrack:
+    """Copie un son absent de l'arrivée : fichier, fiche, analyse reprise telle quelle (chemin réécrit), cues.
+    `analyze` (« Copier vers… ») : un son sans analyse reprise est analysé à l'arrivée si c'est vrai."""
     from ..analysis.cues import write_cues
 
     src_file = Path(src.absolute_path(t))
@@ -541,6 +548,8 @@ def _send_track(src: Any, dst: Any, t: LibraryTrack) -> LibraryTrack:
                     anlz[".EXT"] = ext
             except Exception as exc:  # noqa: BLE001
                 log.warning("Cues of %s not written to the analysis files: %s", t.display_name, exc)
+    if analyze is not None:
+        dst.analyze = analyze and not anlz                     # analyse reprise : pas de recalcul
     added = dst.add_track(target, t.title, t.artist or "", t.album, t.source_url, [])
     if anlz and not added.is_analysed:
         added = dst.import_analysis(added.content_id, anlz, t.bpm, to_musical(t.key))

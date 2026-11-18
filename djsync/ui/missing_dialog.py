@@ -100,6 +100,9 @@ class MissingFilesDialog(BaseDialog):
         self.body.addLayout(bar)
         self._refresh_actions()
         self.show_dialog()
+        from .diag_tabs import watch_library
+
+        watch_library(self, controller, "missing")                 # 1.4.2 (B108) : changement de bibliothèque
         if controller.diag_ready("missing"):                  # 1.4.2 (B103) : rien à l'ouverture par défaut
             self.analyse_now()
         else:

@@ -13,11 +13,15 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QLocale, Qt
+from PySide6.QtWidgets import QWidget
 
 from ..i18n import get_language, set_language, t
 from . import theme
 from .dialogs import BaseDialog
-from .widgets import WrapCheckBox, button, hbox, icon_label, label
+from .widgets import WrapCheckBox, button, hbox, icon_label, label, vbox
+
+MP3_KEYS = ("mp3_320", "mp3_256", "mp3_192", "mp3_128")
+QUALITY_OF = {"m4a": "original", "best": "yt_best", **{k: k for k in MP3_KEYS}}   # tuile → réglage
 
 REPO = "https://github.com/Pikkol0/djsync"
 
@@ -170,16 +174,41 @@ class WelcomeDialog(BaseDialog):
             b.setMinimumHeight(theme.px(64))
             self.body.addWidget(b)
             self.yt_buttons[key] = b
+        # 1.4.2 (B106) : les 6 qualités sur l'écran : les 2 recommandées en tête, les 4 MP3 repliées dessous
+        from PySide6.QtWidgets import QToolButton
+
+        from .views.settings_view import QUALITY_KBPS
+        from ..i18n import num
+
+        self.more_toggle = QToolButton()
+        self.more_toggle.setText(t("welcome.more_qualities"))
+        self.more_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.more_toggle.setAutoRaise(True)
+        self.more_toggle.setCheckable(True)
+        self.more_toggle.setCursor(Qt.PointingHandCursor)
+        self.body.addWidget(self.more_toggle)
+        self.more_box = QWidget()
+        more_lay = vbox(self.more_box, spacing=theme.px(6))
+        for key in MP3_KEYS:
+            per_min = t("settings.quality_per_min", mb=num(QUALITY_KBPS[key] * 60 / 8 / 1000, ".1f"))
+            b = button(f"{t('settings.quality_' + key)}\n{per_min}", lambda k=key: self._pick_yt(k), kind="tile")
+            b.setCheckable(True)
+            b.setMinimumHeight(theme.px(52))
+            more_lay.addWidget(b)
+            self.yt_buttons[key] = b
+        self.body.addWidget(self.more_box)
+        self.more_toggle.toggled.connect(self._fold_more)
         self.yt_warn = label(t("yt.settings_best_hint"), "dim", wrap=True)
         self.yt_warn.setStyleSheet(f"color: {theme.WARN};")
         self.body.addWidget(self.yt_warn)
-        # 1.4.2 (C187) : deux choix pour débuter ; « Plus de choix… » ouvre les 6 qualités des réglages
-        more = hbox(spacing=theme.px(8))
-        more.addWidget(label(t("welcome.yt_later"), "faint", wrap=True), 1)
-        more.addWidget(button(t("welcome.more_choices"), self._more_choices, kind="flat", icon="settings",
-                              tooltip=t("welcome.more_choices_tip")))
-        self.body.addLayout(more)
-        self._pick_yt("best" if self.ctrl.settings.download_quality == "yt_best" else "m4a")
+        self.mp3_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
+        self.mp3_warn.setStyleSheet(f"color: {theme.WARN};")
+        self.body.addWidget(self.mp3_warn)
+        self.body.addWidget(label(t("welcome.yt_later"), "faint", wrap=True))
+        current = {v: k for k, v in QUALITY_OF.items()}.get(self.ctrl.settings.download_quality, "m4a")
+        self.more_toggle.setChecked(current in MP3_KEYS)
+        self._fold_more(current in MP3_KEYS)
+        self._pick_yt(current)
         # 1.4.2 (A2-11) : la visite guidée proposée ici, au lieu d'une quatrième fenêtre
         from . import tour
 
@@ -195,10 +224,11 @@ class WelcomeDialog(BaseDialog):
         foot.addWidget(self.start_btn)
         self.body.addLayout(foot)
 
-    def _more_choices(self) -> None:
-        """1.4.2 (C187) : termine l'accueil (choix en cours gardé) et ouvre Paramètres ▸ Téléchargement."""
-        self._finish()
-        self.ctrl._emit("open_settings_section", "download")
+    def _fold_more(self, shown: bool) -> None:
+        self.more_toggle.setArrowType(Qt.DownArrow if shown else Qt.RightArrow)
+        self.more_box.setVisible(shown)
+        if hasattr(self, "_step"):
+            self._fit()
 
     def _pick_yt(self, key: str) -> None:
         self._yt = key
@@ -208,6 +238,9 @@ class WelcomeDialog(BaseDialog):
             b.style().unpolish(b)
             b.style().polish(b)
         self.yt_warn.setVisible(key == "best")
+        warn = getattr(self, "mp3_warn", None)
+        if warn is not None:
+            warn.setVisible(key in MP3_KEYS)
         if hasattr(self, "_step"):
             self._fit()
 
@@ -261,9 +294,8 @@ class WelcomeDialog(BaseDialog):
             s.start_menu_shortcut = True
             self.ctrl.refresh_shortcut()
         if getattr(self, "_yt", None):                      # 1.4.0-rc.4 (C146)
-            # 1.4.1 (C143) : un MP3 déjà choisi est gardé ; sinon flux standard ou meilleur flux
-            if not s.download_quality.startswith("mp3"):
-                s.download_quality = "yt_best" if self._yt == "best" else "original"
+            # 1.4.2 (B106) : les 6 qualités sont sur l'écran (un MP3 déjà choisi y est présélectionné)
+            s.download_quality = QUALITY_OF.get(self._yt, "original")
             s.youtube_best = s.download_quality == "yt_best"
         tour_box = getattr(self, "tour_box", None)
         go_tour = False

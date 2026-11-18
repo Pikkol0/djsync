@@ -236,8 +236,9 @@ def test_c144_more_colours_grouped_by_family(demo):
     assert len(PALETTES) == 24 and "green" in FAMILIES["deep"] and len(FAMILIES["soft"]) == 4
     settings = demo.views["settings"]
     assert set(settings._swatches) == set(PALETTES)
-    sections = [a.text() for a in settings.theme_btn.menu().actions() if a.isSeparator() and a.text()]
-    assert sections == [t("theme.family_vivid"), t("theme.family_deep"), t("theme.family_soft")]
+    # 1.4.2 (C205) : une colonne par famille, son titre en tête
+    sections = [col.itemAt(0).widget().text() for col in settings._family_cols]
+    assert sections == [t(f"theme.family_{f}").upper() for f in ("vivid", "deep", "soft")]
 
 
 # ------------------------------------------------------------------ C149 : choix des playlists

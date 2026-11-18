@@ -334,11 +334,35 @@ class PdbFile:
 
     # ------------------------------------------------------------------ écriture
     def _begin(self) -> None:
+        """Ouvre la transaction de cette écriture. 1.4.2 (B113) : comme Rekordbox, les pages modifiées
+        portent le numéro de transaction ACTUEL du fichier, puis le numéro du fichier avance d'un cran
+        (toujours > numéro de chaque page). Avant, pages et fichier portaient le même numéro : Rekordbox
+        prenait la transaction pour inachevée et ignorait ses lignes (dernière playlist, dernier son de
+        chaque page). Les clés déjà écrites ainsi sont réparées ici (numéro du fichier relevé)."""
         if not self._begun:
             self._begun = True
-            self.seq += 1
-            struct.pack_into("<I", self.data, 0x14, self.seq)
+            self.seq = max([self.seq] + self.page_seqs())      # numéro donné aux pages de cette écriture
+            struct.pack_into("<I", self.data, 0x14, self.seq + 1)
             self._repair_index_links()
+
+    def _page_seq_map(self) -> Dict[int, int]:
+        """Numéro de transaction de chaque page en usage (les pages à zéro sont exclues)."""
+        out = {}
+        for i in range(1, self.n_pages):
+            pg = Page(self.data, i)
+            if pg.u32(0x04) == i:
+                out[i] = pg.u32(0x10)
+        return out
+
+    def page_seqs(self) -> List[int]:
+        return list(self._page_seq_map().values())
+
+    def seq_problems(self) -> List[str]:
+        """1.4.2 (B113) : pages dont le numéro de transaction n'est pas inférieur à celui du fichier.
+        Rekordbox ignore alors une partie de leurs lignes."""
+        head = u32(self.data, 0x14)
+        return [f"page {i}: transaction {s} not below the file's {head}"
+                for i, s in self._page_seq_map().items() if s >= head]
 
     def index_link_problems(self) -> List[str]:
         """1.3.0-rc.2 (B13) : tables dont la page d'index ne désigne pas la première page de données.
@@ -541,6 +565,9 @@ def validate_against(old: bytes, new: bytes, touched: set) -> None:
     problems = [p for p in fresh.index_link_problems() if p not in before]   # écarts AJOUTÉS par DJSync
     if problems:
         raise PdbFormatError("index page inconsistent after the change: " + "; ".join(problems))
+    seq = fresh.seq_problems()
+    if seq:                                    # B113 : jamais laisser une transaction « inachevée »
+        raise PdbFormatError("transaction number inconsistent after the change: " + "; ".join(seq[:3]))
     for ttype in fresh.tables:
         for p in fresh.data_pages(ttype):
             fresh.page(p).check_data_page()

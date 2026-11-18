@@ -333,9 +333,13 @@ class GridEditor(QWidget):
         grid_card = panel()
         gv = vbox(grid_card, margins=theme.px(10), spacing=theme.px(6))
         gv.addWidget(label(t("grid.zone_grid"), "section"))
-        shift = hbox(spacing=0)
-        shift.addWidget(label(t("grid.shift"), "dim"))
-        shift.addSpacing(theme.px(8))
+        # 1.4.2 (B111) : la rangée passe sur deux lignes quand la largeur manque (les boutons se chevauchaient)
+        from .widgets import FlowLayout
+
+        self.shift_box = QWidget()
+        shift = FlowLayout(self.shift_box, spacing=theme.px(8))
+        segments = QWidget()
+        seg = hbox(segments, spacing=0)
         self._shift_btns = []
         for i, ms in enumerate((-100, -10, -1, 1, 10, 100)):
             b = _SegmentButton(f"{ms:+d}".replace("-", "−"))
@@ -344,11 +348,15 @@ class GridEditor(QWidget):
             b.setCursor(Qt.PointingHandCursor)
             b.setProperty("segment", "first" if i == 0 else "last" if i == 5 else "middle")
             self._shift_btns.append(b)
-            shift.addWidget(b)
-        shift.addSpacing(theme.px(8))
-        shift.addWidget(button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip")))
-        shift.addStretch(1)
-        gv.addLayout(shift)
+            seg.addWidget(b)
+        shift_label = label(t("grid.shift"), "dim")
+        shift_label.setMinimumHeight(self._shift_btns[0].sizeHint().height())
+        shift_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        shift.addWidget(shift_label)
+        shift.addWidget(segments)
+        self.half_btn = button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip"))
+        shift.addWidget(self.half_btn)
+        gv.addWidget(self.shift_box)
         bar_row = hbox(spacing=theme.px(6))
         bar_row.addWidget(button(t("grid.bar_here"), self._bar_here, icon="grid", tooltip=t("grid.bar_here_tip")))
         bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
@@ -402,6 +410,10 @@ class GridEditor(QWidget):
         bar.addWidget(self.reset_btn)
         bar.addStretch(1)
         bar.addWidget(button(t("grid.back"), self.close, icon="back"))
+        # 1.4.2 (C204) : marquer la grille « vérifiée » sans rien y changer
+        self.checked_btn = button(t("grid.checked_btn"), self._grid_ok, icon="check", tooltip=t("grid.checked_tip"))
+        self._grid_marked = bool(getattr(self.ctrl, "grid_checked", lambda _i: False)(self.track.content_id))
+        bar.addWidget(self.checked_btn)
         self.save_btn = button(t("action.save"), self._save, kind="primary", icon="check")
         self.save_btn.setEnabled(False)
         bar.addWidget(self.save_btn)
@@ -904,6 +916,7 @@ class GridEditor(QWidget):
         grid_changed = self.beats != self.original
         cues_changed = self.cues_dirty()
         self.save_btn.setEnabled(grid_changed or cues_changed)
+        self._refresh_checked(grid_changed or cues_changed)
         parts = [t("grid.modified", ms=f"{delta:+d}")] if grid_changed else []
         if cues_changed:
             parts.append(t("cue.modified"))
@@ -1188,6 +1201,23 @@ class GridEditor(QWidget):
             stall.watch().stop()
 
     # -------------------------------------------------------------- enregistrer
+    def _refresh_checked(self, dirty: bool = False) -> None:
+        """C204 : actif seulement sans modification (sinon « Enregistrer » marque la grille) ; « ✓ » une fois fait."""
+        btn = getattr(self, "checked_btn", None)
+        if btn is None:
+            return
+        btn.setEnabled(not dirty and not self._grid_marked and bool(self.beats))
+        btn.setText(t("grid.checked_already") if self._grid_marked else t("grid.checked_btn"))
+
+    def _grid_ok(self) -> None:
+        def done(_r: Any) -> None:
+            self._grid_marked = True
+            if self.winfo_exists():
+                self._refresh_checked()
+
+        self.checked_btn.setEnabled(False)
+        self.ctrl.mark_grid_checked(self.track.content_id, done)
+
     def _save(self) -> None:
         def go() -> None:
             self.save_btn.setEnabled(False)

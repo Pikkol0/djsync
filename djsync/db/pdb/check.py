@@ -62,6 +62,10 @@ def report(path: Path) -> List[str]:
     links = f.index_link_problems()
     for problem in links:
         lines.append(f"  INDEX: {problem} (Rekordbox reports the library as corrupted; DJSync repairs it at its next write)")
+    seq = f.seq_problems()
+    if seq:
+        lines.append(f"  TRANSACTION: {len(seq)} page(s) not below the file's number, e.g. {seq[0]} "
+                     "(Rekordbox hides the rows of the last change; DJSync repairs it when the drive is opened)")
     try:
         db = PdbDatabase(data)
         lines.append(f"Tracks: {db.track_count}; playlists/folders: {db.playlist_count()}")

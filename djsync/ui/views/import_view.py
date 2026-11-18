@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QPlainTextEdit
@@ -25,6 +25,11 @@ from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
                                   "duplicate": "import.st_duplicate"})
 STATUS_TAG = {"ok": (), "review": ("dim",), "missing": ("err",), "duplicate": ("dup",)}
+# 1.4.2 (C209) : un son déjà là a 3 états, un clic passe au suivant : ajouté aux playlists (défaut) ->
+# retéléchargé (deuxième exemplaire) -> ignoré (décoché) -> ajouté.
+DUP_ADD, DUP_REDL, DUP_SKIP = "add", "redl", "skip"
+DUP_NEXT = {DUP_ADD: DUP_REDL, DUP_REDL: DUP_SKIP, DUP_SKIP: DUP_ADD}
+DUP_TEXT = LazyLabels(lambda: {DUP_ADD: "import.dup_add", DUP_REDL: "import.dup_redl", DUP_SKIP: "import.dup_skip"})
 
 
 class PasteListDialog(BaseDialog):
@@ -116,6 +121,7 @@ class ImportView(View):
             Column("status", t("import.col_status"), 150),
         ]
         self.sp_table = TrackTable(self, spotify_cols, click_columns=("chk",))
+        self.sp_table._dup_status_col = True                 # type: ignore[attr-defined]  # C209 : état dans « Statut »
         self.dl_table = TrackTable(self, result_columns(with_check=True, with_download=False), click_columns=("chk",))
         for table in (self.sp_table, self.dl_table):
             table.fit_content = True                         # 1.4.0-rc.4 (C150)
@@ -164,6 +170,7 @@ class ImportView(View):
     # ------------------------------------------------------------------ mode
     def _show_mode(self, mode: Optional[str]) -> None:
         self.mode = mode
+        self._dup: Dict[Tuple[str, str], str] = {}                      # C209 : état des sons déjà là
         spotify = mode == "spotify"
         self.sp_table.setVisible(spotify)
         self.dl_table.setVisible(not spotify)
@@ -354,8 +361,10 @@ class ImportView(View):
         row.values.update(vals)
         self.sp_table.update_values(iid, **vals)
         self.sp_table.set_tags(iid, *STATUS_TAG[m.status])
-        if auto_check or m.status in ("missing", "duplicate"):
-            checked = m.status in ("ok", "review") and (auto_check or row.values.get("chk") == CHECKED)
+        if m.status == "duplicate" and m.candidate is not None:          # C209 : état choisi gardé
+            self._set_dup(self.sp_table, iid, self._dup.get(("spotify", iid), DUP_ADD))
+        elif auto_check or m.status in ("missing", "duplicate"):
+            checked = m.status in ("ok", "review", "duplicate") and (auto_check or row.values.get("chk") == CHECKED)
             self.sp_table.update_values(iid, chk=CHECKED if checked else UNCHECKED)
 
 
@@ -434,9 +443,15 @@ class ImportView(View):
             whole = replace(resolved, tracks=resolved.tracks + added, total=more.total or resolved.total,
                             truncated=more.truncated and bool(added))
             off = [r.iid for r in self.dl_table.all_rows() if r.values.get("chk") == UNCHECKED]
+            dup = dict(self._dup)
             self._load_direct(whole)
+            self._dup.update(dup)
             for iid in off:                                  # les choix déjà faits sont gardés
-                self.dl_table.update_values(iid, chk=UNCHECKED)
+                if not self._is_dup(self.dl_table, iid):
+                    self.dl_table.update_values(iid, chk=UNCHECKED)
+            for (_mode, iid), state in dup.items():
+                if self.dl_table.row(iid) is not None:
+                    self._set_dup(self.dl_table, iid, state)
             self._refresh_buttons()
 
         def err(exc: BaseException) -> None:
@@ -472,9 +487,49 @@ class ImportView(View):
             self.info.setText(self.info.text() + "  ·  " + plural("sc.free_one", "sc.free_many", n))
 
     def _apply_direct_checks(self, tracks: List[TrackResult]) -> None:
-        for tr in tracks:
-            self.dl_table.update_values(tr.video_id, chk=UNCHECKED if tr.is_duplicate else CHECKED)
+        for tr in tracks:                                    # 1.4.2 (C201) : déjà là = coché aussi (pastille)
+            if tr.is_duplicate:                              # C209 : selon l'état choisi (défaut : ajouté)
+                self._set_dup(self.dl_table, tr.video_id, self._dup.get(("direct", tr.video_id), DUP_ADD))
+            else:
+                self.dl_table.update_values(tr.video_id, chk=CHECKED)
         self._refresh_buttons()
+
+    def _here_values(self, tr: TrackResult) -> dict:
+        """1.4.2 (C201, C209) : pastille « déjà là » dans la colonne Bibliothèque, selon l'état choisi."""
+        if not tr.is_duplicate:
+            return {"lib": "", "lib__color": None}
+        return self._dup_values(self.dl_table, self._dup.get(("direct", tr.video_id), DUP_ADD))
+
+    # ------------------------------------------------- 1.4.2 (C209) : sons déjà là, 3 états
+    def _is_dup(self, table: TrackTable, iid: str) -> bool:
+        if table is self.sp_table:
+            m = self.matches[int(iid)] if iid.isdigit() and int(iid) < len(self.matches) else None
+            return bool(m is not None and m.status == "duplicate" and m.candidate is not None)
+        tr = self._tracks.get(iid)
+        return bool(tr is not None and tr.is_duplicate)
+
+    def _dup_state(self, table: TrackTable, iid: str) -> str:
+        row = table.row(iid)
+        if row is None or row.values.get("chk") != CHECKED:
+            return DUP_SKIP
+        return self._dup.get((self.mode or "", iid), DUP_ADD)
+
+    @staticmethod
+    def _dup_values(table: Any, state: str) -> dict:
+        color = {DUP_ADD: theme.ACCENT, DUP_REDL: theme.WARN, DUP_SKIP: None}.get(state)
+        key = "status" if getattr(table, "_dup_status_col", False) else "lib"
+        return {key: DUP_TEXT[state], f"{key}__color": color}
+
+    def _set_dup(self, table: TrackTable, iid: str, state: str) -> None:
+        self._dup[(self.mode or "", iid)] = state
+        table.update_values(iid, chk=UNCHECKED if state == DUP_SKIP else CHECKED, **self._dup_values(table, state))
+
+    def _check(self, table: TrackTable, iid: str, on: bool) -> None:
+        """Coche ou décoche une ligne ; un son déjà là passe à « ajouté » ou « ignoré »."""
+        if self._is_dup(table, iid):
+            self._set_dup(table, iid, DUP_ADD if on else DUP_SKIP)
+        else:
+            table.update_values(iid, chk=CHECKED if on else UNCHECKED)
 
     def _direct_annotated(self, tracks: List[TrackResult]) -> None:
         if self.mode != "direct":
@@ -486,7 +541,7 @@ class ImportView(View):
             row = self.dl_table.row(tr.video_id)
             if row is not None:
                 row.data = tr
-                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.update_values(tr.video_id, **self._here_values(tr))
                 self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._apply_direct_checks(tracks)
 
@@ -509,9 +564,12 @@ class ImportView(View):
             if last in shown and iid in shown:
                 a, b = sorted((shown.index(last), shown.index(iid)))
                 ids = shown[a:b + 1]
+        if ids == [iid] and self._is_dup(table, iid):                  # C209 : clic = état suivant
+            self._set_dup(table, iid, DUP_NEXT[self._dup_state(table, iid)])
+            ids = []
         for i in ids:
             if self._checkable(table, i):
-                table.update_values(i, chk=target)
+                self._check(table, i, target == CHECKED)
         table._last_check = iid                                     # type: ignore[attr-defined]
         self._refresh_buttons()
 
@@ -522,14 +580,14 @@ class ImportView(View):
             return
         target = UNCHECKED if all(table.row(i).values.get("chk") == CHECKED for i in ids) else CHECKED
         for i in ids:
-            table.update_values(i, chk=target)
+            self._check(table, i, target == CHECKED)
         self._refresh_buttons()
 
     def _toggle_all(self, table: TrackTable) -> None:
         rows = [r for r in table.all_rows() if not (table is self.sp_table and self.matches[int(r.iid)].candidate is None)]
         target = CHECKED if any(r.values.get("chk") != CHECKED for r in rows) else UNCHECKED
         for r in rows:
-            table.update_values(r.iid, chk=target)
+            self._check(table, r.iid, target == CHECKED)
         self._refresh_buttons()
 
     def _free_urls(self) -> List[str]:
@@ -568,21 +626,37 @@ class ImportView(View):
             out = []
             for r in self.sp_table.all_rows():
                 m = self.matches[int(r.iid)]
-                if r.values.get("chk") == CHECKED and m.candidate is not None:
+                if r.values.get("chk") == CHECKED and m.candidate is not None and (
+                        m.status != "duplicate" or self._dup_state(self.sp_table, r.iid) == DUP_REDL):
                     out.append(m.candidate.track)
             return out
-        return [self._tracks[r.iid] for r in self.dl_table.all_rows()
-                if r.values.get("chk") == CHECKED and r.iid in self._tracks]
+        return [self._tracks[r.iid] for r in self.dl_table.all_rows()       # 1.4.2 (C201) : à télécharger
+                if r.values.get("chk") == CHECKED and r.iid in self._tracks and (
+                    not self._tracks[r.iid].is_duplicate or self._dup_state(self.dl_table, r.iid) == DUP_REDL)]
+
+    def _redl_tracks(self) -> List[TrackResult]:
+        """1.4.2 (C209) : sons déjà là à retélécharger (deuxième exemplaire, rien n'est effacé)."""
+        table = self.table
+        out = []
+        for r in table.all_rows():
+            if self._is_dup(table, r.iid) and self._dup_state(table, r.iid) == DUP_REDL:
+                out.append(self.matches[int(r.iid)].candidate.track if table is self.sp_table else self._tracks[r.iid])
+        return out
 
     # ------------------------------------------------------------- actions
     def _refresh_buttons(self) -> None:
-        n = len(self._checked_tracks()) if self.mode else 0
-        present = len(self._present_tracks()) if self.mode and not n else 0       # 1.4.2 (C186)
-        self.dl_btn.setText(t("import.download_selection_n", n=n) if n else
-                            t("import.add_present_n", n=present) if present else t("import.download_selection"))
-        self.dl_btn.setEnabled(bool(n or present))
-        total = sum(1 for r in self.table.all_rows() if self._checkable(self.table, r.iid)) if self.mode else 0
-        self.count_lbl.setText(t("import.checked_count", n=n, total=total) if total else "")
+        r = len(self._redl_tracks()) if self.mode else 0                # 1.4.2 (C209)
+        n = (len(self._checked_tracks()) - r) if self.mode else 0
+        present = len(self._present_tracks()) if self.mode else 0       # 1.4.2 (C186, C201)
+        # C209 : « Télécharger n · Retélécharger r · Ajouter m » (parties non nulles seulement)
+        parts = [t(key, n=k) for key, k in (("import.btn_download", n), ("import.btn_redownload", r),
+                                            ("import.btn_add", present)) if k]
+        text = (t("import.download_selection_n", n=n) if parts and not (r or present) else
+                " · ".join(parts) if parts else t("import.download_selection"))
+        self.dl_btn.setText(text)
+        self.dl_btn.setEnabled(bool(n or r or present))
+        total = sum(1 for row in self.table.all_rows() if self._checkable(self.table, row.iid)) if self.mode else 0
+        self.count_lbl.setText(t("import.checked_count", n=n + r + present, total=total) if total else "")
         sel = self.table.selected_iids() if self.mode else []
         free = self._free_urls()
         self.free_btn.setVisible(bool(free))
@@ -613,20 +687,31 @@ class ImportView(View):
             name = self.playlist.name if self.playlist else ""
         else:
             name = self.resolved.name if self.resolved and self.resolved.is_playlist else ""
-        ask_and_download(self, self.ctrl, tracks, new_name=name, existing=self._present_tracks())
+        present, redl = self._present_tracks(), self._redl_tracks()
+        if not redl:
+            ask_and_download(self, self.ctrl, tracks, new_name=name, existing=present)
+            return
+        # 1.4.2 (C209) : retélécharger un son déjà là est confirmé (deuxième exemplaire)
+        fresh = [x for x in tracks if not any(x is y for y in redl)]
+        RedownloadDialog(self, len(redl),
+                         go=lambda: ask_and_download(self, self.ctrl, tracks, new_name=name, existing=present),
+                         add_only=lambda: ask_and_download(self, self.ctrl, fresh, new_name=name,
+                                                           existing=present + redl))
 
     def _present_tracks(self) -> List[TrackResult]:
-        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque (non cochés) : ajoutés à la playlist choisie
-        au lieu d'être sautés."""
+        """1.4.2 (C186) : sons du lot déjà dans la bibliothèque : ajoutés à la playlist choisie au lieu d'être
+        sautés. C201 : ceux qui sont cochés (cochés d'office, avec la pastille « déjà là »)."""
         if self.mode == "spotify":
             out = []
             for r in self.sp_table.all_rows():
                 m = self.matches[int(r.iid)]
-                if m.status == "duplicate" and m.candidate is not None and r.values.get("chk") != CHECKED:
+                if m.status == "duplicate" and m.candidate is not None and \
+                        self._dup_state(self.sp_table, r.iid) == DUP_ADD:
                     out.append(m.candidate.track)
             return out
         return [self._tracks[r.iid] for r in self.dl_table.all_rows()
-                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate and r.values.get("chk") != CHECKED]
+                if r.iid in self._tracks and self._tracks[r.iid].is_duplicate
+                and self._dup_state(self.dl_table, r.iid) == DUP_ADD]
 
     def _menu(self, iids: List[str]) -> list:
         if not iids:
@@ -670,7 +755,7 @@ class ImportView(View):
             row = self.dl_table.row(tr.video_id)
             if row is not None:
                 row.data = tr
-                self.dl_table.update_values(tr.video_id, lib=t("track.already") if tr.is_duplicate else "")
+                self.dl_table.update_values(tr.video_id, **self._here_values(tr))
                 self.dl_table.set_tags(tr.video_id, *(("dup",) if tr.is_duplicate else ()))
         self._refresh_buttons()
 
@@ -681,3 +766,33 @@ class ImportView(View):
             if self.sp_table.row(str(i)) is not None:
                 self._refresh_sp_row(i)
         self._refresh_buttons()
+
+
+class RedownloadDialog(BaseDialog):
+    """1.4.2 (C209) : « r sons déjà là seront retéléchargés » : Continuer / Les ajouter seulement.
+    Fermer la fenêtre n'envoie rien."""
+
+    def __init__(self, parent: Any, n: int, go: Any, add_only: Any) -> None:
+        super().__init__(parent, t("import.redl_title"), 440)
+        self._go, self._add_only = go, add_only
+        self.heading(t("import.redl_title"))
+        self.body.addWidget(label(plural("import.redl_msg_one", "import.redl_msg_many", n), wrap=True))
+        self.body.addWidget(label(t("import.redl_detail"), "dim", wrap=True))
+        self.body.addStretch(1)
+        row = hbox(spacing=theme.px(6))
+        row.addStretch(1)
+        self.add_btn = button(t("import.redl_add_only"), self._add)
+        self.go_btn = button(t("import.redl_continue"), self._continue, kind="primary")
+        self.go_btn.setDefault(True)
+        row.addWidget(self.add_btn)
+        row.addWidget(self.go_btn)
+        self.body.addLayout(row)
+        self.show_dialog()
+
+    def _continue(self) -> None:
+        self.close()
+        self._go()
+
+    def _add(self) -> None:
+        self.close()
+        self._add_only()

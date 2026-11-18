@@ -210,19 +210,26 @@ class TracksMixin:
         except (OSError, ValueError, UnicodeDecodeError) as exc:
             log.warning("Analysis files not deleted (%s): %s", dat, exc)
 
-    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
+    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True,
+                      without_copy: str = "") -> Tuple[int, int]:
         """Supprime plusieurs sons sous une seule sauvegarde.
-        Renvoie (sons retirés de la base, fichiers qui n'ont pas pu être effacés)."""
+        Renvoie (sons retirés de la base, fichiers qui n'ont pas pu être effacés).
+        1.4.2 (A6-6, règle 3) : `without_copy` = id du point de retour confirmé par l'utilisateur ; si la copie
+        d'avant échoue faute de place, la suppression (avec les fichiers seulement) se fait sans elle."""
         removed = file_failures = 0
-        with self.batch():
-            for cid in content_ids:
-                try:
-                    file_deleted = self.delete_track(cid, delete_file=delete_files)
-                except TrackNotFoundError:
-                    continue
-                removed += 1
-                if delete_files and not file_deleted:
-                    file_failures += 1
+        self._no_copy_point = without_copy if (delete_files and without_copy) else ""
+        try:
+            with self.batch():
+                for cid in content_ids:
+                    try:
+                        file_deleted = self.delete_track(cid, delete_file=delete_files)
+                    except TrackNotFoundError:
+                        continue
+                    removed += 1
+                    if delete_files and not file_deleted:
+                        file_failures += 1
+        finally:
+            self._no_copy_point = ""
         return removed, file_failures
 
     def _delete_physical_file(self, db_path: str) -> bool:

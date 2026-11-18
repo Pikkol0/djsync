@@ -46,6 +46,7 @@ from ..errors import (
     DatabaseLockedError,
     DatabaseOpenError,
     DuplicatePlaylistError,
+    KeyFullError,
     LibraryError,
     PlaylistNotFoundError,
     ReadOnlyError,

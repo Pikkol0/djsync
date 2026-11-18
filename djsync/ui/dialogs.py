@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from ..i18n import t
 from ..models import SEARCH_MODE_LABELS, PlaylistInfo, SearchMode
 from . import theme
+from .icons import qicon
 from .widgets import button, hbox, label, vbox
 
 
@@ -203,7 +204,7 @@ class PlaylistPicker(BaseDialog):
     def __init__(self, parent: Any, controller: Any, title: str, confirm_text: str,
                  on_ok: Callable[[List[int]], None], multi: bool = True, preselect: Sequence[int] = (),
                  new_name: str = "", exclude: Sequence[int] = (), allow_empty: bool = False,
-                 subtitle: str = "") -> None:
+                 subtitle: str = "", none_text: str = "") -> None:
         from PySide6.QtWidgets import QTreeWidget
 
         super().__init__(parent, title, 460, 560)
@@ -214,6 +215,8 @@ class PlaylistPicker(BaseDialog):
         self._vars: Dict[int, _CheckItem] = {}
         self._folders: Dict[int, Any] = {}
         self._filling = False
+        # 1.4.2 (B112) : « Aucune playlist : bibliothèque seulement » seulement quand on télécharge (allow_empty)
+        self._none_text = none_text or (t("picker.selected_none") if allow_empty else t("picker.selected_nothing"))
         self.heading(title, subtitle)
         # 1.4.2 (C149) : bandeau « Sélectionnées » : une pastille par playlist cochée, toujours visible
         from .widgets import FlowLayout
@@ -413,11 +416,16 @@ class PlaylistPicker(BaseDialog):
         names = {pid: cb.item.text(0).split("   ·   ")[0] for pid, cb in self._vars.items()}
         chosen = [pid for pid in self._selected() if pid in names]
         if not chosen:
-            self._chips.addWidget(label(t("picker.selected_none"), "faint"))
+            self._chips.addWidget(label(self._none_text, "faint"))
         for pid in chosen:
             b = button(names[pid], lambda _c=False, p=pid: self._unpick(p), kind="flat", icon="close",
                        tooltip=t("picker.unselect"))
             b.setProperty("chip", True)
+            # 1.4.2 (B112) : pastille contrastée (couleur d'accent, texte clair), lisible sur tous les thèmes
+            b.setIcon(qicon("close", 12, theme.ON_ACCENT))
+            b.setStyleSheet(f"QPushButton {{ background: {theme.ACCENT}; color: {theme.ON_ACCENT}; "
+                            f"border: 1px solid {theme.ACCENT}; border-radius: {theme.px(11)}px; "
+                            f"padding: {theme.px(2)}px {theme.px(10)}px; font-weight: 600; }}")
             self._chips.addWidget(b)
         self._chips_box.updateGeometry()
 
@@ -446,6 +454,25 @@ class PlaylistPicker(BaseDialog):
         want = self.sizeHint().height() - self._tree.sizeHint().height() + row * (n + 1) + theme.px(12)
         height = max(theme.px(420), min(int(avail * 0.8), want))
         self.resize(self.width(), height)
+        self._place(screen)
+
+    def _place(self, screen: Any = None) -> None:
+        """1.4.2 (B109) : centrée sur la fenêtre de DJSync et entière dans l'écran (elle prenait sa hauteur après
+        avoir été placée et débordait en bas)."""
+        screen = screen or (self.screen() if hasattr(self, "screen") else None)
+        if screen is None:
+            return
+        geo = screen.availableGeometry()
+        frame = self.frameGeometry()
+        extra = max(0, frame.height() - self.height())             # barre de titre
+        if self.height() + extra > geo.height():
+            self.resize(self.width(), max(theme.px(320), geo.height() - extra))
+        owner = self.parentWidget().window() if self.parentWidget() is not None else None
+        centre = owner.frameGeometry().center() if owner is not None else geo.center()
+        w, h = self.frameGeometry().width(), self.height() + extra
+        x = min(max(centre.x() - w // 2, geo.left()), geo.right() - w + 1)
+        y = min(max(centre.y() - h // 2, geo.top()), geo.bottom() - h + 1)
+        self.move(x, y)
 
     def _create(self) -> None:
         name = self._new.text().strip()

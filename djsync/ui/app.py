@@ -221,6 +221,9 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("open_settings_section", self._open_settings_section)        # 1.4.0-rc.2 (B66)
         self.ctrl.on("local_offer", self._local_offer)
         self.ctrl.on("eject_own", self._eject_own)
+        self.ctrl.on("open_space", self.open_space)                               # 1.4.2 (A6-6)
+        self.ctrl.on("key_full_delete", self._key_full_delete)
+        self.ctrl.on("key_full_open", self._key_full_open)
         self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
@@ -662,7 +665,15 @@ class DJSyncApp(QMainWindow):
         self.feedback_btn.setStyleSheet(square)
         for b in (self.help_btn, self.fold_btn):                       # icônes seules : toujours centrées
             b.setStyleSheet("padding: 0px; text-align: center;")
-            b.setMinimumWidth(cpx(SIDEBAR_COMPACT - 12))
+            # 1.4.2 (B104) : replié, même taille et même centrage que les icônes du haut (la largeur minimale
+            # dépassait de 8 px la place du volet : « ? » et la flèche étaient poussés à droite)
+            b.setMinimumWidth(0 if compact else cpx(SIDEBAR_COMPACT - 12))
+        for b in (self.feedback_btn, self.help_btn, self.fold_btn):
+            if compact:
+                b.setFixedHeight(side)
+            else:
+                b.setMinimumHeight(0)
+                b.setMaximumHeight(16777215)
         self.feedback_btn.setText("" if compact else t("tab.feedback"))
         self.feedback_btn.setToolTip(t("tab.feedback") if compact else "")
         from PySide6.QtWidgets import QBoxLayout
@@ -761,6 +772,8 @@ class DJSyncApp(QMainWindow):
         for b in self._nav.values():
             b.setFixedHeight(side)
             b.setIconSize(QSize(icon, icon))
+        for b in (self.feedback_btn, self.help_btn, self.fold_btn):     # 1.4.2 (B104) : même taille qu'en haut
+            b.setFixedHeight(side)
         self.nav_inner.setMinimumHeight(self.nav_inner.layout().sizeHint().height())
         self._relayout_sidebar()
 
@@ -1088,6 +1101,26 @@ class DJSyncApp(QMainWindow):
         from .table import popup_menu
 
         popup_menu(anchor, self.drive_menu_entries(), anchor.mapToGlobal(anchor.rect().topRight()))
+
+    # ------------------------------------------------------------ 1.4.2 (A6-6) : clé pleine
+    def _key_full_delete(self, n: int, point: Any, go: Callable[[], None]) -> None:
+        """Règle 3 c : suppression sans la copie habituelle, avec le point de retour et sa date."""
+        from .dialogs import ConfirmDialog
+
+        when = point.created.strftime("%d/%m/%Y %H:%M")
+        from ..i18n import plural
+
+        ConfirmDialog(self, t("full.title"), plural("full.delete_one", "full.delete_many", n, date=when), go,
+                      confirm_text=t("action.delete"), danger=True)
+
+    def _key_full_open(self, drive: Any) -> None:
+        """Règle 4 : la clé est pleine et ne s'ouvre plus : « Libérer de la place »."""
+        from .dialogs import ConfirmDialog
+
+        name = getattr(drive, "label", "") or str(getattr(drive, "root", drive))
+        ConfirmDialog(self, t("full.title"), t("full.open_msg", drive=name),
+                      lambda: self.ctrl.free_key_space(drive), confirm_text=t("full.free_button"),
+                      detail=t("full.free_detail"))
 
     def open_space(self) -> None:
         """Paramètres ▸ Bibliothèques, carte « Espace » à l'écran (la mesure part quand elle est visible)."""
