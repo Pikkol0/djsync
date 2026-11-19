@@ -1106,6 +1106,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
     # ------------------------------------------------------------ import par URL
     def import_url(self, url: str, ok: Callable[[str, Any], None], err: Optional[Callback] = None) -> None:
         """ok("spotify", SpotifyPlaylist) ou ok("direct", ResolvedUrl)."""
+        def kind_name(k: UrlKind) -> str:
+            return {UrlKind.APPLE: "Apple Music", UrlKind.TIDAL: "Tidal", UrlKind.AMAZON: "Amazon Music"}.get(k, "")
+
         kind = self.service.classify_url(url)
         if kind == UrlKind.SPOTIFY:
             work: Callable[[], Any] = lambda: ("spotify", self.service.fetch_spotify(url))  # noqa: E731
@@ -1117,6 +1120,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                     return "spotify", self.service.fetch_deezer(url)
                 except DeezerError as exc:
                     raise UrlImportError(t("error.deezer_private") if exc.private else str(exc)) from exc
+        elif kind in (UrlKind.APPLE, UrlKind.TIDAL, UrlKind.AMAZON):     # 1.4.3 (C94) : même suite que Spotify
+            def work() -> Any:
+                from ..core.streaming_import import StreamingImportError, fetch
+
+                try:
+                    return "spotify", fetch(kind.value, url)
+                except StreamingImportError as exc:
+                    raise UrlImportError(t("error.streaming_private", name=kind_name(kind)) if exc.private
+                                         else str(exc)) from exc
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:

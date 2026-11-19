@@ -1,6 +1,7 @@
 """1.4.3-rc.3 : tests ciblés des fiches de la rc.3 (A7-3, A1-6, A1-7, C185, B89, C53, S05, C109, C176, C72, C94)."""
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -375,3 +376,143 @@ def test_c109_s05_local_library_writes_mixer_gain_and_tags(tmp_path, monkeypatch
     finally:
         lib.close()
         loudness.use_store(None)
+
+
+# ---------------------------------------------------------------------- C72 : mise à jour par morceaux
+def _fake_exe(root: Path, name: str, version: str, changed: bytes) -> Path:
+    import sys as _sys
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packaging"))
+    import pack_single_exe
+
+    app = root / name
+    (app / "_internal").mkdir(parents=True)
+    (app / "DJSync.exe").write_bytes(b"app" + changed * 500)
+    (app / "_internal" / "Qt6Core.dll").write_bytes(bytes(range(256)) * 20000)       # identique d'une version à l'autre
+    (app / "_internal" / "base_library.zip").write_bytes(changed * 30000)
+    launcher = root / "launcher.exe"
+    launcher.write_bytes(b"MZ" + b"\0" * 4000)
+    out = root / f"{name}.exe"
+    pack_single_exe.pack(launcher, app, version, out)
+    with open(out, "ab") as f:
+        f.write(b"AUTHENTICODE" * 200)                     # signature après le bloc de fin
+    return out
+
+
+def test_c72_rebuilds_the_new_exe_from_the_old_one(tmp_path):
+    from djsync.core import delta_update as D
+
+    old = _fake_exe(tmp_path, "old", "1.4.2", b"a")
+    new = _fake_exe(tmp_path, "new", "1.4.3", b"b")
+    man = D.manifest(new, "1.4.3")
+    data = new.read_bytes()
+    fetched = []
+
+    def rng(url, start, n):
+        fetched.append(n)
+        return data[start:start + n]
+
+    out = D.download("https://x/DJSync.exe", man["sha256"], old, tmp_path / "dl", get_json=lambda u: man, get_range=rng)
+    assert out is not None and out.read_bytes() == data
+    assert sum(fetched) < len(data) * 0.2                                     # le gros fichier inchangé n'est pas retéléchargé
+
+
+def test_c72_falls_back_to_full_download(tmp_path):
+    from djsync.core import delta_update as D
+
+    old = _fake_exe(tmp_path, "old", "1.4.2", b"a")
+    new = _fake_exe(tmp_path, "new", "1.4.3", b"b")
+    man = D.manifest(new, "1.4.3")
+    data = new.read_bytes()
+    assert D.download("u", "0" * 64, old, tmp_path / "dl", get_json=lambda u: man) is None          # autre fichier
+
+    def broken(url, start, n):
+        return data[start:start + n - 1]
+
+    assert D.download("u", man["sha256"], old, tmp_path / "dl", get_json=lambda u: man,
+                      get_range=lambda u, s, n: b"x" * n) is None                                 # empreinte fausse
+    assert not list((tmp_path / "dl").glob("*.part"))
+    other = tmp_path / "other.exe"
+    other.write_bytes(b"MZ" + b"\0" * 100)
+    with pytest.raises(ValueError):
+        D.parts_of(other)                                                                          # exe d'avant le format
+
+
+def test_c176_app_size_report(tmp_path):
+    import sys as _sys
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packaging"))
+    import app_size
+
+    text = app_size.report(_fake_exe(tmp_path, "new", "1.4.3", b"b"))
+    assert "MB extracted" in text and "_internal/Qt6Core.dll" in text
+
+
+# ------------------------------------------------------------- C94 : Apple Music, Tidal, Amazon Music
+def test_c94_links_are_recognised():
+    from djsync.core.urlimport import classify_url
+    from djsync.models import UrlKind
+
+    assert classify_url("https://music.apple.com/fr/playlist/soiree/pl.u-abc") == UrlKind.APPLE
+    assert classify_url("https://tidal.com/browse/playlist/0a1b2c3d-1111-2222-3333-444455556666") == UrlKind.TIDAL
+    assert classify_url("https://listen.tidal.com/album/123456") == UrlKind.TIDAL
+    assert classify_url("https://music.amazon.fr/playlists/B0ABCDEF") == UrlKind.AMAZON
+    assert classify_url("https://www.amazon.fr/dp/B0") == UrlKind.UNKNOWN
+
+
+def test_c94_apple_page_is_read():
+    from djsync.core.streaming_import import parse_apple
+
+    data = [{"data": {"sections": [{"items": [
+        {"title": "Loca", "artistName": "Jul", "duration": 201000, "contentDescriptor": {}},
+        {"title": "Bande organisée", "artistName": "Jul, SCH", "duration": 254000, "contentDescriptor": {}},
+        {"title": "Loca", "artistName": "Jul", "duration": 201000, "contentDescriptor": {}}]}]}}]
+    page = ('<html><head><meta property="og:title" content="Soirée - Playlist - Apple Music"></head><body>'
+            f'<script type="application/json" id="serialized-server-data">{json.dumps(data)}</script></body></html>')
+    pl = parse_apple(page)
+    assert pl.name == "Soirée" and [t.title for t in pl.tracks] == ["Loca", "Bande organisée"]
+    assert pl.tracks[1].duration_seconds == 254 and pl.tracks[0].artist == "Jul"
+
+
+def test_c94_ld_json_pages_apple_and_amazon():
+    from djsync.core.streaming_import import StreamingImportError, parse_amazon, parse_apple
+
+    ld = {"@type": "MusicPlaylist", "name": "Club", "track": [
+        {"@type": "MusicRecording", "name": "One", "duration": "PT3M25S", "byArtist": {"name": "A"}},
+        {"@type": "MusicRecording", "name": "Two", "duration": "PT4M", "byArtist": [{"name": "B"}, {"name": "C"}]}]}
+    page = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    for parse in (parse_apple, parse_amazon):
+        pl = parse(page)
+        assert pl.name == "Club" and [t.duration_seconds for t in pl.tracks] == [205, 240]
+        assert pl.tracks[1].artists == ("B", "C")
+    with pytest.raises(StreamingImportError) as e:
+        parse_amazon("<html>JavaScript only</html>")
+    assert e.value.private
+
+
+def test_c94_tidal_pages():
+    from djsync.core import streaming_import as S
+
+    calls = []
+
+    class R:
+        def __init__(self, d):
+            self.d = d
+
+        def json(self):
+            return self.d
+
+    def get(url, headers=None, params=None):
+        calls.append((url, dict(params or {})))
+        assert headers == {"x-tidal-token": S.TIDAL_TOKEN}
+        if url.endswith("/items"):
+            off = params["offset"]
+            n = min(100, 150 - off)
+            return R({"totalNumberOfItems": 150, "items": [
+                {"type": "track", "item": {"title": f"T{off + i}", "duration": 200, "artists": [{"name": "X"}],
+                                           "album": {"title": "Alb"}}} for i in range(n)]})
+        return R({"title": "Mix", "numberOfTracks": 150})
+
+    pl = S.fetch_tidal("https://tidal.com/browse/playlist/0a1b2c3d-1111", get=get)
+    assert pl.name == "Mix" and len(pl.tracks) == 150 and not pl.truncated and pl.tracks[0].album == "Alb"
+    assert [c[1].get("offset") for c in calls if c[0].endswith("/items")] == [0, 100]

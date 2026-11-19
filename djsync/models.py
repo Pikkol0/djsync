@@ -187,6 +187,9 @@ class UrlKind(str, Enum):
     YOUTUBE = "youtube"          # -> téléchargement direct (yt-dlp)
     SOUNDCLOUD = "soundcloud"    # -> téléchargement direct (yt-dlp)
     DEEZER = "deezer"            # 1.4.0 (C86) -> comme Spotify : liste lue, puis correspondance YouTube Music
+    APPLE = "apple"              # 1.4.3 (C94) -> idem (Apple Music, Tidal, Amazon Music : core/streaming_import.py)
+    TIDAL = "tidal"
+    AMAZON = "amazon"
     UNKNOWN = "unknown"
 
 

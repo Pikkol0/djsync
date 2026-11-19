@@ -47,6 +47,9 @@ SOURCES = (
     Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", PLAYLIST_CAP),    # 1.4.3 (C185)
     Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", PLAYLIST_CAP),
     Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", PLAYLIST_CAP),
+    Source("apple", "Apple Music", "#FA2D48", "music.apple.com/…/playlist/…", 300),                # 1.4.3 (C94)
+    Source("tidal", "Tidal", "#7A7A80", "tidal.com/browse/playlist/…", PLAYLIST_CAP),
+    Source("amazon", "Amazon Music", "#25D1DA", "music.amazon.com/playlists/…", PLAYLIST_CAP),
 )
 
 
@@ -80,6 +83,11 @@ def classify_url(url: str) -> UrlKind:
         return UrlKind.SOUNDCLOUD
     if host == "deezer.com" or host.endswith(".deezer.com") or host in _DEEZER_SHORT:   # 1.4.0 (C86)
         return UrlKind.DEEZER
+    from .streaming_import import service_of                                            # 1.4.3 (C94)
+
+    service = service_of(host)
+    if service:
+        return {"apple": UrlKind.APPLE, "tidal": UrlKind.TIDAL, "amazon": UrlKind.AMAZON}[service]
     return UrlKind.UNKNOWN
 
 

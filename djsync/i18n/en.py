@@ -249,7 +249,11 @@ STRINGS = {
     "import.sources": "Accepted sources:",
     "import.src_spotify": "Track, album or public playlist (first {n} tracks). Each track is looked up on YouTube Music.",
     "import.src_deezer": "Track, album or public playlist ({n} tracks at most). Each track is looked up on YouTube Music.",
+    "import.src_apple": "Track, album or public playlist ({n} tracks at most). Each track is looked up on YouTube Music.",          # 1.4.3 (C94)
+    "import.src_tidal": "Track, album or public playlist ({n} tracks at most). Each track is looked up on YouTube Music.",          # 1.4.3 (C94)
+    "import.src_amazon": "Track, album or public playlist ({n} tracks at most). Each track is looked up on YouTube Music.",          # 1.4.3 (C94)
     "error.deezer_private": "This Deezer playlist is private or cannot be found. Make it public in Deezer (… ▸ Make public), then try again.",
+    "error.streaming_private": "{name} did not give this list: check that the playlist is public, then copy its share link again.",          # 1.4.3 (C94)
     "import.list_truncated": "only the first {n} tracks are read.",
     "import.src_youtube": "Video or playlist ({n} at most).",
     "import.src_ytmusic": "Track, album or playlist ({n} at most).",

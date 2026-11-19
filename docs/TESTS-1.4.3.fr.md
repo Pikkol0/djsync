@@ -106,3 +106,44 @@ la clé et l'ordinateur.
 
 A7-3 (formes d'onde calculées comme Rekordbox, portage des formules de Sleeve, à valider sur l'échantillon) ; A1-6,
 A1-7 ; liste longue de `00-etat-du-projet.md`.
+
+## rc.3 — fiches sans action de l'auteur
+
+Fiches : A7-3 (formes d'onde comme Rekordbox, repris de Sleeve), A1-6 (plusieurs cœurs), A1-7 (un seul décodage),
+C185, B89, C53, S05, C109, C176, C72, C94. Tests automatiques : `tests/test_v143_rc3.py`.
+Sautées (attendent l'auteur) : B105, C114, A07 ; C83 et C156 : spec courte `claude/spec-c83-c156.md` à valider ;
+C16, C69, A01 : mesures sur le PC portable.
+
+### Analyse
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| ODE-4 | Tous | Windows | (**A7-3**) Analyser dans DJSync 10 sons de l'échantillon « Échantillon DJSync » (déjà analysés par Rekordbox), sur une clé ; ouvrir la clé dans Rekordbox, comparer chaque son avec sa version analysée par Rekordbox (Bleu, RGB, 3 bandes ; forme d'onde zoomée et aperçu). | Formes d'onde semblables à celles de Rekordbox (hauteurs, couleurs, aperçu bleu) ; avant la rc.3, elles étaient nettement différentes. |
+| ODE-5 | Testeur platines | Platines | (**A7-3**) Même clé sur les platines : forme d'onde du son chargé et aperçu, en Bleu, RGB et 3 bandes. | Comme un son analysé par Rekordbox ; aucune forme d'onde vide ou décalée. |
+| ANA-6 | Tous | Windows | (**A1-6**) Analyser 30 sons non analysés, mode léger coupé ; regarder le Gestionnaire des tâches et la durée par son au journal ; refaire en mode léger. | Plusieurs processus DJSync (cœurs − 1, 4 au plus) pendant l'analyse, puis plus rien une minute après ; analyse nettement plus rapide (journal : « Analysis on N processes ») ; en mode léger, un seul processus comme avant. Résultats (BPM, tonalité, grille) identiques. |
+| ANA-7 | Testeur Mac | macOS | (**A1-6**) Analyser 10 sons. | Pas de second DJSync dans le Dock, analyse faite ; aucune erreur. |
+| ANA-8 | Tous | Windows | (**A1-7**) Bibliothèque ▸ colonne Vraie qualité sur 10 sons non encore mesurés, puis analyse. | Même vraie qualité qu'avant la rc.3 pour un son déjà mesuré en 1.4.2 (registre) ; mesure faite pendant l'analyse, sans second décodage. |
+
+### Import et recherche
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| IMP-16 | Tous | Windows | (**C185**) Importer une playlist YouTube de plus de 600 titres, puis une playlist Deezer de 1 500 titres. | Les 200 premiers s'affichent, puis la suite se charge seule (« Chargement de la playlist… n sons sur N »), sans bouton ; le tableau défile ; arrêt à 2 000 avec « Seuls les 2 000 premiers… ». |
+| IMP-17 | Tous | Windows | (**C94**) Importer une playlist publique **Apple Music**, une **Tidal**, une **Amazon Music**. | Liste lue (titre, artiste, durée), puis correspondance YouTube Music comme pour Spotify ; pour Amazon, si la page ne donne pas la liste : message clair (playlist publique, lien de partage). Noter le service qui ne marche pas. |
+| SRC-14 | Tous | Windows | (**B89**) Recherche Haute qualité : « jul », puis un album connu sur Audius. | archive.org : plus de bulletins radio ni de podcasts, seulement de la musique dont le titre ou l'artiste contient les mots ; albums d'archive.org et d'Audius en lignes d'album (titres numérotés). |
+
+### Fichiers, lecture, apparence
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| TAG-1 | Tous | Windows | (**S05**) Paramètres ▸ Analyse ▸ cocher « Écrire le BPM et la tonalité dans les fichiers audio » ; analyser 3 sons (MP3, M4A, FLAC) ; ouvrir leurs propriétés (Explorateur ou un autre logiciel). | BPM et tonalité dans les tags ; le son se lit toujours ; Rekordbox et les platines lisent la clé comme avant (taille du fichier mise à jour). Réglage décoché : fichiers non modifiés. |
+| LEC-6 | Tous | Windows | (**C109**) Analyser un son très fort et un son calme, les écouter l'un après l'autre dans DJSync ; décocher « Même volume pour tous les sons » et réécouter. | Coché : volume proche entre les deux, jamais de saturation ; décoché : comme avant. Sur l'ordinateur : Rekordbox montre un Auto Gain pour les sons analysés par DJSync (valeur à comparer avec celle de Rekordbox sur l'échantillon). |
+| AFF-8 | Tous | Windows | (**C53**) Paramètres ▸ Apparence ▸ Fond : Haut contraste, Lumineux, OLED, puis Sombre ; parcourir Accueil, Bibliothèque, Rechercher, Grille et cues. | Changement immédiat ; textes et couleur d'accent lisibles partout (le Lumineux assombrit l'accent si besoin) ; noter les zones restées sombres ou illisibles. |
+
+### Application
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| MAJ-6 | Tous | Windows | (**C72**) Depuis la 1.4.3-rc.3, mettre à jour vers la rc suivante depuis Paramètres. | Téléchargement bien plus court que la taille de DJSync.exe (journal : « Delta update: x MB downloaded instead of y MB ») ; DJSync redémarre dans la nouvelle version. Depuis une version d'avant la rc.3 : téléchargement complet comme avant. |
+| ESP-6 | Tous | Windows | (**C176**) Taille de DJSync.exe et du dossier `.djsync\app` après extraction, comparées à la 1.4.2. | Plus petit (modules jamais utilisés retirés) ; tout fonctionne (recherche, téléchargement YouTube, pochettes). Détail dans l'annotation « App size (C176) » du build. |
+

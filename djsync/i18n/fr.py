@@ -249,7 +249,11 @@ STRINGS = {
     "import.sources": "Sources acceptées :",
     "import.src_spotify": "Son, album ou playlist publique (les {n} premiers sons). Chaque son est cherché sur YouTube Music.",
     "import.src_deezer": "Son, album ou playlist publique ({n} sons au plus). Chaque son est cherché sur YouTube Music.",
+    "import.src_apple": "Son, album ou playlist publique ({n} sons au plus). Chaque son est cherché sur YouTube Music.",          # 1.4.3 (C94)
+    "import.src_tidal": "Son, album ou playlist publique ({n} sons au plus). Chaque son est cherché sur YouTube Music.",          # 1.4.3 (C94)
+    "import.src_amazon": "Son, album ou playlist publique ({n} sons au plus). Chaque son est cherché sur YouTube Music.",          # 1.4.3 (C94)
     "error.deezer_private": "Cette playlist Deezer est privée ou introuvable. Rendez-la publique dans Deezer (… ▸ Rendre publique), puis réessayez.",
+    "error.streaming_private": "{name} n'a pas donné cette liste : vérifie que la playlist est publique, puis recopie son lien de partage.",          # 1.4.3 (C94)
     "import.list_truncated": "seuls les {n} premiers sons sont lus.",
     "import.src_youtube": "Vidéo ou playlist ({n} au plus).",
     "import.src_ytmusic": "Son, album ou playlist ({n} au plus).",
