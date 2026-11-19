@@ -35,7 +35,7 @@ def cue_text(c: Any) -> str:
     if loop and loop > c.ms:
         out += f" → {mmss(loop)}"
     name = (getattr(c, "name", "") or "").strip()
-    return f"{out} « {name} »" if name else out
+    return t("merge.cue_named", cue=out, name=name) if name else out
 
 
 def _cue_key(c: Any) -> tuple:

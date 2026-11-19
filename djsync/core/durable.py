@@ -33,7 +33,11 @@ def flush_fd(fd: int, full: Optional[Callable[[int], Any]] = None) -> None:
     """Vide les données et métadonnées du fichier jusqu'au disque. macOS : F_FULLFSYNC, puis `fsync` si le
     système de fichiers ne le prend pas en charge (exFAT). Toute autre erreur remonte."""
     if full is None and sys.platform == "darwin":
-        import fcntl
+        try:
+            import fcntl
+        except ImportError:                 # plateforme simulée (tests) : vidage ordinaire
+            os.fsync(fd)
+            return
 
         flag = getattr(fcntl, "F_FULLFSYNC", 51)
         full = lambda f: fcntl.fcntl(f, flag)            # noqa: E731

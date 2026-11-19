@@ -768,6 +768,7 @@ STRINGS = {
     "merge.preview_title": "What the merge will do",
     "merge.loading": "Reading playlists and cues…",
     "merge.memory": "Memory",
+    "merge.cue_named": "{cue} “{name}”",
     "merge.kept": "Kept: {name}",
     "merge.removed_file": "Removed, file deleted: {name}",
     "merge.removed_entry": "Removed from the library: {name}",

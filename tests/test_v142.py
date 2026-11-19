@@ -326,7 +326,7 @@ def test_c178_home_actions_and_tour(demo, monkeypatch):
 
     home = demo.views["home"]
     demo.show_view("home")
-    assert list(home.actions) == ["download", "analyse", "prepare", "uniformize"]
+    assert list(home.actions) == ["download", "analyse", "prepare", "uniformize", "transfer"]   # 1.4.3 (C203)
     # cartes des bibliothèques au-dessus des actions (maquette A)
     assert home.cards.mapTo(home, home.cards.rect().topLeft()).y() < home.actions_row.mapTo(home, home.actions_row.rect().topLeft()).y()
     home.actions["download"].click()
