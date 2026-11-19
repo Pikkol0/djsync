@@ -301,3 +301,53 @@ def test_a2_23_catalogues_same_keys_and_help_lists_page_shortcuts():
         assert key in en.STRINGS and key in fr.STRINGS
     src = (Path(__file__).resolve().parent.parent / "tools" / "ui_screenshots.py").read_text(encoding="utf-8")
     assert "diagnostic_dialog" not in src
+
+
+# ------------------------------------------------------- C200 : place totale de DJSync
+def test_c200_footprint_sums_parts(tmp_path):
+    from djsync.core import space
+
+    data, music = tmp_path / "data", tmp_path / "music"
+    (data / "cache").mkdir(parents=True)
+    (data / "Backups" / "rekordbox").mkdir(parents=True)
+    music.mkdir()
+    (data / "cache" / "a").write_bytes(b"x" * 1000)
+    (data / "Backups" / "rekordbox" / "m.db").write_bytes(b"x" * 3000)
+    (data / "settings.json").write_bytes(b"x" * 200)
+    (music / "t.mp3").write_bytes(b"x" * 50_000)
+    fp = space.djsync_footprint(data, music)
+    assert fp["caches"] >= 1000 and fp["backups"] >= 3000 and fp["music"] >= 50_000
+    assert 200 <= fp["settings"] < 1000                     # sans les caches ni les sauvegardes
+    assert fp["app"] > 0
+    assert fp["total"] == sum(fp[k] for k in space.FOOTPRINT_PARTS)
+
+
+def test_c200_space_card_shows_total(demo):  # noqa: F811
+    from djsync.i18n import t
+
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    view.show_section("libraries")
+    view.space.compute(force=True)
+    assert pump(demo, 10, lambda: view.space.footprint.isVisible() and view.space.footprint.text())
+    assert t("space.footprint", size="").split(":")[0] in view.space.footprint.text()
+
+
+# ------------------------------------------------------- C203 : Transférer et synchroniser
+def test_c203_name_tile_and_sync_from_card(demo, monkeypatch):  # noqa: F811
+    from djsync.i18n import fr, t
+
+    assert fr.STRINGS["transfer.title"] == "Transférer et synchroniser des playlists"
+    home = demo.views["home"]
+    assert "transfer" in home.actions
+    opened = []
+    monkeypatch.setattr(demo, "open_transfer", lambda pre=(), sync_from=None: opened.append(sync_from))
+    home.actions["transfer"].click()
+    assert opened == [None]                                 # depuis l'Accueil : sens unique par défaut
+
+    class S:
+        is_local, drive = False, type("D", (), {"root": "/x"})()
+
+    home.act_transfer(S())
+    assert opened[-1] == "/x"
+    assert t("transfer.card_button")
