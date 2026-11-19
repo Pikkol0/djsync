@@ -146,4 +146,4 @@ C16, C69, A01 : mesures sur le PC portable.
 |---|---|---|---|---|
 | MAJ-6 | Tous | Windows | (**C72**) Depuis la 1.4.3-rc.3, mettre à jour vers la rc suivante depuis Paramètres. | Téléchargement bien plus court que la taille de DJSync.exe (journal : « Delta update: x MB downloaded instead of y MB ») ; DJSync redémarre dans la nouvelle version. Depuis une version d'avant la rc.3 : téléchargement complet comme avant. |
 | ESP-6 | Tous | Windows | (**C176**) Taille de DJSync.exe et du dossier `.djsync\app` après extraction, comparées à la 1.4.2. | Plus petit (modules jamais utilisés retirés) ; tout fonctionne (recherche, téléchargement YouTube, pochettes). Détail dans l'annotation « App size (C176) » du build. |
-
+| CLE-9 | Tous | Windows | Après ANA-6 et TAG-1 : la clé dans Rekordbox puis sur platines. | Tous les sons se lisent ; grilles, cues et playlists inchangés. |
