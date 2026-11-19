@@ -40,6 +40,7 @@ class LibraryBase:
         self._reader: Optional[Any] = None
         self._reader_lock = threading.Lock()
         self._reader_off = False                    # désactivée après un échec (lecture normale ensuite)
+        self._closing = False                       # 1.4.3-rc.2 : plus de 2e connexion pendant la fermeture
         self._session_backed_up = False
         self._batch_depth = 0
         self._batch_backed_up = False
@@ -104,6 +105,7 @@ class LibraryBase:
         with self._lock:
             if self._conn is not None:
                 return self
+            self._closing = False
             from ..recover import recover
 
             # 1.4.3 (A6-1) : remplacement interrompu (clé retirée) : copie temporaire valide remise en place
@@ -166,6 +168,9 @@ class LibraryBase:
         return self
 
     def close(self) -> None:
+        # 1.4.3-rc.2 : une lecture d'un autre fil ne rouvre plus la 2e connexion pendant la fermeture (blocage
+        # vu en test : connexion de lecture ouverte par le fil « db » pendant la fermeture de la principale)
+        self._closing = True
         self._close_reader()
         self._pdb_cancel_timer()
         with self._lock:
@@ -478,9 +483,11 @@ class LibraryBase:
 
     def _read_side(self, sql: str, params: Sequence[Any]) -> Optional[List[Tuple[Any, ...]]]:
         """1.4.3 (A3-6) : lecture par la 2e connexion ; None = passer par la connexion principale."""
-        if self._reader_off or self._conn is None or self.journal_mode.lower() != "wal":
+        if self._reader_off or self._closing or self._conn is None or self.journal_mode.lower() != "wal":
             return None
         with self._reader_lock:
+            if self._closing:
+                return None
             try:
                 if self._reader is None:
                     self._reader = self._open_reader()

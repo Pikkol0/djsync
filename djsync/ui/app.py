@@ -227,6 +227,7 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
+        QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
         self._bind_shortcuts()
         self._place_window(settings)
@@ -583,6 +584,7 @@ class DJSyncApp(QMainWindow):
         old = self.centralWidget()
         self._nav = {}
         self._build()
+        QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
         if old is not None:
             old.deleteLater()
@@ -989,6 +991,17 @@ class DJSyncApp(QMainWindow):
             self._shortcut(key, fn)
 
     def _space(self) -> None:
+        """1.4.3 (A2-19) : Espace = lecture, sauf sur un bouton, une case ou une liste déroulante, qu'il
+        active comme partout ailleurs."""
+        from PySide6.QtWidgets import QAbstractButton, QComboBox
+
+        focus = self.qapp.focusWidget()
+        if isinstance(focus, QAbstractButton) and focus.isEnabled() and focus.isVisible():
+            focus.animateClick()
+            return
+        if isinstance(focus, QComboBox) and focus.isEnabled() and focus.isVisible():
+            focus.showPopup()
+            return
         if not self._typing():
             self.ctrl.toggle_play()
 
@@ -1427,52 +1440,27 @@ class DJSyncApp(QMainWindow):
         self.show_view(target)
 
     def _settings_ok(self, then: Callable[[], None]) -> bool:
-        """1.4.2 (A2-18) : en quittant les Paramètres avec des réglages pas encore enregistrés, « Enregistrer
-        avant de quitter ? » (Enregistrer / Ne pas enregistrer / Rester). Vrai si l'on peut partir tout de
-        suite ; sinon la question est posée et `then` est rappelé après « Enregistrer » ou « Ne pas
-        enregistrer »."""
+        """1.4.3 (A2-18, option A) : les réglages sont enregistrés dès qu'ils changent ; un champ encore en cours
+        de saisie au moment de quitter la page est enregistré lui aussi. Plus de question : on part toujours."""
         view = self.views.get("settings")
-        if view is None or self.stack.currentWidget() is not view or getattr(self, "_settings_asking", False):
+        if view is None or self.stack.currentWidget() is not view:
             return True
         try:
             pending = view.unsaved()
-        except Exception:  # noqa: BLE001 - jamais bloquer la navigation
-            log.debug("Handled error in _settings_ok", exc_info=True)  # 1.4.3 (A3-4)
-            return True
-        if not pending:
-            return True
-        from .dialogs import BaseDialog
-
-        log.info("Settings not saved: %s", ", ".join(pending))
-        self._settings_asking = True
-        dlg = BaseDialog(self, t("settings.leave_title"), 440)
-        dlg.heading(t("settings.leave_title"))
-        dlg.body.addWidget(label(t("settings.leave_text"), wrap=True))
-        row = hbox(spacing=theme.px(6))
-
-        def done(action: str) -> None:
-            self._settings_asking = False
-            dlg.close()
-            if action == "save":
+            if pending:
+                log.info("Settings saved on leaving: %s", ", ".join(pending))
                 view.save_now()
-            elif action == "discard":
-                view.discard()
-            if action in ("save", "discard"):
-                then()
+        except Exception:  # noqa: BLE001 - jamais bloquer la navigation
+            log.debug("Handled error in _settings_ok", exc_info=True)
+        return True
 
-        dlg.stay_btn = button(t("settings.leave_stay"), lambda: done("stay"), kind="flat")
-        dlg.discard_btn = button(t("settings.leave_discard"), lambda: done("discard"))
-        dlg.save_btn = button(t("settings.leave_save"), lambda: done("save"), kind="primary", icon="check")
-        dlg.save_btn.setDefault(True)
-        row.addWidget(dlg.stay_btn)
-        row.addStretch(1)
-        row.addWidget(dlg.discard_btn)
-        row.addWidget(dlg.save_btn)
-        dlg.body.addLayout(row)
-        dlg.finished.connect(lambda _r: setattr(self, "_settings_asking", False))
-        dlg.show_dialog()
-        self.settings_leave_dialog = dlg
-        return False
+    def _name_buttons(self) -> None:
+        from .widgets import name_icon_buttons
+
+        try:
+            name_icon_buttons(self)
+        except RuntimeError:                       # fenêtre détruite entre-temps
+            log.debug("Buttons not named", exc_info=True)
 
     def _show_page(self, page: QWidget) -> None:
         from .diag_tabs import DiagTabs
@@ -1484,6 +1472,9 @@ class DJSyncApp(QMainWindow):
         else:
             self._check_nav("diagnostic" if diag else nav_key(self._current))
         self.stack.setCurrentWidget(page)
+        from .widgets import name_icon_buttons
+
+        name_icon_buttons(page)                             # 1.4.3 (A2-20) : pages ouvertes à la demande
         if diag:
             self._reveal_nav("diagnostic")
         page.setFocus()

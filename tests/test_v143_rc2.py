@@ -194,3 +194,110 @@ def test_a3_7_import_analysis_reuses_files(any_lib):
     assert len(any_lib.beat_grid(dst.content_id).beats) == len(any_lib.beat_grid(src.content_id).beats)
     again = any_lib.import_analysis(dst.content_id, files, bpm=90.0)        # déjà analysé : inchangé
     assert round(again.bpm) == 126
+
+
+# ------------------------------------------------------- A2-18 (option A) : enregistrement immédiat
+from .qt_util import pump  # noqa: E402
+from .test_ui_v020 import demo  # noqa: E402,F401 (fixture)
+
+
+def test_a2_18_settings_saved_at_once_no_save_button(demo, monkeypatch):  # noqa: F811
+    from djsync.i18n import t
+
+    saves = []
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: saves.append(1))
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    from PySide6.QtWidgets import QPushButton
+
+    assert not [b for b in view.findChildren(QPushButton) if b.text() == t("action.save")]
+    want = not view.views_var.isChecked()
+    view.views_var.setChecked(want)
+    assert pump(demo, 3, lambda: demo.ctrl.settings.fetch_views == want)
+    assert view.unsaved() == [] and saves
+    assert pump(demo, 1, lambda: "✓" in view.saved.text())
+
+
+def test_a2_18_text_field_saved_when_leaving_the_page(demo, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    view.sc_token.setText("tok-123")                       # saisie en cours, pas encore validée
+    demo.show_view("library")
+    assert demo.current == "library"                       # plus de question en quittant
+    assert demo.ctrl.settings.soundcloud_token == "tok-123"
+
+
+# ------------------------------------------------------- A2-19, A2-20 : clavier et noms accessibles
+def test_a2_19_space_activates_focused_button_not_playback(demo, monkeypatch):  # noqa: F811
+    from PySide6.QtWidgets import QCheckBox
+
+    played = []
+    monkeypatch.setattr(demo.ctrl, "toggle_play", lambda: played.append(1))
+    demo.show_view("settings")
+    box = demo.views["settings"].views_var
+    before = box.isChecked()
+    monkeypatch.setattr(demo.qapp, "focusWidget", lambda: box)
+    demo._space()
+    assert pump(demo, 2, lambda: box.isChecked() != before) and not played
+    monkeypatch.setattr(demo.qapp, "focusWidget", lambda: None)
+    demo._space()
+    assert played == [1]
+    assert isinstance(box, QCheckBox)
+
+
+def test_a2_19_buttons_take_focus_from_keyboard_only():
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from djsync.ui.widgets import button
+
+    QApplication.instance() or QApplication([])
+    assert button("OK").focusPolicy() == Qt.TabFocus
+
+
+def test_a2_20_icon_buttons_have_accessible_names(demo):  # noqa: F811
+    from PySide6.QtWidgets import QAbstractButton
+
+    from djsync.ui.widgets import icon_button, name_icon_buttons
+
+    b = icon_button("close", None, "Close")
+    assert b.accessibleName() == "Close"
+    for key in ("home", "library", "settings"):
+        demo.show_view(key)
+        pump(demo, 0.3)
+    name_icon_buttons(demo)
+    missing = [b for b in demo.findChildren(QAbstractButton)
+               if not b.text().strip() and b.toolTip() and not b.accessibleName()]
+    assert missing == []
+
+
+# ------------------------------------------------------- A2-21 : « Retirer » d'une playlist annulable
+def test_a2_21_remove_from_playlist_can_be_undone(demo):  # noqa: F811
+    from djsync.i18n import t
+
+    ctrl, lib = demo.ctrl, demo.ctrl.library
+    pl = next(p for p in lib.list_playlists() if not p.is_folder and len(lib.get_playlist_tracks(p.playlist_id)) >= 3)
+    before = [x.content_id for x in lib.get_playlist_tracks(pl.playlist_id)]
+    actions = []
+    ctrl.on("message_action", lambda text, fn: actions.append((text, fn)))
+    ctrl.remove_from_playlist(pl.playlist_id, [before[1]])
+    assert pump(demo, 5, lambda: actions)
+    assert [x.content_id for x in lib.get_playlist_tracks(pl.playlist_id)] == before[:1] + before[2:]
+    text, fn = actions[-1]
+    assert text == t("action.undo")
+    fn()
+    assert pump(demo, 5, lambda: [x.content_id for x in lib.get_playlist_tracks(pl.playlist_id)] == before)
+
+
+# ------------------------------------------------------- A2-23 : ménage
+def test_a2_23_catalogues_same_keys_and_help_lists_page_shortcuts():
+    from djsync.i18n import en, fr
+    from djsync.ui import help_dialog
+
+    assert set(en.STRINGS) == set(fr.STRINGS)
+    assert "settings.leave_title" not in en.STRINGS and "improve.title" not in en.STRINGS
+    for _k, key in help_dialog.GRID_SHORTCUTS + help_dialog.UNI_SHORTCUTS:
+        assert key in en.STRINGS and key in fr.STRINGS
+    src = (Path(__file__).resolve().parent.parent / "tools" / "ui_screenshots.py").read_text(encoding="utf-8")
+    assert "diagnostic_dialog" not in src

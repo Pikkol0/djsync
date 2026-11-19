@@ -28,8 +28,23 @@ SHORTCUTS: List[Tuple[str, str]] = [
     ("Ctrl + ,", "help.sc_settings"),
     ("F1", "help.sc_help"),
 ]
+# 1.4.3 (A2-23) : raccourcis des pages Grille et cues, et Uniformiser
+GRID_SHORTCUTS: List[Tuple[str, str]] = [
+    ("1 … 8", "help.sc_grid_pads"),
+    ("0", "help.sc_grid_exit_loop"),
+    ("← / →", "help.sc_grid_shift"),
+    ("Esc", "help.sc_grid_close"),
+]
+UNI_SHORTCUTS: List[Tuple[str, str]] = [
+    ("Enter", "help.sc_uni_validate"),
+    ("I", "help.sc_uni_ignore"),
+    ("F", "help.sc_uni_search"),
+    ("Space", "help.sc_uni_listen"),
+    ("↑ / ↓", "help.sc_uni_move"),
+    ("Ctrl + Z", "help.sc_uni_undo"),
+]
 # 1.4.2 (A2-6) : noms des touches traduits (« Entrée », « Suppr »)
-KEY_NAMES = {"Space": "help.key_space", "Enter": "help.key_enter", "Delete": "help.key_delete"}
+KEY_NAMES = {"Space": "help.key_space", "Enter": "help.key_enter", "Delete": "help.key_delete", "Esc": "help.key_esc"}
 
 
 def _scroll(inner: QWidget) -> QScrollArea:
@@ -68,13 +83,22 @@ class HelpDialog(BaseDialog):
         sc = QWidget()
         grid = QGridLayout(sc)
         grid.setHorizontalSpacing(theme.px(16))
-        for i, (keys, key) in enumerate(SHORTCUTS):
-            k = label(t(KEY_NAMES[keys]) if keys in KEY_NAMES else keys, "accent")
-            k.setStyleSheet("font-family: monospace;")
-            grid.addWidget(k, i, 0, Qt.AlignTop)
-            grid.addWidget(label(t(key), "dim", wrap=True), i, 1)     # 1.4.2 (A2-3) : plus de défilement horizontal
+        i = 0
+        for title, items in ((None, SHORTCUTS), ("help.sc_grid_section", GRID_SHORTCUTS),
+                             ("help.sc_uni_section", UNI_SHORTCUTS)):
+            if title:
+                head = label(t(title))
+                head.setStyleSheet("font-weight: 600;")
+                grid.addWidget(head, i, 0, 1, 2)
+                i += 1
+            for keys, key in items:
+                k = label(t(KEY_NAMES[keys]) if keys in KEY_NAMES else keys, "accent")
+                k.setStyleSheet("font-family: monospace;")
+                grid.addWidget(k, i, 0, Qt.AlignTop)
+                grid.addWidget(label(t(key), "dim", wrap=True), i, 1)  # 1.4.2 (A2-3) : plus de défilement horizontal
+                i += 1
         grid.setColumnStretch(1, 1)
-        grid.setRowStretch(len(SHORTCUTS), 1)
+        grid.setRowStretch(i, 1)
         tabs.addTab(_scroll(sc), t("help.shortcuts"))
 
         tabs.setCurrentIndex(0 if start else 1)

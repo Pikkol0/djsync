@@ -118,7 +118,7 @@ class SettingsView(View):
         head.addWidget(self.saved)
         head.addWidget(button(t("settings.reset"), self._reset_defaults, kind="flat", icon="back",
                               tooltip=t("settings.reset_tip")))           # 1.3.2 (C57)
-        head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
+        # 1.4.3 (A2-18, option A) : plus de bouton « Enregistrer » : chaque réglage est enregistré dès qu'il change
         self.root.addLayout(head)
         # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
         self._cards: list = []                 # [(section, carte)]
@@ -230,6 +230,7 @@ class SettingsView(View):
         self._ffmpeg_status()
         self._engine_show()
         self._backups_state()
+        self._wire_autosave()
 
     # ------------------------------------------------ 1.4.3 (A3-8) : cartes des Paramètres
     def _build_appearance(self, s: Any) -> None:
@@ -1828,6 +1829,52 @@ class SettingsView(View):
             if value != cur:
                 out.append(key)
         return out
+
+    def _autosave_widgets(self) -> List[Any]:
+        """1.4.3 (A2-18) : champs lus par `_save` (même liste que `unsaved`)."""
+        names = ("forced", "contents", "ffmpeg", "views_var", "meta_var", "keep", "merge_undo", "pdb_var",
+                 "pdb_growth_var", "analyze_usb_var", "analyze_local_var", "cue_var", "diag_auto_var", "wave_style",
+                 "format_menu", "sc_original_var", "sc_browser", "sc_token", "yt_browser", "watch_folder", "slsk_var",
+                 "slsk_user", "slsk_password", "slsk_share_var", "player_format", "watch_playlist_var", "watch_target",
+                 "light_menu", "latency_box", "update_var", "show_rc_var", "report_menu", "notation", "local_db",
+                 "local_music")
+        out = [getattr(self, n, None) for n in names]
+        out += list(getattr(self, "reanalyse_vars", {}).values())
+        return [w for w in out if w is not None]
+
+    def _wire_autosave(self) -> None:
+        """1.4.3 (A2-18, option A) : tout est enregistré tout de suite (cases, listes, nombres au changement ;
+        champs de texte à la sortie du champ ou sur Entrée), « ✓ Enregistré » affiché brièvement."""
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(250)
+        self._autosave_timer.timeout.connect(self._autosave_now)
+        for w in self._autosave_widgets():
+            if isinstance(w, QCheckBox):
+                w.toggled.connect(lambda _v: self._autosave())
+            elif isinstance(w, QComboBox):
+                w.currentIndexChanged.connect(lambda _i: self._autosave())
+            elif isinstance(w, QSpinBox):
+                w.valueChanged.connect(lambda _v: self._autosave())
+            elif isinstance(w, QLineEdit):
+                w.editingFinished.connect(self._autosave)
+
+    def _autosave(self) -> None:
+        timer = getattr(self, "_autosave_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _autosave_now(self) -> None:
+        if not self.winfo_exists():
+            return
+        try:
+            pending = self.unsaved()
+        except Exception:  # noqa: BLE001 - jamais d'erreur à l'écran pour un enregistrement automatique
+            log.debug("Handled error in _autosave_now", exc_info=True)
+            pending = ["?"]
+        if pending:
+            log.info("Settings saved: %s", ", ".join(pending))
+            self._save()
 
     def save_now(self) -> None:
         """1.4.2 (A2-18) : « Enregistrer » depuis l'alerte en quittant la page."""

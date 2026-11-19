@@ -373,7 +373,30 @@ class LibraryOpsMixin:
                                                 len(content_ids)))
 
     def remove_from_playlist(self, playlist_id: int, content_ids: Sequence[int]) -> None:
-        self._write(lambda lib: lib.remove_from_playlist(playlist_id, content_ids), None, t("msg.removed_from_playlist"))
+        """1.4.3 (A2-21) : « Annuler » dans la bulle remet les sons retirés, à leur place d'avant."""
+        removed = [int(c) for c in content_ids]
+
+        def fn(lib: Any) -> List[int]:
+            before = [x.content_id for x in lib.get_playlist_tracks(playlist_id)]
+            lib.remove_from_playlist(playlist_id, removed)
+            return before
+
+        def done(before: List[int]) -> None:
+            if before and any(c in before for c in removed):
+                self._emit("message_action", t("action.undo"), lambda: self._undo_remove(playlist_id, removed, before))
+
+        self._write(fn, done, t("msg.removed_from_playlist"))
+
+    def _undo_remove(self, playlist_id: int, removed: Sequence[int], before: Sequence[int]) -> None:
+        back = [c for c in removed if c in before]
+
+        def fn(lib: Any) -> None:
+            with lib.batch():
+                lib.add_to_playlist(playlist_id, back)
+                lib.set_playlist_order(playlist_id, list(before))
+            log.info("Removal from playlist %s undone (%d track(s))", playlist_id, len(back))
+
+        self._write(fn, None, t("msg.remove_undone"))
 
     def move_tracks(self, content_ids: Sequence[int], from_id: int, to_id: int) -> None:
         self._write(lambda lib: lib.move_tracks(content_ids, from_id, to_id), None, t("msg.tracks_moved"))

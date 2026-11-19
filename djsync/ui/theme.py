@@ -235,6 +235,9 @@ QToolButton:hover {{ background: {ELEV}; }}
 QToolButton:checked {{ background: {ACCENT_DIM}; border-color: {ACCENT}; }}
 QToolButton:disabled {{ background: transparent; }}
 QToolButton::menu-indicator {{ image: none; }}
+QPushButton:focus, QToolButton:focus {{ border-color: {ACCENT}; }}
+QPushButton[kind="primary"]:focus {{ border-color: {TEXT}; }}
+QCheckBox::indicator:focus, QRadioButton::indicator:focus {{ border-color: {ACCENT}; }}
 
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {SURFACE}; border: 1px solid {BORDER};
               border-radius: {r6}px; padding: {p(5)}px {p(8)}px; selection-background-color: {ACCENT_DIM}; }}
