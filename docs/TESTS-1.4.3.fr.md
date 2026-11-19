@@ -3,7 +3,7 @@
 Numérotation : thème en 3 lettres + n° (voir `revues/numerotation-tests.md`) ; dans le suivi : « 143 · REC-1 ».
 Règle : un test OK sous Windows est validé ; Mac et Linux seulement pour un point qui leur est propre.
 
-## rc.1 — rapidité et sûreté des données
+## rc.1, lot 1 — rapidité et sûreté des données
 
 Fiches : A3-6, B98, A1-2, A1-4, A1-5, A1-8, A1-10, A1-12, A1-13 (rapidité) ; A6-1, A6-2, A6-4, A6-5, A6-9, A6-10, A6-11 (données) ;
 A3-5, A3-10 (code) ; C202, C206. Specs : `claude/spec-1.4.3.md` (A1-2, A6-1, A6-2, A6-9).
@@ -45,12 +45,12 @@ A3-5, A3-10 (code) ; C202, C206. Specs : `claude/spec-1.4.3.md` (A1-2, A6-1, A6-
 | REC-4 | Tous | Windows | (**C202**) Rechercher ▸ onglet Haute qualité ; aller dans la Bibliothèque ; revenir par « Rechercher » ; quitter et relancer DJSync, cliquer « Rechercher ». | Haute qualité se rouvre les deux fois. |
 | IMP-2 | Tous | Windows | (**C206**) Lien ou playlist ▸ une playlist Spotify publique de plus de 100 titres. | « Spotify ne donne que les 100 premiers sons sur n. » et la marche à suivre pour le reste (découper la playlist, ou « Coller une liste… »). |
 
-### Reporté à la rc.2
+### Reporté au lot 2
 
-Fait en rc.2 (voir plus bas), sauf A7-3 (reporté à la rc.3). Sautées et signalées : B105 (spec non validée), C114
+Fait au lot 2 (voir plus bas), sauf A7-3 (reporté au lot 3). Sautées et signalées : B105 (spec non validée), C114
 (échantillon de cues manquant), A07 (à décider), A1-11 (reportée).
 
-## rc.2 — reste de la 1.4.3
+## rc.1, lot 2 — reste de la 1.4.3
 
 Fiches : A1-9, B103 (option A), A3-2, A3-3, A3-4, A3-7, A3-8, A3-9 (code) ; A2-18 (option A), A2-19, A2-20, A2-21,
 A2-23 (UX) ; C199, C200, C203, C210 ; A7-4, A7-5 (repris de Sleeve). A2-22 : déjà livrée en 1.4.2 (option A).
@@ -102,12 +102,12 @@ master.db, `db/analysis_flow.py`), A3-9 (tests du plan d'export.pdb, code non to
 et `tests/test_v143_rc2.py`. Signe d'une régression : analyse, grille ou transfert qui se comporte différemment entre
 la clé et l'ordinateur.
 
-### Reporté à la rc.3
+### Reporté au lot 3
 
 A7-3 (formes d'onde calculées comme Rekordbox, portage des formules de Sleeve, à valider sur l'échantillon) ; A1-6,
 A1-7 ; liste longue de `00-etat-du-projet.md`.
 
-## rc.3 — fiches sans action de l'auteur
+## rc.1, lot 3 — fiches sans action de l'auteur
 
 Fiches : A7-3 (formes d'onde comme Rekordbox, repris de Sleeve), A1-6 (plusieurs cœurs), A1-7 (un seul décodage),
 C185, B89, C53, S05, C109, C176, C72, C94. Tests automatiques : `tests/test_v143_rc3.py`.
@@ -118,11 +118,11 @@ C16, C69, A01 : mesures sur le PC portable.
 
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
-| ODE-4 | Tous | Windows | (**A7-3**) Analyser dans DJSync 10 sons de l'échantillon « Échantillon DJSync » (déjà analysés par Rekordbox), sur une clé ; ouvrir la clé dans Rekordbox, comparer chaque son avec sa version analysée par Rekordbox (Bleu, RGB, 3 bandes ; forme d'onde zoomée et aperçu). | Formes d'onde semblables à celles de Rekordbox (hauteurs, couleurs, aperçu bleu) ; avant la rc.3, elles étaient nettement différentes. |
+| ODE-4 | Tous | Windows | (**A7-3**) Analyser dans DJSync 10 sons de l'échantillon « Échantillon DJSync » (déjà analysés par Rekordbox), sur une clé ; ouvrir la clé dans Rekordbox, comparer chaque son avec sa version analysée par Rekordbox (Bleu, RGB, 3 bandes ; forme d'onde zoomée et aperçu). | Formes d'onde semblables à celles de Rekordbox (hauteurs, couleurs, aperçu bleu) ; en 1.4.2, elles étaient nettement différentes. |
 | ODE-5 | Testeur platines | Platines | (**A7-3**) Même clé sur les platines : forme d'onde du son chargé et aperçu, en Bleu, RGB et 3 bandes. | Comme un son analysé par Rekordbox ; aucune forme d'onde vide ou décalée. |
 | ANA-6 | Tous | Windows | (**A1-6**) Analyser 30 sons non analysés, mode léger coupé ; regarder le Gestionnaire des tâches et la durée par son au journal ; refaire en mode léger. | Plusieurs processus DJSync (cœurs − 1, 4 au plus) pendant l'analyse, puis plus rien une minute après ; analyse nettement plus rapide (journal : « Analysis on N processes ») ; en mode léger, un seul processus comme avant. Résultats (BPM, tonalité, grille) identiques. |
 | ANA-7 | Testeur Mac | macOS | (**A1-6**) Analyser 10 sons. | Pas de second DJSync dans le Dock, analyse faite ; aucune erreur. |
-| ANA-8 | Tous | Windows | (**A1-7**) Bibliothèque ▸ colonne Vraie qualité sur 10 sons non encore mesurés, puis analyse. | Même vraie qualité qu'avant la rc.3 pour un son déjà mesuré en 1.4.2 (registre) ; mesure faite pendant l'analyse, sans second décodage. |
+| ANA-8 | Tous | Windows | (**A1-7**) Bibliothèque ▸ colonne Vraie qualité sur 10 sons non encore mesurés, puis analyse. | Même vraie qualité qu'en 1.4.2 pour un son déjà mesuré en 1.4.2 (registre) ; mesure faite pendant l'analyse, sans second décodage. |
 
 ### Import et recherche
 
@@ -144,6 +144,6 @@ C16, C69, A01 : mesures sur le PC portable.
 
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
-| MAJ-6 | Tous | Windows | (**C72**) Depuis la 1.4.3-rc.3, mettre à jour vers la rc suivante depuis Paramètres. | Téléchargement bien plus court que la taille de DJSync.exe (journal : « Delta update: x MB downloaded instead of y MB ») ; DJSync redémarre dans la nouvelle version. Depuis une version d'avant la rc.3 : téléchargement complet comme avant. |
+| MAJ-6 | Tous | Windows | (**C72**) Depuis la 1.4.3-rc.1, mettre à jour vers la rc suivante depuis Paramètres. | Téléchargement bien plus court que la taille de DJSync.exe (journal : « Delta update: x MB downloaded instead of y MB ») ; DJSync redémarre dans la nouvelle version. Depuis une version d'avant la 1.4.3 : téléchargement complet comme avant. |
 | ESP-6 | Tous | Windows | (**C176**) Taille de DJSync.exe et du dossier `.djsync\app` après extraction, comparées à la 1.4.2. | Plus petit (modules jamais utilisés retirés) ; tout fonctionne (recherche, téléchargement YouTube, pochettes). Détail dans l'annotation « App size (C176) » du build. |
 | CLE-9 | Tous | Windows | Après ANA-6 et TAG-1 : la clé dans Rekordbox puis sur platines. | Tous les sons se lisent ; grilles, cues et playlists inchangés. |
