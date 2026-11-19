@@ -763,7 +763,12 @@ class LibraryOpsMixin:
         def done(found: Dict[int, str]) -> None:
             if self.library is not lib:
                 return
-            self._missing_files = dict(found)
+            found = dict(found)
+            # 1.4.3 (rc.3) : un passage commencé avant qu'une analyse trouve un fichier introuvable ne l'efface pas
+            for cid, reason in self.missing_files.items():
+                if cid not in found and self.analysis_results.get(cid) == "missing":
+                    found[cid] = reason
+            self._missing_files = found
             self._emit("missing_files")
             if ok:
                 ok(self._missing_files)
