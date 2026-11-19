@@ -396,3 +396,43 @@ def test_c199_missing_merge_carries_cues_only_without_hot_cues():
                     cues_if_none=True)
     assert [x for x in empty if x.section == "cues" and x.sign == "+"]
     assert all("file deleted" not in x.text for x in empty)
+
+
+# ------------------------------------------------------- A7-5 : place estimée (blocs du disque)
+def test_a7_5_estimate_rounds_to_blocks_and_counts_analysis():
+    from djsync.core import space
+
+    assert space.on_disk(1, 32768) == 32768 and space.on_disk(32768, 32768) == 32768
+    assert space.on_disk(32769, 32768) == 65536 and space.on_disk(0, 4096) == 0
+    est = space.estimate_copy([1000, 40000], 32768)
+    assert est == 32768 + 65536 + 2 * space.ANLZ_BLOCKS * 32768
+    assert space.cluster_size(Path(".")) >= 512
+
+
+def test_a7_5_comparison_needed_uses_block():
+    from djsync.db.transfer import NEW, Comparison, PlaylistLine
+
+    comp = Comparison(sizes={1: 10, 2: 10}, block=4096)
+    comp.lines.append(PlaylistLine(src_id=1, path=("A",), status=NEW, copy_ids=[1, 2]))
+    from djsync.core.space import ANLZ_BLOCKS
+
+    assert comp.needed() == 2 * 4096 + 2 * ANLZ_BLOCKS * 4096
+    comp.lines[0].selected = False
+    assert comp.needed() == 0
+
+
+# ------------------------------------------------------- C210 : tâches du volet
+def test_c210_copy_to_and_set_check_are_tasks(demo, tmp_path):  # noqa: F811
+    from djsync.ui.set_check_dialog import open_set_check
+
+    ctrl = demo.ctrl
+    seen = []
+    ctrl.tasks.on_change(lambda: seen.extend(k.key for k in ctrl.tasks.tasks()))
+    dlg = open_set_check(demo, ctrl)
+    assert pump(demo, 10, lambda: "set_check" in seen and not getattr(ctrl.tasks.get("set_check"), "active", False))
+    dlg.close()
+    assert callable(ctrl.copy_stop)
+    ctrl._copy_stop = False
+    ctrl.tasks.start("copy", "task.copy", can_stop=True, stop=ctrl.copy_stop)
+    ctrl.tasks.stop("copy")
+    assert ctrl._copy_stop is True

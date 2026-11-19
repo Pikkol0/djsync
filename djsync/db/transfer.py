@@ -90,7 +90,7 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
     files = {Path(dst.absolute_path(t)).name.lower(): t for t in existing}
 
     plan: List[Tuple[LibraryTrack, Optional[LibraryTrack]]] = []
-    needed = 0
+    sizes: List[int] = []
     for t in tracks:
         found = (dst.find_by_source_url(t.source_url) if t.source_url else None) or by_key.get(_key(t))
         if found is None:
@@ -101,10 +101,13 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
         plan.append((t, found))
         if found is None:
             try:
-                needed += Path(src.absolute_path(t)).stat().st_size
+                sizes.append(Path(src.absolute_path(t)).stat().st_size)
             except OSError:
                 log.debug("Ignored error in copy_playlist", exc_info=True)  # 1.4.3 (A3-4)
     probe_dir = Path(dst.default_download_dir("DJSync", None))
+    from ..core.space import cluster_size, estimate_copy
+
+    needed = estimate_copy(sizes, cluster_size(probe_dir)) if sizes else 0     # 1.4.3 (A7-5)
     if needed and needed > _free_space(probe_dir) - 50 * 1024 * 1024:
         raise LibraryError(f"Not enough free space: {needed / 1e6:.0f} MB needed.")
 
@@ -227,10 +230,16 @@ class Comparison:
     free: int = 0                                              # espace libre à l'arrivée (octets)
     new_folders: List[Tuple[str, ...]] = field(default_factory=list)
 
+    block: int = 4096                                          # 1.4.3 (A7-5) : bloc du disque d'arrivée
+
     def needed(self) -> int:
-        """Octets à copier pour les lignes cochées, avec les choix actuels (chaque son compté une fois)."""
+        """Place nécessaire à l'arrivée pour les lignes cochées, avec les choix actuels (chaque son compté une
+        fois). 1.4.3 (A7-5, repris de Sleeve) : chaque fichier arrondi au bloc du disque, plus ses fichiers
+        d'analyse et sa pochette."""
+        from ..core.space import estimate_copy
+
         ids = {cid for line in self.lines if line.will_write for cid in line.copy_ids}
-        return sum(self.sizes.get(cid, 0) for cid in ids)
+        return estimate_copy((self.sizes.get(cid, 0) for cid in ids), self.block) if ids else 0
 
     def tracks_to_copy(self) -> int:
         return len({cid for line in self.lines if line.will_write for cid in line.copy_ids})
@@ -466,6 +475,9 @@ def compare(src: Any, dst: Any, playlist_ids: Any, origin: str = "", on_progress
             line.selected = line.status == CONFLICT
         comp.lines.append(line)
     try:
+        from ..core.space import cluster_size
+
+        comp.block = cluster_size(Path(dst.default_download_dir("DJSync", None)))
         comp.free = _free_space(Path(dst.default_download_dir("DJSync", None)))
     except Exception:  # noqa: BLE001 - espace inconnu : on ne bloque pas
         log.debug("Handled error in compare", exc_info=True)  # 1.4.3 (A3-4)

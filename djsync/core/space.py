@@ -190,6 +190,46 @@ def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path, track_bytes: 
                  elsewhere)
 
 
+# ------------------------------------------------- 1.4.3 (A7-5, repris de Sleeve) : place sur la clé
+DEFAULT_BLOCK = 4096
+ANLZ_BLOCKS = 4                # .DAT, .EXT, .2EX et la pochette d'un son : environ un bloc chacun
+
+
+def cluster_size(path: Any) -> int:
+    """Taille d'un bloc (unité d'allocation) du disque de `path` : un fichier occupe toujours un nombre entier
+    de blocs (32 Ko sur une clé exFAT de 64 Go, par exemple). DEFAULT_BLOCK si inconnue."""
+    p = Path(str(path))
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            spc, bps, _f, _t = (ctypes.c_ulong() for _ in range(4))
+            root = str(p.resolve().anchor)
+            if ctypes.windll.kernel32.GetDiskFreeSpaceW(root, ctypes.byref(spc), ctypes.byref(bps),  # type: ignore[attr-defined]
+                                                        ctypes.byref(_f), ctypes.byref(_t)):
+                return max(512, int(spc.value) * int(bps.value))
+            return DEFAULT_BLOCK
+        st = os.statvfs(p)
+        return max(512, int(st.f_frsize or st.f_bsize or DEFAULT_BLOCK))
+    except (OSError, AttributeError, ValueError):
+        return DEFAULT_BLOCK
+
+
+def on_disk(size: int, block: int) -> int:
+    """Place réellement prise par un fichier de `size` octets (arrondi au bloc supérieur)."""
+    block = max(1, int(block or DEFAULT_BLOCK))
+    return -(-max(0, int(size)) // block) * block
+
+
+def estimate_copy(sizes: Iterable[int], block: int) -> int:
+    """Place nécessaire pour copier ces sons : chaque fichier arrondi au bloc, plus leurs fichiers d'analyse
+    et pochette (ANLZ_BLOCKS blocs par son). Rien n'est écrit."""
+    sizes = list(sizes)
+    return sum(on_disk(s, block) for s in sizes) + len(sizes) * ANLZ_BLOCKS * max(1, int(block or DEFAULT_BLOCK))
+
+
 # ------------------------------------------------------------- 1.4.3 (C200) : DJSync sur cet ordinateur
 FOOTPRINT_PARTS = ("app", "caches", "backups", "settings", "music")
 

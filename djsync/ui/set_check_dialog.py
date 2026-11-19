@@ -109,6 +109,14 @@ class SetCheckDialog(BaseDialog):
         restyle(self.verdict)
         self.again_btn.setEnabled(False)
         players = self.players_key
+        # 1.4.3 (C210) : contrôle visible dans « Tâches en cours » du volet, avec un arrêt
+        stop = {"asked": False}
+
+        def stop_now() -> None:
+            stop["asked"] = True
+            self.ctrl.tasks.mark_stopping("set_check")
+
+        task = self.ctrl.tasks.start("set_check", "task.set_check", icon="check", can_stop=True, stop=stop_now)
 
         def work() -> List[Any]:
             from ..db.usb import drive_filesystem
@@ -118,13 +126,15 @@ class SetCheckDialog(BaseDialog):
             except Exception:  # noqa: BLE001 - système de fichiers inconnu : ligne « – »
                 log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 fs = ""
-            return set_check.run(lib, fs, players, should_stop=lambda: self.ctrl.library is not lib)
+            return set_check.run(lib, fs, players, should_stop=lambda: self.ctrl.library is not lib or stop["asked"])
 
         def ok(checks: List[Any]) -> None:
+            task.finish()
             if token == self._token and self.winfo_exists() and self.ctrl.library is lib:
                 self._show(checks)
 
         def err(exc: BaseException) -> None:
+            task.fail(str(exc))
             if token == self._token and self.winfo_exists():
                 self.again_btn.setEnabled(True)
                 self.verdict.setText(t("set.failed", error=str(exc)))
