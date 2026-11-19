@@ -14,7 +14,6 @@ aperçu bleu (liste, aperçu du morceau entier) au lieu de l'aperçu 3 bandes de
 from __future__ import annotations
 
 import logging
-import os
 import re
 import struct
 import zlib
@@ -22,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .waveform import Waveforms
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -192,8 +192,8 @@ def _write_atomic(target: Path, data: bytes) -> None:
     with open(tmp, "wb") as fh:
         fh.write(data)
         fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, target)
+        durable.flush_fd(fh.fileno())
+    durable.replace(tmp, target)
 
 
 class CuesUnreadable(ValueError):

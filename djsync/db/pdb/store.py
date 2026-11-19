@@ -11,13 +11,13 @@ Séquence d'une écriture (rien n'est modifié sur la clé avant l'étape 4) :
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Tuple
 
 from .database import PdbDatabase, Summary
 from .format import PdbError
+from ...core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 Op = Callable[[PdbDatabase], None]
@@ -106,8 +106,8 @@ class PdbStore:
             with open(tmp, "wb") as fh:
                 fh.write(data)
                 fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
+                durable.flush_fd(fh.fileno())
+            durable.replace(tmp, self.path)
             self._cache = None
             back = self.path.read_bytes()          # contrôle gardé (A1-2) : relecture réelle après l'écriture
             self.reads += 1

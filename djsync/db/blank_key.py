@@ -24,6 +24,7 @@ from typing import Callable, Dict, Optional
 
 from .errors import LibraryError
 from .usb import UsbDrive, _make_drive, _system_root, drive_filesystem, filesystem_compat
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def _write(path: Path, data: bytes) -> None:
         fh.write(data)
         fh.flush()
         try:
-            os.fsync(fh.fileno())
+            durable.flush_fd(fh.fileno())
         except OSError:                             # certains lecteurs réseau ou montages : pas bloquant
             log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
 

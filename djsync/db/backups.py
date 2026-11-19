@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -31,6 +30,7 @@ from typing import Any, List, Optional
 from sqlcipher3 import dbapi2 as sqlcipher
 
 from ._key import get_default_key
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -287,8 +287,8 @@ def _replace(src: Path, dst: Path) -> None:
     tmp = dst.with_name(dst.name + ".djsync-tmp")
     shutil.copyfile(src, tmp)
     with open(tmp, "rb+") as fh:
-        os.fsync(fh.fileno())
-    os.replace(tmp, dst)
+        durable.flush_fd(fh.fileno())
+    durable.replace(tmp, dst)
 
 
 def restore(rekordbox_dir: Path, backup_dir: Path, point: RestorePoint, key: Optional[str] = None) -> RestorePoint:

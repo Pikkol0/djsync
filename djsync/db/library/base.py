@@ -1,6 +1,7 @@
 """Connexion à exportLibrary.db (SQLCipher, WAL), transactions atomiques, sauvegardes."""
 from __future__ import annotations
 
+import sys
 import time
 
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
@@ -122,6 +123,9 @@ class LibraryBase:
             try:
                 conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
                 conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
+                if sys.platform == "darwin":          # 1.4.3 (A7-4) : vidage complet (SQLite se replie sur exFAT)
+                    conn.execute("PRAGMA fullfsync = ON")
+                    conn.execute("PRAGMA checkpoint_fullfsync = ON")
                 tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             except sqlcipher.OperationalError as exc:
                 conn.close()

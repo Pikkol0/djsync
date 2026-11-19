@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import logging
 import io
-import os
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def write(drive_root: Path, number: int, jpegs: Dict[str, bytes]) -> List[Path]:
         with open(tmp, "wb") as fh:
             fh.write(data)
             fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, target)
+            durable.flush_fd(fh.fileno())
+        durable.replace(tmp, target)
         written.append(target)
     return written

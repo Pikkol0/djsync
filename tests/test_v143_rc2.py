@@ -436,3 +436,67 @@ def test_c210_copy_to_and_set_check_are_tasks(demo, tmp_path):  # noqa: F811
     ctrl.tasks.start("copy", "task.copy", can_stop=True, stop=ctrl.copy_stop)
     ctrl.tasks.stop("copy")
     assert ctrl._copy_stop is True
+
+
+# ------------------------------------------------------- A7-4 : écriture sûre et éjection (repris de Sleeve)
+def test_a7_4_full_flush_falls_back_to_fsync_when_unsupported(tmp_path, monkeypatch):
+    import errno
+    import os
+
+    from djsync.core import durable
+
+    calls = []
+    monkeypatch.setattr(os, "fsync", lambda fd: calls.append("fsync"))
+
+    def exfat(_fd):
+        raise OSError(45, "Operation not supported")
+
+    f = tmp_path / "x"
+    with open(f, "wb") as fh:
+        fh.write(b"1")
+        durable.flush_fd(fh.fileno(), full=exfat)
+    assert calls == ["fsync"]
+
+    def broken(_fd):
+        raise OSError(errno.EIO, "I/O error")
+
+    with open(f, "wb") as fh, pytest.raises(OSError):
+        durable.flush_fd(fh.fileno(), full=broken)
+
+
+def test_a7_4_replace_and_folder_flush(tmp_path):
+    from djsync.core import durable
+
+    tmp, target = tmp_path / "a.tmp", tmp_path / "a"
+    tmp.write_bytes(b"data")
+    durable.replace(tmp, target)
+    assert target.read_bytes() == b"data" and not tmp.exists()
+    durable.sync_dir(tmp_path / "missing")                      # jamais d'erreur
+
+
+def test_a7_4_eject_target_like_safely_remove():
+    from djsync.core.win_eject import DEVICE, MEDIA, REFUSE, DeviceNode, eject_target
+
+    tree = {"disk": "usb", "usb": "hub", "hub": None, "disk2": "iface", "iface": "reader", "reader": "hub",
+            "sd": "ctrl", "ctrl": None, "int": "sata", "sata": None}
+    nodes = {"usb": DeviceNode(removable=True), "hub": DeviceNode(removable=True, hub=True),
+             "iface": DeviceNode(interface=True), "reader": DeviceNode(removable=True),
+             "ctrl": DeviceNode(removable=True, hub=True)}
+    parent, describe = tree.get, lambda n: nodes.get(n, DeviceNode())
+    assert eject_target("disk", False, parent, describe) == (DEVICE, "usb")       # clé : son périphérique USB
+    assert eject_target("disk2", False, parent, describe) == (DEVICE, "reader")   # lecteur composite
+    assert eject_target("sd", True, parent, describe) == (MEDIA, None)            # jamais le concentrateur
+    assert eject_target("int", False, parent, describe) == (REFUSE, None)         # disque interne
+
+
+def test_a7_4_veto_messages_and_ids():
+    from djsync.core import win_eject as W
+
+    assert W.drive_letter("e:\\") == "E" and W.drive_letter("E:\\Music") is None
+    assert list(W.multi_strings("a\0b\0\0c")) == ["a", "b"]
+    assert W.is_interface_id("USB\\VID_05AC&PID_8600&MI_00\\6&1") and not W.is_interface_id("USB\\VID_1&PID_2\\x")
+    assert W.is_hub("USB\\ROOT_HUB30\\4", [], "") and W.is_hub("x", ["USB\\Class_09&SubClass_00"], "")
+    e = W.veto_reason(W.VETO_WINDOWS_APP, "\\Device\\HarddiskVolume3\\Windows\\explorer.exe")
+    assert (e.reason, e.name) == ("in_use_by", "explorer.exe")
+    assert W.veto_reason(W.VETO_OUTSTANDING_OPEN, "").reason == "in_use"
+    assert W.veto_reason(W.VETO_INSUFFICIENT_RIGHTS, "").reason == "rights"

@@ -97,6 +97,9 @@ def _flush() -> None:
         os.sync()
 
 
+_last_eject: Dict[str, str] = {"reason": "", "name": ""}     # 1.4.3 (A7-4) : raison du dernier refus
+
+
 def eject_volume(root: Any) -> bool:
     """Éjection système (Windows : comme « Éjecter » dans l'Explorateur). True si réussie."""
     import subprocess
@@ -104,6 +107,20 @@ def eject_volume(root: Any) -> bool:
 
     root = str(root)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if sys.platform == "win32":                    # 1.4.3 (A7-4) : comme « Retirer en toute sécurité » (Sleeve)
+        from ..core import win_eject
+
+        try:
+            win_eject.eject(root if win_eject.drive_letter(root) else root.rstrip("\\/")[:2] + "\\")
+            log.info("Drive %s ejected (Plug and Play request)", root)
+            return True
+        except win_eject.EjectError as exc:
+            log.info("Drive %s not ejected: %s", root, exc)
+            _last_eject["reason"], _last_eject["name"] = exc.reason, exc.name
+            if exc.reason != "failed":
+                return False
+        except Exception as exc:  # noqa: BLE001 - appel système indisponible : ancienne méthode (Explorateur)
+            log.info("Plug and Play eject unavailable (%s): Explorer eject", exc)
     try:
         if sys.platform == "win32":
             letter = root.rstrip("\\/")[:2]
@@ -870,7 +887,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             elif ejected:
                 self.message("ok", t("eject.done", drive=drive.label or str(drive.root)))
             else:
-                self.message("warn", t("eject.closed_only", drive=drive.label or str(drive.root)))
+                reason, who = _last_eject.get("reason", ""), _last_eject.get("name", "")
+                _last_eject["reason"] = _last_eject["name"] = ""
+                key = {"in_use_by": "eject.in_use_by", "in_use": "eject.in_use", "rights": "eject.rights"}.get(reason)
+                text = t("eject.closed_only", drive=drive.label or str(drive.root))
+                if key:                                           # 1.4.3 (A7-4) : qui tient la clé, si Windows le dit
+                    text += " " + t(key, name=who)
+                self.message("warn", text)
             self.refresh_drives()
 
         self.dispatcher.submit(work, ok, self._on_error, pool="db")

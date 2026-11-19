@@ -56,6 +56,7 @@ from .library.metadata import (
     NATIVE_PARTS, REKORDBOX_ORIGINALS, BeatGrid, PlaylistStats, anlz_set, keep_rekordbox_original,
     read_rekordbox_original, restored_files, write_or_roll_back,
 )
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -118,8 +119,8 @@ def safe_playlist_xml_save() -> None:
             with open(tmp, "w") as fh:
                 fh.write(data)
                 fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, target)
+                durable.flush_fd(fh.fileno())
+            durable.replace(tmp, target)
         finally:
             if tmp.exists():
                 tmp.unlink(missing_ok=True)
@@ -153,7 +154,7 @@ def repair_playlist_xml(db_dir: Path, backup_root: Path) -> bool:
                 shutil.copy2(xml_path, keep)
                 tmp = xml_path.with_name(xml_path.name + ".djsync-tmp")
                 shutil.copyfile(cand, tmp)
-                os.replace(tmp, xml_path)
+                durable.replace(tmp, xml_path)
             except OSError as exc:
                 log.warning("masterPlaylists6.xml unreadable and not repaired: %s", exc)
                 return False
@@ -359,7 +360,7 @@ class OwnedRegistry:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self.path.with_suffix(".tmp")
                 tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-                os.replace(tmp, self.path)
+                durable.replace(tmp, self.path)
             except OSError as exc:
                 log.warning("Owned-track list not saved: %s", exc)
 

@@ -13,6 +13,7 @@ import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Optional
+from .core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -298,13 +299,13 @@ class Settings:
             with open(tmp, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(data, indent=2, ensure_ascii=False))
                 fh.flush()
-                os.fsync(fh.fileno())                  # 1.4.3 (A6-10)
+                durable.flush_fd(fh.fileno())                  # 1.4.3 (A6-10)
             if path.is_file():                         # 1.4.3 (A6-10) : dernier bon fichier gardé
                 try:
                     json.loads(path.read_text(encoding="utf-8"))
                     shutil.copy2(path, path.with_name(path.name + ".bak"))
                 except (OSError, ValueError):
                     log.debug("Ignored error in save", exc_info=True)  # 1.4.3 (A3-4)
-            os.replace(tmp, path)
+            durable.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)
