@@ -351,3 +351,48 @@ def test_c203_name_tile_and_sync_from_card(demo, monkeypatch):  # noqa: F811
     home.act_transfer(S())
     assert opened[-1] == "/x"
     assert t("transfer.card_button")
+
+
+# ------------------------------------------------------- C199 : aperçu de la fusion
+def _tr(cid, title, artist="Art"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(content_id=cid, title=title, artist=artist)
+
+
+def test_c199_preview_playlists_cues_and_versions():
+    from djsync.analysis.cues import Cue
+    from djsync.core import merge_preview as M
+    from djsync.i18n import set_language
+
+    set_language("en")
+    keep, other = _tr(1, "Song"), _tr(2, "Song (clip)")
+    pls = {1: ["House"], 2: ["House", "Rap"]}
+    cues = {1: [Cue(1, 1000), Cue(0, 500)], 2: [Cue(1, 1000), Cue(2, 62000, 70000)]}
+    lines = M.build(keep, [other], pls, cues, cues_from=2, new_title="Song!")
+    got = {(x.sign, x.section, x.text) for x in lines}
+    assert ("=", "playlists", "House") in got
+    assert ("+", "playlists", "Rap (the kept version takes its place)") in got
+    assert ("−", "tracks", "Removed, file deleted: Art — Song (clip)") in got
+    assert ("=", "cues", "A 0:01") in got and ("−", "cues", "Memory 0:00") in got
+    assert ("+", "cues", "B 1:02 → 1:10") in got
+    assert ("−", "info", "Art — Song") in got and ("+", "info", "Art — Song!") in got
+    html = M.to_html(lines, "#0f0", "#f00", "#999")
+    assert "#0f0" in html and "#f00" in html and "Playlists" in html
+    # sans changement de cues : ceux de la version gardée restent
+    same = M.build(keep, [other], pls, cues)
+    assert not [x for x in same if x.section == "cues" and x.sign != "="]
+
+
+def test_c199_missing_merge_carries_cues_only_without_hot_cues():
+    from djsync.analysis.cues import Cue
+    from djsync.core import merge_preview as M
+
+    keep, missing = _tr(1, "A"), _tr(2, "A")
+    with_hot = M.build(keep, [missing], {}, {1: [Cue(3, 100)], 2: [Cue(1, 200)]}, cues_from=2,
+                       files_deleted=False, cues_if_none=True)
+    assert not [x for x in with_hot if x.section == "cues" and x.sign == "+"]
+    empty = M.build(keep, [missing], {}, {1: [], 2: [Cue(1, 200)]}, cues_from=2, files_deleted=False,
+                    cues_if_none=True)
+    assert [x for x in empty if x.section == "cues" and x.sign == "+"]
+    assert all("file deleted" not in x.text for x in empty)
