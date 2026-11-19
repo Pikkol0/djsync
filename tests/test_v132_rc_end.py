@@ -86,7 +86,7 @@ def test_import_tab_lists_every_accepted_source(demo):  # noqa: F811
     assert all(classify_url(u) != UrlKind.UNKNOWN for u in examples.values())
     view = demo.views["import"]
     assert [c.text().split("</span> ")[-1] for c in view.source_chips] == [s.name for s in SOURCES]
-    assert all("100" in c.toolTip() or "200" in c.toolTip() for c in view.source_chips)
+    assert all(any(n in c.toolTip() for n in ("100", "200", "300")) for c in view.source_chips)   # 1.4.3 (C94)
     assert all(s.name in view.url.placeholderText() for s in SOURCES)
     for lang in ("fr", "en"):
         set_language(lang)

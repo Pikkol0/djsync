@@ -384,7 +384,7 @@ class AudioPlayer:
                 self._cb_time, self._cb_frames, self._cb_period = now, self._frames, n / RATE
         if not data:
             return silence
-        level = (self._volume ** 2) * (self._gain if self.auto_gain else 1.0)
+        level = (self._volume ** 2) * (getattr(self, "_gain", 1.0) if getattr(self, "auto_gain", True) else 1.0)
         if abs(level - 1.0) > 0.001:
             import numpy as np
 
