@@ -57,7 +57,40 @@ def measured_label(info: Any) -> str:
     real = int(getattr(info, "real_kbps", 0) or 0) if info is not None else 0
     if not real:
         return ""
-    return t("quality.lossless") if real >= REAL_LOSSLESS else f"≈ {real}"
+    text = t("quality.lossless") if real >= REAL_LOSSLESS else f"≈ {real}"
+    return text + confidence_suffix(info)
+
+
+def confidence_suffix(info: Any) -> str:
+    """1.4.3 (A04) : « (sûr) » quand l'en-tête et le spectre concordent (ou faux à coup sûr), « (probable) »
+    pour une estimation d'après le spectre seul."""
+    from ..i18n import t
+
+    conf = getattr(info, "confidence", "") if info is not None else ""
+    return f" ({t('quality.conf_' + conf)})" if conf in ("sure", "probable") else ""
+
+
+def quality_clues(info: Any) -> str:
+    """1.4.3 (A04) : bulle de la vraie qualité : les indices (spectre, encodeur, verdict)."""
+    from ..i18n import t
+
+    if info is None or not getattr(info, "cutoff", 0):
+        return ""
+    parts = [t("quality.clue_cutoff", khz=f"{info.cutoff / 1000:.1f}")]
+    enc = getattr(info, "encoder", None)
+    if enc is not None and getattr(enc, "name", ""):
+        details = [x for x in (enc.mode, f"{enc.kbps} kbps" if enc.kbps else "", enc.profile) if x]
+        if enc.lowpass:
+            details.append(t("quality.clue_lowpass", khz=f"{enc.lowpass / 1000:.1f}"))
+        parts.append(t("quality.clue_encoder", name=enc.name) + (f" ({', '.join(details)})" if details else ""))
+    verdict = info.header_verdict() if hasattr(info, "header_verdict") else ""
+    if verdict == "confirm":
+        parts.append(t("quality.clue_confirm"))
+    elif verdict == "fake":
+        parts.append(t("quality.clue_fake"))
+    elif enc is None or not getattr(enc, "lowpass", 0):
+        parts.append(t("quality.clue_spectrum_only"))
+    return " · ".join(parts)
 
 
 def is_youtube(track: Any) -> bool:

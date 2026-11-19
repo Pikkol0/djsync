@@ -266,6 +266,11 @@ class QualityPage(BaseDialog):
         values = {"title": w.track.title, "artist": w.track.artist or "", "now": announced_label(w.info),
                   "real": measured_label(w.info) or t("quality.not_measured"), "flags": " · ".join(flags),
                   "found": found, "gain": w.gain}
+        from ..core.improve import quality_clues
+
+        clues = quality_clues(w.info)                                        # 1.4.3 (A04) : indices
+        if clues:
+            values["real__tip"] = clues
         if w.video:
             values["flags__tip"] = t("quality.video_tip", reason=w.video)
         if not w.measured:

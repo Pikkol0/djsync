@@ -16,6 +16,10 @@ Types (jamais affirmés : l'interface dit « détecté », la liste « Tempo qui
   « set »    : mix ou set de 10 min et plus dont le tempo bouge ;
   « live »   : tempo qui flotte (batteur, version live) : une grille fixe décroche, sans palier net.
 
+1.4.3 (C16) : un beatswitch reçoit une grille par passage (tempo.py, _split_grid) : un tempo et un calage par
+passage, raccordés au changement ; réglage « grille variable : auto / jamais » (set_policy) et choix « grille
+fixe » par son (set_choice), gardé à la réanalyse.
+
 Mesuré sur l'échantillon du PC fixe (19 lives, sets et beatswitchs ; 337 sons de référence) : voir
 claude/mesures-1.4.3.md dans les docs du projet.
 """
@@ -24,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -55,21 +59,32 @@ class TempoProfile:
     hi: float = 0.0
     drift_ms: float = 0.0     # décrochage d'une grille constante (10e-90e centile, ms)
     variable: bool = False    # la grille écrite suit le tempo (tempo.py, _warp)
+    # 1.4.3 (C16) : beatswitch : une grille par passage, écrite telle quelle dans PQTZ
+    split: bool = False       # la grille écrite change de tempo à chaque passage
+    sections: List[Tuple[float, float, float]] = field(default_factory=list)   # (début s, BPM, 1er temps fort s)
+    choice: str = ""          # choix de l'utilisateur gardé à la réanalyse : "" (auto) | "fixed"
+    # mesures de classify() pour la grille par passage (jamais enregistrées) : paliers (début s, fin s, BPM),
+    # et indices des paliers suivis d'un vrai changement
+    plateaus: List[Tuple[float, float, float]] = field(default_factory=list, repr=False, compare=False)
+    cuts: List[int] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def changes(self) -> bool:
         return bool(self.kind)
 
     def to_list(self) -> list:
-        return [self.kind, round(self.lo, 1), round(self.hi, 1), round(self.drift_ms), int(self.variable)]
+        return [self.kind, round(self.lo, 1), round(self.hi, 1), round(self.drift_ms), int(self.variable),
+                int(self.split), [[round(a, 3), round(b, 3), round(c, 3)] for a, b, c in self.sections], self.choice]
 
     @classmethod
     def from_list(cls, v: Optional[list]) -> Optional["TempoProfile"]:
         if not v:
             return None
         try:
+            secs = [(float(a), float(b), float(c)) for a, b, c in (v[6] if len(v) > 6 and v[6] else [])]
             return cls(str(v[0]), float(v[1]), float(v[2]), float(v[3]) if len(v) > 3 else 0.0,
-                       bool(v[4]) if len(v) > 4 else False)
+                       bool(v[4]) if len(v) > 4 else False, bool(v[5]) if len(v) > 5 else False, secs,
+                       str(v[7]) if len(v) > 7 and v[7] else "")
         except (TypeError, ValueError, IndexError):
             return None
 
@@ -208,7 +223,8 @@ def classify(env: np.ndarray, fps: float, bpm: float, duration: float,
             return len(plat) == 2 and min(a[1] - a[0], b[1] - b[0]) >= 0.25 * total
         return True
 
-    big = [steps[k] for k in range(len(steps)) if real_step(k)]
+    cuts = [k for k in range(len(steps)) if real_step(k)]
+    big = [steps[k] for k in cuts]
     dominant = max((p[1] - p[0] for p in _plateaus(v, tol=0.01)), default=0) >= DOMINANT * total
     # accélération : le tempo monte (ou descend) peu à peu ; mesurée sur les fenêtres fiables
     ok = ~np.isnan(v)
@@ -239,7 +255,72 @@ def classify(env: np.ndarray, fps: float, bpm: float, duration: float,
         lo = hi = bpm
     if debug is not None:
         debug.update(tp_kind=kind, tp_ramp=round(ramp, 3))
-    return TempoProfile(kind, lo, hi, drift)
+    out = TempoProfile(kind, lo, hi, drift)
+    # centre de la première et de la dernière fenêtre de chaque palier (fenêtres de 12 s tous les 3 s)
+    out.plateaus = [(a * 3.0 + 6.0, (b - 1) * 3.0 + 6.0, m) for a, b, m in plat]
+    out.cuts = cuts
+    return out
+
+
+# ------------------------------------------------------------------------------- grille par passage (C16)
+def section_beats(sections: List[Tuple[float, float, float]], duration: float) -> List[Tuple[int, float]]:
+    """Temps (numéro 1-4, secondes) d'une grille par passage. Chaque passage : (début = son 1er temps, BPM,
+    un 1er temps de mesure) ; il s'arrête au début du suivant. Raccord : un dernier temps trop proche du
+    passage suivant (moins d'un demi-temps) est retiré, pour qu'aucun temps ne soit plus court que la moitié
+    d'un temps des deux passages."""
+    out: List[Tuple[int, float]] = []
+    secs = sorted((s for s in sections if s[1] > 0), key=lambda s: s[0])
+    for i, (start, bpm, down) in enumerate(secs):
+        beat = 60.0 / bpm
+        end = secs[i + 1][0] if i + 1 < len(secs) else duration
+        nxt_beat = 60.0 / secs[i + 1][1] if i + 1 < len(secs) else beat
+        times = np.arange(start, end - 1e-6, beat)
+        if i + 1 < len(secs) and times.size and end - times[-1] < 0.5 * min(beat, nxt_beat):
+            times = times[:-1]
+        for tt in times:
+            k = int(round((tt - down) / beat))
+            out.append(((k % 4) + 1, float(tt)))
+    return out
+
+
+def section_at(sections: List[Tuple[float, float, float]], t: float) -> int:
+    """Indice du passage qui contient l'instant `t` (secondes)."""
+    idx = 0
+    for i, s in enumerate(sorted(sections, key=lambda s: s[0])):
+        if t + 1e-6 >= s[0]:
+            idx = i
+    return idx
+
+
+# ------------------------------------------------------------------------------- réglage (Réglages ▸ Analyse)
+GRID_MODES = ("auto", "never")
+_policy = "auto"
+
+
+def set_policy(mode: str) -> None:
+    """« auto » : grille variable (live, accélération, set) ou par passage (beatswitch) quand l'analyse le
+    juge utile ; « never » : toujours une grille fixe (comme le mode « grille constante » de Rekordbox)."""
+    global _policy
+    _policy = mode if mode in GRID_MODES else "auto"
+
+
+def policy() -> str:
+    return _policy
+
+
+def grid_mode_for(path: Union[str, Path, None]) -> str:
+    """Mode de grille pour l'analyse de `path` : le réglage, ou « never » si l'utilisateur a choisi la grille
+    fixe pour ce son (bouton de Grille et cues)."""
+    if _policy == "never":
+        return "never"
+    if path is not None:
+        try:
+            p = known(path)
+        except Exception:  # noqa: BLE001
+            p = None
+        if p is not None and p.choice == "fixed":
+            return "never"
+    return "auto"
 
 
 # ------------------------------------------------------------------------------- registre
@@ -298,6 +379,33 @@ def known(path: Union[str, Path]) -> Optional[TempoProfile]:
         return TempoProfile.from_list(_load().get(key))
 
 
+def set_choice(name: str, size: int, choice: str) -> bool:
+    """1.4.3 (C16) : « fixed » (grille fixe gardée à la réanalyse) ou "" ; False si le son n'est pas connu."""
+    if not name or not size:
+        return False
+    key = f"{name.casefold()}|{int(size)}"
+    with _lock:
+        data = _load()
+        p = TempoProfile.from_list(data.get(key))
+        if p is None:
+            return False
+        p.choice = "fixed" if choice == "fixed" else ""
+        data[key] = p.to_list()
+        _save(data)
+    return True
+
+
+def _save(data: Dict[str, list]) -> None:
+    try:
+        f = _file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.name + ".djsync-tmp")
+        tmp.write_text(json.dumps(data), "utf-8")
+        tmp.replace(f)
+    except OSError as exc:
+        log.info("Tempo register not saved: %s", exc)
+
+
 def remember(path: Union[str, Path], profile: Optional[TempoProfile]) -> None:
     """Retient le profil ; un tempo stable est retenu aussi (le son a été analysé : rien à signaler)."""
     if profile is None:
@@ -307,14 +415,10 @@ def remember(path: Union[str, Path], profile: Optional[TempoProfile]) -> None:
         return
     with _lock:
         data = _load()
+        old = TempoProfile.from_list(data.get(key))
+        if old is not None and old.choice and not profile.choice:     # C16 : le choix de l'utilisateur reste
+            profile.choice = old.choice
         if data.get(key) == profile.to_list():
             return
         data[key] = profile.to_list()
-        try:
-            f = _file()
-            f.parent.mkdir(parents=True, exist_ok=True)
-            tmp = f.with_name(f.name + ".djsync-tmp")
-            tmp.write_text(json.dumps(data), "utf-8")
-            tmp.replace(f)
-        except OSError as exc:
-            log.info("Tempo register not saved: %s", exc)
+        _save(data)

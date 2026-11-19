@@ -282,6 +282,10 @@ class GridEditor(QWidget):
         self.missing.setVisible(bool(controller.file_missing(track)))
         self.missing.setProperty("role", "err")
         self.body.addWidget(self.missing)
+        # 1.4.3 (C16) : son au tempo qui change : à vérifier passage par passage, puis valider (« Grille juste »)
+        self.tempo_banner = label("", "chip_warn", wrap=True)
+        self.tempo_banner.hide()
+        self.body.addWidget(self.tempo_banner)
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setToolTip(t("grid.hint"))
@@ -414,6 +418,17 @@ class GridEditor(QWidget):
         ratio_row.addWidget(button(t("grid.three_halves"), lambda: self._scale(1.5), tooltip=t("grid.three_halves_tip")))
         ratio_row.addStretch(1)
         tv.addLayout(ratio_row)
+        # 1.4.3 (C16) : grille fixe (un seul tempo) <-> grille par passage trouvée par l'analyse
+        mode_row = hbox(spacing=theme.px(4))
+        self.fixed_grid_btn = button(t("grid.fixed_grid"), self._fixed_grid, icon="grid")
+        self.split_grid_btn = button(t("grid.split_grid"), self._split_grid, icon="wave",
+                                     tooltip=t("grid.split_grid_tip"))
+        mode_row.addWidget(self.fixed_grid_btn)
+        mode_row.addWidget(self.split_grid_btn)
+        mode_row.addStretch(1)
+        tv.addLayout(mode_row)
+        self.fixed_grid_btn.hide()
+        self.split_grid_btn.hide()
 
         self.zones = Zones([grid_card, tempo_card], spacing=theme.px(8))
         self.body.addWidget(self.zones)
@@ -719,6 +734,7 @@ class GridEditor(QWidget):
                 p.setBrush(QColor(theme.WARN))
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
+        self._paint_tempo_changes(p, w, h, lo, hi)
         self._paint_cues(p, w, h)
         if self._kick1 is not None:                               # 1.4.2 (C194) : 1er kick posé
             xk = self._x(self._kick1)
@@ -731,6 +747,27 @@ class GridEditor(QWidget):
             draw_cursor(p, xc, 0, h)
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 1, -theme.px(6), 0), Qt.AlignRight | Qt.AlignTop, time_text)
+
+    def _paint_tempo_changes(self, p: QPainter, w: int, h: int, lo: float, hi: float) -> None:
+        """1.4.3 (C16) : trait orange et « 122 → 140 » là où le tempo de la grille change (grille par passage)."""
+        from .tempo_grids import changes
+
+        if getattr(self, "_changes_of", None) is not self.beats:
+            self._changes_cache = changes(self.beats) if len({b[1] for b in self.beats}) > 1 else []
+            self._changes_of = self.beats
+        marks = self._changes_cache
+        if not marks or len(marks) > max(2, len(self.beats) // 16):     # grille variable de live : pas de traits
+            return
+        fm = QFontMetrics(p.font())
+        for i, before, after in marks:
+            ms = self.beats[i][2]
+            if ms < lo or ms > hi:
+                continue
+            x = self._x(ms)
+            p.setPen(QPen(QColor(theme.WARN), theme.px(2), Qt.DashLine))
+            p.drawLine(QPointF(x, self._label_bottom), QPointF(x, h))
+            text = f"{before:.1f} → {after:.1f}"
+            p.drawText(QPointF(x + 4, self._label_bottom + fm.ascent()), text)
 
     def _paint_cues(self, p: QPainter, w: int, h: int) -> None:
         """Boucles (bande colorée), hot cues (trait + étiquette de la lettre en haut), mémoires (▼ rouge)."""
@@ -953,13 +990,17 @@ class GridEditor(QWidget):
             return
         tempos = sorted(b[1] for b in self.beats)
         bpm = tempos[len(tempos) // 2] / 100.0
-        kind = t("grid.constant") if len(set(tempos)) <= 1 else t("grid.variable")
+        from .tempo_grids import changes as tempo_changes
+
+        kind = t("grid.constant") if len(set(tempos)) <= 1 else \
+            t("grid.split") if len(tempo_changes(self.beats)) < max(2, len(self.beats) // 16) else t("grid.variable")
         delta = self.beats[self.selected][2] - self._original_at(self.selected)
         parts = [f"{bpm:.2f} BPM", kind, plural("grid.beats_one", "grid.beats_many", len(self.beats))]
         from .views.library_view import tempo_profile_of          # 1.4.3 (C69) : live, beatswitch… détecté
         p = tempo_profile_of(self.track)
         if p is not None and p.kind:
             parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
+        self._refresh_tempo(p)
         if self._native:
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))
@@ -974,6 +1015,54 @@ class GridEditor(QWidget):
         self.state_lbl.setText("  ·  ".join(parts))
         self.state_lbl.setVisible(bool(parts))                  # 1.4.1 (C59) : pastille seulement s'il y a à enregistrer
         self.reset_btn.setEnabled(bool(parts))
+
+    def _refresh_tempo(self, p: Any) -> None:
+        """1.4.3 (C16) : bandeau « à vérifier » et boutons Grille fixe / Grille par passage."""
+        from .tempo_grids import is_constant, main_tempo
+
+        banner = getattr(self, "tempo_banner", None)
+        if banner is None:
+            return
+        changing = p is not None and bool(p.kind)
+        if changing:
+            what = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+            banner.setText(t("grid.tempo_banner_ok", kind=what) if self._grid_marked
+                           else t("grid.tempo_banner", kind=what))
+            role = "chip_ok" if self._grid_marked else "chip_warn"
+            if banner.property("role") != role:
+                banner.setProperty("role", role)
+                restyle(banner)
+        banner.setVisible(changing)
+        constant = is_constant(self.beats)
+        self.fixed_grid_btn.setVisible(not constant)
+        self.fixed_grid_btn.setToolTip(t("grid.fixed_grid_tip", bpm=f"{main_tempo(self.beats):.2f}"))
+        split = getattr(self.ctrl, "tempo_grids", None)
+        has_split = changing and len(getattr(p, "sections", []) or []) > 1 and split is not None
+        self.split_grid_btn.setVisible(has_split and constant)
+
+    def _fixed_grid(self) -> None:
+        """1.4.3 (C16) : un seul tempo pour tout le son, calé sur le temps sélectionné."""
+        from .tempo_grids import TempoGridService
+
+        if not self.beats:
+            return
+        anchor = self.beats[self.selected][2]
+        self.beats, _bpm = TempoGridService.fixed_grid(self.beats, self.selected, self.duration_ms)
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
+
+    def _split_grid(self) -> None:
+        """1.4.3 (C16) : retour à la grille par passage trouvée par l'analyse."""
+        svc = getattr(self.ctrl, "tempo_grids", None)
+        beats = svc.split_grid(self.track, self.duration_ms) if svc is not None else None
+        if not beats:
+            return
+        anchor = self.beats[self.selected][2] if self.beats else 0
+        self.beats = beats
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
 
     def _original_at(self, index: int) -> int:
         """Position d'origine du temps le plus proche (pour afficher le décalage appliqué)."""
@@ -1266,6 +1355,7 @@ class GridEditor(QWidget):
             self._grid_marked = True
             if self.winfo_exists():
                 self._refresh_checked()
+                self._refresh_info()                          # 1.4.3 (C16) : bandeau « grille vérifiée »
 
         self.checked_btn.setEnabled(False)
         self.ctrl.mark_grid_checked(self.track.content_id, done)
@@ -1287,6 +1377,9 @@ class GridEditor(QWidget):
 
             beats = self.beats if self.beats != self.original else None
             cues = self.cues if self.cues_dirty() else None
+            svc = getattr(self.ctrl, "tempo_grids", None)         # 1.4.3 (C16) : grille fixe gardée à la réanalyse
+            if svc is not None and beats is not None:
+                svc.remember_choice(self.track, beats)
             self.ctrl.save_grid_and_cues(self.track.content_id, beats, cues, ok=done, err=failed)
 
         if self._native and self.beats != self.original:

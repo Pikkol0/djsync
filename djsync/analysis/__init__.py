@@ -39,6 +39,7 @@ class AnalysisResult:
     cutoff: Optional[int] = None  # 1.4.0 (C46) : coupure du spectre (Hz), vraie qualité du fichier
     lufs: Optional[float] = None  # 1.4.3 (C109) : sonie intégrée
     peak_db: Optional[float] = None
+    encoder: Optional[object] = None  # 1.4.3 (A04) : encoder.EncoderInfo (en-tête LAME / Xing, encodeur AAC)
 
     @property
     def gain_db(self) -> float:
@@ -70,10 +71,11 @@ class AnalysisResult:
 
 
 def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, *, _in_worker: bool = False,
-                 _skip_spectrum: bool = False) -> AnalysisResult:
+                 _skip_spectrum: bool = False, grid_mode: Optional[str] = None) -> AnalysisResult:
     """Un seul décodage (1.4.3, A1-7) : mono 22 050 Hz pour le tempo et la tonalité, et le même son à sa
     fréquence d'origine pour les formes d'onde (calculées comme Rekordbox, A7-3) et le spectre.
-    1.4.3 (A1-6) : résultat déjà calculé par un processus d'analyse s'il y en a un (analysis/pool.py)."""
+    1.4.3 (A1-6) : résultat déjà calculé par un processus d'analyse s'il y en a un (analysis/pool.py).
+    1.4.3 (C16) : `grid_mode` (« auto » | « never ») : par défaut le réglage et le choix fait pour ce son."""
     if not _in_worker:
         from .pool import current
 
@@ -82,11 +84,15 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
             ready = pre.take(path, ffmpeg_location)
             if ready is not None:
                 return ready
+    if grid_mode is None:
+        from .tempo_profile import grid_mode_for
+
+        grid_mode = grid_mode_for(path)
     started = time.perf_counter()
     audio, native = decode_with_native(path, ffmpeg_location, ANALYSIS_SR)
     try:
         x, sr = audio.samples, audio.sr
-        grid = analyze_tempo(x, sr)
+        grid = analyze_tempo(x, sr, grid_mode=grid_mode)
         key = analyze_key(x, sr)
         try:                                              # 1.4.3 (C109) : gain automatique
             from .loudness import measure as measure_loudness
@@ -124,7 +130,17 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
     finally:
         if native is not None:
             native.close()
-    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff, lufs, peak_db)
+    try:                                                  # 1.4.3 (A04) : ce que dit l'en-tête du fichier
+        from .encoder import read as read_encoder
+
+        enc = read_encoder(path)
+    except Exception:  # noqa: BLE001
+        enc = None
+    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff, lufs, peak_db, enc)
+    if not _in_worker and enc is not None:
+        from .encoder import remember as remember_encoder
+
+        remember_encoder(path, enc)
     if not _in_worker and lufs is not None:
         from .loudness import remember as remember_gain
 

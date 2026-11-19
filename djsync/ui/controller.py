@@ -202,6 +202,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.settings = settings
         self.dispatcher = dispatcher
         self.service = service or MusicService(ffmpeg_location=settings.ffmpeg_location or None)
+        from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
+
+        self.tempo_grids = TempoGridService(self)
         self.player = player or AudioPlayer(
             post=dispatcher.post, on_event=lambda k, p: self._player_event(k, p),
             ffmpeg_location=settings.ffmpeg_location or None,
@@ -1195,6 +1198,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.player.ffmpeg_location = s.ffmpeg_location or None
         self.player.latency_offset_ms = s.audio_latency_ms
         self.player.auto_gain = bool(getattr(s, "auto_gain", True))      # 1.4.3 (C109)
+        self.tempo_grids.apply_settings()                               # 1.4.3 (C16)
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep

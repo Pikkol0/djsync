@@ -436,6 +436,16 @@ class SettingsView(View):
             self.reanalyse_vars[part] = box
         card.addLayout(row)
         card.addWidget(label(t("settings.reanalyse_rekordbox_hint"), "faint", wrap=True))
+        row = hbox()                                                                # 1.4.3 (C16)
+        row.addWidget(self._fixed(label(t("settings.tempo_grid"))))
+        self.tempo_grid = ShrinkCombo()
+        for key in ("auto", "never"):
+            self.tempo_grid.addItem(t(f"settings.tempo_grid_{key}"), key)
+        self.tempo_grid.setCurrentIndex(max(0, self.tempo_grid.findData(getattr(s, "tempo_grid", "auto"))))
+        self.tempo_grid.setToolTip(t("settings.tempo_grid_hint"))
+        row.addWidget(self.tempo_grid)
+        row.addStretch(1)
+        card.addLayout(row)
         row = hbox()                                                                # 1.4.1 (C77)
         row.addWidget(self._fixed(label(t("settings.waveform_style"))))
         self.wave_style = ShrinkCombo()
@@ -1826,6 +1836,7 @@ class SettingsView(View):
                 "auto_gain": self.gain_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
+                "tempo_grid": self.tempo_grid.currentData() or "auto",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
                 "download_quality": self.format_menu.currentData() or "original",
                 "soundcloud_original": self.sc_original_var.isChecked(),
@@ -1871,7 +1882,8 @@ class SettingsView(View):
                  "format_menu", "sc_original_var", "sc_browser", "sc_token", "yt_browser", "watch_folder", "slsk_var",
                  "slsk_user", "slsk_password", "slsk_share_var", "player_format", "watch_playlist_var", "watch_target",
                  "light_menu", "latency_box", "update_var", "show_rc_var", "report_menu", "notation", "local_db",
-                 "local_music", "tags_var", "gain_var", "protect_var")      # 1.4.3 : S05, C109 (oubliés), A07
+                 "local_music", "tags_var", "gain_var", "protect_var",      # 1.4.3 : S05, C109 (oubliés), A07
+                 "tempo_grid")                                               # 1.4.3 (C16)
         out = [getattr(self, n, None) for n in names]
         out += list(getattr(self, "reanalyse_vars", {}).values())
         return [w for w in out if w is not None]
@@ -1940,6 +1952,7 @@ class SettingsView(View):
         s.protect_foreign = self.protect_var.isChecked()          # 1.4.3 (A07, C156)
         s.auto_gain = self.gain_var.isChecked()                   # 1.4.3 (C109)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
+        s.tempo_grid = self.tempo_grid.currentData() or "auto"                     # 1.4.3 (C16)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
             s.waveform_style = style

@@ -362,3 +362,37 @@ def measure_and_remember(path: Union[str, Path], ffmpeg_location: Optional[str] 
         if c is None and force:
             c = known(path)
     return c
+
+
+# ------------------------------------------------------------- spectrogramme (1.4.3, A04)
+SPECTRO_FFT = 2048
+SPECTRO_FLOOR_DB = -120.0
+
+
+def spectrogram(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
+                columns: int = 900) -> Tuple[np.ndarray, int, float]:
+    """Spectrogramme du son entier, comme Spek : (niveaux en dB de -120 à 0 par rapport au plus fort, forme
+    (fréquences, colonnes), du grave à l'aigu ; fréquence d'échantillonnage du fichier ; durée en s).
+    Chaque colonne est la moyenne (en puissance) de 4 fenêtres de 2 048 échantillons de sa tranche de temps."""
+    from .decode import _native_rate, decode
+
+    sr = _native_rate(Path(path))
+    sr = sr if 8000 <= sr <= 192000 else 44100
+    audio = decode(path, ffmpeg_location, sr)
+    x = audio.samples
+    n = SPECTRO_FFT
+    if x.size < n * 2:
+        raise ValueError("track too short for a spectrogram")
+    columns = max(10, min(columns, x.size // n))
+    win = np.hanning(n).astype(np.float32)
+    seg = x.size / columns
+    out = np.empty((n // 2 + 1, columns), dtype=np.float32)
+    for c in range(columns):
+        a = int(c * seg)
+        starts = np.linspace(a, max(a, min(int((c + 1) * seg), x.size) - n), 4).astype(int)
+        frames = np.stack([x[s:s + n] for s in starts if s + n <= x.size] or [np.zeros(n, np.float32)])
+        power = (np.abs(np.fft.rfft(frames * win, axis=1)) ** 2).mean(axis=0)
+        out[:, c] = power
+    db = 10.0 * np.log10(out + 1e-20)
+    db -= float(db.max())
+    return np.maximum(db, SPECTRO_FLOOR_DB), sr, audio.duration

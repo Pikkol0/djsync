@@ -49,11 +49,12 @@ def worker_count(cores: Optional[int] = None) -> int:
     return max(1, min(MAX_WORKERS, cores - 1))
 
 
-def _work(path: str, ffmpeg: Optional[str], cutoff_known: bool) -> Any:
-    """Dans le processus de calcul."""
+def _work(path: str, ffmpeg: Optional[str], cutoff_known: bool, grid_mode: str = "auto") -> Any:
+    """Dans le processus de calcul. `grid_mode` (C16) : décidé par le processus principal (réglage et choix par
+    son), le processus de calcul ne lit pas le registre des tempos."""
     from . import analyze_file
 
-    return analyze_file(path, ffmpeg, _in_worker=True, _skip_spectrum=cutoff_known)
+    return analyze_file(path, ffmpeg, _in_worker=True, _skip_spectrum=cutoff_known, grid_mode=grid_mode)
 
 
 def _get_executor(workers: int) -> Any:
@@ -133,9 +134,11 @@ class Prefetch:
             p = self.paths[self.next]
             if p and p not in self.futures:
                 from .spectrum import known
+                from .tempo_profile import grid_mode_for
 
                 try:
-                    self.futures[p] = self.executor.submit(_work, p, self.ffmpeg, known(p) is not None)
+                    self.futures[p] = self.executor.submit(_work, p, self.ffmpeg, known(p) is not None,
+                                                           grid_mode_for(p))
                     self.order.append((self.next, p))
                 except Exception:  # noqa: BLE001 - processus indisponibles : calcul dans le fil d'analyse
                     log.warning("Analysis processes unavailable, one track at a time", exc_info=True)
@@ -187,6 +190,11 @@ def _remember(path: Any, result: Any) -> None:
             from .loudness import remember as remember_gain
 
             remember_gain(path, result.gain_db, result.peak_db)
+        enc = getattr(result, "encoder", None)                                   # 1.4.3 (A04)
+        if enc is not None:
+            from .encoder import remember as remember_encoder
+
+            remember_encoder(path, enc)
         profile = getattr(getattr(result, "grid", None), "profile", None)      # 1.4.3 (C69)
         if profile is not None:
             from .tempo_profile import remember as remember_tempo

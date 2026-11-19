@@ -85,12 +85,17 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     suffix = Path(x.path).suffix.lower()
     lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
     codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
+    from ...analysis.encoder import lookup as encoder_lookup
+    from ...core.improve import confidence_suffix, quality_clues
+
     info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
                      cutoff=lookup(Path(x.path).name, x.file_size) or 0,
-                     source=source_from_url(getattr(x, "source_url", "")))
+                     source=source_from_url(getattr(x, "source_url", "")),
+                     encoder=encoder_lookup(Path(x.path).name, x.file_size))     # 1.4.3 (A04)
     real = info.real_kbps
     if real:
-        out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
+        out["real"] = (t("quality.lossless") if real >= 9999 else f"≈ {real} kbps") + confidence_suffix(info)
+        out["real__tip"] = quality_clues(info)
         if info.source in LOSSY_SOURCES:          # 1.4.0-rc.3 (B67), rc.4 (B75) : tout son tiré de YouTube
             out["real"] += " · YouTube"
         elif info.opus_signature and real <= 192:
@@ -119,13 +124,21 @@ def tempo_text(p: Any) -> str:
     if p is None or not p.kind:
         return ""
     head = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
-    return f"{head} · {t('tempo.grid_variable') if p.variable else t('tempo.grid_fixed')}"
+    grid = t("tempo.grid_split") if getattr(p, "split", False) and getattr(p, "choice", "") != "fixed" else \
+        t("tempo.grid_variable") if p.variable else t("tempo.grid_fixed")
+    return f"{head} · {grid}"
 
 
-def tempo_values(x: LibraryTrack) -> Dict[str, Any]:
-    """1.4.3 (C69) : pastille sur le BPM et bulle quand le tempo du son change."""
+def tempo_values(x: LibraryTrack, checked: Optional[bool] = None) -> Dict[str, Any]:
+    """1.4.3 (C69) : pastille sur le BPM et bulle quand le tempo du son change ; C16 : orange tant que la grille
+    n'a pas été validée (« Grille juste » dans Grille et cues), bleue ensuite (`checked` None : pas encore lu)."""
     text = tempo_text(tempo_profile_of(x))
-    return {"bpm__dot": theme.SKY, "bpm__tip": text} if text else {}
+    if not text:
+        return {}
+    if checked is None:
+        return {"bpm__dot": theme.SKY, "bpm__tip": text}
+    return {"bpm__dot": theme.SKY if checked else theme.WARN,
+            "bpm__tip": f"{text} · {t('tempo.checked') if checked else t('tempo.to_check')}"}
 
 
 def total_duration(seconds: int) -> str:
@@ -603,7 +616,9 @@ class LibraryView(View):
         marks = getattr(self, "_cue_marks", None)                                                     # C60
         item(group, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
         tempo_n = len(self._tempo_tracks())                                                           # C69
-        item(group, TEMPO, t("lib.tempo_changes"), theme.SKY if tempo_n else "", icon="wave", count=tempo_n)
+        tempo_todo = len(self._tempo_pending())                                                       # C16
+        item(group, TEMPO, t("lib.tempo_changes"), theme.WARN if tempo_todo else theme.SKY if tempo_n else "",
+             icon="wave", count=tempo_n)
         group.setExpanded(bool(getattr(self.ctrl.settings, "auto_lists_open", True)))
         self._auto_group_counts(group)
         children: Dict[int, List[PlaylistInfo]] = {}
@@ -1046,15 +1061,20 @@ class LibraryView(View):
             return {}
         d = (getattr(self, "_extras", None) or {}).get(x.content_id)
         checked = bool(d and d.get("grid_checked"))
+        pending = d is not None and x.is_analysed and not checked and bool(tempo_values(x))       # 1.4.3 (C16)
         if not x.is_analysed:
             an, n, color = t("lib.an_none"), 0, theme.WARN
         elif checked:
             an, n, color = t("lib.an_checked"), 2, theme.ACCENT
+        elif pending:
+            an, n, color = t("lib.an_tempo"), 1, theme.WARN
         else:
             an, n, color = t("lib.an_auto"), 1, ""
         out: Dict[str, Any] = {"analysis": an, "analysis__n": n}
         if color:
             out["analysis__color"] = color
+        if x.is_analysed:
+            out.update(tempo_values(x, None if d is None else checked))
         if d is None:
             out.update({"mytags": "", "last_played": "", "dup": ""})
             return out
@@ -1089,6 +1109,14 @@ class LibraryView(View):
             if p is not None and p.kind:
                 out.append(x)
         return out
+
+    def _tempo_pending(self) -> List[LibraryTrack]:
+        """1.4.3 (C16) : sons au tempo qui change dont la grille n'a pas encore été validée."""
+        extras = getattr(self, "_extras", None)
+        if not extras:
+            return []
+        return [x for x in self._tempo_tracks()
+                if x.content_id in extras and not extras[x.content_id].get("grid_checked")]
 
     def _no_cue_tracks(self) -> List[LibraryTrack]:
         marks = getattr(self, "_cue_marks", None) or {}
@@ -1200,7 +1228,11 @@ class LibraryView(View):
         elif self.current == TEMPO:                                # 1.4.3 (C69)
             self.title_lbl.setText(t("lib.tempo_changes"))
             n = len(self._tempo_tracks())
-            self.sub_lbl.setText("  ·  ".join([plural("lib.tracks_one", "lib.tracks_many", n), t("lib.tempo_hint")]))
+            parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
+            todo = len(self._tempo_pending())                      # 1.4.3 (C16) : à valider
+            if todo:
+                parts.append(t("lib.tempo_pending", n=todo))
+            self.sub_lbl.setText("  ·  ".join(parts + [t("lib.tempo_hint")]))
         elif self.current == MISS:                                 # 1.3.2-rc.3 (C124)
             self.title_lbl.setText(t("lib.missing"))
             n = len(self._missing_tracks())

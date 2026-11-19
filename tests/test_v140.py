@@ -497,7 +497,8 @@ def test_library_never_gives_gold_to_a_fake_lossless(tmp_path):
     assert extra_values(x)["format__color"] == theme.LEVELS["gold"] and "real" not in extra_values(x)
     S.remember(f, 16100)
     v = extra_values(x)
-    assert v["real"] == "≈ 128 kbps" and v["format__color"] == theme.LEVELS["warn"]
+    # 1.4.3 (A04) : confiance affichée (spectre seul : « probable »)
+    assert v["real"] == "≈ 128 kbps (probable)" and v["format__color"] == theme.LEVELS["warn"]
     S.remember(f, 21800)
     assert extra_values(x)["format__color"] == theme.LEVELS["gold"]
 

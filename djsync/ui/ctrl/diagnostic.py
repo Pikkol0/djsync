@@ -222,6 +222,10 @@ class DiagnosticMixin:
                     path = lib.absolute_path(x)
                     if path.exists():
                         measure_and_remember(path, ffmpeg, x.duration_seconds or 0.0, force=force, save=False)
+                        from ...analysis.encoder import lookup as enc_lookup, read_and_remember
+
+                        if force or enc_lookup(path.name, path.stat().st_size) is None:    # 1.4.3 (A04)
+                            read_and_remember(path)
                         fakes += probe(path).fake
                     if i % 25 == 0:
                         flush()
