@@ -1422,7 +1422,7 @@ STRINGS = {
     "space.warn_low_free": "Less than 10 % free on this drive.",
     "space.warn_heavy_backups": "Backups take a large share of the space.",
     "home.space_tip": "See what uses the space",
-    "settings.backups_hint": "Before the first change of each session, DJSync saves the complete state of the drive's library (exportLibrary.db and export.pdb) in the DJSync_Backups folder. The original state (before DJSync) and your manual backups are kept forever, plus those from the start of the year, month and week, and the last 5.",
+    "settings.backups_hint": "Before the first change of each session, DJSync saves the complete state of the drive's library (exportLibrary.db and export.pdb) in the DJSync_Backups folder. The original state (before DJSync) and your manual backups are kept forever, plus those from the start of the year, month and week, and the last 5. The beat grids and cues of the last 200 tracks changed are also copied (DJSync_Backups/anlz) before each change. On the computer, the first master.db backup of each session is kept apart (folder “session-…”, last 5 sessions): to go back, close Rekordbox and copy its files over those of the Rekordbox folder.",
     "settings.backups_keep": "\"Before change\" copies",
     "settings.open_log": "Open the log folder",
     "backups.open": "Backups and restore…",
@@ -2196,4 +2196,6 @@ STRINGS = {
     "recover.done": "Library put back from the restore point {point}.",
     "recover.failed": "The library could not be put back: {detail}",
     "error.restore_busy": "Restore not done: export.pdb or the library is open in another program (Rekordbox, a File Explorer window on the drive?). Nothing was changed: close it, then try again.",
+    "import.spotify_truncated_of": "Spotify only gives the first 100 tracks of {n}.",
+    "import.spotify_rest": "For the rest: split the playlist in Spotify into playlists of 100 tracks or fewer, or paste the missing tracks as “Artist - Title” lines in “Paste a list…”.",
 }

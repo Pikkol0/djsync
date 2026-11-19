@@ -22,6 +22,8 @@ sqlcipher3-wheels>=0.5.5   # replaces sqlite3: the standard module CANNOT open t
 
 # --- Rekordbox library of this computer (master.db, Rekordbox 6/7) ---
 pyrekordbox>=0.5.0         # master.db access: update counters, masterPlaylists6.xml (MIT)
+sqlalchemy>=2.0            # 1.4.3 (A3-5): imported directly (master.db reads); also brought by pyrekordbox
+psutil>=5.9                # 1.4.3 (A3-5): imported directly (Rekordbox running, memory); also brought by pyrekordbox
 
 # --- Tests (optional) ---
 # pytest>=8.0              # UI tests run without a display (Qt "offscreen" platform)

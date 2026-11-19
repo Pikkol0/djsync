@@ -471,7 +471,7 @@ class DJSyncApp(QMainWindow):
             if key == "diagnostic":                       # 1.4.1 (C140) : une entrée, sans sous-entrées
                 b = button(t(text_key), lambda: self.open_diagnostic(), kind="nav")
             else:
-                b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
+                b = button(t(text_key), lambda k=key: self._nav_go(k), kind="nav")
             b.setCheckable(True)
             b.setIcon(qicon(icon_name, 18, theme.DIM))
             b.setIconSize(QSize(theme.px(18), theme.px(18)))
@@ -847,6 +847,12 @@ class DJSyncApp(QMainWindow):
         if self._current and self._current != key:
             self._previous = self._current                     # capture d'écran de l'onglet Retours
         self._current = key
+        if key in ("search", "hq", "import") and getattr(self.ctrl.settings, "search_tab", "") != key:
+            self.ctrl.settings.search_tab = key            # 1.4.3 (C202) : enregistré avec les autres réglages
+            try:
+                self.ctrl.settings.save()
+            except Exception:  # noqa: BLE001
+                log.debug("search tab not saved", exc_info=True)
         self._check_nav(nav_key(key))                       # 1.4.2 (C182) : Haute qualité, Lien -> Rechercher
         self.stack.setCurrentWidget(self.views[key])
         self._reveal_nav(nav_key(key) or key)
@@ -862,6 +868,13 @@ class DJSyncApp(QMainWindow):
                 b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
             except RuntimeError:                       # ancienne interface (changement de langue)
                 pass
+
+    def _nav_go(self, key: str) -> None:
+        """1.4.3 (C202) : « Rechercher » rouvre le dernier onglet utilisé (Recherche, Haute qualité ou Lien)."""
+        if key == "search":
+            last = getattr(self.ctrl.settings, "search_tab", "search")
+            key = last if last in self.views else "search"
+        self.show_view(key)
 
     def go(self, key: str) -> None:
         """1.4.2 (C182) : une page par son nom (raccourcis Ctrl+chiffre) ; « diagnostic » ouvre ses pages."""

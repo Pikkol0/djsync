@@ -97,6 +97,70 @@ def quiet_playlist_xml() -> None:
 
 MASTER_DB = "master.db"
 PLAYLIST_XML = "masterPlaylists6.xml"
+SESSION_KEEP = 5               # 1.4.3 (A6-4) : copies « début de session » de master.db gardées
+
+
+def safe_playlist_xml_save() -> None:
+    """1.4.3 (A6-5) : pyrekordbox réécrit masterPlaylists6.xml sur place (`open("w")`) : une coupure le laisse
+    vide et la bibliothèque de l'ordinateur ne s'ouvre plus. Écriture par fichier temporaire, fsync, renommage."""
+    try:
+        from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
+    except ImportError:  # pragma: no cover
+        return
+    if getattr(MasterPlaylistXml.save, "_djsync_safe", False):
+        return
+
+    def save(self: Any, path: Any = None, indent: Any = None) -> None:
+        target = Path(str(path if path is not None else self.path))
+        data = self.to_string(indent)
+        tmp = target.with_name(target.name + ".djsync-tmp")
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, target)
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+        self._changed = False
+
+    save._djsync_safe = True  # type: ignore[attr-defined]
+    MasterPlaylistXml.save = save
+
+
+def _xml_readable(path: Path) -> bool:
+    import xml.etree.ElementTree as ET
+
+    try:
+        ET.parse(str(path))
+        return True
+    except (ET.ParseError, OSError):
+        return False
+
+
+def repair_playlist_xml(db_dir: Path, backup_root: Path) -> bool:
+    """1.4.3 (A6-5) : masterPlaylists6.xml illisible (vide après une coupure) : reprise de la copie lisible la plus
+    récente des sauvegardes de DJSync. True si le fichier a été remis."""
+    xml_path = Path(db_dir) / PLAYLIST_XML
+    if not xml_path.is_file() or _xml_readable(xml_path):
+        return False
+    for folder in sorted((p for p in Path(backup_root).glob("master-*") if p.is_dir()), reverse=True):
+        cand = folder / PLAYLIST_XML
+        if cand.is_file() and _xml_readable(cand):
+            keep = Path(backup_root) / f"{PLAYLIST_XML}-unreadable-{datetime.now():%Y%m%d-%H%M%S}"
+            try:
+                shutil.copy2(xml_path, keep)
+                tmp = xml_path.with_name(xml_path.name + ".djsync-tmp")
+                shutil.copyfile(cand, tmp)
+                os.replace(tmp, xml_path)
+            except OSError as exc:
+                log.warning("masterPlaylists6.xml unreadable and not repaired: %s", exc)
+                return False
+            log.warning("masterPlaylists6.xml was unreadable (power cut?): put back from %s", folder.name)
+            return True
+    log.warning("masterPlaylists6.xml is unreadable and no readable copy was found in the backups")
+    return False
 ANALYSED_FLAG = 105            # valeur de djmdContent.Analysed des sons analysés (396 sur 397)
 ART_SIZES = {"artwork.jpg": 640, "artwork_m.jpg": 240, "artwork_s.jpg": 80}
 # Valeurs « vides » des sons natifs (chaîne vide / 0 plutôt que NULL), relevées sur une vraie base
@@ -405,6 +469,12 @@ class LocalRekordboxLibrary:
         except ImportError as exc:  # pragma: no cover
             raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
         quiet_playlist_xml()                                          # 1.4.0-rc.5 (B91)
+        safe_playlist_xml_save()                                      # 1.4.3 (A6-5)
+        if not self.read_only:
+            try:
+                repair_playlist_xml(self.drive.db_dir, self.backup_dir)
+            except Exception:  # noqa: BLE001 - la réparation ne doit jamais empêcher l'ouverture
+                log.exception("masterPlaylists6.xml check failed")
         try:
             self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
             self._db.session.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM djmdContent")).fetchall()
@@ -547,6 +617,15 @@ class LocalRekordboxLibrary:
             olds = sorted(p for p in self.backup_dir.glob("master-*") if p.is_dir())
             for old in olds[: -max(1, self.backup_keep)]:
                 shutil.rmtree(old, ignore_errors=True)
+            if not getattr(self, "_session_saved", False):
+                # 1.4.3 (A6-4, B) : la première copie de la session est gardée à part (5 dernières sessions) : l'état
+                # d'avant la session reste disponible même après plus de 10 écritures.
+                keep = self.backup_dir / f"session-{stamp}"
+                shutil.copytree(target, keep)
+                sessions = sorted(p for p in self.backup_dir.glob("session-*") if p.is_dir())
+                for old in sessions[: -SESSION_KEEP]:
+                    shutil.rmtree(old, ignore_errors=True)
+                self._session_saved = True
         except OSError as exc:
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         if self._batch_depth > 0:

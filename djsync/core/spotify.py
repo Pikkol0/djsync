@@ -35,6 +35,25 @@ class SpotifyError(Exception):
     """Message destiné à l'utilisateur."""
 
 
+_TOTAL = re.compile(r"(\d[\d\s.,\u202f\xa0]*)\s*(?:songs|items|tracks|titres|morceaux|chansons)\b", re.IGNORECASE)
+
+
+def _announced_total(html: str, entity: Optional[dict]) -> int:
+    """1.4.3 (C206) : nombre de morceaux annoncé (données de la page, ou « 250 songs » de sa description)."""
+    for key in ("trackCount", "totalTracks", "total"):
+        value = (entity or {}).get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    m = re.search(r'<meta[^>]+(?:property|name)="(?:og:)?description"[^>]+content="([^"]*)"', html or "")
+    if m:
+        n = _TOTAL.search(m.group(1))
+        if n:
+            digits = re.sub(r"\D", "", n.group(1))
+            if digits:
+                return int(digits)
+    return 0
+
+
 def extract_spotify_id(url: str) -> Optional[Tuple[str, str]]:
     """('playlist'|'album'|'track', id) depuis une URL ou une URI Spotify, sinon None."""
     m = _URL.search(url or "")
@@ -132,7 +151,8 @@ def parse_embed_html(html: str) -> SpotifyPlaylist:
     if not name:
         og = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]*)"', html)
         name = og.group(1) if og else "Playlist Spotify"
-    return SpotifyPlaylist(name=name, tracks=tracks, truncated=len(tracks) >= EMBED_TRACK_LIMIT)
+    return SpotifyPlaylist(name=name, tracks=tracks, truncated=len(tracks) >= EMBED_TRACK_LIMIT,
+                           total=_announced_total(html, entity))
 
 
 def fetch_spotify(url: str, session: Optional[requests.Session] = None, timeout: int = 15) -> SpotifyPlaylist:

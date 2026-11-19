@@ -10,6 +10,8 @@ Réponses en français, courtes : résultat d'abord, puis ce que l'auteur doit f
 - Interface en anglais, traduction française complète : chaque nouveau texte est traduit en FR.
 - Ne coder que les fiches demandées ; lire seulement les fichiers qu'elles touchent.
 - Jamais de push sur main ni de tag : l'auteur fusionne et pousse vX.Y.Z-rc.N.
+- Contrôleur (A3-10, 1.4.3) : plus de nouveau mixin dans `AppController` ; une nouvelle fonction va dans un
+  service à part (module dédié, objet tenu par le contrôleur).
 
 ## Flux d'une rc
 1. Branche depuis main (même convention que les PR précédentes).

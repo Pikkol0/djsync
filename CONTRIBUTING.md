@@ -51,6 +51,8 @@ in Qt's "offscreen" mode).
   hard-coded — a test checks it.
 - Anything that writes to a USB drive or a Rekordbox database must stay compatible with Rekordbox and
   with the players: be careful with `export.pdb` and the analysis files (see `docs/export_pdb.md`).
+- Do not add a new mixin to `AppController` (`djsync/ui/controller.py`): put a new feature in its own
+  service module, held by the controller.
 - Do not add a dependency on a paid service, an account or a server.
 - By contributing, you agree that your contribution is published under the
   [GPL-3.0 licence](LICENSE).
@@ -70,5 +72,5 @@ in Qt's "offscreen" mode).
 - **Ne joignez jamais** votre bibliothèque Rekordbox, le contenu de votre clé, des fichiers audio ou
   un journal que vous n'avez pas relu.
 - **Code** : une pull request par sujet, avec des tests ; textes visibles dans les fichiers de
-  traduction ; aucune dépendance à un service payant, un compte ou un serveur ; contributions sous
+  traduction ; pas de nouveau mixin dans `AppController` (un service à part) ; aucune dépendance à un service payant, un compte ou un serveur ; contributions sous
   licence GPL-3.0.

@@ -8,7 +8,7 @@ from __future__ import annotations
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 
 
-ANLZ_BACKUPS_KEEP = 30           # grilles d'origine conservées (les plus récentes)
+ANLZ_BACKUPS_KEEP = 200          # grilles d'origine conservées (les plus récentes) ; 1.4.3 (A6-11) : 30 → 200
 
 
 def prune_folders(folder: Path, keep: int) -> None:

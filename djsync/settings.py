@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -110,6 +111,7 @@ class Settings:
     playlist_sorts: dict = field(default_factory=dict)  # {playlist: [colonne, décroissant]} (tri retenu)
     search_field: str = "all"          # recherche : all | title | artist | album
     search_hide_owned: bool = False    # recherche : masquer ce qui est déjà dans la bibliothèque
+    search_tab: str = "search"         # 1.4.3 (C202) : dernier onglet de « Rechercher » (search | hq | import)
     search_max_minutes: int = 0        # recherche : durée maximale (0 = pas de limite ; exclut les mixes)
     feedback_id: str = ""              # onglet Retours : identifiant aléatoire (limites d'envoi)
     # ---- 1.2.2
@@ -181,8 +183,23 @@ class Settings:
             settings.first_run = True              # 1.3.2 (C54) : vrai premier lancement (pas une mise à jour)
             return settings
         except (OSError, json.JSONDecodeError) as exc:
-            log.warning("Unreadable settings (%s): using defaults.", exc)
-            return settings
+            # 1.4.3 (A6-10) : la copie illisible est gardée à part, puis le dernier bon fichier (.bak) est repris
+            log.warning("Unreadable settings (%s): kept aside, trying the last good copy.", exc)
+            try:
+                from datetime import datetime
+
+                shutil.copy2(path, path.with_name(f"settings-unreadable-{datetime.now():%Y%m%d-%H%M%S}.json"))
+            except OSError:
+                pass
+            bak = path.with_name(path.name + ".bak")
+            try:
+                raw = json.loads(bak.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("not an object")
+                log.warning("Settings restored from %s", bak.name)
+            except (OSError, ValueError) as exc2:
+                log.warning("No usable settings backup (%s): using defaults.", exc2)
+                return settings
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
                 setattr(settings, f.name, raw[f.name])  # type incorrect : on garde la valeur par défaut
@@ -193,6 +210,8 @@ class Settings:
 
     def normalize(self) -> "Settings":
         """Valeurs hors limites / inconnues ramenées à des valeurs valides (fichier édité à la main)."""
+        if self.search_tab not in ("search", "hq", "import"):
+            self.search_tab = "search"
         self.zoom = clamp_zoom(self.zoom)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
@@ -276,7 +295,16 @@ class Settings:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
             data = {k: v for k, v in asdict(self).items() if k not in RETIRED}     # 1.4.1 (C143)
-            tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(data, indent=2, ensure_ascii=False))
+                fh.flush()
+                os.fsync(fh.fileno())                  # 1.4.3 (A6-10)
+            if path.is_file():                         # 1.4.3 (A6-10) : dernier bon fichier gardé
+                try:
+                    json.loads(path.read_text(encoding="utf-8"))
+                    shutil.copy2(path, path.with_name(path.name + ".bak"))
+                except (OSError, ValueError):
+                    pass
             os.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)

@@ -292,7 +292,11 @@ class ImportView(View):
                                keep_selection=False)
         n = len(self.matches)
         if "spotify" in (playlist.source_url or ""):
-            note = "  ·  " + t("import.spotify_truncated") if playlist.truncated else ""
+            note = ""
+            if playlist.truncated:                                  # 1.4.3 (C206) : « 100 premiers sur n » + quoi faire
+                total = getattr(playlist, "total", 0) or 0
+                note = "  ·  " + (t("import.spotify_truncated_of", n=total) if total > len(playlist.tracks)
+                                  else t("import.spotify_truncated")) + " " + t("import.spotify_rest")
         else:                                                       # 1.4.0 (C86) : Deezer
             note = "  ·  " + t("import.list_truncated", n=len(playlist.tracks)) if playlist.truncated else ""
         self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=0) + note)

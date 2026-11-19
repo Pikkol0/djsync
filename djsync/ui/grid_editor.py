@@ -684,20 +684,8 @@ class GridEditor(QWidget):
         elif self._wave_state == "loading":         # pas d'ancienne forme d'onde le temps du calcul
             p.setPen(QColor(theme.FAINT))
             p.drawText(self.canvas.rect(), Qt.AlignCenter, t("grid.wave_loading"))
-        elif self.detail:            # une colonne par pixel, max des colonnes ANLZ couvertes
-            n = len(self.detail)
-            for x in range(w):
-                a = int(self._ms(x) / 1000.0 * COLS_PER_S)
-                b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
-                if a >= n or b <= 0:
-                    continue
-                seg = self.detail[max(0, a):min(n, b)]
-                if not seg:
-                    continue
-                v, color = max(seg, key=lambda s: s[0])
-                half = max(1.0, v * (h * 0.42))
-                p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
-                p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
+        elif self.detail:            # 1.4.3 (A1-10) : même image en cache que les 3 bandes
+            self._paint_detail_cached(p, w, h, mid)
         lo, hi = self._ms(-2), self._ms(w + 2)
         font = QFont(p.font())
         font.setBold(True)
@@ -867,6 +855,47 @@ class GridEditor(QWidget):
                 self.cue_panel.pad_clicked(slot)
                 return
         super().keyPressEvent(e)
+
+    def _paint_detail_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """1.4.3 (A1-10) : formes d'onde Bleu et RGB dessinées une fois dans une image trois fois plus large que la
+        vue, puis recopiées (avant : boucle Python par pixel à chaque image, 3,3 ms à 704 px)."""
+        from PySide6.QtGui import QPixmap
+
+        dpr = self.canvas.devicePixelRatioF()
+        key = (round(self.px_per_ms, 9), w, h, id(self.detail), dpr, theme.DIM)
+        span_ms = w / self.px_per_ms
+        c = getattr(self, "_detail_cache", None)
+        if c is None or c[0] != key or not (c[1] <= self.start_ms and self.start_ms + span_ms <= c[1] + 3 * span_ms):
+            start = self.start_ms - span_ms
+            pm = QPixmap(int(3 * w * dpr), int(h * dpr))
+            pm.setDevicePixelRatio(dpr)
+            pm.fill(Qt.transparent)
+            q = QPainter(pm)
+            saved = self.start_ms
+            self.start_ms = start
+            try:
+                self._paint_detail(q, 3 * w, h, mid)
+            finally:
+                self.start_ms = saved
+                q.end()
+            c = self._detail_cache = (key, start, pm)
+        p.drawPixmap(QPointF((c[1] - self.start_ms) * self.px_per_ms, 0), c[2])
+
+    def _paint_detail(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """Une colonne par pixel, max des colonnes ANLZ couvertes."""
+        n = len(self.detail)
+        for x in range(w):
+            a = int(self._ms(x) / 1000.0 * COLS_PER_S)
+            b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
+            if a >= n or b <= 0:
+                continue
+            seg = self.detail[max(0, a):min(n, b)]
+            if not seg:
+                continue
+            v, color = max(seg, key=lambda s: s[0])
+            half = max(1.0, v * (h * 0.42))
+            p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
+            p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
 
     def _paint_bands_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """1.3.2 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la

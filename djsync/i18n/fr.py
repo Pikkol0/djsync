@@ -1422,7 +1422,7 @@ STRINGS = {
     "space.warn_low_free": "Moins de 10 % libres sur ce disque.",
     "space.warn_heavy_backups": "Les sauvegardes prennent une grande part de l'espace.",
     "home.space_tip": "Voir ce qui occupe la place",
-    "settings.backups_hint": "Avant la première modification de chaque session, DJSync enregistre l'état complet de la bibliothèque de la clé (exportLibrary.db et export.pdb) dans le dossier DJSync_Backups. On garde pour toujours l'état d'origine (avant DJSync) et vos sauvegardes manuelles, plus celles du début de l'année, du mois et de la semaine, et les 5 dernières.",
+    "settings.backups_hint": "Avant la première modification de chaque session, DJSync enregistre l'état complet de la bibliothèque de la clé (exportLibrary.db et export.pdb) dans le dossier DJSync_Backups. On garde pour toujours l'état d'origine (avant DJSync) et vos sauvegardes manuelles, plus celles du début de l'année, du mois et de la semaine, et les 5 dernières. Les grilles et cues des 200 derniers sons modifiés sont aussi copiées (DJSync_Backups/anlz) avant chaque changement. Sur l'ordinateur, la première copie de master.db de chaque session est gardée à part (dossier « session-… », 5 dernières sessions) : pour revenir en arrière, fermez Rekordbox et copiez ses fichiers par-dessus ceux du dossier de Rekordbox.",
     "settings.backups_keep": "Copies « avant modification »",
     "settings.open_log": "Ouvrir le dossier du journal",
     "backups.open": "Sauvegardes et restauration…",
@@ -2196,4 +2196,6 @@ STRINGS = {
     "recover.done": "Bibliothèque remise depuis le point de restauration {point}.",
     "recover.failed": "La bibliothèque n'a pas pu être remise : {detail}",
     "error.restore_busy": "Restauration non faite : export.pdb ou la bibliothèque est ouvert dans un autre programme (Rekordbox, une fenêtre de l'Explorateur sur la clé ?). Rien n'a été changé : fermez-le, puis réessayez.",
+    "import.spotify_truncated_of": "Spotify ne donne que les 100 premiers morceaux sur {n}.",
+    "import.spotify_rest": "Pour le reste : découpez la playlist dans Spotify en playlists de 100 morceaux ou moins, ou collez les morceaux manquants en lignes « Artiste - Titre » dans « Coller une liste… ».",
 }

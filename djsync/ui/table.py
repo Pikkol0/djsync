@@ -502,6 +502,13 @@ class TrackTable(QTableView):
 
         self._model = _Model(self)
         self.setModel(self._model)
+        # 1.4.3 (A1-5) : sélection lue par plages et gardée jusqu'au prochain changement (« Tout sélectionner »
+        # passait par selectedRows(), qui interroge chaque cellule : 2,9 s à 5 000 sons).
+        self._sel_cache: Any = None
+        self.selectionModel().selectionChanged.connect(self._sel_dirty)
+        for sig in (self._model.modelReset, self._model.layoutChanged, self._model.rowsInserted,
+                    self._model.rowsRemoved):
+            sig.connect(self._sel_dirty)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.SingleSelection if selectmode == "browse"
                               else QAbstractItemView.ExtendedSelection)
@@ -947,9 +954,20 @@ class TrackTable(QTableView):
     def total(self) -> int:
         return len(self._rows)
 
+    def _sel_dirty(self, *_a: Any) -> None:
+        self._sel_cache = None
+
     def selected_iids(self) -> List[str]:
-        rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
-        return [self._shown[r] for r in rows if 0 <= r < len(self._shown)]
+        shown = self._shown
+        cache = self._sel_cache
+        if cache is not None and cache[0] is shown and cache[1] == len(shown):
+            return list(cache[2])
+        rows: set = set()
+        for rng in self.selectionModel().selection():
+            rows.update(range(rng.top(), rng.bottom() + 1))
+        out = [shown[r] for r in sorted(rows) if 0 <= r < len(shown)]
+        self._sel_cache = (shown, len(shown), out)
+        return list(out)
 
     def selected_rows(self) -> List[Row]:
         return [self._rows[i] for i in self.selected_iids()]

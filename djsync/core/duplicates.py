@@ -223,6 +223,44 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
     items = list(tracks)
     if len(items) < 2:
         return []
+    # 1.4.3 (A1-8, B) : même liste de sons (et mêmes réglages) que la fois précédente : résultat repris tel quel
+    sig = (tuple((getattr(t, "content_id", None), getattr(t, "path", None), t.title, t.artist,
+                  int(t.duration_seconds or 0), bool(getattr(t, "is_analysed", False)),
+                  bool(getattr(t, "artwork_path", None))) for t in items),
+           title_threshold, max_duration_gap, frozenset(ignored or ()))
+    with _GROUPS_LOCK:
+        cached = _GROUPS_CACHE.get("last")
+    if cached is not None and cached[0] == sig:
+        return [[items[i] for i in g] for g in cached[1]]
+    out = _duplicate_groups(items, title_threshold, max_duration_gap, ignored)
+    index = {id(x): i for i, x in enumerate(items)}
+    with _GROUPS_LOCK:
+        _GROUPS_CACHE["last"] = (sig, [[index[id(x)] for x in g] for g in out])
+    return out
+
+
+_GROUPS_CACHE: Dict[str, Any] = {}
+_GROUPS_LOCK = __import__("threading").Lock()
+_BLOCK = 1000                     # 1.4.3 (A1-8, A) : lignes de la matrice calculées par bloc
+
+
+def _similar_pairs(titles: List[str], threshold: int) -> Iterable[Tuple[int, int]]:
+    """Paires (i < j) de titres proches : matrice calculée par blocs de 1 000 lignes sur tous les cœurs
+    (13 s et 438 Mo à 20 000 sons en un bloc ; 2,7 s et 73 Mo par blocs, mesuré)."""
+    from rapidfuzz import process
+
+    n = len(titles)
+    for start in range(0, n, _BLOCK):
+        block = process.cdist(titles[start:start + _BLOCK], titles[start:], scorer=fuzz.ratio,
+                              score_cutoff=threshold, dtype="uint8", workers=-1)
+        for i, j in zip(*block.nonzero()):
+            a, b = start + int(i), start + int(j)
+            if a < b:
+                yield a, b
+
+
+def _duplicate_groups(items: List[Any], title_threshold: int, max_duration_gap: int,
+                      ignored: Optional[set]) -> List[List[Any]]:
     keys = []
     for t in items:
         title, artist = split_display(t.title, t.artist)
@@ -237,10 +275,7 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
         return i
 
     try:
-        from rapidfuzz import process
-
-        matrix = process.cdist(titles, titles, scorer=fuzz.ratio, score_cutoff=title_threshold, dtype="uint8")
-        pairs = ((i, j) for i, j in zip(*matrix.nonzero()) if i < j)
+        pairs = list(_similar_pairs(titles, title_threshold))
     except Exception:  # noqa: BLE001 - repli sans numpy
         pairs = ((i, j) for i in range(len(items)) for j in range(i + 1, len(items))
                  if fuzz.ratio(titles[i], titles[j]) >= title_threshold)

@@ -217,6 +217,7 @@ class SpotifyPlaylist:
     tracks: List[SpotifyTrack] = field(default_factory=list)
     source_url: str = ""
     truncated: bool = False  # True si Spotify n'a donné que les 100 premiers morceaux
+    total: int = 0           # 1.4.3 (C206) : nombre de morceaux annoncé par la page (0 : inconnu)
 
 
 @dataclass
