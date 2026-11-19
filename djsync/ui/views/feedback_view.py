@@ -7,6 +7,7 @@ Envoi : core/feedback.py (e-mail via le script de l'auteur ; sinon formulaire Gi
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Optional
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt, QTimer
@@ -18,6 +19,8 @@ from ...i18n import plural, t
 from .. import theme
 from ..widgets import button, hbox, icon_button, label, panel, vbox
 from .common import View, alive
+
+log = logging.getLogger(__name__)
 
 THUMB = 72
 
@@ -143,7 +146,7 @@ class RemarkCard(QWidget):
                     with open(url.toLocalFile(), "rb") as fh:
                         self.add_image(fh.read(), url.toLocalFile())
                 except OSError:
-                    pass
+                    log.debug("Ignored error in dropEvent", exc_info=True)  # 1.4.3 (A3-4)
         e.acceptProposedAction()
 
 

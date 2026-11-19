@@ -84,4 +84,4 @@ class MediaKeys:
             center.setNowPlayingInfo_(None)
             center.setPlaybackState_(3)                              # Stopped
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in clear", exc_info=True)  # 1.4.3 (A3-4)

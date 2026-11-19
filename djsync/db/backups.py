@@ -231,7 +231,7 @@ def ensure_origin(rekordbox_dir: Path, backup_dir: Path, conn: Any = None, key: 
             counts = _counts(c)
             c.close()
         except sqlcipher.Error:
-            pass
+            log.debug("Ignored error in ensure_origin", exc_info=True)  # 1.4.3 (A3-4)
         _write_meta(folder, "origin", stamp, "", [], counts, approx=True)
         log.info("Origin rebuilt from the oldest backup: %s", oldest.name)
     except OSError as exc:

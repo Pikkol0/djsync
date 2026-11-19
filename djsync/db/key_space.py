@@ -30,6 +30,7 @@ def free_bytes(path: Path) -> int:
             if folder.exists():
                 return int(shutil.disk_usage(folder).free)
         except OSError:
+            log.debug("Ignored error in free_bytes", exc_info=True)  # 1.4.3 (A3-4)
             continue
     return 1 << 62
 

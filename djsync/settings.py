@@ -190,7 +190,7 @@ class Settings:
 
                 shutil.copy2(path, path.with_name(f"settings-unreadable-{datetime.now():%Y%m%d-%H%M%S}.json"))
             except OSError:
-                pass
+                log.debug("Ignored error in load", exc_info=True)  # 1.4.3 (A3-4)
             bak = path.with_name(path.name + ".bak")
             try:
                 raw = json.loads(bak.read_text(encoding="utf-8"))
@@ -304,7 +304,7 @@ class Settings:
                     json.loads(path.read_text(encoding="utf-8"))
                     shutil.copy2(path, path.with_name(path.name + ".bak"))
                 except (OSError, ValueError):
-                    pass
+                    log.debug("Ignored error in save", exc_info=True)  # 1.4.3 (A3-4)
             os.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)

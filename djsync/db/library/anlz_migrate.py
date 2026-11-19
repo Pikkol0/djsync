@@ -104,6 +104,7 @@ class AnlzMigrateMixin:
                     if read_path(src.read_bytes()).casefold() != path.casefold():
                         continue                           # fichier d'un autre son : on ne touche pas
                 except (OSError, ValueError, UnicodeDecodeError):
+                    log.debug("Ignored error in migrate_analysis", exc_info=True)  # 1.4.3 (A3-4)
                     continue
                 base = choose_anlz_base(root, path)
                 if f"{base}.DAT".casefold() == anlz.casefold():

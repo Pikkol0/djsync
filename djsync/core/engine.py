@@ -69,6 +69,7 @@ def bundled_version() -> str:
 
         return version("yt-dlp")
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in bundled_version", exc_info=True)  # 1.4.3 (A3-4)
         return ""
 
 
@@ -97,6 +98,7 @@ def running_version() -> str:
 
         return __version__
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in running_version", exc_info=True)  # 1.4.3 (A3-4)
         return ""
 
 

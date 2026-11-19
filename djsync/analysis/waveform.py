@@ -20,10 +20,13 @@ Rekordbox (6 morceaux, jeux DAT/EXT/2EX) :
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 DETAIL_RATE = 150            # points par seconde (PWV3 / PWV5)
 PREVIEW_COLS = 400           # PWAV
@@ -263,6 +266,7 @@ def cached_band_wave(path, ffmpeg_location=None, cache_dir=None) -> BandWave:
             with np.load(target) as z:
                 wave = BandWave(int(z["rate"]), z["low"], z["mid"], z["high"])
         except Exception:                      # noqa: BLE001 - cache illisible : on recalcule
+            log.debug("Handled error in cached_band_wave", exc_info=True)  # 1.4.3 (A3-4)
             wave = None
     if wave is None:
         audio = decode(path, ffmpeg_location)
@@ -277,7 +281,7 @@ def cached_band_wave(path, ffmpeg_location=None, cache_dir=None) -> BandWave:
                 for old in olds[:-CACHE_FILES]:
                     old.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("Ignored error in cached_band_wave", exc_info=True)  # 1.4.3 (A3-4)
     if len(_WAVE_MEMORY) > 20:
         _WAVE_MEMORY.pop(next(iter(_WAVE_MEMORY)))
     _WAVE_MEMORY[key] = wave

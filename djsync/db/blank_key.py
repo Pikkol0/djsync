@@ -107,7 +107,7 @@ def _write(path: Path, data: bytes) -> None:
         try:
             os.fsync(fh.fileno())
         except OSError:                             # certains lecteurs réseau ou montages : pas bloquant
-            pass
+            log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
 
 
 def _clear_leftover(tmp: Path, names: Dict[str, bytes]) -> None:

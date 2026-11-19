@@ -10,6 +10,8 @@ nombre de sons concernés s'affiche quand il est connu (`controller.diag_counts`
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt
@@ -18,6 +20,8 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from ..i18n import t
 from . import theme
 from .widgets import hbox
+
+log = logging.getLogger(__name__)
 
 # 1.4.1 (C140, D19) : premier onglet « Un son » (sans compteur) ; (C135) « Mauvaise qualité » et « Améliorer »
 # (1.4.0, C47) ne font plus qu'un onglet « Qualité »
@@ -55,6 +59,7 @@ class DiagTabs(QWidget):
         try:
             counts = self.ctrl.diag_counts
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in refresh", exc_info=True)  # 1.4.3 (A3-4)
             counts = {}
         self._full: Dict[str, str] = {}
         for key, b in self.buttons.items():

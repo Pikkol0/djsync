@@ -89,7 +89,7 @@ class StallWatch:
             try:
                 faulthandler.cancel_dump_traceback_later()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in stop", exc_info=True)  # 1.4.3 (A3-4)
             self._armed = False
         self.collect()
 

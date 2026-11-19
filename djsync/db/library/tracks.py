@@ -245,6 +245,7 @@ class TracksMixin:
                     try:
                         file_deleted = self.delete_track(cid, delete_file=delete_files)
                     except TrackNotFoundError:
+                        log.debug("Ignored error in delete_tracks", exc_info=True)  # 1.4.3 (A3-4)
                         continue
                     removed += 1
                     if delete_files and not file_deleted:

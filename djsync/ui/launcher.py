@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import sys
 
+log = logging.getLogger(__name__)
+
 
 def _setup_logging() -> None:
     """Journal dans le dossier des réglages (djsync.log, 1 Mo × 3) : l'exe Windows n'a pas de console,

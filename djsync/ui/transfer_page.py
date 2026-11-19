@@ -9,6 +9,8 @@ un choix en haut, obligatoire, rien de présélectionné, modifiable ligne par l
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
@@ -20,6 +22,8 @@ from ..i18n import t
 from . import icons, theme
 from .dialogs import BaseDialog
 from .widgets import button, hbox, label, line_edit, panel, vbox
+
+log = logging.getLogger(__name__)
 
 DIRECTIONS = ("usb2pc", "pc2usb", "usb2usb", "sync")
 ACTION_KEYS = {T.MERGE: "transfer.act_merge", T.KEEP_BOTH: "transfer.act_both", T.KEEP_DEST: "transfer.act_keep"}
@@ -535,6 +539,7 @@ class TransferPage(BaseDialog):
 
             return bool(rekordbox_running())
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _rekordbox_open", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def _back_to_setup(self) -> None:

@@ -4,6 +4,8 @@ sinon curseur), volume.
 """
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -19,6 +21,8 @@ from . import theme
 from .covers import CoverLoader, CoverRef, file_cover, url_cover
 from .icons import qicon, to_qpixmap
 from .widgets import CamelotPill, hbox, icon_button, label, panel, popup_menu, vbox
+
+log = logging.getLogger(__name__)
 
 COVER_PX = 52
 WAVE_H = 28
@@ -36,6 +40,7 @@ def play_error_text(raw: str, meta: Any = None) -> str:
     try:
         name = Path(getattr(meta, "path", "") or "").name
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in play_error_text", exc_info=True)  # 1.4.3 (A3-4)
         name = ""
     detail = raw.removeprefix("Cannot play: ").strip()
     return t("player.unreadable", name=name or "?") + (f"  ({detail})" if detail else "")
@@ -86,6 +91,7 @@ class ScrollingWave(QWidget):
         try:
             pos = float(self._position())
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _advance", exc_info=True)  # 1.4.3 (A3-4)
             return
         running = self._timer.isActive()
         self._pos = self._mono(pos * 1000.0) / 1000.0 if running else pos

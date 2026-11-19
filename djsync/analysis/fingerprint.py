@@ -195,7 +195,7 @@ def file_fingerprint(path: Union[str, Path], ffmpeg_location: Optional[str] = No
         try:
             return np.load(cached)
         except (OSError, ValueError):
-            pass
+            log.debug("Ignored error in file_fingerprint", exc_info=True)  # 1.4.3 (A3-4)
     d = decode(path, ffmpeg_location, sr=SR)
     fp = fingerprint(d.samples, d.sr)
     if cached is not None:

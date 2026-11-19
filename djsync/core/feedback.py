@@ -201,7 +201,7 @@ def drive_report(drive_root: Optional[Path]) -> List[str]:
         u = shutil.disk_usage(root)
         lines.append(f"Space        : {u.free / 1e9:.1f} GB free of {u.total / 1e9:.1f} GB")
     except OSError:
-        pass
+        log.debug("Ignored error in drive_report", exc_info=True)  # 1.4.3 (A3-4)
     rb = root / "PIONEER" / "rekordbox"
     lines.append("PIONEER/rekordbox:")
     try:
@@ -220,6 +220,7 @@ def drive_report(drive_root: Optional[Path]) -> List[str]:
 
             lines += ["", "export.pdb check:"] + ["  " + x for x in report(pdb)]
         except Exception as exc:  # noqa: BLE001
+            log.debug("Handled error in drive_report", exc_info=True)  # 1.4.3 (A3-4)
             lines.append(f"export.pdb check failed: {exc}")
     return lines
 
@@ -245,7 +246,7 @@ def library_zip(drive_root: Optional[Path], limit: int = MAX_LIBRARY_ZIP) -> Opt
                 try:
                     z.write(f, f"PIONEER/rekordbox/{f.name}")
                 except OSError:
-                    pass
+                    log.debug("Ignored error in library_zip", exc_info=True)  # 1.4.3 (A3-4)
         data = buf.getvalue()
         if len(data) <= limit:
             return Attachment("rekordbox-library.zip", data, "application/zip")

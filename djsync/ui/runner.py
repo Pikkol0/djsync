@@ -72,7 +72,7 @@ class GcWatch:
         try:
             gc.callbacks.remove(self._cb)
         except ValueError:
-            pass
+            log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
 
 
 class UiDispatcher:
@@ -169,6 +169,7 @@ class UiDispatcher:
         try:
             busy = bool(self.gc_busy())
         except Exception:  # noqa: BLE001 - simple indication
+            log.debug("Handled error in _collect", exc_info=True)  # 1.4.3 (A3-4)
             busy = False
         if since_full >= GC_FULL_MAX_S or (since_full >= GC_FULL_S and not busy):
             gen = 2

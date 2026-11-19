@@ -133,6 +133,7 @@ def own_drive_root(start: Optional[Path] = None) -> Optional[Path]:
             if (folder / DB_RELATIVE).is_file():
                 return folder
         except OSError:
+            log.debug("Ignored error in own_drive_root", exc_info=True)  # 1.4.3 (A3-4)
             continue
     return None
 

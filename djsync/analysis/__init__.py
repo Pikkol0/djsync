@@ -8,6 +8,7 @@ reste léger. Usage :
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,8 @@ from .decode import decode as decode_audio      # (le nom « decode » reste cel
 from .key import KeyResult, analyze_key
 from .tempo import BeatGrid, analyze_tempo
 from .waveform import Waveforms, compute_waveforms
+
+log = logging.getLogger(__name__)
 
 __all__ = ["AnalysisResult", "analyze_file", "write_anlz", "DecodeError", "find_ffmpeg", "BeatGrid", "KeyResult"]
 
@@ -69,7 +72,7 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) 
 
         cutoff = measure_and_remember(path, ffmpeg_location, audio.duration)
     except Exception:  # noqa: BLE001 - la vraie qualité n'est qu'une information en plus
-        pass
+        log.debug("Ignored error in analyze_file", exc_info=True)  # 1.4.3 (A3-4)
     return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff)
 
 

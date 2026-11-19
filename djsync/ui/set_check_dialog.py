@@ -6,6 +6,8 @@ visé est retenu (réglage `set_players`). Rapport court à copier ou enregistre
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt
@@ -15,6 +17,8 @@ from ..i18n import t
 from . import theme
 from .dialogs import BaseDialog
 from .widgets import button, hbox, label, panel, restyle, vbox
+
+log = logging.getLogger(__name__)
 
 ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint"}
 ACTIONS = {"analyse": "set.do_analyse", "pdb": "set.do_pdb", "missing": "set.do_missing", "convert": "set.do_convert",
@@ -112,6 +116,7 @@ class SetCheckDialog(BaseDialog):
             try:
                 fs = drive_filesystem(lib.drive.root) or ""
             except Exception:  # noqa: BLE001 - système de fichiers inconnu : ligne « – »
+                log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 fs = ""
             return set_check.run(lib, fs, players, should_stop=lambda: self.ctrl.library is not lib)
 
@@ -207,7 +212,7 @@ class SetCheckDialog(BaseDialog):
             try:
                 view._goto(iid)
             except Exception:  # noqa: BLE001 - liste pas encore lue : la Bibliothèque reste ouverte
-                pass
+                log.debug("Ignored error in _open_library", exc_info=True)  # 1.4.3 (A3-4)
 
     # ------------------------------------------------------------------ rapport
     def report_text(self) -> str:

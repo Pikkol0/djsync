@@ -108,7 +108,7 @@ class IngestMixin:
             try:
                 paths += self._pdb_store().load().artwork_paths()
             except PdbError:
-                pass
+                log.debug("Ignored error in _known_artwork_paths", exc_info=True)  # 1.4.3 (A3-4)
         return paths
 
     def _store_artwork(self, conn: Any, ex: _Extras, album_id: Optional[int]) -> Optional[int]:
@@ -148,7 +148,7 @@ class IngestMixin:
             try:
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("Ignored error in _discard", exc_info=True)  # 1.4.3 (A3-4)
 
     @staticmethod
     def _meta_columns(conn: Any, meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,6 +191,7 @@ class IngestMixin:
         source_url: Optional[str] = None,
         playlist_ids: Sequence[int] = (),
         meta: Optional[Dict[str, Any]] = None,
+        analyze: Optional[bool] = None,
     ) -> LibraryTrack:
         """Insère le son (titre, artiste, chemin, date d'ajout) et l'ajoute aux playlists.
 
@@ -227,9 +228,11 @@ class IngestMixin:
                 "SELECT content_id, analysisDataFilePath, image_id FROM content WHERE path = ? COLLATE NOCASE",
                 (db_path,)).fetchone()
         # son déjà présent ET déjà analysé (Rekordbox ou DJSync) : on ne réanalyse rien
+        # 1.4.3 (A3-3) : `analyze` passé par l'appelant (transfert) au lieu de changer l'attribut partagé
+        use = self.analyze if analyze is None else bool(analyze)
         ex = self._prepare_extras(file_path, db_path, audio,
-                                  analysis=existing is None or not existing[1],
-                                  cover=existing is None or existing[2] is None)
+                                  analysis=(existing is None or not existing[1]) and use,
+                                  cover=existing is None or existing[2] is None, explicit=use)
         self.last_problems = list(ex.problems)
 
         try:
@@ -312,6 +315,7 @@ class IngestMixin:
             if conn.execute("SELECT 1 FROM cue WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
                 return
         except Exception:  # noqa: BLE001 - base sans table cue (ancien format) : ANLZ seulement
+            log.debug("Handled error in _memory_cue", exc_info=True)  # 1.4.3 (A3-4)
             return
         ms = int(ex.cue_ms)
         conn.execute(

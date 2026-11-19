@@ -458,7 +458,7 @@ class LocalRekordboxLibrary:
                 if row and row[0][0] and Path(row[0][0]).is_dir():
                     self._share = Path(row[0][0])
             except Exception:  # noqa: BLE001 - emplacement par défaut
-                pass
+                log.debug("Ignored error in connect", exc_info=True)  # 1.4.3 (A3-4)
             log.info("Computer library opened: %s", self.db_path)
         return self
 
@@ -507,7 +507,7 @@ class LocalRekordboxLibrary:
                 try:
                     self._db.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in refresh", exc_info=True)  # 1.4.3 (A3-4)
                 self._db = None
             self._open_db()
             log.info("Computer library reopened: %s", self.db_path)
@@ -536,13 +536,13 @@ class LocalRekordboxLibrary:
             try:
                 reader.close()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
         with self._lock:
             if self._db is not None:
                 try:
                     self._db.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
                 self._db = None
                 # 1.3.2-rc.6 (B52) : qui l'a fermée (une lecture arrivée ensuite rouvre la base, voir _session_db)
                 import traceback
@@ -570,6 +570,10 @@ class LocalRekordboxLibrary:
                     self._open_db()
         return self._db
 
+    def library_identity(self) -> str:
+        """1.4.3 (A3-3) : identifiant stable (chemin de master.db), pour les réglages par bibliothèque."""
+        return str(self.db_path)
+
     def _read(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:
         """Lecture courte : la transaction est refermée aussitôt (sinon DJSync resterait sur une image
         figée de la base, sans les changements faits ensuite dans Rekordbox)."""
@@ -594,7 +598,7 @@ class LocalRekordboxLibrary:
                         try:
                             self._db.session.rollback()
                         except Exception:  # noqa: BLE001
-                            pass
+                            log.debug("Ignored error in _read", exc_info=True)  # 1.4.3 (A3-4)
             return []
 
     # ------------------------------------------------------------- écritures sûres
@@ -677,7 +681,7 @@ class LocalRekordboxLibrary:
                 try:
                     db.rollback()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
                 raise
             finally:
                 self._writing -= 1
@@ -836,7 +840,7 @@ class LocalRekordboxLibrary:
                         try:
                             reader.close()
                         except Exception:  # noqa: BLE001
-                            pass
+                            log.debug("Ignored error in _read_fast", exc_info=True)  # 1.4.3 (A3-4)
                     from pyrekordbox.masterdb import MasterDatabase
 
                     reader = self._reader = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
@@ -1060,6 +1064,7 @@ class LocalRekordboxLibrary:
             img.load()
             img = img.convert("RGB")
         except Exception:  # noqa: BLE001 - pochette illisible : pas de pochette
+            log.debug("Handled error in _write_artwork", exc_info=True)  # 1.4.3 (A3-4)
             return None, []
         w, h = img.size
         s = min(w, h)
@@ -1106,6 +1111,7 @@ class LocalRekordboxLibrary:
                         ex.jpegs = {"path": art}            # type: ignore[assignment]
                         ex.written += written
             except Exception as exc:  # noqa: BLE001
+                log.debug("Handled error in _prepare", exc_info=True)  # 1.4.3 (A3-4)
                 ex.problems.append(f"artwork: {exc}")
         return ex
 
@@ -1158,7 +1164,7 @@ class LocalRekordboxLibrary:
             try:
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("Ignored error in _discard", exc_info=True)  # 1.4.3 (A3-4)
 
     def _common_content_link(self) -> Optional[int]:
         """ContentLink le plus courant chez les sons de la collection (valeur interne de Rekordbox)."""
@@ -1169,8 +1175,9 @@ class LocalRekordboxLibrary:
     # ----------------------------------------------------------------------- ajout
     def add_track(self, file_path: Path, title: str, artist: str, album: Optional[str] = None,
                   source_url: Optional[str] = None, playlist_ids: Sequence[int] = (),
-                  meta: Optional[Dict[str, Any]] = None) -> LibraryTrack:
-        """Ajoute un son téléchargé à la collection Rekordbox (+ analyse, pochette, playlists)."""
+                  meta: Optional[Dict[str, Any]] = None, analyze: Optional[bool] = None) -> LibraryTrack:
+        """Ajoute un son téléchargé à la collection Rekordbox (+ analyse, pochette, playlists).
+        1.4.3 (A3-3) : `analyze` (facultatif) remplace pour cet ajout l'attribut partagé `self.analyze`."""
         from pyrekordbox.masterdb import models
 
         from .library.tracks import TracksMixin
@@ -1197,7 +1204,7 @@ class LocalRekordboxLibrary:
             return self.get_track(cid)
 
         uuid = str(uuid4())
-        ex = self._prepare(file_path, audio["fileType"], audio["samplingRate"], uuid, analysis=self.analyze, cover=True)
+        ex = self._prepare(file_path, audio["fileType"], audio["samplingRate"], uuid, analysis=self.analyze if analyze is None else bool(analyze), cover=True)
         self.last_problems = list(ex.problems)
         try:
             with self._write() as db:
@@ -1524,7 +1531,7 @@ class LocalRekordboxLibrary:
                 try:
                     f.unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    log.debug("Ignored error in edit_track_metadata", exc_info=True)  # 1.4.3 (A3-4)
             raise
         return self.get_track(content_id)
 
@@ -1761,6 +1768,7 @@ class LocalRekordboxLibrary:
                 try:
                     c = self._content(cid)
                 except TrackNotFoundError:
+                    log.debug("Ignored error in delete_tracks", exc_info=True)  # 1.4.3 (A3-4)
                     continue
                 to_clean.append((c.UUID, c.FolderPath or "", c.AnalysisDataPath, c.ImagePath))
                 self._delete_content(db, c)
@@ -1825,6 +1833,7 @@ class LocalRekordboxLibrary:
                                   "WHERE COALESCE(s.rb_local_deleted,0) = 0 AND COALESCE(m.rb_local_deleted,0) = 0 "
                                   f"AND s.ContentID IN ({inside}) ORDER BY m.Seq, m.ID", params)
             except Exception:  # noqa: BLE001 - tables absentes (ancienne version de Rekordbox)
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, name in rows:
                 try:
@@ -1838,6 +1847,7 @@ class LocalRekordboxLibrary:
                                   "ON h.ID = s.HistoryID WHERE COALESCE(s.rb_local_deleted,0) = 0 "
                                   f"AND s.ContentID IN ({inside})", params)
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, created, name in rows:
                 day = history_date(created) or history_date(name)

@@ -81,8 +81,10 @@ def tree_size(path: Path) -> int:
                         else:
                             total += e.stat().st_size
                     except OSError:
+                        log.debug("Ignored error in tree_size", exc_info=True)  # 1.4.3 (A3-4)
                         continue
         except OSError:
+            log.debug("Ignored error in tree_size", exc_info=True)  # 1.4.3 (A3-4)
             continue
     return total
 

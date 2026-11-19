@@ -325,6 +325,7 @@ class MetadataMixin:
                                   f"ON m.myTag_id = mc.myTag_id WHERE mc.content_id IN ({q}) "
                                   f"ORDER BY m.sequenceNo, m.myTag_id", part)
             except Exception:  # noqa: BLE001 - table absente
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, name in rows:
                 if name and name not in out.setdefault(int(cid), {"mytags": [], "last_played": ""})["mytags"]:
@@ -333,6 +334,7 @@ class MetadataMixin:
                 rows = self._read(f"SELECT hc.content_id, h.name FROM history_content hc JOIN history h "
                                   f"ON h.history_id = hc.history_id WHERE hc.content_id IN ({q})", part)
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, name in rows:
                 day = history_date(name)
@@ -511,7 +513,7 @@ class MetadataMixin:
                 if head.isdigit() and (d / "info.json").is_file():
                     out.add(int(head))
         except OSError:
-            pass
+            log.debug("Ignored error in rekordbox_originals", exc_info=True)  # 1.4.3 (A3-4)
         return {c for c in out if self.has_rekordbox_original(c)}
 
     def restore_rekordbox_analysis(self, content_id: int) -> LibraryTrack:

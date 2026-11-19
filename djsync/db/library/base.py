@@ -356,7 +356,7 @@ class LibraryBase:
             try:
                 target.unlink(missing_ok=True)           # A6-6 : pas de copie à moitié écrite sur une clé pleine
             except OSError:
-                pass
+                log.debug("Ignored error in _backup_copy", exc_info=True)  # 1.4.3 (A3-4)
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         self._session_backed_up = True
         if self._batch_depth > 0:
@@ -392,7 +392,7 @@ class LibraryBase:
                 try:
                     conn.execute("ROLLBACK")
                 except sqlcipher.Error:
-                    pass
+                    log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
                 full = self.full_error(exc) if isinstance(exc, Exception) else None
                 if full is not None and full is not exc:
                     raise full from exc        # A6-6 : « clé pleine » au lieu de « disk I/O error »
@@ -451,6 +451,16 @@ class LibraryBase:
             if self._conn is not None and self._batch_depth == 0:
                 self._pdb_flush()
 
+    def library_identity(self) -> str:
+        """1.4.3 (A3-3) : identifiant stable de cette clé (date de création et nom de l'appareil de la table
+        `property`), pour les réglages par bibliothèque. "" si illisible (noté au journal)."""
+        try:
+            rows = self._read("SELECT COALESCE(createdDate,''), COALESCE(deviceName,'') FROM property LIMIT 1")
+        except Exception as exc:  # noqa: BLE001 - réglages de confort : pas d'erreur à l'écran
+            log.info("Key identity not read (settings per library fall back to the label): %s", exc)
+            return ""
+        return "|".join(str(x) for x in rows[0]) if rows else ""
+
     def _read(self, sql: str, params: Sequence[Any] = ()) -> List[Tuple[Any, ...]]:
         """Lecture. 1.4.3 (A3-6) : hors d'une écriture du même fil, par la connexion de lecture (sans attendre
         le verrou des écritures) ; dans une écriture (ou si la connexion de lecture manque), par la connexion
@@ -502,7 +512,7 @@ class LibraryBase:
             try:
                 reader.close()
             except sqlcipher.Error:
-                pass
+                log.debug("Ignored error in _drop_reader", exc_info=True)  # 1.4.3 (A3-4)
 
     def _close_reader(self) -> None:
         with self._reader_lock:

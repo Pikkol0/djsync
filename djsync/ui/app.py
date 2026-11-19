@@ -262,6 +262,7 @@ class DJSyncApp(QMainWindow):
             try:
                 restored = self.restoreGeometry(QByteArray.fromBase64(settings.geometry.encode()))
             except Exception:  # noqa: BLE001 - ancienne valeur (format Tk)
+                log.debug("Handled error in _place_window", exc_info=True)  # 1.4.3 (A3-4)
                 restored = False
         if restored:
             g = self.geometry()
@@ -567,7 +568,7 @@ class DJSyncApp(QMainWindow):
         try:
             s.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _toggle_sidebar", exc_info=True)  # 1.4.3 (A3-4)
         self._compact = None
         self._update_compact()
 
@@ -836,6 +837,7 @@ class DJSyncApp(QMainWindow):
             counts = self.ctrl.diag_counts
             known = [counts.get(k) for k in DIAG_ALERTS if counts.get(k) is not None]
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in diag_total", exc_info=True)  # 1.4.3 (A3-4)
             return None
         return sum(known) if known else None
 
@@ -1435,6 +1437,7 @@ class DJSyncApp(QMainWindow):
         try:
             pending = view.unsaved()
         except Exception:  # noqa: BLE001 - jamais bloquer la navigation
+            log.debug("Handled error in _settings_ok", exc_info=True)  # 1.4.3 (A3-4)
             return True
         if not pending:
             return True
@@ -1673,7 +1676,7 @@ class DJSyncApp(QMainWindow):
             s.maximized = self.isMaximized()
             s.geometry = bytes(self.saveGeometry().toBase64()).decode()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in closeEvent", exc_info=True)  # 1.4.3 (A3-4)
         self.ctrl.shutdown()
         super().closeEvent(e)
 

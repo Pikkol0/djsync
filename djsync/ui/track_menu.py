@@ -8,9 +8,13 @@ bibliothèque, Afficher dans l'Explorateur / le Finder, Acheter.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List, Sequence
 
 from ..i18n import t
+
+log = logging.getLogger(__name__)
 
 
 def analyse_tracks(host: Any, ctrl: Any, tracks: Sequence[Any]) -> None:
@@ -114,6 +118,7 @@ def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
         try:
             originals = ctrl.rekordbox_originals
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in track_entries", exc_info=True)  # 1.4.3 (A3-4)
             originals = set()
         if one.content_id in originals:
             entries.append((t("reanalyse.restore"), lambda: restore_rekordbox(host, ctrl, one), "back"))

@@ -105,6 +105,7 @@ def ensure_front(window: Any, later: Optional[Callable[[int, Callable[[], None]]
     try:
         hwnd = int(window.winId())
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in ensure_front", exc_info=True)  # 1.4.3 (A3-4)
         return
     bring_to_front(hwnd)
     if later is not None:                     # 1.3.2-rc.2 (B36) : encore après la fermeture de l'écran de démarrage

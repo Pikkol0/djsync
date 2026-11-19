@@ -6,11 +6,14 @@ Exécutable PyInstaller : l'écran natif (packaging/DJSync.spec) couvre la déco
 """
 from __future__ import annotations
 
+import logging
 import json
 from typing import Any, Optional
 
 from .. import full_version
 from .palettes import DEFAULT_THEME, DIM, PALETTES, SURFACE, TEXT
+
+log = logging.getLogger(__name__)
 
 WIDTH, HEIGHT = 320, 200
 
@@ -37,7 +40,7 @@ def close_native() -> None:
 
         pyi_splash.close()
     except Exception:  # noqa: BLE001 - pas d'écran natif (lancement depuis les sources)
-        pass
+        log.debug("Ignored error in close_native", exc_info=True)  # 1.4.3 (A3-4)
 
 
 def _saved_accent() -> str:
@@ -47,6 +50,7 @@ def _saved_accent() -> str:
 
         theme = json.loads(Settings.path().read_text(encoding="utf-8")).get("theme", DEFAULT_THEME)
     except Exception:  # noqa: BLE001 - pas encore de réglages : couleur par défaut
+        log.debug("Handled error in _saved_accent", exc_info=True)  # 1.4.3 (A3-4)
         theme = DEFAULT_THEME
     from .palettes import RETIRED
 
@@ -107,4 +111,5 @@ def show(app: Any) -> Optional[Splash]:
     try:
         return Splash(app)
     except Exception:  # noqa: BLE001 - pas d'écran : on s'en passe
+        log.debug("Handled error in show", exc_info=True)  # 1.4.3 (A3-4)
         return None

@@ -11,6 +11,7 @@ Le matériel visé (réglage `set_players`) adapte les contrôles aux limites co
 """
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ..i18n import plural, t
+
+log = logging.getLogger(__name__)
 
 PLAYERS = ("all", "recent", "nxs2", "old")
 LIMITS: Dict[str, Dict[str, Any]] = {
@@ -180,12 +183,14 @@ def run(lib: Any, filesystem: str, players: str, should_stop: Optional[Callable[
     try:
         status = lib.pdb_status()
     except Exception as exc:  # noqa: BLE001 - export.pdb illisible : une ligne rouge, pas une erreur
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         status = type("S", (), {"state": "unsupported", "detail": str(exc)})()
     checks.append(check_pdb(status))
     tracks = lib.list_tracks()
     try:
         marks = read_marks(lib, tracks, should_stop=should_stop)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         marks = None
     checks += check_tracks(lib, tracks, players, marks)
     checks.append(check_playlists(lib.list_playlists()))
@@ -193,6 +198,7 @@ def run(lib: Any, filesystem: str, players: str, should_stop: Optional[Callable[
     try:
         points = backups.list_points(lib.backup_dir)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         points = []
     checks.append(check_backup(points))
     return checks

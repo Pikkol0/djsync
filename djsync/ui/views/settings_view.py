@@ -7,6 +7,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,8 @@ from ..widgets import (
     ShrinkCombo, ShrinkLabel, WrapCheckBox, button, flow_row, hbox, icon_button, icon_label, label, line_edit, panel, vbox,
 )
 from .common import View
+
+log = logging.getLogger(__name__)
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
 KEY_NOTATIONS = ("auto", "camelot", "musical")
@@ -896,7 +899,7 @@ class SettingsView(View):
         try:
             s.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _show_rc_toggled", exc_info=True)  # 1.4.3 (A3-4)
         self.load_versions()
 
     def _install_update(self) -> None:
@@ -1063,7 +1066,7 @@ class SettingsView(View):
             try:
                 self.ctrl.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in show_section", exc_info=True)  # 1.4.3 (A3-4)
 
     def _scroll_to(self, key: str) -> None:
         head = getattr(self, "_heads", {}).get(key)
@@ -1681,7 +1684,7 @@ class SettingsView(View):
                 if path.is_file():
                     shutil.copy2(path, path.with_name(f"settings-before-reset-{_time.strftime('%Y%m%d-%H%M%S')}.json"))
             except OSError:
-                pass
+                log.debug("Ignored error in go", exc_info=True)  # 1.4.3 (A3-4)
             old = s.reset_to_defaults(keep_choices=keep.isChecked())
             s.save()
             self.ctrl.apply_settings()
@@ -1708,7 +1711,7 @@ class SettingsView(View):
         try:
             dlg.body.insertWidget(max(0, dlg.body.count() - 1), keep)
         except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
-            pass
+            log.debug("Ignored error in _reset_defaults", exc_info=True)  # 1.4.3 (A3-4)
 
     def unsaved(self) -> List[str]:
         """1.4.2 (A2-18) : réglages modifiés à l'écran mais pas encore enregistrés (ceux qui attendent

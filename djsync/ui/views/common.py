@@ -1,6 +1,8 @@
 """Éléments partagés par les vues Qt : classe de base, lignes de résultats, popup de téléchargement."""
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List, Optional, Sequence
 
 from PySide6.QtWidgets import QWidget
@@ -10,6 +12,8 @@ from ...models import TrackResult
 from .. import theme
 from ..dialogs import PlaylistPicker
 from ..widgets import Column, Row, TrackTable, hbox, label, vbox
+
+log = logging.getLogger(__name__)
 
 CHECKED, UNCHECKED = "■", "□"
 DOWNLOAD_GLYPH = "↓"            # colonne « télécharger ce son » (cliquable)
@@ -70,7 +74,7 @@ class View(QWidget):
             try:
                 self.ctrl.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in save", exc_info=True)  # 1.4.3 (A3-4)
 
         table.enable_layout(key, lambda: self.ctrl.settings.table_layouts, save, default_hidden, new_keys)
 

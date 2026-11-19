@@ -16,6 +16,7 @@ changer d'onglet la cache sans perdre les modifications ; « Retour » ou Échap
 """
 from __future__ import annotations
 
+import logging
 import copy
 from typing import Any, List, Optional, Tuple
 
@@ -33,6 +34,8 @@ from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
 from .widgets import button, hbox, icon_button, label, panel, restyle, vbox
+
+log = logging.getLogger(__name__)
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
 VIEW_CHOICES = (0.5, 1, 2, 4, 8, 16, 32, 64, 120)   # 1.3.2 (B53) : 0,5 s à 2 min (avant 2 à 32 s)
@@ -457,6 +460,7 @@ class GridEditor(QWidget):
 
             return timeline_lead_seconds(self.ctrl.library.absolute_path(track)) * 1000.0
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _timeline_lead", exc_info=True)  # 1.4.3 (A3-4)
             return 0.0
 
     def _player_seek(self, ms: float, flush: bool = True) -> None:
@@ -613,7 +617,7 @@ class GridEditor(QWidget):
             self.ctrl.settings.grid_magnet = self.magnet
             self.ctrl.settings.save()
         except Exception:  # noqa: BLE001 - réglage de confort
-            pass
+            log.debug("Ignored error in _magnet_changed", exc_info=True)  # 1.4.3 (A3-4)
 
     def snap_ms(self, ms: float, exact: bool = False, cursor: bool = False) -> float:
         """1.4.1 (C92) : position calée sur la grille. Curseur : seulement si l'aimant est mis. Cue : au temps
@@ -629,7 +633,7 @@ class GridEditor(QWidget):
             self.ctrl.settings.grid_fixed_cursor = bool(on)
             self.ctrl.settings.save()
         except Exception:  # noqa: BLE001 - réglage de confort
-            pass
+            log.debug("Ignored error in _set_fixed", exc_info=True)  # 1.4.3 (A3-4)
         self._magnet_enable()
         self._center()
         self.draw()
@@ -1179,6 +1183,7 @@ class GridEditor(QWidget):
         try:
             hz = float(self.screen().refreshRate() or 60.0)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _frame_interval", exc_info=True)  # 1.4.3 (A3-4)
             hz = 60.0
         best = max(7, int(1000.0 / min(max(hz, 30.0), 144.0)))
         cost = getattr(self.canvas, "paint_ms", 0.0)       # durée moyenne d'un dessin

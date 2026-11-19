@@ -180,6 +180,7 @@ class _Stream:
             else:
                 self._run_ffmpeg()
         except Exception as exc:  # noqa: BLE001 - signalé à l'interface
+            log.debug("Handled error in _run", exc_info=True)  # 1.4.3 (A3-4)
             self.error = str(exc) or exc.__class__.__name__
         finally:
             self.done = True
@@ -244,7 +245,7 @@ class _Stream:
             try:
                 self._proc.kill()
             except OSError:
-                pass
+                log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
 
 
 class AudioPlayer:
@@ -313,12 +314,13 @@ class AudioPlayer:
             if audio and audio.info and audio.info.length:
                 return float(audio.info.length)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in probe_duration", exc_info=True)  # 1.4.3 (A3-4)
         try:
             import miniaudio
 
             return float(miniaudio.get_file_info(path).duration)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in probe_duration", exc_info=True)  # 1.4.3 (A3-4)
             return 0.0
 
     # -------------------------------------------------------------- sortie audio
@@ -390,6 +392,7 @@ class AudioPlayer:
             next(pump)
             device.start(pump)
         except Exception as exc:  # noqa: BLE001 - pas de carte son, pilote absent...
+            log.debug("Handled error in _ensure_device", exc_info=True)  # 1.4.3 (A3-4)
             self._emit("error", f"Audio output unavailable: {exc}")
             return False
         self._device = device
@@ -618,5 +621,5 @@ class AudioPlayer:
             try:
                 self._device.close()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
             self._device = None

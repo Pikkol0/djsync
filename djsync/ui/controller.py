@@ -62,10 +62,8 @@ UPDATE_DELAY_MS = 6000       # nouvelle version de DJSync : vérifiée après le
 POLL_MS = 4000
 
 
-_OFFLINE = ("max retries exceeded", "failed to establish a new connection", "getaddrinfo failed",
-            "name or service not known", "temporary failure in name resolution", "nodename nor servname",
-            "network is unreachable", "no route to host", "unable to connect to proxy", "connecttimeout",
-            "connection refused", "urlopen error", "errno 11001")
+# 1.4.3 (A3-3) : déplacé dans core.nettools (core n'importe plus l'interface) ; gardé ici pour les appels existants
+from ..core.nettools import _OFFLINE, is_offline_error  # noqa: E402,F401
 
 
 # 1.4.0-rc.2 (B64, B66, B60) : erreurs fréquentes des sources, dites avec ce qu'il faut faire
@@ -83,19 +81,6 @@ def known_error(exc: Any) -> str:
     if "soundcloud" in text and ("http error 404" in text or "404: not found" in text):
         return "error.sc_private"
     return ""
-
-
-def is_offline_error(exc: Any) -> bool:
-    """Pas d'Internet (ou serveur injoignable) : message clair plutôt que la trace technique."""
-    try:
-        import requests
-
-        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-            return True
-    except ImportError:                 # pragma: no cover
-        pass
-    text = str(exc).lower()
-    return any(k in text for k in _OFFLINE)
 
 
 def _same_path(a: Any, b: Any) -> bool:
@@ -280,6 +265,42 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             except Exception:  # noqa: BLE001 - une vue en erreur ne doit pas casser les autres
                 log.exception("Listener %s", event)
 
+    LIBRARY_COALESCE_MS = 500
+
+    def _emit_library_soon(self) -> None:
+        """1.4.3 (A1-9) : évènement « library » regroupé (un au plus toutes les 500 ms) pour les rafales
+        (téléchargements, lots d'analyse) ; les actions de l'utilisateur gardent l'évènement immédiat."""
+        if self.__dict__.get("_library_pending"):
+            return
+        self._library_pending = True
+
+        def fire() -> None:
+            self._library_pending = False
+            self._emit("library")
+
+        try:
+            self.dispatcher.call_later(self.LIBRARY_COALESCE_MS, fire)
+        except Exception:  # noqa: BLE001 - répartiteur sans minuterie (tests) : évènement immédiat
+            log.debug("library event not delayed", exc_info=True)
+            fire()
+
+    def _refresh_library_async(self, lib: Any, then: Optional[Callable[[], None]] = None) -> None:
+        """1.4.3 (A1-9) : index des doublons rechargé hors du fil de l'interface (il relit toute la
+        bibliothèque sous le verrou) ; `then` dans le fil de l'interface ensuite."""
+        def work() -> None:
+            if self.library is lib:
+                self.service.refresh_library()
+
+        def done(_r: Any = None) -> None:
+            if then is not None:
+                then()
+
+        def failed(exc: BaseException) -> None:
+            log.info("Duplicate index not refreshed: %s", exc)
+            done()
+
+        self.dispatcher.submit(work, done, failed, pool="tools")
+
     # ------------------------------------------------------------------ 1.4.1 (C145) : tâches du volet
     def _sync_analysis_task(self) -> None:
         """File d'analyse -> tâche « analysis » (mêmes textes que l'ancienne carte : « 3 / 10  ·  son »,
@@ -369,6 +390,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 try:
                     running = bool(_local.rekordbox_running())
                 except Exception:  # noqa: BLE001 - simple conseil
+                    log.debug("Handled error in rekordbox_tip", exc_info=True)  # 1.4.3 (A3-4)
                     running = False
             return "\n\n💡 " + t("error.tip_rekordbox_open" if running else "error.tip_file_busy")
         return ""
@@ -443,6 +465,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         try:
             return lib.full_error(exc)
         except Exception:  # noqa: BLE001 - simple aiguillage du message
+            log.debug("Handled error in full_error", exc_info=True)  # 1.4.3 (A3-4)
             return None
 
     def key_full(self, exc: KeyFullError) -> None:
@@ -462,6 +485,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         try:
             return isinstance(drive, UsbDrive) and key_space.state(drive.db_path.parent)[0]
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in full_on_open", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def free_key_space(self, drive: UsbDrive) -> None:
@@ -706,7 +730,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 log.info("Drive %s: file system %s, export.pdb %s", target, drive_filesystem(target.root) or "?",
                          f"present ({pdb.stat().st_size} bytes)" if pdb.is_file() else "absent")
             except OSError:
-                pass
+                log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
             self.service.set_library(lib)
             if old is not None:
                 old.close()
@@ -870,7 +894,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 try:
                     alive = "full" if lib.full_state()[0] else alive
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in probe", exc_info=True)  # 1.4.3 (A3-4)
             t1 = time.perf_counter()
             drives = find_usb_drives()
             t2 = time.perf_counter()
@@ -1013,7 +1037,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             try:
                 self.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in feedback_client_id", exc_info=True)  # 1.4.3 (A3-4)
         return self.settings.feedback_id
 
     def album_tracks(self, browse_id: str, ok: Callback, err: Optional[Callback] = None) -> None:
@@ -1149,7 +1173,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
             set_enabled(not light_active(s))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in apply_settings", exc_info=True)  # 1.4.3 (A3-4)
         s.save()
         if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
             self.slsk_disconnect()

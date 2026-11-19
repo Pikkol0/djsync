@@ -9,6 +9,8 @@ explique à quoi elle sert.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Callable, List, Optional, Tuple
 
 from PySide6.QtCore import QEvent, QRect, Qt
@@ -18,6 +20,8 @@ from PySide6.QtWidgets import QWidget
 from ..i18n import t
 from . import theme
 from .widgets import button, hbox, label, panel, vbox
+
+log = logging.getLogger(__name__)
 
 OFFER_AT_START = True          # les tests le coupent (conftest) : aucune fenêtre de plus au démarrage
 
@@ -81,6 +85,7 @@ class TourOverlay(QWidget):
         try:
             w = self.steps[self.index][1](self.win)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _target", exc_info=True)  # 1.4.3 (A3-4)
             return None
         return w if w is not None and w.isVisible() else None
 

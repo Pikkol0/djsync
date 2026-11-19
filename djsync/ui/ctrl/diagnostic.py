@@ -79,6 +79,7 @@ def missing_reason(lib: Any, track: LibraryTrack) -> Optional[str]:
         vol = volume_root(path)
         return volume_label(vol) if vol is not None and not vol.exists() else ""
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in missing_reason", exc_info=True)  # 1.4.3 (A3-4)
         return None
 
 
@@ -91,6 +92,7 @@ def missing_map(lib: Any, tracks: Sequence[LibraryTrack]) -> Dict[int, str]:
         try:
             path = Path(lib.absolute_path(x))
         except Exception:  # noqa: BLE001
+            log.debug("Ignored error in missing_map", exc_info=True)  # 1.4.3 (A3-4)
             continue
         vol = volume_root(path)
         if vol is not None:
@@ -154,7 +156,7 @@ class DiagnosticMixin:
             if not duplicates:
                 rest = [x for x in rest if _exists(lib, x)]
             report = (lambda i, n: self.dispatcher.post(progress, i, n)) if progress else None
-            issues = find_issues(rest, lib.absolute_path, progress=report)
+            issues = find_issues(rest, lib.absolute_path, progress=report, pause=self._diag_pause)
             unmeasured: List[LibraryTrack] = []
             if not duplicates:
                 from ...analysis.spectrum import lookup
@@ -165,6 +167,17 @@ class DiagnosticMixin:
             return Diagnosis(groups, issues, unmeasured)
 
         self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok(Diagnosis())), pool="tools")
+
+    def _diag_pause(self, limit_s: float = 30.0) -> None:
+        """1.4.3 (B103, option A) : le Diagnostic passe après la lecture (pause tant qu'un son est joué,
+        30 s au plus d'affilée pour ne jamais rester bloqué)."""
+        import time
+
+        player = getattr(self, "player", None)
+        waited = 0.0
+        while getattr(player, "state", None) == "playing" and waited < limit_s:
+            time.sleep(0.25)
+            waited += 0.25
 
     def measure_quality(self, tracks: Optional[Sequence[LibraryTrack]], ok: Callable[[int], None],
                         progress: Optional[Callable[[int, int], None]] = None, force: bool = False) -> bool:
@@ -376,6 +389,7 @@ class DiagnosticMixin:
                 names = {p.playlist_id: p.name for p in lib.list_playlists()}
                 member = lib.playlists_of([x.content_id for x in missing])
             except Exception:  # noqa: BLE001 - la liste reste utile sans les playlists
+                log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 member = {}
             roots: List[Path] = [Path(lib.contents_root)]
             if not local:
@@ -564,6 +578,7 @@ def _hot_cue_count(lib: Any, cid: int) -> int:
     try:
         return sum(1 for c in lib.track_cues(cid) if c.slot)
     except Exception:  # noqa: BLE001 - pas analysé
+        log.debug("Handled error in _hot_cue_count", exc_info=True)  # 1.4.3 (A3-4)
         return 0
 
 

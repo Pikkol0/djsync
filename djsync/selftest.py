@@ -7,11 +7,14 @@ de l'exe (yt-dlp et ses extracteurs YouTube / SoundCloud compris) et que les out
 """
 from __future__ import annotations
 
+import logging
 import json
 import sys
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict
+
+log = logging.getLogger(__name__)
 
 MODULES = ("PySide6.QtWidgets", "numpy", "PIL", "mutagen", "miniaudio", "sqlcipher3", "pyrekordbox",
            "ytmusicapi", "requests", "rapidfuzz", "psutil")
@@ -46,6 +49,7 @@ def run(target: str) -> int:
         try:
             report["checks"][name] = {"ok": True, "value": fn()}
         except Exception as exc:  # noqa: BLE001 - tout est consigné dans le rapport
+            log.debug("Handled error in check", exc_info=True)  # 1.4.3 (A3-4)
             ok = False
             report["checks"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                                       "trace": traceback.format_exc()[-1500:]}

@@ -13,13 +13,18 @@ Les doublons viennent de core/duplicates.find_duplicate_groups ; la recherche d'
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from .duplicates import split_display
+
+log = logging.getLogger(__name__)
 
 # Seuils (kbit/s) en dessous desquels un son est « de mauvaise qualité »
 MIN_MP3 = 192
@@ -155,13 +160,64 @@ def clean_title(title: str) -> str:
     return " ".join(out.replace("()", "").replace("[]", "").split()).strip(" -|")
 
 
+# 1.4.3 (B103, option A) : en-têtes déjà lus, par (chemin, taille, date) : seul un son nouveau ou modifié
+# est relu au Diagnostic suivant (3,1 s à 5 000 sons au 1er passage, ÷10 ensuite).
+_HEADER_CACHE: Dict[Tuple[str, int, int], Tuple[str, int, int]] = {}
+_HEADER_CACHE_MAX = 50_000
+_cache_lock = threading.Lock()
+_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _stat_key(path: Path) -> Optional[Tuple[str, int, int]]:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return str(path), int(st.st_size), int(st.st_mtime_ns)
+
+
+def clear_probe_cache() -> None:
+    with _cache_lock:
+        _HEADER_CACHE.clear()
+        _cache_stats.update(hits=0, misses=0)
+
+
+def probe_cache_stats() -> Dict[str, int]:
+    with _cache_lock:
+        return dict(_cache_stats, size=len(_HEADER_CACHE))
+
+
 def probe(path: Path) -> AudioInfo:
-    """Format, débit et fréquence lus dans l'en-tête (rapide, sans décoder)."""
+    """Format, débit et fréquence lus dans l'en-tête (rapide, sans décoder). 1.4.3 (B103) : en cache par
+    (chemin, taille, date) ; la coupure du spectre (`known`) est toujours relue (elle change après une mesure)."""
+    from ..analysis.spectrum import known
+
+    key = _stat_key(Path(path))
+    if key is not None:
+        with _cache_lock:
+            hit = _HEADER_CACHE.get(key)
+            if hit is not None:
+                _cache_stats["hits"] += 1
+        if hit is not None:
+            codec, bitrate, rate = hit
+            return AudioInfo(codec=codec, bitrate=bitrate, sample_rate=rate, cutoff=known(path) or 0)
+    info = _probe_header(path)
+    if key is not None and info.codec:
+        with _cache_lock:
+            _cache_stats["misses"] += 1
+            if len(_HEADER_CACHE) >= _HEADER_CACHE_MAX:
+                _HEADER_CACHE.clear()
+            _HEADER_CACHE[key] = (info.codec, info.bitrate, info.sample_rate)
+    return info
+
+
+def _probe_header(path: Path) -> AudioInfo:
     try:
         import mutagen
 
         f = mutagen.File(str(path))
     except Exception:  # noqa: BLE001 - fichier illisible / manquant : rien à signaler ici
+        log.debug("Handled error in _probe_header", exc_info=True)  # 1.4.3 (A3-4)
         return AudioInfo()
     if f is None or getattr(f, "info", None) is None:
         return AudioInfo()
@@ -207,13 +263,16 @@ def low_quality(info: AudioInfo) -> Optional[str]:
 
 def find_issues(tracks: Iterable[Any], path_of: Callable[[Any], Path],
                 prober: Optional[Callable[[Path], AudioInfo]] = None,
-                progress: Optional[Callable[[int, int], None]] = None) -> List[QualityIssue]:
+                progress: Optional[Callable[[int, int], None]] = None,
+                pause: Optional[Callable[[], None]] = None) -> List[QualityIssue]:
     """Sons à remplacer : mauvaise source d'abord (titre), puis débit trop faible. Un son n'apparaît
     qu'une fois (la mauvaise source l'emporte : la retélécharger règle aussi la qualité)."""
     prober = prober or probe
     items = list(tracks)
     issues: List[QualityIssue] = []
     for i, track in enumerate(items):
+        if pause is not None:
+            pause()                     # 1.4.3 (B103) : attend pendant la lecture (priorité basse)
         info = prober(path_of(track))
         reason = bad_source(track.title)
         if reason:

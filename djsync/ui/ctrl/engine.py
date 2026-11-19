@@ -42,7 +42,7 @@ class EngineMixin:
             try:
                 s.save()
             except OSError:
-                pass
+                log.debug("Ignored error in done", exc_info=True)  # 1.4.3 (A3-4)
             self.available_update = update
             self._emit("app_update_state")
             if update is not None and result is None:      # « Tout vérifier » : ligne d'état, pas de fenêtre

@@ -311,7 +311,7 @@ class LibraryOpsMixin:
                     usage = shutil.disk_usage(existing_parent(d.root))
                     s.total, s.free = usage.total, usage.free
                 except OSError:
-                    pass
+                    log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
                 if connected:
                     try:
                         s.tracks = lib.track_count()
@@ -320,7 +320,7 @@ class LibraryOpsMixin:
                         s.pdb_state = str(getattr(lib, "pdb_state", "") or "")
                         s.pdb_problem = str(getattr(lib, "pdb_problem", "") or "")
                     except LibraryError:
-                        pass
+                        log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
                 out.append(s)
             return out
 
@@ -511,6 +511,7 @@ class LibraryOpsMixin:
             try:
                 checked = grid_marks.load(lib.backup_dir)
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 checked = set()
             for cid in ids:
                 out[cid]["grid_checked"] = cid in checked
@@ -676,6 +677,7 @@ class LibraryOpsMixin:
             try:
                 track = lib.get_track(cid)
             except Exception:  # noqa: BLE001 - son disparu : l'analyse le signalera
+                log.debug("Handled error in _skip_missing", exc_info=True)  # 1.4.3 (A3-4)
                 keep.append(cid)
                 continue
             reason = missing_reason(lib, track)
@@ -754,8 +756,8 @@ class LibraryOpsMixin:
     def _analysis_batch_saved(self, lib: Any) -> None:
         """Un lot vient d'être enregistré : la bibliothèque affichée suit (pastilles, BPM, « À analyser »)."""
         if self.library is lib and self.analysis.running:
-            self.service.refresh_library()
-            self._emit("library")
+            # 1.4.3 (A1-9) : index des doublons hors du fil de l'interface, évènement regroupé
+            self._refresh_library_async(lib, self._emit_library_soon)
 
     def pause_analysis(self, paused: bool = True) -> None:
         """1.4.1 (C145) : pause (le son en cours finit, le suivant attend) ou reprise de l'analyse."""
@@ -930,6 +932,7 @@ class LibraryOpsMixin:
         try:
             return int(content_id) in grid_marks.load(lib.backup_dir)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in grid_checked", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def save_grid_and_cues(self, content_id: int, beats: Optional[Sequence[Any]], cues: Optional[Sequence[Any]],
@@ -1055,6 +1058,7 @@ class LibraryOpsMixin:
                 try:
                     out[x.content_id] = list(lib.track_cues(x.content_id))
                 except Exception:  # noqa: BLE001 - pas analysé
+                    log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                     out[x.content_id] = []
             return out
 
@@ -1142,7 +1146,7 @@ class LibraryOpsMixin:
             try:
                 self.service.refresh_library()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in flush_merges", exc_info=True)  # 1.4.3 (A3-4)
         return n
 
     def _merge_job(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str], artist: Optional[str],

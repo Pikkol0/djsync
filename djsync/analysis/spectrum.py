@@ -222,6 +222,7 @@ def measure(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
 
             duration = float(mutagen.File(str(path)).info.length or 0)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in measure", exc_info=True)  # 1.4.3 (A3-4)
             duration = 0.0
     starts = [max(0.0, duration * p - SLICE / 2) for p in POSITIONS] if duration > SLICE else [0.0]
     feats = []

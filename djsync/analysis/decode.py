@@ -6,6 +6,7 @@ décodent aussi sans FFmpeg (module `wave` standard), ce qui sert aux tests et a
 """
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 ANALYSIS_SR = 22050          # suffisant pour BPM/tonalité/formes d'onde (bande utile < 11 kHz)
 
@@ -125,7 +128,7 @@ def mp4_timing(path: Union[str, Path]) -> dict:
             if m:
                 out["itunsmpb_delay"] = int(m.group(2), 16)
     except Exception:  # noqa: BLE001 - diagnostic seulement
-        pass
+        log.debug("Ignored error in mp4_timing", exc_info=True)  # 1.4.3 (A3-4)
     return out
 
 
@@ -156,6 +159,7 @@ def _native_rate(path: Path) -> int:
         info = mutagen.File(str(path)).info
         return int(getattr(info, "sample_rate", 0) or 44100)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in _native_rate", exc_info=True)  # 1.4.3 (A3-4)
         return 44100
 
 
@@ -197,6 +201,7 @@ def _duration_hint(path: Path) -> float:
         info = mutagen.File(str(path)).info
         return float(getattr(info, "length", 0.0) or 0.0)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in _duration_hint", exc_info=True)  # 1.4.3 (A3-4)
         return 0.0
 
 

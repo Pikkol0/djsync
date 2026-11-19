@@ -9,6 +9,8 @@ liste toute la playlist (titre, durée, vignette, vues) sans résoudre chaque vi
 """
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 
 import re
@@ -16,6 +18,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from ..models import ResolvedUrl, TrackResult, UrlKind
+
+log = logging.getLogger(__name__)
 
 MAX_ENTRIES = 200
 
@@ -157,6 +161,7 @@ def _complete_soundcloud(entries: List[Dict[str, Any]],
     try:
         found = details([i for i in ids if i])
     except Exception:  # noqa: BLE001 - au pire, la liste reste telle quelle
+        log.debug("Handled error in _complete_soundcloud", exc_info=True)  # 1.4.3 (A3-4)
         found = {}
     out = []
     for e, i in zip(entries, ids):

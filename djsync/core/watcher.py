@@ -59,6 +59,7 @@ class FolderWatch:
             try:
                 st = p.stat()
             except OSError:
+                log.debug("Ignored error in stable_files", exc_info=True)  # 1.4.3 (A3-4)
                 continue
             sig = (st.st_size, st.st_mtime)
             current[str(p)] = sig

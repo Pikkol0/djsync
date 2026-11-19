@@ -9,6 +9,8 @@ arrière-plan (file commune du contrôleur), progression, arrêt.
 """
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,6 +31,8 @@ from ..widgets import (
 )
 from .common import focus_list, View
 from .cue_column import cue_values, cue_column
+
+log = logging.getLogger(__name__)
 
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
@@ -683,9 +687,24 @@ class LibraryView(View):
                     pass
             watch_rows = any(self._is_watch_playlist(p) for p in self.playlists) and not self.table.isColumnHidden(
                 self.table.column_index("source"))           # 1.4.0-rc.6 (C160) : œil des sons d'avant la rc.5
-            if not self._dirty and (self.current == ORPH or watch_rows or not self.table.isColumnHidden(
-                    self.table.column_index("playlists"))):
+            show_pl = not self.table.isColumnHidden(self.table.column_index("playlists"))
+            if not self._dirty and self.current == ORPH:
                 self._fill_table()
+            elif not self._dirty and (watch_rows or show_pl):
+                # 1.4.3 (A1-9) : cellules mises à jour au lieu d'un 2e remplissage complet du tableau
+                vals: Dict[str, Dict[str, Any]] = {}
+                for r in self.table.all_rows():
+                    x = r.data
+                    if x is None:
+                        continue
+                    v: Dict[str, Any] = {}
+                    if show_pl:
+                        v.update(self._playlist_values(x))
+                    if watch_rows:
+                        v.update(self._source_values(x))
+                    vals[r.iid] = v
+                self.table.update_many(vals)
+                self._show_header()
             elif self.current == ALL:
                 self._show_header()
 
@@ -847,7 +866,7 @@ class LibraryView(View):
         try:
             self.table.set_column_visible("mytags", True)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in _show_mytags_once", exc_info=True)  # 1.4.3 (A3-4)
 
     def _extra_values(self, x: Optional[LibraryTrack]) -> Dict[str, Any]:
         if x is None:
@@ -1117,7 +1136,7 @@ class LibraryView(View):
         try:
             self.ctrl.settings.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _sort_changed", exc_info=True)  # 1.4.3 (A3-4)
         self._refresh_buttons()
 
     def _refresh_buttons(self) -> None:

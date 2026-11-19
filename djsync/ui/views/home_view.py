@@ -5,6 +5,8 @@ export.pdb, et l'action utile (connecter, ouvrir la bibliothèque, analyser).
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List
 
 from PySide6.QtCore import QSize, Qt
@@ -16,6 +18,8 @@ from ..ctrl.library_ops import DriveSummary
 from ..icons import qicon
 from ..widgets import ColumnsBox, FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
+
+log = logging.getLogger(__name__)
 
 
 # 1.4.2 (C182) : « À régler » : onglets du Diagnostic avec leur compteur
@@ -219,6 +223,7 @@ class HomeView(View):
         try:
             counted = "missing" in self.ctrl.diag_counts
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in on_show", exc_info=True)  # 1.4.3 (A3-4)
             counted = True
         # 1.4.2 (B103) : seulement avec « Analyser à l'ouverture » ; sinon les derniers chiffres retenus
         if self.ctrl.has_library and not counted and self.ctrl.diag_auto():
@@ -229,6 +234,7 @@ class HomeView(View):
         try:
             counts = dict(self.ctrl.diag_counts)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _todo_refresh", exc_info=True)  # 1.4.3 (A3-4)
             counts = {}
         has = bool(self.ctrl.has_library)
         try:

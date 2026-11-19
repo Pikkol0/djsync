@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, List, Optional, Sequence
 
 from PySide6.QtWidgets import QCheckBox, QComboBox, QSpinBox
@@ -25,6 +27,8 @@ from .dialogs import BaseDialog, ConfirmDialog
 from .views.cue_column import cue_column, cue_values
 from .views.cue_column import fill as cue_column_fill
 from .widgets import Column, Row, TrackTable, button, hbox, label, line_edit
+
+log = logging.getLogger(__name__)
 
 FLAG_KEYS = ("video", "fake", "under")
 
@@ -104,7 +108,7 @@ class QualityPage(BaseDialog):
             try:
                 controller.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in _save", exc_info=True)  # 1.4.3 (A3-4)
 
         self.table.enable_layout("quality", lambda: controller.settings.table_layouts, _save)
         self.table.set_empty("search", t("quality.empty"))

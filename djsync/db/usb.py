@@ -260,7 +260,7 @@ def _mount_table() -> List[tuple]:
                     out.append((parts[1].replace("\\040", " "), parts[2]))
         return out
     except OSError:
-        pass
+        log.debug("Ignored error in _mount_table", exc_info=True)  # 1.4.3 (A3-4)
     import re
     import subprocess
 

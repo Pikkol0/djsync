@@ -15,6 +15,8 @@ from rapidfuzz import fuzz
 
 from ..models import TrackResult
 
+log = logging.getLogger(__name__)
+
 # Mentions parasites entre () ou [] : "(Official Video)", "[Remastered 2011]"...
 _BRACKETS = re.compile(r"[\(\[][^\)\]]*[\)\]]")
 # "feat. X", "ft. X", "featuring X" jusqu'à la fin de la chaîne
@@ -277,6 +279,7 @@ def _duplicate_groups(items: List[Any], title_threshold: int, max_duration_gap: 
     try:
         pairs = list(_similar_pairs(titles, title_threshold))
     except Exception:  # noqa: BLE001 - repli sans numpy
+        log.debug("Handled error in _duplicate_groups", exc_info=True)  # 1.4.3 (A3-4)
         pairs = ((i, j) for i in range(len(items)) for j in range(i + 1, len(items))
                  if fuzz.ratio(titles[i], titles[j]) >= title_threshold)
     ignored = ignored or set()

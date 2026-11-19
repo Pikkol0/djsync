@@ -8,6 +8,8 @@ tester la 1.3.0 avant de passer à la 1.3.1.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
@@ -19,6 +21,8 @@ from ..i18n import t
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog
 from .widgets import button, hbox, label
+
+log = logging.getLogger(__name__)
 
 
 class VersionDialog(BaseDialog):
@@ -96,7 +100,7 @@ class VersionDialog(BaseDialog):
         try:
             s.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _channel_changed", exc_info=True)  # 1.4.3 (A3-4)
         if self._on_channel is not None:
             self._on_channel(on)
         self._load()

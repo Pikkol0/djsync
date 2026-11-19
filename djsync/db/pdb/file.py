@@ -373,6 +373,7 @@ class PdbFile:
             try:
                 chain = self.chain(ttype)
             except PdbFormatError:
+                log.debug("Ignored error in index_link_problems", exc_info=True)  # 1.4.3 (A3-4)
                 continue
             idx = self.page(chain[0])
             data = [p for p in chain if not self.page(p).is_index]
@@ -398,6 +399,7 @@ class PdbFile:
             try:
                 chain = self.chain(ttype)
             except PdbFormatError:
+                log.debug("Ignored error in _repair_index_links", exc_info=True)  # 1.4.3 (A3-4)
                 continue
             idx = self.page(chain[0])
             data = [p for p in chain if not self.page(p).is_index]

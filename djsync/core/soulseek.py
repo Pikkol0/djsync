@@ -281,7 +281,7 @@ class SoulseekClient:
             try:                                    # tâches de fond arrêtées proprement
                 await client.stop()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in _start", exc_info=True)  # 1.4.3 (A3-4)
             raise
         self._client = client
         self.metrics.connected = True
@@ -360,7 +360,7 @@ class SoulseekClient:
             try:
                 self._client.searches.remove_request(request)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in search", exc_info=True)  # 1.4.3 (A3-4)
             found = list(request.results)
             log.info("Soulseek search %r: %d answers in %.1f s (attempt %d)", query, len(found),
                      time.monotonic() - started, attempt)

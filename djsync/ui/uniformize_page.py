@@ -16,6 +16,7 @@ Rien n'est écrit avant « Enregistrer » ; la progression est gardée entre deu
 """
 from __future__ import annotations
 
+import logging
 import base64
 from typing import Any, Callable, Dict, List, Optional
 
@@ -31,6 +32,8 @@ from ..models import LibraryTrack
 from . import theme
 from .icons import qicon
 from .widgets import button, chip, hbox, label, restyle, vbox
+
+log = logging.getLogger(__name__)
 
 STATES = ("todo", "validated", "ignored", "applied", "clean", "scanning")
 FIELDS = ("title", "artist", "album", "year", "genre")
@@ -385,6 +388,7 @@ class TrackBlock(QFrame):
             if path is not None and path.is_file():
                 data = path.read_bytes()
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _load_covers", exc_info=True)  # 1.4.3 (A3-4)
             data = b""
         self._now_bytes = data
         pix = _pix(data, theme.px(COVER))

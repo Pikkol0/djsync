@@ -13,6 +13,7 @@ aperçu bleu (liste, aperçu du morceau entier) au lieu de l'aperçu 3 bandes de
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import struct
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .waveform import Waveforms
+
+log = logging.getLogger(__name__)
 
 ANLZ_ROOT = "PIONEER/USBANLZ"
 
@@ -169,6 +172,7 @@ def choose_anlz_base(drive_root: Path, track_path: str) -> str:
             if read_path(dat.read_bytes()).casefold() == track_path.casefold():
                 return f"{rel_dir}/ANLZ{n:04d}"
         except (OSError, ValueError, UnicodeDecodeError):
+            log.debug("Ignored error in choose_anlz_base", exc_info=True)  # 1.4.3 (A3-4)
             continue
     raise OSError("no free analysis folder found")
 

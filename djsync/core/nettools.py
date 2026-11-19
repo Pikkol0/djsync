@@ -50,3 +50,23 @@ def clear() -> None:
     """Oublie tout (tests, changement de dossier des outils)."""
     with _which_lock:
         _which.clear()
+
+
+# 1.4.3 (A3-3) : venu de ui.controller
+_OFFLINE = ("max retries exceeded", "failed to establish a new connection", "getaddrinfo failed",
+            "name or service not known", "temporary failure in name resolution", "nodename nor servname",
+            "network is unreachable", "no route to host", "unable to connect to proxy", "connecttimeout",
+            "connection refused", "urlopen error", "errno 11001")
+
+
+def is_offline_error(exc: Any) -> bool:
+    """Pas d'Internet (ou serveur injoignable) : message clair plutôt que la trace technique."""
+    try:
+        import requests
+
+        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+            return True
+    except ImportError:                 # pragma: no cover
+        pass
+    text = str(exc).lower()
+    return any(k in text for k in _OFFLINE)

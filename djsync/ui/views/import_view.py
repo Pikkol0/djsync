@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
@@ -21,6 +23,8 @@ from ..dialogs import BaseDialog
 from .. import theme
 from ..widgets import Column, Row, TrackTable, button, chip, hbox, icon_label, label, line_edit, panel
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
+
+log = logging.getLogger(__name__)
 
 STATUS_TEXT = LazyLabels(lambda: {"ok": "import.st_ok", "review": "import.st_review", "missing": "import.st_missing",
                                   "duplicate": "import.st_duplicate"})
@@ -193,6 +197,7 @@ class ImportView(View):
         try:
             text = QApplication.clipboard().text().strip()
         except Exception:  # noqa: BLE001 - presse-papiers vide/inaccessible
+            log.debug("Handled error in _paste_clipboard", exc_info=True)  # 1.4.3 (A3-4)
             return
         self.url.setText(text)
         if text:

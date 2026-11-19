@@ -7,6 +7,8 @@ choisi ; l'état actuel est d'abord mis de côté, la restauration peut donc êt
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List, Optional
 
 from PySide6.QtCore import Qt
@@ -16,6 +18,8 @@ from ..i18n import t
 from . import theme
 from .dialogs import BaseDialog, ConfirmDialog, TextInputDialog
 from .widgets import button, hbox, label
+
+log = logging.getLogger(__name__)
 
 
 def _size(n: int) -> str:
@@ -45,7 +49,7 @@ def point_detail(p: Any) -> str:
     try:
         parts.append(_size(p.size))
     except OSError:
-        pass
+        log.debug("Ignored error in point_detail", exc_info=True)  # 1.4.3 (A3-4)
     if not p.has_pdb:
         parts.append(t("backups.no_pdb"))
     return " · ".join(parts)
