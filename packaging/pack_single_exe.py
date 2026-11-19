@@ -27,7 +27,14 @@ def pack(launcher: Path, app_dir: Path, version: str, out: Path) -> int:
     files = sorted(p for p in app_dir.rglob("*") if p.is_file())
     with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for f in files:
-            zf.write(f, f.relative_to(app_dir).as_posix())
+            # 1.4.3 (C72) : date fixe et mêmes attributs : un fichier identique d'une version à l'autre donne
+            # les mêmes octets dans le zip, et la mise à jour depuis l'application ne télécharge que le reste
+            info = zipfile.ZipInfo(f.relative_to(app_dir).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            with open(f, "rb") as src, zf.open(info, "w", force_zip64=f.stat().st_size > 0x7FFFFFFF) as dst:
+                while chunk := src.read(1 << 20):
+                    dst.write(chunk)
     head = launcher.read_bytes()
     with open(out, "wb") as fh:
         fh.write(head)
