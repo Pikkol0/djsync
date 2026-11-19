@@ -1259,54 +1259,39 @@ class LocalRekordboxLibrary:
                        should_stop: Optional[Callable[[], bool]] = None, chunk: int = 8) -> Tuple[int, int, int]:
         """Analyse les sons sans analyse ; avec `force`, réanalyse AUSSI ceux que DJSync a créés, et
         greffe dans les analyses de Rekordbox les parties de `native_parts` (1.4.1, D20 ; vide = laissées
-        telles quelles). Renvoie (analysés, ignorés, échecs)."""
-        ids = list(dict.fromkeys(int(c) for c in content_ids))
+        telles quelles). Renvoie (analysés, ignorés, échecs). 1.4.3 (A3-7) : déroulé commun avec la clé
+        (db/analysis_flow.py) ; chaque son est enregistré tout de suite (`chunk` sans effet ici)."""
+        from .analysis_flow import DONE, FAILED, SKIP, Step, run_analysis
+
         owned = self.owned.all()
-        done = skipped = failed = 0
-        for i, cid in enumerate(ids, start=1):
-            if should_stop and should_stop():
-                break
-            problem = ""
-            try:
-                track = self.get_track(cid)
-                rows = self._read("SELECT UUID, COALESCE(SampleRate,44100) FROM djmdContent WHERE ID = :id",
-                                  {"id": str(cid)})
-                uuid, rate = rows[0]
-                parts = tuple(p for p in self.native_parts if p in NATIVE_PARTS) if force else ()
-                if track.is_analysed and uuid not in owned:
-                    if parts:                           # 1.4.1 (C131) : son de Rekordbox, reste non « owned »
-                        self._native_reanalyse(cid, track, uuid, parts)
-                        done += 1
-                    else:
-                        skipped += 1
-                elif track.is_analysed and not force:
-                    skipped += 1
-                else:
-                    path = Path(track.path)
-                    if not path.is_file():
-                        raise LibraryError(f"File not found: {path}")
-                    self.ensure_writable()
-                    ex = self._prepare(path, track.file_type, int(rate), uuid, analysis=True,
-                                       cover=not track.artwork_path)
-                    if ex.analysis is None:
-                        failed += 1
-                        problem = "; ".join(ex.problems)
-                    else:
-                        with self._write() as db:
-                            self._apply_extras(db, self._content(cid), ex)
-                        self.owned.add(uuid)
-                        done += 1
-                        problem = "; ".join(ex.problems)
-            except LibraryError as exc:
-                failed += 1
-                problem = str(exc)
-            if on_progress:
-                try:
-                    t = self.get_track(cid)
-                except LibraryError:
-                    t = None
-                on_progress(i, len(ids), t, problem)
-        return done, skipped, failed
+
+        def step(cid: int) -> Step:
+            track = self.get_track(cid)
+            rows = self._read("SELECT UUID, COALESCE(SampleRate,44100) FROM djmdContent WHERE ID = :id",
+                              {"id": str(cid)})
+            uuid, rate = rows[0]
+            parts = tuple(p for p in self.native_parts if p in NATIVE_PARTS) if force else ()
+            if track.is_analysed and uuid not in owned:
+                if parts:                               # 1.4.1 (C131) : son de Rekordbox, reste non « owned »
+                    self._native_reanalyse(cid, track, uuid, parts)
+                    return Step(DONE)
+                return Step(SKIP)
+            if track.is_analysed and not force:
+                return Step(SKIP)
+            path = Path(track.path)
+            if not path.is_file():
+                raise LibraryError(f"File not found: {path}")
+            self.ensure_writable()
+            ex = self._prepare(path, track.file_type, int(rate), uuid, analysis=True,
+                               cover=not track.artwork_path)
+            if ex.analysis is None:
+                return Step(FAILED, "; ".join(ex.problems))
+            with self._write() as db:
+                self._apply_extras(db, self._content(cid), ex)
+            self.owned.add(uuid)
+            return Step(DONE, "; ".join(ex.problems))
+
+        return run_analysis(content_ids, step, self.get_track, None, chunk, on_progress, should_stop)
 
     # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
     def native_ids(self, content_ids: Sequence[int]) -> set:
@@ -1410,8 +1395,9 @@ class LocalRekordboxLibrary:
 
     def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
                         key: Optional[str] = None) -> LibraryTrack:
-        """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante au lieu de recalculer."""
-        from ..analysis.anlz import _write_atomic, retarget
+        """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante au lieu de recalculer.
+        1.4.3 (A3-7) : écriture des fichiers commune avec la clé."""
+        from .analysis_flow import write_imported
 
         self.ensure_writable()
         rows = self._read("SELECT FolderPath, AnalysisDataPath, UUID FROM djmdContent WHERE ID = :id",
@@ -1422,13 +1408,9 @@ class LocalRekordboxLibrary:
         if anlz or ".DAT" not in files:
             return self.get_track(content_id)
         rel_dir = f"/PIONEER/USBANLZ/{self._uuid_dir(uuid)}"
-        written = []
+        written = write_imported(files, lambda ext: self.share_dir / rel_dir.lstrip("/") / f"ANLZ0000{ext}",
+                                 f"?/{Path(folder_path).name}")
         try:
-            for ext, data in files.items():
-                target = self.share_dir / rel_dir.lstrip("/") / f"ANLZ0000{ext}"
-                target.parent.mkdir(parents=True, exist_ok=True)
-                _write_atomic(target, retarget(data, f"?/{Path(folder_path).name}"))
-                written.append(target)
             with self._write() as db:
                 c = self._content(content_id)
                 if bpm > 0:
@@ -1579,66 +1561,33 @@ class LocalRekordboxLibrary:
         return (dat if dat.is_file() else None), (ext if ext.is_file() else None)
 
     def beat_grid(self, content_id: int) -> BeatGrid:
-        from ..analysis.anlz import read_beats
+        from .analysis_flow import read_grid
 
         rows = self._read("SELECT AnalysisDataPath, COALESCE(Length,0), UUID FROM djmdContent WHERE ID = :id",
                           {"id": str(content_id)})
-        if not rows:
-            raise TrackNotFoundError(f"Track not found (id {content_id}).")
-        anlz, length, uuid = rows[0]
-        if not anlz:
-            raise LibraryError("This track is not analysed yet: run the analysis first.")
-        dat = self.absolute_path(anlz)
-        try:
-            beats = read_beats(dat.read_bytes())
-        except (OSError, ValueError) as exc:
-            raise LibraryError(f"Unreadable analysis file: {exc}") from exc
-        if not beats:
-            raise LibraryError("This track has no beat grid.")
-        return BeatGrid(content_id, beats, int(length) * 1000, dat, uuid not in self.owned.all())
+        return read_grid(content_id, rows[0][:2] if rows else None, self.absolute_path,
+                         lambda: rows[0][2] not in self.owned.all())
 
     def save_beat_grid(self, content_id: int, beats: Sequence[Tuple[int, int, int]]) -> LibraryTrack:
-        from ..analysis.anlz import _write_atomic, drop_extended_grid, replace_beats
+        """1.4.3 (A3-7) : fichiers (copie, réécriture, retour en cas d'échec) communs avec la clé."""
+        from .analysis_flow import check_beats, prepare_grid
 
         self.ensure_writable()
-        beats = [(int(n), int(t), int(ms)) for n, t, ms in beats]
-        if len(beats) < 2 or any(b[2] >= c[2] for b, c in zip(beats, beats[1:])):
-            raise LibraryError("Invalid grid (at least two beats, increasing positions).")
-        grid = self.beat_grid(content_id)
-        files = [f for f in [grid.dat_path] + [grid.dat_path.with_suffix(s) for s in (".EXT", ".2EX")] if f.is_file()]
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}"
-        backup.mkdir(parents=True, exist_ok=True)
-        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
-
-        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
-        originals = {f: f.read_bytes() for f in files}
-        for f, data in originals.items():
-            (backup / f.name).write_bytes(data)
-        new = {grid.dat_path: replace_beats(originals[grid.dat_path], beats)}
-        for f in files[1:]:
-            changed = drop_extended_grid(originals[f])
-            if changed != originals[f]:
-                new[f] = changed
-        tempos = sorted(b[1] for b in beats)
+        check_beats(beats)
+        change = prepare_grid(self.beat_grid(content_id), beats, self.backup_dir, content_id)
         try:
-            for f, data in new.items():
-                _write_atomic(f, data)
+            change.write()
             with self._write() as db:
                 c = self._content(content_id)
-                c.BPM = tempos[len(tempos) // 2]
+                c.BPM = change.bpmx100
                 c.AnalysisUpdated = str(int(c.AnalysisUpdated or 0) + 1)
                 c.updated_at = datetime.now()
                 anlz = c.AnalysisDataPath or ""
-                for f in new:
+                for f in change.new:
                     rel = anlz[:-4] + f.suffix
                     self._file_row(db, c, rel)
         except BaseException:
-            for f, data in originals.items():
-                try:
-                    _write_atomic(f, data)
-                except OSError:
-                    log.error("Could not restore %s (copy in %s)", f, backup)
+            change.restore()
             raise
         return self.get_track(content_id)
 

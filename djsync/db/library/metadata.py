@@ -413,68 +413,34 @@ class MetadataMixin:
         return (dat if dat.is_file() else None), (ext if ext.is_file() else None)
 
     def beat_grid(self, content_id: int) -> BeatGrid:
-        from ...analysis.anlz import read_beats
+        from ..analysis_flow import read_grid
 
         rows = self._read("SELECT analysisDataFilePath, COALESCE(length,0), masterDbId FROM content WHERE content_id = ?",
                           (content_id,))
-        if not rows:
-            raise TrackNotFoundError(f"Track not found (id {content_id}).")
-        anlz, length, master = rows[0]
-        if not anlz:
-            raise LibraryError("This track is not analysed yet: run the analysis first.")
-        dat = self.absolute_path(anlz)
-        try:
-            beats = read_beats(dat.read_bytes())
-        except (OSError, ValueError) as exc:
-            raise LibraryError(f"Unreadable analysis file: {exc}") from exc
-        if not beats:
-            raise LibraryError("This track has no beat grid.")
-        return BeatGrid(content_id, beats, int(length) * 1000, dat, master is not None)
+        return read_grid(content_id, rows[0][:2] if rows else None, self.absolute_path,
+                         lambda: rows[0][2] is not None)
 
     def save_beat_grid(self, content_id: int, beats: Sequence[Tuple[int, int, int]]) -> LibraryTrack:
         """Enregistre une grille corrigée : .DAT réécrit (PQTZ), grille étendue PQT2 retirée des
         .EXT/.2EX, BPM mis à jour dans la base et export.pdb. Les fichiers d'origine sont copiés dans
-        DJSync_Backups/anlz/<date>/ avant toute écriture."""
-        from ...analysis.anlz import _write_atomic, drop_extended_grid, replace_beats
+        DJSync_Backups/anlz/<date>/ avant toute écriture. 1.4.3 (A3-7) : fichiers communs avec master.db."""
+        from ..analysis_flow import check_beats, prepare_grid
 
         if self.read_only:
             raise ReadOnlyError("Library opened read-only.")
-        beats = [(int(n), int(t), int(ms)) for n, t, ms in beats]
-        if len(beats) < 2 or any(b[2] >= c[2] for b, c in zip(beats, beats[1:])):
-            raise LibraryError("Invalid grid (at least two beats, increasing positions).")
-        grid = self.beat_grid(content_id)
-        files = [grid.dat_path] + [grid.dat_path.with_suffix(s) for s in (".EXT", ".2EX")]
-        files = [f for f in files if f.is_file()]
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}"
-        backup.mkdir(parents=True, exist_ok=True)
-        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
-        originals = {f: f.read_bytes() for f in files}
-        for f, data in originals.items():
-            (backup / f.name).write_bytes(data)
-        new = {grid.dat_path: replace_beats(originals[grid.dat_path], beats)}
-        for f in files[1:]:
-            changed = drop_extended_grid(originals[f])
-            if changed != originals[f]:
-                new[f] = changed
-        tempos = sorted(b[1] for b in beats)
-        bpmx100 = tempos[len(tempos) // 2]
+        check_beats(beats)
+        change = prepare_grid(self.beat_grid(content_id), beats, self.backup_dir, content_id)
         try:
-            for f, data in new.items():
-                _write_atomic(f, data)
+            change.write()
             with self._write() as conn:
                 row = conn.execute("SELECT path, COALESCE(analysisDataUpdateCount,0) FROM content WHERE content_id = ?",
                                    (content_id,)).fetchone()
                 conn.execute("UPDATE content SET bpmx100 = ?, analysisDataUpdateCount = ? WHERE content_id = ?",
-                             (bpmx100, int(row[1]) + 1, content_id))
+                             (change.bpmx100, int(row[1]) + 1, content_id))
                 if row[0]:
                     self._pdb_mark(TRACK_FIELDS, row[0])
         except BaseException:
-            for f, data in originals.items():          # retour à l'état d'origine
-                try:
-                    _write_atomic(f, data)
-                except OSError:
-                    log.error("Could not restore %s (copy in %s)", f, backup)
+            change.restore()                            # retour à l'état d'origine
             raise
         return self.get_track(content_id)
 
