@@ -1,6 +1,8 @@
 """Connexion à exportLibrary.db (SQLCipher, WAL), transactions atomiques, sauvegardes."""
 from __future__ import annotations
 
+import time
+
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 
 
@@ -60,6 +62,14 @@ class LibraryBase:
         # suppressions / renommages / infos modifiées sont notés dans un journal sur la clé.
         self._txn_marks: List[Any] = []
         self._pdb_dirty = False
+        # 1.4.3 (A1-2) : hors lot, export.pdb est réécrit `pdb_delay` s après la dernière écriture (une seule fois
+        # pour une rafale de téléchargements ou d'analyses), et toujours avant fermeture, éjection, « Prêt pour le
+        # set » ou toute lecture de son état (`pdb_status`). 0 = tout de suite (défaut ; l'application met 3 s).
+        self.pdb_delay = 0.0
+        self.pdb_delay_max = 30.0                   # rafale sans fin : réécrit quand même toutes les 30 s
+        self._pdb_timer: Optional[threading.Timer] = None
+        self.recovery: Any = None                   # 1.4.3 (A6-1) : reprise faite à l'ouverture (recover.Recovery)
+        self._pdb_pending_since = 0.0
         # ---- analyse / pochettes (V1.1-A4)
         self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
         self.auto_cue = False                       # V0.5.0 : mémoire cue sur le premier temps fort
@@ -94,6 +104,10 @@ class LibraryBase:
         with self._lock:
             if self._conn is not None:
                 return self
+            from ..recover import recover
+
+            # 1.4.3 (A6-1) : remplacement interrompu (clé retirée) : copie temporaire valide remise en place
+            self.recovery = recover(self.db_path.parent, self._key, read_only=self.read_only)
             if not self.db_path.is_file():
                 raise DatabaseOpenError(f"Database not found: {self.db_path}")
 
@@ -153,10 +167,13 @@ class LibraryBase:
 
     def close(self) -> None:
         self._close_reader()
+        self._pdb_cancel_timer()
         with self._lock:
             if self._conn is None:
                 return
             if not self.read_only:
+                if self._pdb_dirty:                # 1.4.3 (A1-2) : réécriture en attente faite avant de fermer
+                    self._pdb_flush()
                 self._checkpoint()
             self._conn.close()
             self._conn = None
@@ -363,6 +380,11 @@ class LibraryBase:
                 ) from exc
             try:
                 yield conn
+                if self._txn_marks:
+                    # 1.4.3 (A6-9) : marques (son supprimé, playlist renommée…) dans le journal de la clé AVANT
+                    # le COMMIT : une coupure entre les deux ne peut plus les perdre. Si la transaction est
+                    # annulée, la marque n'a plus d'objet et la réconciliation suivante la retire.
+                    self._pdb_journal().add(self._txn_marks)
                 conn.execute("COMMIT")
             except BaseException as exc:
                 self._txn_ops = []             # transaction annulée : rien à répercuter dans export.pdb
@@ -378,10 +400,55 @@ class LibraryBase:
             self._checkpoint()
             if self._txn_ops or self._txn_marks:
                 self._pdb_dirty = True
-                if self._txn_marks:
-                    self._pdb_journal().add(self._txn_marks)
             self._txn_ops, self._txn_marks = [], []
             if self._batch_depth == 0:
+                self._pdb_flush_later()
+
+    # ------------------------------------------------- 1.4.3 (A1-2) : export.pdb après la rafale
+    @property
+    def pdb_pending(self) -> bool:
+        """Une réécriture d'export.pdb attend la fin de la rafale d'écritures."""
+        return self._pdb_timer is not None
+
+    def _pdb_flush_later(self) -> None:
+        if self.pdb_delay <= 0 or not self._pdb_dirty:
+            self._pdb_flush()
+            return
+        now = time.monotonic()
+        if self._pdb_timer is None:
+            self._pdb_pending_since = now
+        elif now - self._pdb_pending_since >= self.pdb_delay_max:
+            self._pdb_cancel_timer()
+            self._pdb_flush()
+            return
+        self._pdb_cancel_timer()
+        timer = threading.Timer(self.pdb_delay, self._pdb_timer_fired)
+        timer.daemon = True
+        timer.name = "djsync-pdb-later"
+        self._pdb_timer = timer
+        timer.start()
+
+    def _pdb_cancel_timer(self) -> None:
+        timer, self._pdb_timer = self._pdb_timer, None
+        if timer is not None:
+            timer.cancel()
+
+    def _pdb_timer_fired(self) -> None:
+        with self._lock:
+            if self._pdb_timer is None or self._pdb_timer is not threading.current_thread():
+                return                              # remplacé ou annulé entre-temps
+            self._pdb_timer = None
+            if self._conn is None or self._batch_depth > 0:
+                return                              # fermée (déjà faite) ou lot en cours (fait à la fin du lot)
+            self._pdb_flush()
+
+    def pdb_flush_now(self) -> None:
+        """Fait tout de suite la réécriture d'export.pdb en attente (éjection, « Prêt pour le set »…)."""
+        if self._pdb_timer is None:
+            return
+        self._pdb_cancel_timer()
+        with self._lock:
+            if self._conn is not None and self._batch_depth == 0:
                 self._pdb_flush()
 
     def _read(self, sql: str, params: Sequence[Any] = ()) -> List[Tuple[Any, ...]]:

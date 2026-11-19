@@ -296,7 +296,7 @@ class HomeView(View):
         mid = vbox(spacing=theme.px(6))
         top = hbox(spacing=theme.px(8))
         top.addWidget(label(u.drive.label or str(u.drive.root), "h2"))
-        top.addWidget(chip(t("home.unprepared_chip"), "chip_warn"))
+        top.addWidget(chip(t("recover.chip" if u.kind == "damaged" else "home.unprepared_chip"), "chip_warn"))
         compat = filesystem_compat(u.filesystem)
         if u.filesystem:
             fs = chip(u.filesystem if compat == "ok" else f"{u.filesystem} ⚠", "chip" if compat == "ok" else "chip_warn")
@@ -305,8 +305,21 @@ class HomeView(View):
             top.addWidget(fs)
         top.addStretch(1)
         mid.addLayout(top)
-        key = "home.unprepared_legacy" if u.kind == "legacy" else "home.unprepared_blank"
+        key = {"legacy": "home.unprepared_legacy", "damaged": "home.unprepared_damaged"}.get(
+            u.kind, "home.unprepared_blank")
         mid.addWidget(label(t(key), "dim", wrap=True))
+        if u.kind == "damaged":                                # 1.4.3 (A6-1) : base perdue pendant un remplacement
+            actions = hbox()
+            back = button(t("recover.restore_btn"), lambda _c=False, d=u: self.ctrl.restore_damaged_drive(d.drive.root),
+                          kind="primary", icon="back")
+            back.setToolTip(t("recover.restore_tip"))
+            back.setObjectName("restore_damaged")
+            actions.addWidget(back)
+            folder = button(t("recover.open_btn"), lambda _c=False, d=u: self.ctrl.open_backups_folder(d.drive.root),
+                            icon="folder")
+            actions.addWidget(folder)
+            actions.addStretch(1)
+            mid.addLayout(actions)
         if u.kind == "legacy":                                 # 1.4.2 (C24) : quoi faire, en clair
             mid.addWidget(label(t("home.unprepared_legacy_todo"), wrap=True))
         if compat == "unsupported":

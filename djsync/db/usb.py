@@ -101,13 +101,27 @@ def _make_drive(root: Path) -> UsbDrive:
     return UsbDrive(root, root.name)
 
 
+def _has_library(root: Path) -> bool:
+    """exportLibrary.db présente ; 1.4.3 (A6-1) : remise en place si elle a été perdue pendant un remplacement
+    (clé retirée au mauvais moment) et que la copie temporaire laissée est valide."""
+    db = root / DB_RELATIVE_PATH
+    if db.is_file():
+        return True
+    if db.with_name(db.name + ".djsync-tmp").is_file():
+        from .recover import recover
+
+        recover(db.parent)
+        return db.is_file()
+    return False
+
+
 def find_usb_drives() -> List[UsbDrive]:
     """Tous les lecteurs qui contiennent une bibliothèque Rekordbox exportée."""
     roots = _windows_roots() if os.name == "nt" else _posix_roots()
     drives: List[UsbDrive] = []
     for root in roots:
         try:
-            if (root / DB_RELATIVE_PATH).is_file():
+            if _has_library(root):
                 drives.append(_make_drive(root))
         except OSError as exc:  # lecteur illisible : on l'ignore
             log.debug("Drive %s skipped: %s", root, exc)
@@ -119,7 +133,7 @@ class UnpreparedDrive:
     """1.2.4 (T02) : clé branchée mais sans bibliothèque lisible par DJSync.
     kind : "blank" (pas de dossier PIONEER : jamais ouverte dans Rekordbox) ou "legacy" (dossier
     PIONEER sans exportLibrary.db : ancienne version de Rekordbox, ou bibliothèque des anciennes
-    platines seule)."""
+    platines seule). 1.4.3 (A6-1) : "damaged" (exportLibrary.db perdue pendant un remplacement)."""
     drive: UsbDrive
     kind: str
     filesystem: str = ""
@@ -144,6 +158,11 @@ def find_unprepared_drives() -> List[UnpreparedDrive]:
             if (root / DB_RELATIVE_PATH).is_file():
                 continue
             pioneer = (root / "PIONEER").is_dir()
+            from .recover import damaged_library
+
+            if damaged_library(root):                       # 1.4.3 (A6-1) : base perdue pendant un remplacement
+                out.append(UnpreparedDrive(_make_drive(root), "damaged", drive_filesystem(root)))
+                continue
             if os.name == "nt":
                 if root.drive.rstrip("\\/").upper() == _system_root():
                     continue
@@ -172,7 +191,7 @@ def drive_from_letter(value: str) -> UsbDrive:
         root = Path(value)
 
     db_path = root / DB_RELATIVE_PATH
-    if not db_path.is_file():
+    if not _has_library(root):
         raise DriveNotFoundError(f"No Rekordbox library found: {db_path} does not exist.")
     return _make_drive(root)
 

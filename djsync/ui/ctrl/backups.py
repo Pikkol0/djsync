@@ -156,6 +156,29 @@ class BackupsMixin:
 
         self.dispatcher.submit(work, done, failed, pool="db")
 
+    # ------------------------------------------------------------ 1.4.3 (A6-1) : base perdue
+    def restore_damaged_drive(self, root: Any) -> None:
+        """Clé dont exportLibrary.db a été perdue pendant un remplacement : remet le dernier point de restauration,
+        puis ouvre la clé."""
+        from ...db import recover
+
+        self.message("info", t("backups.restoring"))
+
+        def done(point_id: str) -> None:
+            self.message("ok", t("recover.done", point=point_id))
+            self.refresh_drives()
+
+        def failed(exc: BaseException) -> None:
+            self.message("error", t("recover.failed", detail=str(exc)))
+
+        self.dispatcher.submit(lambda: recover.restore_latest(Path(root)), done, failed, pool="db")
+
+    def open_backups_folder(self, root: Any) -> None:
+        from ..reveal import reveal
+
+        folder = Path(root) / "DJSync_Backups"
+        reveal(folder if folder.exists() else Path(root))
+
     # ------------------------------------------------------------ désinstallation
     def uninstall(self, restore_origin: bool, delete_backups: bool) -> None:
         """Retire DJSync de la clé qui le porte, puis quitte (les fichiers partent après la fermeture)."""

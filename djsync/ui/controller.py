@@ -35,6 +35,7 @@ from ..db.errors import (
     TrackNotFoundError, UnsupportedFormatError,
 )
 from ..db import local_library as _local
+from ..db.backups import RestoreBusyError
 from ..db.local_library import LocalRekordbox, LocalRekordboxLibrary, find_local_rekordbox
 from ..i18n import get_language, t
 from ..models import (
@@ -332,6 +333,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         (DuplicatePlaylistError, "error.duplicate_playlist"), (PlaylistNotFoundError, "error.playlist_not_found"),
         (TrackNotFoundError, "error.track_not_found"), (UnsupportedFormatError, "error.unsupported_format"),
         (DriveNotFoundError, "error.drive_not_found"), (DatabaseOpenError, "error.db_open"),
+        (RestoreBusyError, "error.restore_busy"),                   # 1.4.3 (A6-2)
     )
 
     def error_text(self, exc: BaseException) -> str:
@@ -691,6 +693,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
             lib.native_parts = self.settings.native_parts()
+            lib.pdb_delay = 3.0                       # 1.4.3 (A1-2) : export.pdb réécrit une fois par rafale
+            rec = getattr(lib, "recovery", None)      # 1.4.3 (A6-1) : remplacement interrompu repris à l'ouverture
+            if rec is not None and rec.restored:
+                self.dispatcher.post(self.message, "warn", t("recover.restored", files=", ".join(rec.restored)))
+            if rec is not None and "export.pdb" in rec.damaged:
+                self.dispatcher.post(self.message, "warn", t("recover.pdb_damaged"))
             try:                                      # 1.3.0 (T01) : utile pour les retours « platine »
                 from ..db.usb import drive_filesystem
 

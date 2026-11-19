@@ -75,7 +75,9 @@ class PdbMirrorMixin:
 
         summary = store.apply([run])
         journal.resolve(holder["plan"].resolved)
-        left = pdb_sync_mod.plan(store.load(), target, journal.marks)
+        # 1.4.3 (A1-2) : ce qui reste est calculé sur le fichier tel qu'il vient d'être écrit et contrôlé (gardé en
+        # mémoire), sans le relire une 3e fois sur la clé.
+        left = pdb_sync_mod.plan(store.loaded(), target, journal.marks)
         if holder["plan"].empty:
             log.debug("export.pdb already up to date")
         else:
@@ -162,6 +164,7 @@ class PdbMirrorMixin:
         """Compare export.pdb à exportLibrary.db (lecture seule). 1.3.0-rc.2 : TOUS les écarts comptent
         (sons, playlists, contenu et ordre, infos modifiées, suppressions en attente) ; « ok » veut
         donc dire qu'il n'y a plus rien à faire."""
+        self.pdb_flush_now()                       # 1.4.3 (A1-2) : réécriture en attente faite d'abord
         if self.pdb_sync == "off":
             self.pdb_state = "off"
             return PdbStatus("off")
