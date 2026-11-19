@@ -5,6 +5,8 @@ export.pdb, et l'action utile (connecter, ouvrir la bibliothèque, analyser).
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, List
 
 from PySide6.QtCore import QSize, Qt
@@ -16,6 +18,8 @@ from ..ctrl.library_ops import DriveSummary
 from ..icons import qicon
 from ..widgets import ColumnsBox, FlowLayout, button, chip, hbox, icon_label, label, line_edit, panel, vbox
 from .common import View, human_size
+
+log = logging.getLogger(__name__)
 
 
 # 1.4.2 (C182) : « À régler » : onglets du Diagnostic avec leur compteur
@@ -120,7 +124,8 @@ class HomeView(View):
         self.actions_row = ColumnsBox(spacing=10)          # 1.4.2 (A2-17) : 2 colonnes si la place manque
         self.actions: dict = {}
         for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
-                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
+                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize),
+                               ("transfer", "copy", self.act_transfer)):                  # 1.4.3 (C203)
             # 1.4.2 (A2-17) : titre en gras, sous-titre en gris normal (même graisse partout avant)
             b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
             b.clicked.connect(lambda _c=False, f=cmd: f())
@@ -219,6 +224,7 @@ class HomeView(View):
         try:
             counted = "missing" in self.ctrl.diag_counts
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in on_show", exc_info=True)  # 1.4.3 (A3-4)
             counted = True
         # 1.4.2 (B103) : seulement avec « Analyser à l'ouverture » ; sinon les derniers chiffres retenus
         if self.ctrl.has_library and not counted and self.ctrl.diag_auto():
@@ -229,6 +235,7 @@ class HomeView(View):
         try:
             counts = dict(self.ctrl.diag_counts)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _todo_refresh", exc_info=True)  # 1.4.3 (A3-4)
             counts = {}
         has = bool(self.ctrl.has_library)
         try:
@@ -296,7 +303,7 @@ class HomeView(View):
         mid = vbox(spacing=theme.px(6))
         top = hbox(spacing=theme.px(8))
         top.addWidget(label(u.drive.label or str(u.drive.root), "h2"))
-        top.addWidget(chip(t("home.unprepared_chip"), "chip_warn"))
+        top.addWidget(chip(t("recover.chip" if u.kind == "damaged" else "home.unprepared_chip"), "chip_warn"))
         compat = filesystem_compat(u.filesystem)
         if u.filesystem:
             fs = chip(u.filesystem if compat == "ok" else f"{u.filesystem} ⚠", "chip" if compat == "ok" else "chip_warn")
@@ -305,8 +312,21 @@ class HomeView(View):
             top.addWidget(fs)
         top.addStretch(1)
         mid.addLayout(top)
-        key = "home.unprepared_legacy" if u.kind == "legacy" else "home.unprepared_blank"
+        key = {"legacy": "home.unprepared_legacy", "damaged": "home.unprepared_damaged"}.get(
+            u.kind, "home.unprepared_blank")
         mid.addWidget(label(t(key), "dim", wrap=True))
+        if u.kind == "damaged":                                # 1.4.3 (A6-1) : base perdue pendant un remplacement
+            actions = hbox()
+            back = button(t("recover.restore_btn"), lambda _c=False, d=u: self.ctrl.restore_damaged_drive(d.drive.root),
+                          kind="primary", icon="back")
+            back.setToolTip(t("recover.restore_tip"))
+            back.setObjectName("restore_damaged")
+            actions.addWidget(back)
+            folder = button(t("recover.open_btn"), lambda _c=False, d=u: self.ctrl.open_backups_folder(d.drive.root),
+                            icon="folder")
+            actions.addWidget(folder)
+            actions.addStretch(1)
+            mid.addLayout(actions)
         if u.kind == "legacy":                                 # 1.4.2 (C24) : quoi faire, en clair
             mid.addWidget(label(t("home.unprepared_legacy_todo"), wrap=True))
         if compat == "unsupported":
@@ -321,6 +341,17 @@ class HomeView(View):
             mid.addLayout(actions)
         lay.addLayout(mid, 1)
         return box
+
+    def act_transfer(self, summary: Any = None) -> None:
+        """1.4.3 (C203) : « Transférer et synchroniser des playlists ». Depuis la carte d'une bibliothèque :
+        ouverture sur « Synchroniser les deux » (sinon le sens unique habituel)."""
+        win = self.window()
+        if not hasattr(win, "open_transfer"):
+            return
+        key = None
+        if summary is not None:
+            key = "local" if summary.is_local else str(summary.drive.root)
+        win.open_transfer((), key)
 
     def prepare_drive(self, u: Any) -> None:
         """1.4.2 (C24) : confirmation avec le nom et le lecteur, puis le gabarit de clé vide est posé."""
@@ -405,6 +436,11 @@ class HomeView(View):
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
                                      icon=icon))
+        if len(getattr(self, "_summaries", []) or []) >= 2:           # 1.4.3 (C203) : clé et ordinateur branchés
+            sync = button(t("transfer.card_button"), lambda _c=False, x=s: self.act_transfer(x), icon="copy")
+            sync.setToolTip(t("transfer.card_tip"))
+            sync.setObjectName("transfer_sync")
+            actions.addWidget(sync)
         diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
         diag.setToolTip(t("diag.button_tip"))
         actions.addWidget(diag)

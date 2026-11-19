@@ -39,7 +39,10 @@ def button(text: str, command: Optional[Callable[[], None]] = None, kind: str = 
         b.setIconSize(QSize(theme.px(16), theme.px(16)))
     if tooltip:
         b.setToolTip(tooltip)
+        if not text.strip():
+            b.setAccessibleName(tooltip)                  # 1.4.3 (A2-20) : nom lu par les lecteurs d'écran
     b.setCursor(Qt.PointingHandCursor)
+    b.setFocusPolicy(Qt.TabFocus)                         # 1.4.3 (A2-19) : contour de focus au clavier seulement
     return b
 
 
@@ -52,8 +55,22 @@ def icon_button(icon: str, command: Optional[Callable[[], None]] = None, tooltip
         b.clicked.connect(lambda _=False: command())
     if tooltip:
         b.setToolTip(tooltip)
+        b.setAccessibleName(tooltip)                      # 1.4.3 (A2-20) : la bulle sert aussi de nom accessible
     b.setCursor(Qt.PointingHandCursor)
     return b
+
+
+def name_icon_buttons(root: Any) -> int:
+    """1.4.3 (A2-20) : tout bouton sans texte reçoit sa bulle comme nom accessible (boutons créés hors
+    `icon_button`, bulles posées après coup). Renvoie le nombre de boutons nommés."""
+    from PySide6.QtWidgets import QAbstractButton
+
+    n = 0
+    for b in root.findChildren(QAbstractButton):
+        if not b.text().strip() and b.toolTip() and b.accessibleName() != b.toolTip():
+            b.setAccessibleName(b.toolTip())
+            n += 1
+    return n
 
 
 def line_edit(placeholder: str = "", icon: str = "", big: bool = False, parent: Any = None) -> QLineEdit:

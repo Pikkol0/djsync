@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -73,6 +74,7 @@ def _first(tags: Any, *keys: str) -> str:
         try:
             v = tags.get(k)
         except Exception:  # noqa: BLE001 - tags exotiques
+            log.debug("Handled error in _first", exc_info=True)  # 1.4.3 (A3-4)
             v = None
         if v:
             v = v[0] if isinstance(v, (list, tuple)) else v
@@ -151,7 +153,7 @@ def destination(lib: Any, info: ImportInfo) -> Path:
         src.resolve().relative_to(root)
         return src                                              # déjà sur la clé : sur place
     except ValueError:
-        pass
+        log.debug("Ignored error in destination", exc_info=True)  # 1.4.3 (A3-4)
     folder = lib.default_download_dir(info.artist or "Unknown Artist", info.album)
     name = _safe(src.stem, "track") + src.suffix.lower()
     target = Path(folder) / name
@@ -209,10 +211,13 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
     files = list(files)
     pids = list(playlist_ids)
     report = ImportReport()
+    started = time.monotonic()
+    copied_bytes = 0
     try:
         before = {x.path.casefold(): x for x in lib.list_tracks()}
         known = list(before.values())
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in import_files", exc_info=True)  # 1.4.3 (A3-4)
         before, known = {}, []
     batch = lib.batch() if hasattr(lib, "batch") else None
     ctx = batch if batch is not None else _Null()
@@ -234,6 +239,11 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
                 else:
                     target = dest if convert else place(f, dest)
                 copied = target if fresh and target.resolve() != f.resolve() else None
+                if copied is not None:
+                    try:
+                        copied_bytes += copied.stat().st_size
+                    except OSError:
+                        log.debug("Ignored error in import_files", exc_info=True)  # 1.4.3 (A3-4)
                 rel_key = _db_key(lib, target)
                 was = before.get(rel_key)
                 track = lib.add_track(target, info.title, info.artist, info.album, None, pids, meta=info.meta)
@@ -250,12 +260,21 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
                 report.failed.append((f, str(exc)[:200]))
             if progress:
                 progress(i, len(files))
+    _log_import(report, len(files), copied_bytes, time.monotonic() - started)
     if report.added and known:
         new_ids = {x.content_id for x in report.added}
         for g in find_duplicate_groups(known + report.added):
             if any(x.content_id in new_ids for x in g) and any(x.content_id not in new_ids for x in g):
                 report.duplicates += [x for x in g if x.content_id in new_ids]
     return report
+
+
+def _log_import(report: ImportReport, total: int, copied_bytes: int, seconds: float) -> None:
+    """1.4.3 (A1-12) : une ligne de journal par import : sons, durée, Mo copiés, débit (pour mesurer)."""
+    mb = copied_bytes / 1e6
+    rate = mb / seconds if seconds > 0 else 0.0
+    log.info("Import finished: %d files (%d added, %d already there, %d failed) in %.1f s; %.1f MB copied, "
+             "%.1f MB/s", total, len(report.added), len(report.already), len(report.failed), seconds, mb, rate)
 
 
 def find_in_library(lib: Any, files: Iterable[Path], player_format: str = "") -> "tuple[List[Any], List[Path]]":
@@ -268,6 +287,7 @@ def find_in_library(lib: Any, files: Iterable[Path], player_format: str = "") ->
     try:
         before = {x.path.casefold(): x for x in lib.list_tracks()}
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in find_in_library", exc_info=True)  # 1.4.3 (A3-4)
         return [], []
     found: List[Any] = []
     missing: List[Path] = []
@@ -298,7 +318,7 @@ def _prune(folder: Path, stop: Path) -> None:
             folder.rmdir()
             folder = folder.parent
     except OSError:
-        pass
+        log.debug("Ignored error in _prune", exc_info=True)  # 1.4.3 (A3-4)
 
 
 def _db_key(lib: Any, target: Path) -> str:

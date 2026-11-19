@@ -235,4 +235,4 @@ def remove_partials(dest: Path, base: str) -> None:
             try:
                 f.unlink()
             except OSError:
-                pass
+                log.debug("Ignored error in remove_partials", exc_info=True)  # 1.4.3 (A3-4)

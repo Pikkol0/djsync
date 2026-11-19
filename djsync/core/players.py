@@ -35,6 +35,7 @@ def _probe(path: Path) -> "tuple[int, int]":
         info = mutagen.File(str(path)).info
         return int(getattr(info, "bits_per_sample", 0) or 16), int(getattr(info, "sample_rate", 0) or 44100)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in _probe", exc_info=True)  # 1.4.3 (A3-4)
         return 16, 44100
 
 

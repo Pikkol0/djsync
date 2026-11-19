@@ -38,8 +38,9 @@ def expected(exc: BaseException) -> bool:
                         DuplicatePlaylistError)):
         return True
     try:
-        from ..ui.controller import is_offline_error
+        from .nettools import is_offline_error
     except Exception:  # noqa: BLE001 - sans interface : test réseau minimal
+        log.debug("Handled error in expected", exc_info=True)  # 1.4.3 (A3-4)
         def is_offline_error(e: Any) -> bool:
             return "connection" in str(e).lower() or "timed out" in str(e).lower()
     if is_offline_error(exc):
@@ -92,7 +93,7 @@ class ErrorReporter:
                 self.state_path.parent.mkdir(parents=True, exist_ok=True)
                 self.state_path.write_text(json.dumps(st), encoding="utf-8")
             except OSError:
-                pass
+                log.debug("Ignored error in _allow", exc_info=True)  # 1.4.3 (A3-4)
             return True
 
     # -------------------------------------------------------------- envoi

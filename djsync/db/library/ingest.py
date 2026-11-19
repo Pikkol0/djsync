@@ -54,6 +54,10 @@ class IngestMixin:
                         ex.cue_ms = ex.analysis.first_downbeat_ms
                     folder = self.drive.root / ex.anlz_path.lstrip("/")
                     ex.written += [folder, folder.with_suffix(".EXT"), folder.with_suffix(".2EX")]
+                    if getattr(self, "write_tags", False):      # 1.4.3 (S05) : BPM et tonalité dans le fichier
+                        from ...core.file_tags import after_analysis
+
+                        ex.file_size = after_analysis(file_path, ex.analysis)
                 log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
                          ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
             except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
@@ -108,7 +112,7 @@ class IngestMixin:
             try:
                 paths += self._pdb_store().load().artwork_paths()
             except PdbError:
-                pass
+                log.debug("Ignored error in _known_artwork_paths", exc_info=True)  # 1.4.3 (A3-4)
         return paths
 
     def _store_artwork(self, conn: Any, ex: _Extras, album_id: Optional[int]) -> Optional[int]:
@@ -137,6 +141,8 @@ class IngestMixin:
         if ex.anlz_path:
             cols["analysisDataFilePath"] = ex.anlz_path
             cols["analysedBits"] = self._native_analysed_bits(conn)
+        if ex.file_size:                          # 1.4.3 (S05) : tags écrits dans le fichier
+            cols["fileSize"] = ex.file_size
         image_id = self._store_artwork(conn, ex, album_id)
         if image_id is not None:
             cols["image_id"] = image_id
@@ -148,7 +154,7 @@ class IngestMixin:
             try:
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("Ignored error in _discard", exc_info=True)  # 1.4.3 (A3-4)
 
     @staticmethod
     def _meta_columns(conn: Any, meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,6 +197,7 @@ class IngestMixin:
         source_url: Optional[str] = None,
         playlist_ids: Sequence[int] = (),
         meta: Optional[Dict[str, Any]] = None,
+        analyze: Optional[bool] = None,
     ) -> LibraryTrack:
         """Insère le son (titre, artiste, chemin, date d'ajout) et l'ajoute aux playlists.
 
@@ -227,9 +234,11 @@ class IngestMixin:
                 "SELECT content_id, analysisDataFilePath, image_id FROM content WHERE path = ? COLLATE NOCASE",
                 (db_path,)).fetchone()
         # son déjà présent ET déjà analysé (Rekordbox ou DJSync) : on ne réanalyse rien
+        # 1.4.3 (A3-3) : `analyze` passé par l'appelant (transfert) au lieu de changer l'attribut partagé
+        use = self.analyze if analyze is None else bool(analyze)
         ex = self._prepare_extras(file_path, db_path, audio,
-                                  analysis=existing is None or not existing[1],
-                                  cover=existing is None or existing[2] is None)
+                                  analysis=(existing is None or not existing[1]) and use,
+                                  cover=existing is None or existing[2] is None, explicit=use)
         self.last_problems = list(ex.problems)
 
         try:
@@ -288,7 +297,8 @@ class IngestMixin:
                         tuple(cols.values())).lastrowid
                     conn.execute("UPDATE property SET numberOfContents = (SELECT COUNT(*) FROM content)")
 
-                self._memory_cue(conn, content_id, ex, audio["fileType"])
+                # 1.3.0 : pas de mémoire cue dans la table `cue` (Rekordbox la laisse vide, cues dans les ANLZ) ;
+                # 1.4.3 (A3-2) : l'ancienne fonction, devenue inaccessible, est retirée
                 for pid in playlist_ids:
                     self._append(conn, pid, [content_id])
                 paths = self._stage_tracks(conn, [content_id])
@@ -300,29 +310,6 @@ class IngestMixin:
             raise
         return self.get_track(content_id)
 
-    @staticmethod
-    def _memory_cue(conn: Any, content_id: int, ex: _Extras, file_type: int) -> None:
-        """Mémoire cue au premier temps fort dans la table `cue` (en plus des fichiers ANLZ), seulement
-        si le son n'a encore aucun cue. Pas pour le MP3 : les platines y repèrent la position par
-        numéro de trame MPEG, que DJSync ne calcule pas (la mémoire reste dans l'ANLZ)."""
-        return              # 1.3.0 : Rekordbox laisse la table `cue` vide (cues dans les ANLZ seulement)
-        if ex.cue_ms is None or file_type == 1:  # pragma: no cover - ancien comportement, gardé pour mémoire
-            return
-        try:
-            if conn.execute("SELECT 1 FROM cue WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
-                return
-        except Exception:  # noqa: BLE001 - base sans table cue (ancien format) : ANLZ seulement
-            return
-        ms = int(ex.cue_ms)
-        conn.execute(
-            "INSERT INTO cue (content_id, kind, colorTableIndex, cueComment, isActiveLoop, beatLoopNumerator, "
-            "beatLoopDenominator, inUsec, outUsec, in150FramePerSec, out150FramePerSec, inMpegFrameNumber, "
-            "outMpegFrameNumber, inMpegAbs, outMpegAbs, inDecodingStartFramePosition, outDecodingStartFramePosition, "
-            "inFileOffsetInBlock, OutFileOffsetInBlock, inNumberOfSampleInBlock, outNumberOfSampleInBlock) "
-            "VALUES (?, 0, 0, '', 0, 0, 0, ?, -1, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
-            (content_id, ms * 1000, ms * 150 // 1000))
-        conn.execute("UPDATE content SET cueUpdateCount = COALESCE(cueUpdateCount, 0) + 1 WHERE content_id = ?",
-                     (content_id,))
 
     def _analysis_job(self, content_id: int, force: bool = False) -> Optional[Tuple[int, _Extras, Any]]:
         """Phase longue (HORS verrou) : analyse + pochette. None si rien à faire."""
@@ -432,8 +419,7 @@ class IngestMixin:
                 if extra:
                     conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in extra)} WHERE content_id = ?",
                                  (*extra.values(), content_id))
-                ftype = conn.execute("SELECT fileType FROM content WHERE content_id = ?", (content_id,)).fetchone()
-                self._memory_cue(conn, content_id, ex, int(ftype[0] or 0) if ftype else 0)
+                # 1.3.0 : pas de mémoire cue dans la table `cue` (cues dans les ANLZ) ; 1.4.3 (A3-2)
                 self._stage_tracks(conn, [content_id])
                 if ex.replaced:                  # B27 : nouvel emplacement de l'analyse, ligne réécrite
                     path = conn.execute("SELECT path FROM content WHERE content_id = ?", (content_id,)).fetchone()
@@ -450,8 +436,10 @@ class IngestMixin:
     def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
                         key: Optional[str] = None) -> LibraryTrack:
         """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante (Rekordbox ou DJSync)
-        au lieu de recalculer — grille corrigée à la main comprise. `files` = {".DAT": …, ".EXT": …}."""
-        from ...analysis.anlz import _write_atomic, choose_anlz_base, retarget
+        au lieu de recalculer — grille corrigée à la main comprise. `files` = {".DAT": …, ".EXT": …}.
+        1.4.3 (A3-7) : écriture des fichiers commune avec master.db."""
+        from ...analysis.anlz import choose_anlz_base
+        from ..analysis_flow import write_imported
 
         row = self._read("SELECT path, analysisDataFilePath FROM content WHERE content_id = ?", (content_id,))
         if not row:
@@ -461,12 +449,8 @@ class IngestMixin:
             return self.get_track(content_id)
         base = choose_anlz_base(self.drive.root, db_path)        # 1.3.0-rc.6 : comme Rekordbox
         stem = self.drive.root / base.lstrip("/")
-        written = []
+        written = write_imported(files, lambda ext: stem.with_name(stem.name + ext), db_path)
         try:
-            for ext, data in files.items():
-                target = stem.with_name(stem.name + ext)
-                _write_atomic(target, retarget(data, db_path))
-                written.append(target)
             with self._write() as conn:
                 cols: Dict[str, Any] = {"analysisDataFilePath": f"{base}.DAT",
                                         "analysedBits": self._native_analysed_bits(conn)}
@@ -502,54 +486,45 @@ class IngestMixin:
         """Menu Analyse (V0.2.0) : analyse une liste de sons. Le calcul se fait hors verrou (la
         bibliothèque reste utilisable) ; les écritures sont regroupées par lots de `chunk` sons (une
         sauvegarde et une réécriture d'export.pdb par lot). Renvoie (analysés, ignorés, échecs).
-        on_progress(i, total, son, problème) ; should_stop() -> True : arrêt propre après le son en cours."""
-        ids = list(dict.fromkeys(content_ids))
-        done = skipped = failed = 0
-        pending: List[Tuple[int, _Extras, Any]] = []
+        on_progress(i, total, son, problème) ; should_stop() -> True : arrêt propre après le son en cours.
+        1.4.3 (A3-7) : déroulé commun avec master.db (db/analysis_flow.py)."""
+        from ..analysis_flow import PENDING, PENDING_FAILED, SKIP, Step, run_analysis
 
-        def flush() -> None:
-            nonlocal done, failed
-            if not pending:
-                return
+        def step(cid: int) -> Step:
+            job = self._analysis_job(cid, force)
+            if job is None:
+                return Step(SKIP)
+            problem = "; ".join(job[1].problems)
+            return Step(PENDING_FAILED if job[1].analysis is None else PENDING, problem, job)
+
+        def flush(jobs: List[Tuple[int, _Extras, Any]]) -> List[bool]:
+            out: List[bool] = []
             with self.batch():
-                for job in pending:
+                for job in jobs:
                     try:
                         self._apply_analysis(job)
-                        done += 1
+                        out.append(True)
                     except LibraryError as exc:
                         log.warning("Analysis not saved (id %s): %s", job[0], exc)
-                        failed += 1
-            pending.clear()
+                        out.append(False)
+            return out
 
-        for i, cid in enumerate(ids, start=1):
-            if should_stop and should_stop():
-                break
-            problem = ""
-            try:
-                job = self._analysis_job(cid, force)
-                if job is None:
-                    skipped += 1
-                elif job[1].analysis is None:
-                    failed += 1
-                    problem = "; ".join(job[1].problems)
-                    pending.append(job)            # la pochette est quand même enregistrée
-                    done -= 1
-                else:
-                    pending.append(job)
-                    problem = "; ".join(job[1].problems)
-            except LibraryError as exc:
-                failed += 1
-                problem = str(exc)
-            if len(pending) >= chunk:
-                flush()
-            if on_progress:
-                try:
-                    track = self.get_track(cid)
-                except LibraryError:
-                    track = None
-                on_progress(i, len(ids), track, problem)
-        flush()
-        return done, skipped, failed
+        def path_of(cid: int) -> Optional[Path]:
+            """1.4.3 (A1-6) : fichier que `step` analysera (None : son ignoré)."""
+            row = self._read("SELECT path, analysisDataFilePath, masterDbId FROM content WHERE content_id = ?", (cid,))
+            if not row:
+                return None
+            db_path, anlz, master = row[0]
+            if master is not None:
+                parts = tuple(p for p in getattr(self, "native_parts", ()) if p in NATIVE_PARTS) if force else ()
+                if not parts or not anlz:
+                    return None
+            elif anlz and not force:
+                return None
+            return self.absolute_path(db_path)
+
+        return run_analysis(content_ids, step, self.get_track, flush, chunk, on_progress, should_stop,
+                            path_of, self.ffmpeg_location)
 
     def unanalysed_tracks(self) -> List[LibraryTrack]:
         """Sons ajoutés par DJSync (avant la V1.1-A4) sans analyse : candidats à `analyze_missing`."""

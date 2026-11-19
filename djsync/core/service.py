@@ -52,7 +52,8 @@ class MusicService:
         if library is None:
             self._duplicates.set_library(FakeLibrary())
             return
-        self._duplicates.set_library(library, exact_lookup=getattr(library, "find_by_source_url", None))
+        self._duplicates.set_library(library, exact_lookup=getattr(library, "find_by_source_url", None),
+                                     exact_many=getattr(library, "find_by_source_urls", None))
 
     def set_ffmpeg_location(self, ffmpeg_location: Optional[str]) -> None:
         old = self._downloader
@@ -82,10 +83,14 @@ class MusicService:
         exclude: Union[ExcludeFilter, str, Iterable[str], None] = None,
         field: str = "all",
         max_seconds: int = 0,
+        annotate: bool = True,
     ) -> List[TrackResult]:
-        """Recherche (Titres/Vidéos, filtre de mots, champ, durée) + marquage des doublons."""
+        """Recherche (Titres/Vidéos, filtre de mots, champ, durée) + marquage des doublons. 1.4.3 (B98) :
+        `annotate=False` : résultats bruts, le marquage est fait ensuite (`annotate`)."""
         results = self.searcher.search(query, limit=limit, mode=mode, exclude=exclude, field=field,
                                        max_seconds=max_seconds)
+        if not annotate:
+            return list(results)
         return self._duplicates.annotate([r for r in results if not r.is_album]) + [r for r in results if r.is_album]
 
     def album_tracks(self, browse_id: str) -> List[TrackResult]:

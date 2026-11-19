@@ -226,8 +226,12 @@ def test_js_runtimes_prefers_installed_then_bundled_quickjs(tmp_path, monkeypatc
     tools.mkdir(parents=True)
     (tools / "qjs.exe").write_bytes(b"")
     monkeypatch.setattr(portable, "app_dir", lambda: tmp_path)
+    from djsync.core import nettools
+
+    nettools.clear()                                 # 1.4.3 (A1-13) : recherche gardée en mémoire
     monkeypatch.setattr(engine.shutil, "which", lambda n: None)
     assert engine.js_runtimes() == {"quickjs": {"path": str(tools / "qjs.exe")}}
+    nettools.clear()
     monkeypatch.setattr(engine.shutil, "which", lambda n: "/usr/bin/deno" if n == "deno" else None)
     assert list(engine.js_runtimes()) == ["deno", "quickjs"]
 

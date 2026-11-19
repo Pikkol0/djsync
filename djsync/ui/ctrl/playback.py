@@ -5,14 +5,17 @@ La file vit dans le contrôleur (pas dans la barre de lecture) : n'importe quell
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence
 
-from ...audio.player import LOADING, PAUSED, PLAYING, STOPPED, NowPlaying
+from ...audio.player import PAUSED, PLAYING, STOPPED, NowPlaying
 from ...i18n import t
 from ...models import DownloadJob, LibraryTrack, TrackResult
+
+log = logging.getLogger(__name__)
 
 RESTART_AFTER = 3.0   # « Précédent » après 3 s de lecture : revient au début du son
 
@@ -79,6 +82,7 @@ class PlaybackMixin:
         try:
             return not lib.absolute_path(track).is_file()
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in file_missing", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def _player_event(self, kind: str, payload: Any) -> None:
@@ -194,11 +198,6 @@ class PlaybackMixin:
         """Préécoute d'un seul résultat (file d'un élément)."""
         self.play_queue([track], 0)
 
-    def play_library_track(self, track: LibraryTrack) -> None:
-        self.play_queue([track], 0)
-
-    def play_job(self, job: DownloadJob) -> None:
-        self.play_queue([job], 0)
 
     # ------------------------------------------------------------------ lecture réelle
     def _play_library(self, track: LibraryTrack) -> None:
@@ -255,25 +254,3 @@ class PlaybackMixin:
 
         self.dispatcher.submit(work, ok, lambda _e: ok([]), pool="cover")
 
-    def load_detail(self, track: LibraryTrack, ok: Callable[[Any], None]) -> None:
-        """1.2.3 : forme d'onde détaillée (150 colonnes/s) et grille, pour la forme d'onde défilante."""
-        lib = self.library
-        if lib is None or not track.analysis_path:
-            ok(None)
-            return
-
-        def work() -> Any:
-            from ...analysis.anlz import read_beats, read_detail
-
-            dat, ext = lib.analysis_files(track)
-            if ext is None:
-                return None
-            detail = read_detail(ext.read_bytes(), self.settings.waveform_style)
-            beats = read_beats(dat.read_bytes()) if dat else []
-            return (detail, beats) if detail else None
-
-        self.dispatcher.submit(work, ok, lambda _e: ok(None), pool="cover")
-
-    @staticmethod
-    def player_busy(state: str) -> bool:
-        return state in (PLAYING, PAUSED, LOADING)

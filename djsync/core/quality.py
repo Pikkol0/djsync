@@ -13,13 +13,18 @@ Les doublons viennent de core/duplicates.find_duplicate_groups ; la recherche d'
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from .duplicates import split_display
+
+log = logging.getLogger(__name__)
 
 # Seuils (kbit/s) en dessous desquels un son est « de mauvaise qualité »
 MIN_MP3 = 192
@@ -31,6 +36,9 @@ LOSSY_SOURCES = {"YouTube", "YouTube Music"}   # 1.4.0-rc.3 (B67) : flux toujour
 # 1.4.0-rc.4 (B75) : plafond réaliste d'un son tiré de YouTube : l'Opus sans Premium (≈ 138 kb/s mesurés)
 # coupe vers 20 kHz comme un MP3 320, mais ne vaut qu'un MP3 160-192 environ
 YOUTUBE_CEILING = 192
+CONFIRM_MARGIN = 1000          # 1.4.3 (A04) : Hz sous le filtre de l'encodeur : le spectre le confirme
+FAKE_MARGIN = 1500             # Hz sous le filtre : source plus pauvre que le fichier
+SURE_FAKE_CUTOFF = 17000       # un fichier annoncé à 256 kbps et plus qui coupe là est faux à coup sûr
 
 # Mentions qui trahissent une mauvaise source, où qu'elles soient dans le titre
 _STRONG = [
@@ -55,17 +63,54 @@ class AudioInfo:
     sample_rate: int = 0
     cutoff: int = 0                 # 1.4.0 (C46) : coupure du spectre mesurée (Hz), 0 = pas encore mesurée
     source: str = ""                # 1.4.0-rc.3 (B67) : « YouTube », « YouTube Music »… (source_from_url)
+    encoder: Optional[Any] = None   # 1.4.3 (A04) : analysis.encoder.EncoderInfo (en-tête du fichier), None inconnu
 
     @property
     def lossless(self) -> bool:
         return self.codec in LOSSLESS
 
+    # 1.4.3 (A04) : en-tête et spectre ensemble. La coupure gardée est l'« équivalent » de sa classe
+    # (spectrum.REPRESENTATIVE : 20 000 pour un 320, 16 500 pour un 128) ; le filtre passe-bas de LAME vaut
+    # 20 500 (320), 19 700 (256), 19 000 (192), 17 000 (128) : 1 kHz de marge pour confirmer, 1,5 pour démentir.
+    def header_verdict(self) -> str:
+        """« confirm » : le spectre monte jusqu'au filtre réglé dans l'en-tête (le fichier est ce qu'il dit) ;
+        « fake » : il coupe bien avant (encodé depuis une source plus pauvre), ou un fichier annoncé à 256 kbps
+        et plus coupe sous 17 kHz (aucun encodeur ne le fait) ; "" : rien de sûr."""
+        from ..analysis.spectrum import LOSSLESS as REAL_LOSSLESS, estimate
+
+        if not self.cutoff or not self.codec or self.lossless:
+            return ""
+        enc = self.encoder
+        claimed = (getattr(enc, "kbps", 0) or 0) or self.bitrate
+        if claimed >= 256 and self.cutoff <= SURE_FAKE_CUTOFF:
+            return "fake"
+        lowpass = getattr(enc, "lowpass", 0) or 0
+        if lowpass:
+            if self.cutoff < lowpass - FAKE_MARGIN:
+                return "fake"
+            if self.cutoff >= lowpass - CONFIRM_MARGIN and estimate(self.cutoff, self.sample_rate) < REAL_LOSSLESS:
+                return "confirm"
+        return ""
+
+    @property
+    def confidence(self) -> str:
+        """« sure » (en-tête et spectre concordent, ou faux à coup sûr), « probable » (spectre seul), "" (pas
+        mesuré)."""
+        if not self.real_kbps:
+            return ""
+        return "sure" if self.header_verdict() else "probable"
+
     @property
     def real_kbps(self) -> int:
-        """Débit équivalent d'après le spectre (128…320, spectrum.LOSSLESS), 0 si pas mesuré."""
+        """Débit équivalent d'après le spectre (128…320, spectrum.LOSSLESS), 0 si pas mesuré. 1.4.3 (A04) : celui
+        de l'en-tête quand le spectre le confirme (CBR / ABR de LAME)."""
         from ..analysis.spectrum import estimate
 
         real = estimate(self.cutoff, self.sample_rate) if self.cutoff else 0
+        enc = self.encoder
+        if real and enc is not None and getattr(enc, "mode", "") in ("CBR", "ABR") and getattr(enc, "kbps", 0) \
+                and self.header_verdict() == "confirm":
+            real = int(enc.kbps)
         # 1.4.0-rc.3 (B67) : un flux YouTube n'est jamais sans perte, même enregistré en WAV / FLAC
         # 1.4.0-rc.4 (B75) : et jamais plus de ≈ 192 ; même plafond pour la signature de l'Opus (48 kHz et
         # mur net vers 20 kHz), quand la source n'est pas connue (fichier tiré d'un convertisseur en ligne)
@@ -155,13 +200,77 @@ def clean_title(title: str) -> str:
     return " ".join(out.replace("()", "").replace("[]", "").split()).strip(" -|")
 
 
+# 1.4.3 (B103, option A) : en-têtes déjà lus, par (chemin, taille, date) : seul un son nouveau ou modifié
+# est relu au Diagnostic suivant (3,1 s à 5 000 sons au 1er passage, ÷10 ensuite).
+_HEADER_CACHE: Dict[Tuple[str, int, int], Tuple[str, int, int]] = {}
+_HEADER_CACHE_MAX = 50_000
+_cache_lock = threading.Lock()
+_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _stat_key(path: Path) -> Optional[Tuple[str, int, int]]:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return str(path), int(st.st_size), int(st.st_mtime_ns)
+
+
+def clear_probe_cache() -> None:
+    with _cache_lock:
+        _HEADER_CACHE.clear()
+        _cache_stats.update(hits=0, misses=0)
+
+
+def probe_cache_stats() -> Dict[str, int]:
+    with _cache_lock:
+        return dict(_cache_stats, size=len(_HEADER_CACHE))
+
+
 def probe(path: Path) -> AudioInfo:
-    """Format, débit et fréquence lus dans l'en-tête (rapide, sans décoder)."""
+    """Format, débit et fréquence lus dans l'en-tête (rapide, sans décoder). 1.4.3 (B103) : en cache par
+    (chemin, taille, date) ; la coupure du spectre (`known`) est toujours relue (elle change après une mesure)."""
+    from ..analysis.spectrum import known
+
+    key = _stat_key(Path(path))
+    if key is not None:
+        with _cache_lock:
+            hit = _HEADER_CACHE.get(key)
+            if hit is not None:
+                _cache_stats["hits"] += 1
+        if hit is not None:
+            codec, bitrate, rate = hit
+            return AudioInfo(codec=codec, bitrate=bitrate, sample_rate=rate, cutoff=known(path) or 0,
+                             encoder=_encoder_of(path))
+    info = _probe_header(path)
+    info.encoder = _encoder_of(path)
+    if key is not None and info.codec:
+        with _cache_lock:
+            _cache_stats["misses"] += 1
+            if len(_HEADER_CACHE) >= _HEADER_CACHE_MAX:
+                _HEADER_CACHE.clear()
+            _HEADER_CACHE[key] = (info.codec, info.bitrate, info.sample_rate)
+    return info
+
+
+def _encoder_of(path: Path) -> Any:
+    """1.4.3 (A04) : en-tête de l'encodeur déjà lu (registre), sans relire le fichier."""
+    try:
+        from ..analysis.encoder import lookup
+
+        p = Path(path)
+        return lookup(p.name, p.stat().st_size)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _probe_header(path: Path) -> AudioInfo:
     try:
         import mutagen
 
         f = mutagen.File(str(path))
     except Exception:  # noqa: BLE001 - fichier illisible / manquant : rien à signaler ici
+        log.debug("Handled error in _probe_header", exc_info=True)  # 1.4.3 (A3-4)
         return AudioInfo()
     if f is None or getattr(f, "info", None) is None:
         return AudioInfo()
@@ -207,13 +316,16 @@ def low_quality(info: AudioInfo) -> Optional[str]:
 
 def find_issues(tracks: Iterable[Any], path_of: Callable[[Any], Path],
                 prober: Optional[Callable[[Path], AudioInfo]] = None,
-                progress: Optional[Callable[[int, int], None]] = None) -> List[QualityIssue]:
+                progress: Optional[Callable[[int, int], None]] = None,
+                pause: Optional[Callable[[], None]] = None) -> List[QualityIssue]:
     """Sons à remplacer : mauvaise source d'abord (titre), puis débit trop faible. Un son n'apparaît
     qu'une fois (la mauvaise source l'emporte : la retélécharger règle aussi la qualité)."""
     prober = prober or probe
     items = list(tracks)
     issues: List[QualityIssue] = []
     for i, track in enumerate(items):
+        if pause is not None:
+            pause()                     # 1.4.3 (B103) : attend pendant la lecture (priorité basse)
         info = prober(path_of(track))
         reason = bad_source(track.title)
         if reason:

@@ -79,12 +79,14 @@ def test_import_tab_lists_every_accepted_source(demo):  # noqa: F811
     # la liste affichée est celle que le code reconnaît
     examples = {"spotify": "https://open.spotify.com/playlist/abc", "youtube": "https://youtu.be/xyz",
                 "ytmusic": "https://music.youtube.com/playlist?list=PL1", "soundcloud": "https://soundcloud.com/a/sets/b",
-                "deezer": "https://www.deezer.com/playlist/1"}                       # 1.4.0 (C86)
+                "deezer": "https://www.deezer.com/playlist/1",                       # 1.4.0 (C86)
+                "apple": "https://music.apple.com/fr/playlist/x/pl.u-1", "tidal": "https://tidal.com/browse/playlist/0a1b2c3d",
+                "amazon": "https://music.amazon.fr/playlists/B0ABC"}                  # 1.4.3 (C94)
     assert {s.key for s in SOURCES} == set(examples)
     assert all(classify_url(u) != UrlKind.UNKNOWN for u in examples.values())
     view = demo.views["import"]
     assert [c.text().split("</span> ")[-1] for c in view.source_chips] == [s.name for s in SOURCES]
-    assert all("100" in c.toolTip() or "200" in c.toolTip() for c in view.source_chips)
+    assert all(any(n in c.toolTip() for n in ("100", "200", "300")) for c in view.source_chips)   # 1.4.3 (C94)
     assert all(s.name in view.url.placeholderText() for s in SOURCES)
     for lang in ("fr", "en"):
         set_language(lang)

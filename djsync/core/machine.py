@@ -60,6 +60,7 @@ def machine_info(refresh: bool = False) -> MachineInfo:
 
             mem = psutil.virtual_memory().total / 1024 ** 3
         except Exception:  # noqa: BLE001 - psutil absent : mémoire inconnue, seuls les cœurs comptent
+            log.debug("Handled error in machine_info", exc_info=True)  # 1.4.3 (A3-4)
             mem = None
         _INFO = MachineInfo(int(os.cpu_count() or 1), mem)
     return _INFO

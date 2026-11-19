@@ -201,19 +201,7 @@ def test_a2_17_home_title_and_unknown_quality(demo):  # noqa: F811
     assert t("home.title") == "Home"
 
 
-# ------------------------------------------------------------------ A2-18 : alerte en quittant les Paramètres
-def test_a2_18_leave_settings_asks_to_save(demo, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
-    demo.show_view("settings")
-    view = demo.views["settings"]
-    assert view.unsaved() == []
-    view.views_var.setChecked(not view.views_var.isChecked())
-    assert view.unsaved() == ["fetch_views"]
-    demo.show_view("library")
-    assert demo.current == "settings"                                        # la question d'abord
-    want = view.views_var.isChecked()
-    demo.settings_leave_dialog.save_btn.click()
-    assert demo.current == "library" and demo.ctrl.settings.fetch_views == want
+# ------------------------------------------------------------------ A2-18 : 1.4.3 (option A) dans test_v143_rc2.py
 
 
 # ------------------------------------------------------------------ A2-22 : Retours

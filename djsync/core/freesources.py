@@ -33,9 +33,9 @@ _IA_FORMATS = {"flac": ("flac", True), "24bit flac": ("flac", True), "wave": ("w
 
 
 def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Any:
-    import requests
+    from .nettools import session
 
-    r = requests.get(url, params=params, timeout=TIMEOUT, headers={"User-Agent": APP})
+    r = session("freesources").get(url, params=params, timeout=TIMEOUT, headers={"User-Agent": APP})
     r.raise_for_status()
     return r.json()
 
@@ -57,25 +57,85 @@ def _audius_host(get: Callable = _get) -> str:
     return host
 
 
+def _audius_track(x: Dict[str, Any], host: str) -> TrackResult:
+    user = x.get("user") or {}
+    handle, slug = user.get("handle") or "", x.get("permalink") or ""
+    link = f"https://audius.co{slug}" if slug.startswith("/") else (f"https://audius.co/{handle}/{slug}" if handle and slug
+                                                                    else f"{host}/v1/tracks/{x.get('id')}/stream?app_name={APP}")
+    art = x.get("artwork") or {}
+    return TrackResult(video_id=f"audius:{x.get('id')}", title=x.get("title") or "", artist=user.get("name") or "",
+                       duration_seconds=int(x.get("duration") or 0), thumbnail_url=art.get("480x480") or None,
+                       source="audius", source_url=link, genre=x.get("genre") or None,
+                       license=t_license("audius", x.get("license") or ""), quality="MP3 320",
+                       release_date=x.get("release_date") or None, year=_year({"date": x.get("release_date")}),
+                       original_available=bool(x.get("downloadable")) or None)
+
+
 def audius_search(query: str, limit: int = 15, get: Callable = _get) -> List[TrackResult]:
+    """Titres d'Audius, puis (1.4.3, B89) ses albums dont le titre ou l'artiste contient les mots cherchés."""
     host = _audius_host(get)
     data = (get(f"{host}/v1/tracks/search", {"query": query, "app_name": APP}) or {}).get("data") or []
-    out = []
-    for x in data[:limit]:
-        if not x.get("is_streamable", True):
-            continue
-        user = x.get("user") or {}
-        handle, slug = user.get("handle") or "", x.get("permalink") or ""
-        link = f"https://audius.co{slug}" if slug.startswith("/") else (f"https://audius.co/{handle}/{slug}" if handle and slug
-                                                                        else f"{host}/v1/tracks/{x.get('id')}/stream?app_name={APP}")
-        art = x.get("artwork") or {}
-        out.append(TrackResult(video_id=f"audius:{x.get('id')}", title=x.get("title") or "", artist=user.get("name") or "",
-                               duration_seconds=int(x.get("duration") or 0), thumbnail_url=art.get("480x480") or None,
-                               source="audius", source_url=link, genre=x.get("genre") or None,
-                               license=t_license("audius", x.get("license") or ""), quality="MP3 320",
-                               release_date=x.get("release_date") or None, year=_year({"date": x.get("release_date")}),
-                               original_available=bool(x.get("downloadable")) or None))
+    out = [_audius_track(x, host) for x in data[:limit] if x.get("is_streamable", True)]
+    try:
+        out += audius_albums(query, get=get, host=host)
+    except Exception as exc:  # noqa: BLE001 - les titres suffisent
+        log.info("Audius albums: %s", exc)
     return out
+
+
+AUDIUS_ALBUMS = 4
+
+
+def audius_albums(query: str, limit: int = AUDIUS_ALBUMS, get: Callable = _get, host: str = "") -> List[TrackResult]:
+    """1.4.3 (B89) : albums d'Audius (playlists marquées « album ») comme lignes d'album, titres dans l'ordre."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    host = host or _audius_host(get)
+    words = [w for w in _plain(query).split() if len(w) > 1]
+    found = (get(f"{host}/v1/playlists/search", {"query": query, "app_name": APP}) or {}).get("data") or []
+    albums = []
+    for x in found:
+        user = x.get("user") or {}
+        hay = " " + _plain(f"{x.get('playlist_name') or ''} {user.get('name') or ''} {user.get('handle') or ''}") + " "
+        if x.get("is_album") and x.get("id") and (not words or all(f" {w} " in hay for w in words)):
+            albums.append(x)
+        if len(albums) >= limit:
+            break
+
+    def tracks_of(x: Dict[str, Any]) -> List[Dict[str, Any]]:
+        try:
+            return (get(f"{host}/v1/playlists/{x['id']}/tracks", {"app_name": APP}) or {}).get("data") or []
+        except Exception as exc:  # noqa: BLE001
+            log.info("Audius album %s: %s", x.get("id"), exc)
+            return []
+
+    if not albums:
+        return []
+    with ThreadPoolExecutor(max_workers=min(4, len(albums))) as pool:
+        contents = list(pool.map(tracks_of, albums))
+    out: List[TrackResult] = []
+    for x, rows in zip(albums, contents):
+        tracks = [_audius_track(r, host) for r in rows if r.get("is_streamable", True)]
+        if len(tracks) < 2:
+            continue
+        title = x.get("playlist_name") or "Album"
+        tracks = [replace_album(tr, title, i) for i, tr in enumerate(tracks, start=1)]
+        user = x.get("user") or {}
+        slug = x.get("permalink") or ""
+        art = x.get("artwork") or {}
+        out.append(TrackResult(video_id=f"audius-album:{x['id']}", title=title, artist=user.get("name") or "",
+                               album=title, result_type="album", duration_seconds=sum(t.duration_seconds for t in tracks),
+                               thumbnail_url=art.get("480x480") or None, source="audius",
+                               source_url=f"https://audius.co{slug}" if slug.startswith("/") else "https://audius.co",
+                               license=tracks[0].license, quality="MP3 320", year=tracks[0].year,
+                               tracks=tuple(tracks), track_count=len(tracks)))
+    return out
+
+
+def replace_album(track: TrackResult, album: str, no: int) -> TrackResult:
+    from dataclasses import replace
+
+    return replace(track, album=album, track_no=no)
 
 
 # ------------------------------------------------------------------ Internet Archive
@@ -85,6 +145,25 @@ def _plain(text: str) -> str:
 
 ARCHIVE_ITEMS = 15        # éléments (albums, enregistrements) demandés à archive.org
 ARCHIVE_PARALLEL = 8      # 1.4.0-rc.4 (B78) : fiches des éléments demandées en parallèle
+
+
+# 1.4.3 (B89, C191, C192) : collections d'archive.org qui ne sont pas de la musique (bulletins radio, podcasts,
+# livres audio, conférences) : une recherche « jul » ne renvoie plus que de la musique
+ARCHIVE_NOT_MUSIC = ("podcasts", "radioprograms", "oldtimeradio", "librivoxaudio", "audio_bookspoetry",
+                     "audio_religion", "audio_news", "audio_tech", "audio_podcast", "radio", "newsandpublicaffairs",
+                     "sermons", "audio_foreign")
+
+
+def archive_query(query: str, words: Optional[List[str]] = None) -> str:
+    """1.4.3 (B89) : chaque mot dans le titre ou l'artiste de l'élément (plus dans la description entière), audio,
+    hors collections et sujets qui ne sont pas de la musique."""
+    words = words if words is not None else [w for w in _plain(query).split() if len(w) > 1]
+    if words:
+        q = " AND ".join(f"(title:({w}) OR creator:({w}))" for w in words)
+    else:
+        q = f"({query})"
+    excluded = " OR ".join(ARCHIVE_NOT_MUSIC)
+    return f"{q} AND mediatype:(audio) AND -collection:({excluded}) AND -subject:(podcast OR radio OR news)"
 
 
 def _track_no(f: Dict[str, Any]) -> int:
@@ -100,9 +179,8 @@ def archive_search(query: str, limit: int = 60, get: Callable = _get) -> List[Tr
     from concurrent.futures import ThreadPoolExecutor
 
     words = [w for w in _plain(query).split() if len(w) > 1]
-    q = " AND ".join(f"({w})" for w in words) or query
-    resp = get(ARCHIVE_SEARCH, {"q": f"({q}) AND mediatype:(audio)", "fl[]": ["identifier", "title", "creator",
-                                                                             "licenseurl", "year", "date"],
+    resp = get(ARCHIVE_SEARCH, {"q": archive_query(query, words), "fl[]": ["identifier", "title", "creator",
+                                                                          "licenseurl", "year", "date"],
                                 "rows": ARCHIVE_ITEMS, "output": "json"})
     docs = [d for d in ((resp or {}).get("response") or {}).get("docs") or [] if d.get("identifier")]
 

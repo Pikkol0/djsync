@@ -9,6 +9,8 @@ liste toute la playlist (titre, durée, vignette, vues) sans résoudre chaque vi
 """
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 
 import re
@@ -17,7 +19,10 @@ from urllib.parse import parse_qs, urlparse
 
 from ..models import ResolvedUrl, TrackResult, UrlKind
 
+log = logging.getLogger(__name__)
+
 MAX_ENTRIES = 200
+PLAYLIST_CAP = 2000          # 1.4.3 (C185) : sons lus au plus dans une playlist (par pages de MAX_ENTRIES, enchaînées)
 
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com"}
 _SOUNDCLOUD_HOSTS = {"soundcloud.com", "m.soundcloud.com", "on.soundcloud.com", "snd.sc"}
@@ -38,10 +43,13 @@ class Source:
 # Une seule source de vérité : `classify_url` ci-dessous reconnaît exactement ces services (test).
 SOURCES = (
     Source("spotify", "Spotify", "#1DB954", "open.spotify.com/playlist/…", 100),
-    Source("deezer", "Deezer", "#A238FF", "deezer.com/playlist/… · link.deezer.com/…", 1000),   # 1.4.0 (C86)
-    Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", MAX_ENTRIES),
-    Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", MAX_ENTRIES),
-    Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", MAX_ENTRIES),
+    Source("deezer", "Deezer", "#A238FF", "deezer.com/playlist/… · link.deezer.com/…", PLAYLIST_CAP),   # 1.4.0 (C86)
+    Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", PLAYLIST_CAP),    # 1.4.3 (C185)
+    Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", PLAYLIST_CAP),
+    Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", PLAYLIST_CAP),
+    Source("apple", "Apple Music", "#FA2D48", "music.apple.com/…/playlist/…", 300),                # 1.4.3 (C94)
+    Source("tidal", "Tidal", "#7A7A80", "tidal.com/browse/playlist/…", PLAYLIST_CAP),
+    Source("amazon", "Amazon Music", "#25D1DA", "music.amazon.com/playlists/…", PLAYLIST_CAP),
 )
 
 
@@ -75,6 +83,11 @@ def classify_url(url: str) -> UrlKind:
         return UrlKind.SOUNDCLOUD
     if host == "deezer.com" or host.endswith(".deezer.com") or host in _DEEZER_SHORT:   # 1.4.0 (C86)
         return UrlKind.DEEZER
+    from .streaming_import import service_of                                            # 1.4.3 (C94)
+
+    service = service_of(host)
+    if service:
+        return {"apple": UrlKind.APPLE, "tidal": UrlKind.TIDAL, "amazon": UrlKind.AMAZON}[service]
     return UrlKind.UNKNOWN
 
 
@@ -157,6 +170,7 @@ def _complete_soundcloud(entries: List[Dict[str, Any]],
     try:
         found = details([i for i in ids if i])
     except Exception:  # noqa: BLE001 - au pire, la liste reste telle quelle
+        log.debug("Handled error in _complete_soundcloud", exc_info=True)  # 1.4.3 (A3-4)
         found = {}
     out = []
     for e, i in zip(entries, ids):

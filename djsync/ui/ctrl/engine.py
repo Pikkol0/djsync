@@ -42,7 +42,7 @@ class EngineMixin:
             try:
                 s.save()
             except OSError:
-                pass
+                log.debug("Ignored error in done", exc_info=True)  # 1.4.3 (A3-4)
             self.available_update = update
             self._emit("app_update_state")
             if update is not None and result is None:      # « Tout vérifier » : ligne d'état, pas de fenêtre
@@ -113,7 +113,11 @@ class EngineMixin:
                 self.dispatcher.post(self._emit, "app_update_state")
 
         def work() -> Any:
-            f = selfupdate.download(update, selfupdate.download_dir(), progress, lambda: self._update_cancel)
+            f = None
+            if p.kind == "windows":          # 1.4.3 (C72) : seulement les morceaux de DJSync.exe qui ont changé
+                f = _delta_download(update, p, progress, lambda: self._update_cancel)
+            if f is None:
+                f = selfupdate.download(update, selfupdate.download_dir(), progress, lambda: self._update_cancel)
             try:
                 return selfupdate.prepare(p, f)
             finally:
@@ -218,3 +222,20 @@ class EngineMixin:
         for job in list(self.jobs):
             if job.status == "error" and engine.looks_outdated(job.message):
                 self.retry(job)
+
+
+def _delta_download(update: Any, p: Any, progress: Any, cancelled: Any) -> Any:
+    """1.4.3 (C72) : DJSync.exe reconstruit à partir de l'actuel et des seuls morceaux changés ; None : tout
+    télécharger comme avant (liste absente, ancienne version, erreur)."""
+    from ...core import delta_update, selfupdate
+
+    try:
+        want = selfupdate.expected_sha256(update)
+        return delta_update.download(update.asset, want, p.target, selfupdate.download_dir(), progress, cancelled)
+    except selfupdate.UpdateError as exc:
+        if str(exc) == "cancelled":
+            raise
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.info("Delta update unavailable: %s", exc)
+        return None

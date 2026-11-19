@@ -399,6 +399,7 @@ class DuplicatesDialog(BaseDialog):
         self._group_cues = {}
         self._cue_strips = {}
         self.cues_summary = None
+        self.merge_preview = None                              # 1.4.3 (C199)
         self._pl_labels = {}
         self._info_labels = {}
         self._best_slots = {}
@@ -460,6 +461,8 @@ class DuplicatesDialog(BaseDialog):
             for cid, lbl in self._pl_labels.items():
                 names = found.get(cid) or []
                 lbl.setText(t("dup.in_playlists", names=", ".join(names)) if names else t("dup.in_no_playlist"))
+            self._group_playlists = dict(found)                   # 1.4.3 (C199) : aperçu de la fusion
+            self._show_merge_preview()
 
         self.ctrl.track_playlists([x.content_id for x in group], show_playlists)
         matches = getattr(self.ctrl, "duplicate_matches", {}) or {}
@@ -478,6 +481,14 @@ class DuplicatesDialog(BaseDialog):
         self.cues_summary = label("", "faint", wrap=True)     # 1.3.2 (C79) : ce que la fusion gardera
         self.cues_summary.hide()
         self.detail_lay.addWidget(self.cues_summary)
+        # 1.4.3 (C199) : aperçu « style GitHub » de la fusion (= gardé, + ajouté, − retiré), avant « Fusionner »
+        self._group_playlists: dict = {}
+        self.merge_preview_title = label(t("merge.preview_title"), "h2")
+        self.detail_lay.addWidget(self.merge_preview_title)
+        self.merge_preview = label("", "", wrap=True)
+        self.merge_preview.setTextFormat(Qt.RichText)
+        self.merge_preview.setObjectName("merge_preview")
+        self.detail_lay.addWidget(self.merge_preview)
 
         strips = self._cue_strips                             # C79 : une lecture lancée pour un détail redessiné
                                                               # depuis (même groupe) ne doit pas l'écraser
@@ -525,6 +536,9 @@ class DuplicatesDialog(BaseDialog):
         form.addRow(t("track.artist"), self.artist_entry)
         self.detail_lay.addLayout(form)
         self.title_entry.setToolTip(t("dup.metadata_hint"))
+        self.title_entry.textChanged.connect(lambda _x: self._show_merge_preview())
+        self.artist_entry.textChanged.connect(lambda _x: self._show_merge_preview())
+        self._show_merge_preview()
         self.detail_lay.addStretch(1)
         self._refresh_actions()
 
@@ -571,6 +585,7 @@ class DuplicatesDialog(BaseDialog):
         src = self._cue_source()
         for cid, strip in self._cue_strips.items():
             strip.set_highlight(src is not None and cid == src.content_id)
+        self._show_merge_preview()
         lbl = self.cues_summary
         if lbl is None:
             return
@@ -582,6 +597,38 @@ class DuplicatesDialog(BaseDialog):
         hot, loops, mem = cue_summary(self._group_cues.get(src.content_id) or [])
         lbl.setText(t("dup.cues_result", hot=hot, loops=loops, mem=mem) if hot or mem else t("dup.cues_result_none"))
         lbl.show()
+
+    def merge_preview_lines(self) -> list:
+        """1.4.3 (C199) : lignes de l'aperçu pour le groupe et les choix en cours ([] sans groupe)."""
+        from ..core import merge_preview
+
+        group = self.current_group
+        if group is None or not (0 <= self.index < len(self.groups)) or self.download_choice() is not None:
+            return []
+        keep = group[self.keep_index()]
+        others = [x for x in group if x is not keep]
+        new_title = new_artist = None
+        if self.title_entry is not None:
+            title = self.title_entry.text().strip() or keep.title
+            artist = self.artist_entry.text().strip()
+            new_title = title if title != keep.title else None
+            new_artist = artist if artist != (keep.artist or "") else None
+        return merge_preview.build(keep, others, getattr(self, "_group_playlists", {}) or {},
+                                   self._group_cues or {}, self.cues_from(), new_title, new_artist)
+
+    def _show_merge_preview(self) -> None:
+        box = getattr(self, "merge_preview", None)
+        if box is None:
+            return
+        from ..core import merge_preview
+
+        try:
+            lines = self.merge_preview_lines()
+            box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM) if lines else "")
+            box.setVisible(bool(lines))
+            self.merge_preview_title.setVisible(bool(lines))
+        except RuntimeError:                         # détail redessiné entre-temps
+            return
 
     def _open_cues(self, x: LibraryTrack) -> None:
         """1.3.2 (C79) : ouvrir Grille et cues de ce son, sans passer par le lecteur ; Retour = Doublons (B29)."""

@@ -13,7 +13,7 @@ aperçu bleu (liste, aperçu du morceau entier) au lieu de l'aperçu 3 bandes de
 """
 from __future__ import annotations
 
-import os
+import logging
 import re
 import struct
 import zlib
@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .waveform import Waveforms
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
+
+log = logging.getLogger(__name__)
 
 ANLZ_ROOT = "PIONEER/USBANLZ"
 
@@ -169,6 +172,7 @@ def choose_anlz_base(drive_root: Path, track_path: str) -> str:
             if read_path(dat.read_bytes()).casefold() == track_path.casefold():
                 return f"{rel_dir}/ANLZ{n:04d}"
         except (OSError, ValueError, UnicodeDecodeError):
+            log.debug("Ignored error in choose_anlz_base", exc_info=True)  # 1.4.3 (A3-4)
             continue
     raise OSError("no free analysis folder found")
 
@@ -188,8 +192,8 @@ def _write_atomic(target: Path, data: bytes) -> None:
     with open(tmp, "wb") as fh:
         fh.write(data)
         fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, target)
+        durable.flush_fd(fh.fileno())
+    durable.replace(tmp, target)
 
 
 class CuesUnreadable(ValueError):

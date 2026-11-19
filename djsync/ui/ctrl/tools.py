@@ -201,6 +201,11 @@ class ToolsMixin:
         self.dispatcher.submit(work, done, fail, pool="tools")
         return True
 
+    def copy_stop(self) -> None:
+        """1.4.3 (C210) : « Copier vers » arrêté après le son en cours (ce qui est copié reste)."""
+        self._copy_stop = True
+        self.tasks.mark_stopping("copy")
+
     def transfer_stop(self) -> None:
         """Arrêt demandé : pris en compte entre deux playlists (ce qui est fait reste cohérent)."""
         self._transfer_stop = True
@@ -247,14 +252,19 @@ class ToolsMixin:
         if src is None or self._tool_busy:
             return
         self._tool_busy = True
+        self._copy_stop = False
         name = getattr(target, "label", "") or str(getattr(target, "root", target))
         last = [0.0]
+        # 1.4.3 (C210) : une ligne dans « Tâches en cours » du volet (progression, arrêt) au lieu d'un message
+        # réécrit à chaque son
+        task = self.tasks.start("copy", "task.copy", icon="copy", can_stop=True, stop=self.copy_stop,
+                                detail=name)
 
         def progress(i: int, total: int, title: str) -> None:
             now = time.monotonic()
-            if now - last[0] > 0.7 or i == total:
+            if now - last[0] > 0.3 or i == total:
                 last[0] = now
-                self.dispatcher.post(self.message, "info", t("copy.progress", i=i, n=total, title=title))
+                task.progress(i, total, title)
 
         def work() -> Any:
             from ...db.transfer import copy_playlist
@@ -262,12 +272,13 @@ class ToolsMixin:
             dst = self._open_target(target)
             try:
                 with dst.batch():
-                    return copy_playlist(src, playlist_id, dst, progress)
+                    return copy_playlist(src, playlist_id, dst, progress, lambda: self._copy_stop)
             finally:
                 dst.close()
 
         def done(res: Any) -> None:
             self._tool_busy = False
+            task.finish()
             kind = "warn" if res.failed else "ok"
             self.message(kind, t("copy.done", name=res.playlist_name, target=name, copied=res.copied,
                                  reused=res.reused, failed=res.failed))
@@ -278,6 +289,7 @@ class ToolsMixin:
 
         def fail(exc: BaseException) -> None:
             self._tool_busy = False
+            task.fail(str(exc))
             self._on_error(exc)
 
         self.message("info", t("copy.start", target=name))

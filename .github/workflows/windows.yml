@@ -222,12 +222,17 @@ jobs:
         run: |
           $h = (Get-FileHash out/DJSync.exe -Algorithm SHA256).Hash.ToLower()
           "$h  DJSync.exe" | Out-File -Encoding ascii out/DJSync.exe.sha256
+      - name: Parts list (1.4.3, C72 - in-app update downloads only what changed)
+        run: |
+          python -m djsync.core.delta_update out/DJSync.exe "${{ steps.name.outputs.version }}"
+          python packaging/app_size.py out/DJSync.exe
       - uses: actions/upload-artifact@v7
         with:
           name: DJSync-windows
           path: |
             out/DJSync.exe
             out/DJSync.exe.sha256
+            out/DJSync.exe.parts.json
 
   macos:
     # Apple silicon (arm64). GitHub's Mac runners are sometimes unavailable: the job is then cancelled

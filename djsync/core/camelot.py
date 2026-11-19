@@ -10,8 +10,11 @@ Rekordbox stocke les tonalités sous forme de noms musicaux ("Am", "F#m"…) dan
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Optional
+
+log = logging.getLogger(__name__)
 
 # hauteur de note (0 = Do) -> code Camelot
 _MAJOR = {0: "8B", 1: "3B", 2: "10B", 3: "5B", 4: "12B", 5: "7B", 6: "2B", 7: "9B", 8: "4B", 9: "11B", 10: "6B", 11: "1B"}
@@ -93,6 +96,7 @@ def read_file_key(path: str) -> Optional[str]:
 
         audio = mutagen.File(path)
     except Exception:  # noqa: BLE001 - fichier illisible : pas de tonalité
+        log.debug("Handled error in read_file_key", exc_info=True)  # 1.4.3 (A3-4)
         return None
     if audio is None or audio.tags is None:
         return None
@@ -108,5 +112,6 @@ def read_file_key(path: str) -> Optional[str]:
             if name in tags:
                 return str(tags[name][0]) or None
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in read_file_key", exc_info=True)  # 1.4.3 (A3-4)
         return None
     return None

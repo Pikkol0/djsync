@@ -132,5 +132,6 @@ def read_marks(lib: Any, tracks: Sequence[Any], should_stop: Optional[Any] = Non
         try:
             out[int(x.content_id)] = summarize(lib.track_cues(x.content_id))
         except Exception:  # noqa: BLE001 - un son illisible n'arrête pas la liste
+            log.debug("Handled error in read_marks", exc_info=True)  # 1.4.3 (A3-4)
             out[int(x.content_id)] = NONE
     return out

@@ -5,6 +5,7 @@ de la clé ; le résultat est gardé quelques minutes (`core.space.UsageCache`).
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -17,6 +18,8 @@ from ..i18n import num, plural, t
 from . import theme
 from .views.common import human_size
 from .widgets import button, hbox, label
+
+log = logging.getLogger(__name__)
 
 # Couleur de chaque poste (le libre reste neutre)
 # 1.4.0-rc.2 (C132) : caches en vert, pour ne plus les confondre avec « Autres fichiers » (gris)
@@ -76,6 +79,15 @@ class SpaceCard:
         self._token = 0
         self._pending: Optional[str] = None     # mesure en cours (clé), pour ne pas la lancer deux fois
         self.usage: Optional[space.Usage] = None
+        # 1.4.3 (C200) : place totale de DJSync sur cet ordinateur, en tête de la carte, avec le détail
+        self.footprint = label("", "", wrap=True)
+        self.footprint.setObjectName("djsync_footprint")
+        self.footprint.hide()
+        layout.addWidget(self.footprint)
+        self.footprint_detail = label("", "dim", wrap=True)
+        self.footprint_detail.hide()
+        layout.addWidget(self.footprint_detail)
+        self.footprint_data: Optional[Dict[str, int]] = None
         top = hbox(spacing=theme.px(8))
         self.summary = label(t("space.idle"), "dim", wrap=True)
         top.addWidget(self.summary, 1)
@@ -140,6 +152,7 @@ class SpaceCard:
             self.bar.set_parts({})
             self._fill({}, {})
             return
+        self._compute_footprint(force)
         if force:
             self.cache.drop(target["key"])
         cached = self.cache.get(target["key"])
@@ -201,6 +214,35 @@ class SpaceCard:
             self.ctrl.dispatcher.submit(lambda: work(total), ok, failed, pool="tools")
 
         self.ctrl.dispatcher.submit(sizes, measured, failed, pool="db")
+
+    def _compute_footprint(self, force: bool = False) -> None:
+        """1.4.3 (C200) : application, caches, sauvegardes, réglages et sons téléchargés sur l'ordinateur."""
+        if self.footprint_data is not None and not force:
+            self._show_footprint(self.footprint_data)
+            return
+        from ..settings import settings_dir
+
+        local = getattr(self.ctrl, "local", None)
+        music = getattr(local, "music_dir", None) if local is not None else None
+        data = settings_dir()
+
+        def ok(fp: Dict[str, int]) -> None:
+            self.footprint_data = fp
+            self._show_footprint(fp)
+
+        self.ctrl.dispatcher.submit(lambda: space.djsync_footprint(data, music), ok,
+                                    lambda exc: log.info("DJSync footprint not measured: %s", exc), pool="tools")
+
+    def _show_footprint(self, fp: Dict[str, int]) -> None:
+        try:
+            self.footprint.setText(t("space.footprint", size=human_size(fp.get("total", 0))))
+            parts = [t(f"space.fp_{k}", size=human_size(fp.get(k, 0))) for k in space.FOOTPRINT_PARTS]
+            self.footprint_detail.setText(" · ".join(parts))
+            self.footprint.setToolTip(t("space.footprint_tip"))
+            self.footprint.show()
+            self.footprint_detail.show()
+        except RuntimeError:                          # carte détruite entre-temps
+            log.debug("Footprint label gone", exc_info=True)
 
     # ---------------------------------------------------------------- affichage
     def _show(self, usage: space.Usage, target: Dict[str, Any]) -> None:

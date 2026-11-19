@@ -56,6 +56,7 @@ from .library.metadata import (
     NATIVE_PARTS, REKORDBOX_ORIGINALS, BeatGrid, PlaylistStats, anlz_set, keep_rekordbox_original,
     read_rekordbox_original, restored_files, write_or_roll_back,
 )
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,70 @@ def quiet_playlist_xml() -> None:
 
 MASTER_DB = "master.db"
 PLAYLIST_XML = "masterPlaylists6.xml"
+SESSION_KEEP = 5               # 1.4.3 (A6-4) : copies « début de session » de master.db gardées
+
+
+def safe_playlist_xml_save() -> None:
+    """1.4.3 (A6-5) : pyrekordbox réécrit masterPlaylists6.xml sur place (`open("w")`) : une coupure le laisse
+    vide et la bibliothèque de l'ordinateur ne s'ouvre plus. Écriture par fichier temporaire, fsync, renommage."""
+    try:
+        from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
+    except ImportError:  # pragma: no cover
+        return
+    if getattr(MasterPlaylistXml.save, "_djsync_safe", False):
+        return
+
+    def save(self: Any, path: Any = None, indent: Any = None) -> None:
+        target = Path(str(path if path is not None else self.path))
+        data = self.to_string(indent)
+        tmp = target.with_name(target.name + ".djsync-tmp")
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(data)
+                fh.flush()
+                durable.flush_fd(fh.fileno())
+            durable.replace(tmp, target)
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+        self._changed = False
+
+    save._djsync_safe = True  # type: ignore[attr-defined]
+    MasterPlaylistXml.save = save
+
+
+def _xml_readable(path: Path) -> bool:
+    import xml.etree.ElementTree as ET
+
+    try:
+        ET.parse(str(path))
+        return True
+    except (ET.ParseError, OSError):
+        return False
+
+
+def repair_playlist_xml(db_dir: Path, backup_root: Path) -> bool:
+    """1.4.3 (A6-5) : masterPlaylists6.xml illisible (vide après une coupure) : reprise de la copie lisible la plus
+    récente des sauvegardes de DJSync. True si le fichier a été remis."""
+    xml_path = Path(db_dir) / PLAYLIST_XML
+    if not xml_path.is_file() or _xml_readable(xml_path):
+        return False
+    for folder in sorted((p for p in Path(backup_root).glob("master-*") if p.is_dir()), reverse=True):
+        cand = folder / PLAYLIST_XML
+        if cand.is_file() and _xml_readable(cand):
+            keep = Path(backup_root) / f"{PLAYLIST_XML}-unreadable-{datetime.now():%Y%m%d-%H%M%S}"
+            try:
+                shutil.copy2(xml_path, keep)
+                tmp = xml_path.with_name(xml_path.name + ".djsync-tmp")
+                shutil.copyfile(cand, tmp)
+                durable.replace(tmp, xml_path)
+            except OSError as exc:
+                log.warning("masterPlaylists6.xml unreadable and not repaired: %s", exc)
+                return False
+            log.warning("masterPlaylists6.xml was unreadable (power cut?): put back from %s", folder.name)
+            return True
+    log.warning("masterPlaylists6.xml is unreadable and no readable copy was found in the backups")
+    return False
 ANALYSED_FLAG = 105            # valeur de djmdContent.Analysed des sons analysés (396 sur 397)
 ART_SIZES = {"artwork.jpg": 640, "artwork_m.jpg": 240, "artwork_s.jpg": 80}
 # Valeurs « vides » des sons natifs (chaîne vide / 0 plutôt que NULL), relevées sur une vraie base
@@ -295,7 +360,7 @@ class OwnedRegistry:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self.path.with_suffix(".tmp")
                 tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-                os.replace(tmp, self.path)
+                durable.replace(tmp, self.path)
             except OSError as exc:
                 log.warning("Owned-track list not saved: %s", exc)
 
@@ -347,6 +412,10 @@ class LocalRekordboxLibrary:
         self.analyze = analyze
         self.auto_cue = False                  # V0.5.0 : mémoire cue sur le premier temps fort
         self.native_parts: Tuple[str, ...] = ()   # 1.4.1 (C131) : ce qu'une réanalyse refait sur un son de Rekordbox
+        # 1.4.3 (A07, C156) : « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas téléchargés,
+        # sauf si l'utilisateur protège ces sons (réglage « Protéger les sons qui ne viennent pas de DJSync »)
+        self.protect_foreign = False
+        self.last_trashed = 0                      # fichiers mis à la corbeille par la dernière suppression
         self.artwork = artwork
         self.ffmpeg_location = ffmpeg_location or None
         self.key_notation = key_notation
@@ -394,7 +463,7 @@ class LocalRekordboxLibrary:
                 if row and row[0][0] and Path(row[0][0]).is_dir():
                     self._share = Path(row[0][0])
             except Exception:  # noqa: BLE001 - emplacement par défaut
-                pass
+                log.debug("Ignored error in connect", exc_info=True)  # 1.4.3 (A3-4)
             log.info("Computer library opened: %s", self.db_path)
         return self
 
@@ -405,6 +474,12 @@ class LocalRekordboxLibrary:
         except ImportError as exc:  # pragma: no cover
             raise DatabaseOpenError("The pyrekordbox package is required for the computer library.") from exc
         quiet_playlist_xml()                                          # 1.4.0-rc.5 (B91)
+        safe_playlist_xml_save()                                      # 1.4.3 (A6-5)
+        if not self.read_only:
+            try:
+                repair_playlist_xml(self.drive.db_dir, self.backup_dir)
+            except Exception:  # noqa: BLE001 - la réparation ne doit jamais empêcher l'ouverture
+                log.exception("masterPlaylists6.xml check failed")
         try:
             self._db = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
             self._db.session.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM djmdContent")).fetchall()
@@ -437,7 +512,7 @@ class LocalRekordboxLibrary:
                 try:
                     self._db.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in refresh", exc_info=True)  # 1.4.3 (A3-4)
                 self._db = None
             self._open_db()
             log.info("Computer library reopened: %s", self.db_path)
@@ -466,13 +541,13 @@ class LocalRekordboxLibrary:
             try:
                 reader.close()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
         with self._lock:
             if self._db is not None:
                 try:
                     self._db.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in close", exc_info=True)  # 1.4.3 (A3-4)
                 self._db = None
                 # 1.3.2-rc.6 (B52) : qui l'a fermée (une lecture arrivée ensuite rouvre la base, voir _session_db)
                 import traceback
@@ -500,6 +575,10 @@ class LocalRekordboxLibrary:
                     self._open_db()
         return self._db
 
+    def library_identity(self) -> str:
+        """1.4.3 (A3-3) : identifiant stable (chemin de master.db), pour les réglages par bibliothèque."""
+        return str(self.db_path)
+
     def _read(self, sql: str, params: Dict[str, Any] = None) -> List[Tuple[Any, ...]]:
         """Lecture courte : la transaction est refermée aussitôt (sinon DJSync resterait sur une image
         figée de la base, sans les changements faits ensuite dans Rekordbox)."""
@@ -524,7 +603,7 @@ class LocalRekordboxLibrary:
                         try:
                             self._db.session.rollback()
                         except Exception:  # noqa: BLE001
-                            pass
+                            log.debug("Ignored error in _read", exc_info=True)  # 1.4.3 (A3-4)
             return []
 
     # ------------------------------------------------------------- écritures sûres
@@ -547,6 +626,15 @@ class LocalRekordboxLibrary:
             olds = sorted(p for p in self.backup_dir.glob("master-*") if p.is_dir())
             for old in olds[: -max(1, self.backup_keep)]:
                 shutil.rmtree(old, ignore_errors=True)
+            if not getattr(self, "_session_saved", False):
+                # 1.4.3 (A6-4, B) : la première copie de la session est gardée à part (5 dernières sessions) : l'état
+                # d'avant la session reste disponible même après plus de 10 écritures.
+                keep = self.backup_dir / f"session-{stamp}"
+                shutil.copytree(target, keep)
+                sessions = sorted(p for p in self.backup_dir.glob("session-*") if p.is_dir())
+                for old in sessions[: -SESSION_KEEP]:
+                    shutil.rmtree(old, ignore_errors=True)
+                self._session_saved = True
         except OSError as exc:
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         if self._batch_depth > 0:
@@ -598,10 +686,17 @@ class LocalRekordboxLibrary:
                 try:
                     db.rollback()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
                 raise
             finally:
                 self._writing -= 1
+            if self._writing == 0:
+                # 1.4.3 (A1-4) : la session ne garde plus les objets écrits ; sinon chaque lecture (rollback)
+                # les faisait tous expirer, de plus en plus lentement au fil de la session (0,7 → 63 ms).
+                try:
+                    db.session.expunge_all()
+                except Exception:  # noqa: BLE001
+                    log.debug("expunge_all failed", exc_info=True)
             self._file_id = self._identity()
             log.info("Computer library: change saved to master.db (size %s, -wal %s)", self._file_id[2], self._file_id[6])
             _XML_QUIET.report()
@@ -662,6 +757,28 @@ class LocalRekordboxLibrary:
             return None
         rows = self._read(_TRACK_SQL + "WHERE instr(c.Commnt, :v) > 0 LIMIT 1", {"v": vid})
         return self._track(rows[0]) if rows else None
+
+    def find_by_source_urls(self, urls: Sequence[str]) -> Dict[str, LibraryTrack]:
+        """1.4.3 (B98) : comme `find_by_source_url`, pour toute une liste, en une requête sur la connexion de
+        lecture (sans attendre les écritures)."""
+        from .library.common import _match_sources, _source_keys
+
+        wanted = {u: k for u, k in _source_keys(urls).items() if k[1]}
+        vids = sorted({k for k, _ in wanted.values()})
+        if not vids:
+            return {}
+        params = {f"v{i}": v for i, v in enumerate(vids)}
+        where = " OR ".join(f"instr(c.Commnt, :v{i}) > 0" for i in range(len(vids)))
+        rows = self._read_fast(f"SELECT c.ID, c.Commnt FROM djmdContent c WHERE ({where}) ORDER BY c.created_at",
+                               params)
+        hits = _match_sources(wanted, rows)
+        if not hits:
+            return {}
+        ids = sorted({str(v) for v in hits.values()})
+        id_params = {f"i{i}": v for i, v in enumerate(ids)}
+        tracks = {str(t.content_id): t for t in (self._track(r) for r in self._read_fast(
+            _TRACK_SQL + "WHERE c.ID IN (%s)" % ",".join(f":i{i}" for i in range(len(ids))), id_params))}
+        return {url: tracks[str(cid)] for url, cid in hits.items() if str(cid) in tracks}
 
     def track_count(self) -> int:
         return int(self._read(f"SELECT COUNT(*) FROM djmdContent c WHERE {_VISIBLE} "
@@ -728,7 +845,7 @@ class LocalRekordboxLibrary:
                         try:
                             reader.close()
                         except Exception:  # noqa: BLE001
-                            pass
+                            log.debug("Ignored error in _read_fast", exc_info=True)  # 1.4.3 (A3-4)
                     from pyrekordbox.masterdb import MasterDatabase
 
                     reader = self._reader = MasterDatabase(path=str(self.db_path), db_dir=str(self.drive.db_dir))
@@ -952,6 +1069,7 @@ class LocalRekordboxLibrary:
             img.load()
             img = img.convert("RGB")
         except Exception:  # noqa: BLE001 - pochette illisible : pas de pochette
+            log.debug("Handled error in _write_artwork", exc_info=True)  # 1.4.3 (A3-4)
             return None, []
         w, h = img.size
         s = min(w, h)
@@ -980,6 +1098,10 @@ class LocalRekordboxLibrary:
                                           sample_rate or 44100, rel_dir=rel_dir)
                 dat = self.share_dir / ex.anlz_path.lstrip("/")
                 ex.written += [dat, dat.with_suffix(".EXT"), dat.with_suffix(".2EX")]
+                if getattr(self, "write_tags", False):          # 1.4.3 (S05) : BPM et tonalité dans le fichier
+                    from ..core.file_tags import after_analysis
+
+                    ex.file_size = after_analysis(file_path, ex.analysis)
             except Exception as exc:  # noqa: BLE001 - son ajouté sans analyse
                 from ..analysis.anlz import CuesUnreadable
 
@@ -998,6 +1120,7 @@ class LocalRekordboxLibrary:
                         ex.jpegs = {"path": art}            # type: ignore[assignment]
                         ex.written += written
             except Exception as exc:  # noqa: BLE001
+                log.debug("Handled error in _prepare", exc_info=True)  # 1.4.3 (A3-4)
                 ex.problems.append(f"artwork: {exc}")
         return ex
 
@@ -1011,6 +1134,13 @@ class LocalRekordboxLibrary:
             content.AnalysisDataPath = ex.anlz_path
             content.Analysed = ANALYSED_FLAG
             content.AnalysisUpdated = str(int(content.AnalysisUpdated or 0) + 1)
+            if ex.file_size:                          # 1.4.3 (S05)
+                content.FileSize = ex.file_size
+            if getattr(ex.analysis, "lufs", None) is not None:       # 1.4.3 (C109) : Auto Gain de Rekordbox
+                try:
+                    self._mixer_gain(db, content, ex.analysis.gain_db, ex.analysis.peak_db)
+                except Exception:  # noqa: BLE001 - le gain n'est qu'un plus
+                    log.info("Auto gain not written for %s", content.ID, exc_info=True)
             if self.auto_cue:
                 self._memory_cue(db, content, ex.analysis.first_downbeat_ms)
             for ext in (".DAT", ".EXT", ".2EX"):
@@ -1021,6 +1151,23 @@ class LocalRekordboxLibrary:
             content.ImagePath = ex.jpegs["path"]
             self._file_row(db, content, ex.jpegs["path"])
         content.updated_at = now
+
+    @staticmethod
+    def _mixer_gain(db: Any, content: Any, gain: float, peak_db: Optional[float]) -> None:
+        """1.4.3 (C109) : gain automatique dans djmdMixerParam (bouton Auto Gain de Rekordbox) et crête."""
+        from pyrekordbox.masterdb import models
+
+        row = db.query(models.DjmdMixerParam).filter_by(ContentID=content.ID).first()
+        now = datetime.now()
+        if row is None:
+            row = models.DjmdMixerParam.create(ID=str(db.generate_unused_id(models.DjmdMixerParam)),
+                                               ContentID=content.ID, GainHigh=0, GainLow=0, PeakHigh=0, PeakLow=0,
+                                               UUID=str(uuid4()), created_at=now, updated_at=now)
+            db.add(row)
+        row.Gain = float(gain)
+        if peak_db is not None:
+            row.Peak = float(peak_db)
+        row.updated_at = now
 
     @staticmethod
     def _memory_cue(db: Any, content: Any, ms: Optional[int]) -> None:
@@ -1050,7 +1197,7 @@ class LocalRekordboxLibrary:
             try:
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("Ignored error in _discard", exc_info=True)  # 1.4.3 (A3-4)
 
     def _common_content_link(self) -> Optional[int]:
         """ContentLink le plus courant chez les sons de la collection (valeur interne de Rekordbox)."""
@@ -1061,8 +1208,9 @@ class LocalRekordboxLibrary:
     # ----------------------------------------------------------------------- ajout
     def add_track(self, file_path: Path, title: str, artist: str, album: Optional[str] = None,
                   source_url: Optional[str] = None, playlist_ids: Sequence[int] = (),
-                  meta: Optional[Dict[str, Any]] = None) -> LibraryTrack:
-        """Ajoute un son téléchargé à la collection Rekordbox (+ analyse, pochette, playlists)."""
+                  meta: Optional[Dict[str, Any]] = None, analyze: Optional[bool] = None) -> LibraryTrack:
+        """Ajoute un son téléchargé à la collection Rekordbox (+ analyse, pochette, playlists).
+        1.4.3 (A3-3) : `analyze` (facultatif) remplace pour cet ajout l'attribut partagé `self.analyze`."""
         from pyrekordbox.masterdb import models
 
         from .library.tracks import TracksMixin
@@ -1089,7 +1237,7 @@ class LocalRekordboxLibrary:
             return self.get_track(cid)
 
         uuid = str(uuid4())
-        ex = self._prepare(file_path, audio["fileType"], audio["samplingRate"], uuid, analysis=self.analyze, cover=True)
+        ex = self._prepare(file_path, audio["fileType"], audio["samplingRate"], uuid, analysis=self.analyze if analyze is None else bool(analyze), cover=True)
         self.last_problems = list(ex.problems)
         try:
             with self._write() as db:
@@ -1144,54 +1292,47 @@ class LocalRekordboxLibrary:
                        should_stop: Optional[Callable[[], bool]] = None, chunk: int = 8) -> Tuple[int, int, int]:
         """Analyse les sons sans analyse ; avec `force`, réanalyse AUSSI ceux que DJSync a créés, et
         greffe dans les analyses de Rekordbox les parties de `native_parts` (1.4.1, D20 ; vide = laissées
-        telles quelles). Renvoie (analysés, ignorés, échecs)."""
-        ids = list(dict.fromkeys(int(c) for c in content_ids))
+        telles quelles). Renvoie (analysés, ignorés, échecs). 1.4.3 (A3-7) : déroulé commun avec la clé
+        (db/analysis_flow.py) ; chaque son est enregistré tout de suite (`chunk` sans effet ici)."""
+        from .analysis_flow import DONE, FAILED, SKIP, Step, run_analysis
+
         owned = self.owned.all()
-        done = skipped = failed = 0
-        for i, cid in enumerate(ids, start=1):
-            if should_stop and should_stop():
-                break
-            problem = ""
-            try:
-                track = self.get_track(cid)
-                rows = self._read("SELECT UUID, COALESCE(SampleRate,44100) FROM djmdContent WHERE ID = :id",
-                                  {"id": str(cid)})
-                uuid, rate = rows[0]
-                parts = tuple(p for p in self.native_parts if p in NATIVE_PARTS) if force else ()
-                if track.is_analysed and uuid not in owned:
-                    if parts:                           # 1.4.1 (C131) : son de Rekordbox, reste non « owned »
-                        self._native_reanalyse(cid, track, uuid, parts)
-                        done += 1
-                    else:
-                        skipped += 1
-                elif track.is_analysed and not force:
-                    skipped += 1
-                else:
-                    path = Path(track.path)
-                    if not path.is_file():
-                        raise LibraryError(f"File not found: {path}")
-                    self.ensure_writable()
-                    ex = self._prepare(path, track.file_type, int(rate), uuid, analysis=True,
-                                       cover=not track.artwork_path)
-                    if ex.analysis is None:
-                        failed += 1
-                        problem = "; ".join(ex.problems)
-                    else:
-                        with self._write() as db:
-                            self._apply_extras(db, self._content(cid), ex)
-                        self.owned.add(uuid)
-                        done += 1
-                        problem = "; ".join(ex.problems)
-            except LibraryError as exc:
-                failed += 1
-                problem = str(exc)
-            if on_progress:
-                try:
-                    t = self.get_track(cid)
-                except LibraryError:
-                    t = None
-                on_progress(i, len(ids), t, problem)
-        return done, skipped, failed
+
+        def step(cid: int) -> Step:
+            track = self.get_track(cid)
+            rows = self._read("SELECT UUID, COALESCE(SampleRate,44100) FROM djmdContent WHERE ID = :id",
+                              {"id": str(cid)})
+            uuid, rate = rows[0]
+            parts = tuple(p for p in self.native_parts if p in NATIVE_PARTS) if force else ()
+            if track.is_analysed and uuid not in owned:
+                if parts:                               # 1.4.1 (C131) : son de Rekordbox, reste non « owned »
+                    self._native_reanalyse(cid, track, uuid, parts)
+                    return Step(DONE)
+                return Step(SKIP)
+            if track.is_analysed and not force:
+                return Step(SKIP)
+            path = Path(track.path)
+            if not path.is_file():
+                raise LibraryError(f"File not found: {path}")
+            self.ensure_writable()
+            ex = self._prepare(path, track.file_type, int(rate), uuid, analysis=True,
+                               cover=not track.artwork_path)
+            if ex.analysis is None:
+                return Step(FAILED, "; ".join(ex.problems))
+            with self._write() as db:
+                self._apply_extras(db, self._content(cid), ex)
+            self.owned.add(uuid)
+            return Step(DONE, "; ".join(ex.problems))
+
+        def path_of(cid: int) -> Optional[Path]:
+            """1.4.3 (A1-6) : fichier que `step` analysera (None : son ignoré)."""
+            track = self.get_track(cid)
+            if track.is_analysed and not force:
+                return None
+            return Path(track.path)
+
+        return run_analysis(content_ids, step, self.get_track, None, chunk, on_progress, should_stop,
+                            path_of, self.ffmpeg_location)
 
     # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
     def native_ids(self, content_ids: Sequence[int]) -> set:
@@ -1295,8 +1436,9 @@ class LocalRekordboxLibrary:
 
     def import_analysis(self, content_id: int, files: Dict[str, bytes], bpm: float = 0.0,
                         key: Optional[str] = None) -> LibraryTrack:
-        """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante au lieu de recalculer."""
-        from ..analysis.anlz import _write_atomic, retarget
+        """V0.5.0 (copie entre bibliothèques) : reprend une analyse existante au lieu de recalculer.
+        1.4.3 (A3-7) : écriture des fichiers commune avec la clé."""
+        from .analysis_flow import write_imported
 
         self.ensure_writable()
         rows = self._read("SELECT FolderPath, AnalysisDataPath, UUID FROM djmdContent WHERE ID = :id",
@@ -1307,13 +1449,9 @@ class LocalRekordboxLibrary:
         if anlz or ".DAT" not in files:
             return self.get_track(content_id)
         rel_dir = f"/PIONEER/USBANLZ/{self._uuid_dir(uuid)}"
-        written = []
+        written = write_imported(files, lambda ext: self.share_dir / rel_dir.lstrip("/") / f"ANLZ0000{ext}",
+                                 f"?/{Path(folder_path).name}")
         try:
-            for ext, data in files.items():
-                target = self.share_dir / rel_dir.lstrip("/") / f"ANLZ0000{ext}"
-                target.parent.mkdir(parents=True, exist_ok=True)
-                _write_atomic(target, retarget(data, f"?/{Path(folder_path).name}"))
-                written.append(target)
             with self._write() as db:
                 c = self._content(content_id)
                 if bpm > 0:
@@ -1416,7 +1554,7 @@ class LocalRekordboxLibrary:
                 try:
                     f.unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    log.debug("Ignored error in edit_track_metadata", exc_info=True)  # 1.4.3 (A3-4)
             raise
         return self.get_track(content_id)
 
@@ -1464,66 +1602,33 @@ class LocalRekordboxLibrary:
         return (dat if dat.is_file() else None), (ext if ext.is_file() else None)
 
     def beat_grid(self, content_id: int) -> BeatGrid:
-        from ..analysis.anlz import read_beats
+        from .analysis_flow import read_grid
 
         rows = self._read("SELECT AnalysisDataPath, COALESCE(Length,0), UUID FROM djmdContent WHERE ID = :id",
                           {"id": str(content_id)})
-        if not rows:
-            raise TrackNotFoundError(f"Track not found (id {content_id}).")
-        anlz, length, uuid = rows[0]
-        if not anlz:
-            raise LibraryError("This track is not analysed yet: run the analysis first.")
-        dat = self.absolute_path(anlz)
-        try:
-            beats = read_beats(dat.read_bytes())
-        except (OSError, ValueError) as exc:
-            raise LibraryError(f"Unreadable analysis file: {exc}") from exc
-        if not beats:
-            raise LibraryError("This track has no beat grid.")
-        return BeatGrid(content_id, beats, int(length) * 1000, dat, uuid not in self.owned.all())
+        return read_grid(content_id, rows[0][:2] if rows else None, self.absolute_path,
+                         lambda: rows[0][2] not in self.owned.all())
 
     def save_beat_grid(self, content_id: int, beats: Sequence[Tuple[int, int, int]]) -> LibraryTrack:
-        from ..analysis.anlz import _write_atomic, drop_extended_grid, replace_beats
+        """1.4.3 (A3-7) : fichiers (copie, réécriture, retour en cas d'échec) communs avec la clé."""
+        from .analysis_flow import check_beats, prepare_grid
 
         self.ensure_writable()
-        beats = [(int(n), int(t), int(ms)) for n, t, ms in beats]
-        if len(beats) < 2 or any(b[2] >= c[2] for b, c in zip(beats, beats[1:])):
-            raise LibraryError("Invalid grid (at least two beats, increasing positions).")
-        grid = self.beat_grid(content_id)
-        files = [f for f in [grid.dat_path] + [grid.dat_path.with_suffix(s) for s in (".EXT", ".2EX")] if f.is_file()]
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}"
-        backup.mkdir(parents=True, exist_ok=True)
-        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
-
-        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
-        originals = {f: f.read_bytes() for f in files}
-        for f, data in originals.items():
-            (backup / f.name).write_bytes(data)
-        new = {grid.dat_path: replace_beats(originals[grid.dat_path], beats)}
-        for f in files[1:]:
-            changed = drop_extended_grid(originals[f])
-            if changed != originals[f]:
-                new[f] = changed
-        tempos = sorted(b[1] for b in beats)
+        check_beats(beats)
+        change = prepare_grid(self.beat_grid(content_id), beats, self.backup_dir, content_id)
         try:
-            for f, data in new.items():
-                _write_atomic(f, data)
+            change.write()
             with self._write() as db:
                 c = self._content(content_id)
-                c.BPM = tempos[len(tempos) // 2]
+                c.BPM = change.bpmx100
                 c.AnalysisUpdated = str(int(c.AnalysisUpdated or 0) + 1)
                 c.updated_at = datetime.now()
                 anlz = c.AnalysisDataPath or ""
-                for f in new:
+                for f in change.new:
                     rel = anlz[:-4] + f.suffix
                     self._file_row(db, c, rel)
         except BaseException:
-            for f, data in originals.items():
-                try:
-                    _write_atomic(f, data)
-                except OSError:
-                    log.error("Could not restore %s (copy in %s)", f, backup)
+            change.restore()
             raise
         return self.get_track(content_id)
 
@@ -1643,9 +1748,13 @@ class LocalRekordboxLibrary:
             self._renumber(self._songs(db, pid))
 
     def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
-        """Retire des sons de la collection. Le fichier audio, l'analyse et la pochette ne sont effacés
-        que pour les sons ajoutés par DJSync et rangés dans son dossier de téléchargement."""
+        """Retire des sons de la collection. 1.4.3 (A07, C156) : tous les sons sont traités pareil : leur fichier
+        audio va à la corbeille du système (récupérable), qu'il ait été téléchargé par DJSync ou non, sauf si
+        `protect_foreign` (alors seulement ceux de DJSync, comme avant). Garde-fous : extensions audio
+        seulement, jamais un fichier encore utilisé par un autre son de la collection. L'analyse et la pochette
+        rangées par DJSync sont effacées ; celles de Rekordbox restent. Renvoie (retirés, fichiers non effacés)."""
         removed = failures = 0
+        self.last_trashed = 0
         owned = self.owned.all()
         to_clean: List[Tuple[str, str, Optional[str], Optional[str]]] = []
         with self._write() as db:
@@ -1653,38 +1762,82 @@ class LocalRekordboxLibrary:
                 try:
                     c = self._content(cid)
                 except TrackNotFoundError:
+                    log.debug("Ignored error in delete_tracks", exc_info=True)  # 1.4.3 (A3-4)
                     continue
                 to_clean.append((c.UUID, c.FolderPath or "", c.AnalysisDataPath, c.ImagePath))
                 self._delete_content(db, c)
                 removed += 1
+        done: set = set()
         for uuid, path, anlz, art in to_clean:
-            if uuid not in owned:
+            mine = uuid in owned
+            if mine:
+                self.owned.remove(uuid)
+                for rel in (anlz, art):
+                    if rel:
+                        folder = self.absolute_path(rel).parent
+                        if self._uuid_dir(uuid).split("/")[1] == folder.name:
+                            shutil.rmtree(folder, ignore_errors=True)
+            # téléchargé par DJSync = créé par DJSync et rangé dans son dossier (un fichier importé sur place n'en est pas)
+            downloaded = mine and self._in_contents(Path(path))
+            if not delete_files or not path or (not downloaded and self.protect_foreign):
                 continue
-            self.owned.remove(uuid)
-            for rel in (anlz, art):
-                if rel:
-                    folder = self.absolute_path(rel).parent
-                    if self._uuid_dir(uuid).split("/")[1] == folder.name:
-                        shutil.rmtree(folder, ignore_errors=True)
-            if delete_files and path and not self._delete_audio(Path(path)):
+            key = os.path.normcase(path)
+            if key in done:                        # même fichier pour deux sons supprimés ensemble
+                continue
+            done.add(key)
+            if self._file_used(path):
+                log.info("File kept, still used by another track: %s", path)
+                continue
+            if not self._delete_audio(Path(path), downloaded):
                 failures += 1
         return removed, failures
 
-    def _delete_audio(self, path: Path) -> bool:
-        root = self.contents_root.resolve()
-        target = path.resolve()
-        if root not in target.parents or target.suffix.lower() not in FILE_TYPES:
-            return False                   # hors du dossier DJSync : on ne touche pas au fichier
+    def _in_contents(self, path: Path) -> bool:
         try:
-            target.unlink(missing_ok=True)
-            parent = target.parent
-            while parent != root and root in parent.parents and not any(parent.iterdir()):
-                parent.rmdir()
-                parent = parent.parent
-            return True
-        except OSError as exc:
-            log.warning("File not deleted (%s): %s", target, exc)
+            return self.contents_root.resolve() in path.resolve().parents
+        except OSError:
             return False
+
+    def _file_used(self, path: str) -> bool:
+        """Le fichier sert encore à un autre son de la collection (comparaison sans tenir compte de la casse)."""
+        rows = self._read("SELECT COUNT(*) FROM djmdContent WHERE LOWER(FolderPath) = LOWER(:p)", {"p": path})
+        return bool(rows and rows[0][0])
+
+    def _delete_audio(self, path: Path, mine: bool = True) -> bool:
+        """Fichier audio à la corbeille (1.4.3, A07). Un fichier de DJSync rangé dans son dossier est effacé
+        si la corbeille le refuse (comme avant) ; un autre fichier reste alors en place (échec signalé)."""
+        from ..core.trash import move_to_trash
+
+        target = path.resolve() if path.exists() else path
+        if target.suffix.lower() not in FILE_TYPES:
+            log.warning("Deletion refused (not an audio file): %s", target)
+            return False
+        if not target.exists():
+            return True
+        root = self.contents_root.resolve()
+        inside = root in target.parents
+        try:
+            move_to_trash(target)
+            self.last_trashed += 1
+        except OSError as exc:
+            if not (mine and inside):
+                log.warning("File not moved to the trash (%s): %s", target, exc)
+                return False
+            log.info("Trash unavailable (%s): DJSync file erased", exc)
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc2:
+                log.warning("File not deleted (%s): %s", target, exc2)
+                return False
+        if inside:
+            try:
+                parent = target.parent
+                while parent != root and root in parent.parents and not any(parent.iterdir()):
+                    parent.rmdir()
+                    parent = parent.parent
+            except OSError:
+                log.debug("Empty folder kept", exc_info=True)
+        return True
 
     def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
         """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""
@@ -1717,6 +1870,7 @@ class LocalRekordboxLibrary:
                                   "WHERE COALESCE(s.rb_local_deleted,0) = 0 AND COALESCE(m.rb_local_deleted,0) = 0 "
                                   f"AND s.ContentID IN ({inside}) ORDER BY m.Seq, m.ID", params)
             except Exception:  # noqa: BLE001 - tables absentes (ancienne version de Rekordbox)
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, name in rows:
                 try:
@@ -1730,6 +1884,7 @@ class LocalRekordboxLibrary:
                                   "ON h.ID = s.HistoryID WHERE COALESCE(s.rb_local_deleted,0) = 0 "
                                   f"AND s.ContentID IN ({inside})", params)
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in track_extras", exc_info=True)  # 1.4.3 (A3-4)
                 rows = []
             for cid, created, name in rows:
                 day = history_date(created) or history_date(name)

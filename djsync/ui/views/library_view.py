@@ -9,6 +9,8 @@ arrière-plan (file commune du contrôleur), progression, arrêt.
 """
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,7 +23,7 @@ from ...core.camelot import neighbors
 from ...i18n import date_text, num, plural, t
 from ...models import LibraryTrack, PlaylistInfo, format_duration, source_from_url
 from .. import theme
-from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
+from ..dialogs import ChoiceConfirmDialog, ConfirmDialog, PlaylistPicker, TextInputDialog
 from ..table import MIME_IDS, camelot_sort, popup_menu
 from ..icons import qicon
 from ..widgets import (
@@ -30,12 +32,15 @@ from ..widgets import (
 from .common import focus_list, View
 from .cue_column import cue_values, cue_column
 
+log = logging.getLogger(__name__)
+
 ALL = "all"
 TODO = "todo"             # titres pas encore analysés
 ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlist
 MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
 NOCUE = "nocues"           # 1.4.1 (C60) : titres sans hot cue
-SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE)
+TEMPO = "tempo"            # 1.4.3 (C69) : titres dont le tempo change (live, beatswitch, accélération, set)
+SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE, TEMPO)
 AUTO = "autolists"         # 1.4.2 (C188) : groupe repliable des listes automatiques (jamais ouvert)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
@@ -80,12 +85,17 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     suffix = Path(x.path).suffix.lower()
     lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
     codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
+    from ...analysis.encoder import lookup as encoder_lookup
+    from ...core.improve import confidence_suffix, quality_clues
+
     info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
                      cutoff=lookup(Path(x.path).name, x.file_size) or 0,
-                     source=source_from_url(getattr(x, "source_url", "")))
+                     source=source_from_url(getattr(x, "source_url", "")),
+                     encoder=encoder_lookup(Path(x.path).name, x.file_size))     # 1.4.3 (A04)
     real = info.real_kbps
     if real:
-        out["real"] = t("quality.lossless") if real >= 9999 else f"≈ {real} kbps"
+        out["real"] = (t("quality.lossless") if real >= 9999 else f"≈ {real} kbps") + confidence_suffix(info)
+        out["real__tip"] = quality_clues(info)
         if info.source in LOSSY_SOURCES:          # 1.4.0-rc.3 (B67), rc.4 (B75) : tout son tiré de YouTube
             out["real"] += " · YouTube"
         elif info.opus_signature and real <= 192:
@@ -97,6 +107,38 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     elif info.fake:
         out["format__color"] = out["bitrate__color"] = out["real__color"] = theme.LEVELS["warn"]
     return out
+
+
+def tempo_profile_of(x: LibraryTrack) -> Any:
+    """1.4.3 (C69) : profil de tempo mesuré à l'analyse (registre tempo.json), None sinon."""
+    from ...analysis.tempo_profile import lookup
+
+    try:
+        return lookup(Path(x.path).name, x.file_size)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def tempo_text(p: Any) -> str:
+    """« Version live détectée · grille variable » : jamais affirmé, la grille dit ce qui a été écrit."""
+    if p is None or not p.kind:
+        return ""
+    head = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+    grid = t("tempo.grid_split") if getattr(p, "split", False) and getattr(p, "choice", "") != "fixed" else \
+        t("tempo.grid_variable") if p.variable else t("tempo.grid_fixed")
+    return f"{head} · {grid}"
+
+
+def tempo_values(x: LibraryTrack, checked: Optional[bool] = None) -> Dict[str, Any]:
+    """1.4.3 (C69) : pastille sur le BPM et bulle quand le tempo du son change ; C16 : orange tant que la grille
+    n'a pas été validée (« Grille juste » dans Grille et cues), bleue ensuite (`checked` None : pas encore lu)."""
+    text = tempo_text(tempo_profile_of(x))
+    if not text:
+        return {}
+    if checked is None:
+        return {"bpm__dot": theme.SKY, "bpm__tip": text}
+    return {"bpm__dot": theme.SKY if checked else theme.WARN,
+            "bpm__tip": f"{text} · {t('tempo.checked') if checked else t('tempo.to_check')}"}
 
 
 def total_duration(seconds: int) -> str:
@@ -328,6 +370,31 @@ class LibraryView(View):
         self.banner.hide()
         mv.addWidget(self.banner)
 
+        # 1.4.3 (C213) : liste ouverte depuis « Prêt pour le set ? » (grilles pas encore vérifiées…)
+        self.focus_banner = panel(role="banner")
+        fl = hbox(self.focus_banner, margins=theme.px(8), spacing=theme.px(8))
+        fl.addWidget(icon_label("grid", 16, theme.WARN))
+        self.focus_lbl = label("")
+        fl.addWidget(self.focus_lbl, 1)
+        fl.addWidget(icon_button("close", self.clear_focus, t("action.close"), size=14))
+        self.focus_banner.hide()
+        mv.addWidget(self.focus_banner)
+        self._focus: Optional[Tuple[set, str]] = None
+
+        # 1.4.3 (C214) : « Vue : … ▾ » au-dessus du tableau, « (modifiée) » avec Enregistrer / Revenir
+        views_row = hbox(spacing=theme.px(6))
+        self.view_btn = button("", self._views_menu, icon="columns", tooltip=t("views.tip"))
+        self.view_btn.setProperty("kind", "flat")
+        views_row.addWidget(self.view_btn)
+        self.view_mod = label(t("views.modified"), "warn")
+        views_row.addWidget(self.view_mod)
+        self.view_save = button(t("views.save"), self._view_save, icon="check")
+        self.view_revert = button(t("views.revert"), self._view_revert, icon="refresh")
+        views_row.addWidget(self.view_save)
+        views_row.addWidget(self.view_revert)
+        views_row.addStretch(1)
+        mv.addLayout(views_row)
+
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
         self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS + C113_COLUMNS,
                              new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
@@ -341,6 +408,12 @@ class LibraryView(View):
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
         self.table.on_files_dropped = lambda paths: self.import_paths(paths)      # 1.4.0 (C26)
+        from ..column_views import ColumnViews                                         # 1.4.3 (C214)
+
+        self._views = ColumnViews(controller.settings.library_views, self.table.layout_columns())
+        self._views.first_use(self.table.user_hidden)
+        self.table.on_columns_changed = self._show_view
+        self._show_view()
         from ..suggestions_panel import SuggestionsPanel
 
         content = hbox(spacing=theme.px(8))
@@ -483,6 +556,8 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats = data["playlists"], data["tracks"], data.get("stats", {})
             if full:
                 self.current, self._dirty = ALL, False
+                self._focus = None                                      # 1.4.3 (C213)
+                self._apply_list_view()                                 # 1.4.3 (C214) : vue de cette bibliothèque
             if self.current not in SPECIAL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
             self._count_orphans()
@@ -540,6 +615,10 @@ class LibraryView(View):
         item(group, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
         marks = getattr(self, "_cue_marks", None)                                                     # C60
         item(group, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        tempo_n = len(self._tempo_tracks())                                                           # C69
+        tempo_todo = len(self._tempo_pending())                                                       # C16
+        item(group, TEMPO, t("lib.tempo_changes"), theme.WARN if tempo_todo else theme.SKY if tempo_n else "",
+             icon="wave", count=tempo_n)
         group.setExpanded(bool(getattr(self.ctrl.settings, "auto_lists_open", True)))
         self._auto_group_counts(group)
         children: Dict[int, List[PlaylistInfo]] = {}
@@ -642,7 +721,120 @@ class LibraryView(View):
         self._select_nav(iid)
         self.filter.clear()
         self.table.set_filter("")
+        if self._focus is not None:                       # 1.4.3 (C213) : une autre liste : filtre retiré
+            self._focus = None
+            self._apply_harmonic()
+        self._apply_list_view()
         self._fill_table()
+
+    # ------------------------------------------------------------------ 1.4.3 (C214) : vues de colonnes
+    def _list_key(self) -> str:
+        return f"{self._drive_key()}|{self.current}"
+
+    def _apply_list_view(self) -> None:
+        """La vue retenue pour cette liste (s'il y en a une) remplace la vue en cours."""
+        view = self._views.for_list(self._list_key())
+        if view and (view != self._views.current or self._views.modified(self.table.user_hidden)):
+            self._views.select(view)
+            self.table.apply_hidden(self._views.hidden(view))
+        self._show_view()
+
+    def _show_view(self) -> None:
+        if not hasattr(self, "view_btn"):
+            return
+        view = self._views.current
+        self.view_btn.setText(t("views.label", name=self._views.name(view)) + "  ▾")
+        modified = self._views.modified(self.table.user_hidden)
+        for w in (self.view_mod, self.view_save, self.view_revert):
+            w.setVisible(modified)
+
+    def select_view(self, view: str, remember: bool = True) -> None:
+        """Choix d'une vue (menu « Vue ») : colonnes appliquées, retenue pour la liste ouverte."""
+        self._views.select(view, self._list_key() if remember else "")
+        self.table.apply_hidden(self._views.hidden(view))
+        self.ctrl.save_settings_quiet()
+        self._show_view()
+
+    def _views_entries(self) -> list:
+        cur = self._views.current
+        entries: list = []
+        for view in self._views.ids():
+            name = self._views.name(view)
+            entries.append((("✓ " if view == cur else "    ") + name, lambda v=view: self.select_view(v)))
+        entries += [None, (t("views.new") + "…", self._view_new, "plus")]
+        if self._views.is_custom(cur):
+            entries += [(t("views.rename") + "…", self._view_rename, "edit"),
+                        (t("views.delete"), self._view_delete, "trash")]
+        elif self._views.is_changed_builtin(cur):
+            entries.append((t("views.restore"), self._view_restore, "refresh"))
+        entries += [None, (t("table.columns") + "…", self._columns_menu, "columns")]
+        return entries
+
+    def _views_menu(self) -> None:
+        b = self.view_btn
+        popup_menu(b, self._views_entries(), b.mapToGlobal(b.rect().bottomLeft()))
+
+    def _view_save(self) -> None:
+        view = self._views.current
+        self._views.save(view, self.table.user_hidden)
+        self.ctrl.save_settings_quiet()
+        self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
+        self._show_view()
+
+    def _view_revert(self) -> None:
+        self.table.apply_hidden(self._views.hidden(self._views.current))
+        self._show_view()
+
+    def _view_new(self) -> None:
+        def create(name: str) -> None:
+            view = self._views.create(name, self.table.user_hidden)
+            self.select_view(view)
+            self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
+
+        TextInputDialog(self, t("views.new"), t("views.name_prompt"), create, confirm_text=t("action.create"))
+
+    def _view_rename(self) -> None:
+        view = self._views.current
+
+        def rename(name: str) -> None:
+            self._views.rename(view, name)
+            self.ctrl.save_settings_quiet()
+            self._show_view()
+
+        TextInputDialog(self, t("views.rename"), t("views.name_prompt"), rename, initial=self._views.name(view),
+                        confirm_text=t("action.rename"))
+
+    def _view_delete(self) -> None:
+        view = self._views.current
+        name = self._views.name(view)
+
+        def go() -> None:
+            self._views.delete(view)
+            self.select_view(self._views.current, remember=False)
+
+        ConfirmDialog(self, t("views.delete"), t("views.delete_msg", name=name), go, confirm_text=t("action.delete"),
+                      danger=True)
+
+    def _view_restore(self) -> None:
+        view = self._views.current
+        self._views.restore_builtin(view)
+        self.select_view(view, remember=False)
+
+    # ---------------------------------------------- 1.4.3 (C213) : sons montrés depuis « Prêt pour le set ? »
+    def show_tracks(self, ids: Any, title: str, view: str = "") -> None:
+        """Ouvre « Tous les sons » sur ces sons seulement (bandeau avec ✕), dans la vue `view` si donnée."""
+        self.ctrl._emit("navigate", "library")
+        wanted = {int(i) for i in ids}
+        if self.current != ALL:
+            self._goto(ALL)
+        if view:
+            self.select_view(view, remember=False)
+        self._focus = (wanted, title)
+        self._apply_harmonic()
+
+    def clear_focus(self) -> None:
+        self._focus = None
+        self._apply_harmonic()
 
     @property
     def playlist(self) -> Optional[PlaylistInfo]:
@@ -683,9 +875,24 @@ class LibraryView(View):
                     pass
             watch_rows = any(self._is_watch_playlist(p) for p in self.playlists) and not self.table.isColumnHidden(
                 self.table.column_index("source"))           # 1.4.0-rc.6 (C160) : œil des sons d'avant la rc.5
-            if not self._dirty and (self.current == ORPH or watch_rows or not self.table.isColumnHidden(
-                    self.table.column_index("playlists"))):
+            show_pl = not self.table.isColumnHidden(self.table.column_index("playlists"))
+            if not self._dirty and self.current == ORPH:
                 self._fill_table()
+            elif not self._dirty and (watch_rows or show_pl):
+                # 1.4.3 (A1-9) : cellules mises à jour au lieu d'un 2e remplissage complet du tableau
+                vals: Dict[str, Dict[str, Any]] = {}
+                for r in self.table.all_rows():
+                    x = r.data
+                    if x is None:
+                        continue
+                    v: Dict[str, Any] = {}
+                    if show_pl:
+                        v.update(self._playlist_values(x))
+                    if watch_rows:
+                        v.update(self._source_values(x))
+                    vals[r.iid] = v
+                self.table.update_many(vals)
+                self._show_header()
             elif self.current == ALL:
                 self._show_header()
 
@@ -788,7 +995,7 @@ class LibraryView(View):
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": date_text(x.date_added),
              **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
-             **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x),
+             **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x), **tempo_values(x),
              "_tip": self._missing_tip(x.content_id)},
             ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
@@ -847,22 +1054,27 @@ class LibraryView(View):
         try:
             self.table.set_column_visible("mytags", True)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in _show_mytags_once", exc_info=True)  # 1.4.3 (A3-4)
 
     def _extra_values(self, x: Optional[LibraryTrack]) -> Dict[str, Any]:
         if x is None:
             return {}
         d = (getattr(self, "_extras", None) or {}).get(x.content_id)
         checked = bool(d and d.get("grid_checked"))
+        pending = d is not None and x.is_analysed and not checked and bool(tempo_values(x))       # 1.4.3 (C16)
         if not x.is_analysed:
             an, n, color = t("lib.an_none"), 0, theme.WARN
         elif checked:
             an, n, color = t("lib.an_checked"), 2, theme.ACCENT
+        elif pending:
+            an, n, color = t("lib.an_tempo"), 1, theme.WARN
         else:
             an, n, color = t("lib.an_auto"), 1, ""
         out: Dict[str, Any] = {"analysis": an, "analysis__n": n}
         if color:
             out["analysis__color"] = color
+        if x.is_analysed:
+            out.update(tempo_values(x, None if d is None else checked))
         if d is None:
             out.update({"mytags": "", "last_played": "", "dup": ""})
             return out
@@ -888,6 +1100,23 @@ class LibraryView(View):
             win._drop_diag_page(current, then=lambda: DuplicatesDialog(win, self.ctrl, focus_ids=ids))
         else:
             DuplicatesDialog(win, self.ctrl, focus_ids=ids)
+
+    def _tempo_tracks(self) -> List[LibraryTrack]:
+        """1.4.3 (C69) : sons dont l'analyse a vu le tempo changer."""
+        out = []
+        for x in self.all_tracks:
+            p = tempo_profile_of(x) if x.is_analysed else None
+            if p is not None and p.kind:
+                out.append(x)
+        return out
+
+    def _tempo_pending(self) -> List[LibraryTrack]:
+        """1.4.3 (C16) : sons au tempo qui change dont la grille n'a pas encore été validée."""
+        extras = getattr(self, "_extras", None)
+        if not extras:
+            return []
+        return [x for x in self._tempo_tracks()
+                if x.content_id in extras and not extras[x.content_id].get("grid_checked")]
 
     def _no_cue_tracks(self) -> List[LibraryTrack]:
         marks = getattr(self, "_cue_marks", None) or {}
@@ -933,6 +1162,10 @@ class LibraryView(View):
                 return
             self.table.set_empty("check", t("lib.empty_no_cues_title"))
             self._apply_rows(self._no_cue_tracks(), pos=False)
+            return
+        if self.current == TEMPO:                                  # 1.4.3 (C69)
+            self.table.set_empty("check", t("lib.empty_tempo_title"))
+            self._apply_rows(self._tempo_tracks(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
@@ -992,6 +1225,14 @@ class LibraryView(View):
             self.title_lbl.setText(t("lib.no_cues"))
             n = len(self._no_cue_tracks())
             self.sub_lbl.setText("  ·  ".join([plural("lib.tracks_one", "lib.tracks_many", n), t("lib.no_cues_hint")]))
+        elif self.current == TEMPO:                                # 1.4.3 (C69)
+            self.title_lbl.setText(t("lib.tempo_changes"))
+            n = len(self._tempo_tracks())
+            parts = [plural("lib.tracks_one", "lib.tracks_many", n)]
+            todo = len(self._tempo_pending())                      # 1.4.3 (C16) : à valider
+            if todo:
+                parts.append(t("lib.tempo_pending", n=todo))
+            self.sub_lbl.setText("  ·  ".join(parts + [t("lib.tempo_hint")]))
         elif self.current == MISS:                                 # 1.3.2-rc.3 (C124)
             self.title_lbl.setText(t("lib.missing"))
             n = len(self._missing_tracks())
@@ -1077,6 +1318,20 @@ class LibraryView(View):
         self._refresh_buttons()
 
     def _apply_harmonic(self) -> None:
+        self._apply_harmonic_only()
+        focus = getattr(self, "_focus", None)               # 1.4.3 (C213) : en plus du filtre harmonique
+        if focus is None:
+            self.focus_banner.hide()
+        else:
+            ids, title = focus
+            harm = self.table.row_filter
+            self.table.row_filter = (lambda r: bool(r.data and r.data.content_id in ids)
+                                     and (harm is None or harm(r)))
+            self.focus_lbl.setText(title)
+            self.focus_banner.show()
+        self.table.refilter()
+
+    def _apply_harmonic_only(self) -> None:
         base = self._harmonic
         if base is None or not base.camelot:
             self.table.row_filter = None
@@ -1098,7 +1353,6 @@ class LibraryView(View):
                 text += "  ·  " + t("lib.harmonic_bpm", bpm=f"{base.bpm:.0f}")
             self.banner_lbl.setText(text)
             self.banner.show()
-        self.table.refilter()
 
     # -------------------------------------------------------------------- boutons
     def _sort_slot(self) -> str:
@@ -1117,7 +1371,7 @@ class LibraryView(View):
         try:
             self.ctrl.settings.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _sort_changed", exc_info=True)  # 1.4.3 (A3-4)
         self._refresh_buttons()
 
     def _refresh_buttons(self) -> None:
@@ -1231,15 +1485,34 @@ class LibraryView(View):
         what = t("fmt.quoted", text=names[0]) if len(ids) == 1 else t("lib.delete_many", n=len(ids),
                                                                        names=", ".join(names))
         local = self.ctrl.is_local              # 1.4.0-rc.5 (B86) : sur l'ordinateur, on retire de la collection
-        ConfirmDialog(self, t("lib.delete_local_title" if local else "lib.delete_title"),
-                      t("lib.delete_local_msg" if local else "lib.delete_msg", what=what),
+        protect = local and bool(self.ctrl.settings.protect_foreign)     # 1.4.3 (A07, C156)
+        kind = "local" if protect else "computer" if local else ""
+        ConfirmDialog(self, t(f"lib.delete_{kind}_title" if kind else "lib.delete_title"),
+                      t(f"lib.delete_{kind}_msg" if kind else "lib.delete_msg", what=what),
                       lambda: self.ctrl.delete_tracks(ids, True),
-                      confirm_text=t("action.remove" if local else "action.delete"), danger=True,
-                      detail=t("lib.delete_local_detail" if local else "lib.delete_detail"))
+                      confirm_text=t("action.remove" if protect else "action.delete"), danger=True,
+                      detail=t("lib.delete_protected_detail" if protect else "lib.delete_computer_detail" if local
+                               else "lib.delete_detail"),
+                      warning=self._no_source_warning(self._selected_tracks(), protect))
+
+    @staticmethod
+    def _no_source_warning(tracks: List[LibraryTrack], protect: bool = False) -> str:
+        """1.4.3 (A07, à la place de C83) : sons sans lien d'origine (DJSync ne pourra pas les retélécharger), en
+        rouge dans la confirmation. Avec la protection, ces sons (pas téléchargés par DJSync) gardent leur fichier."""
+        if protect:
+            return ""
+        bare = [x for x in tracks if not (getattr(x, "source_url", "") or "").strip()]
+        if not bare:
+            return ""
+        names = ", ".join(x.title for x in bare[:3]) + (" …" if len(bare) > 3 else "")
+        return plural("lib.no_source_one", "lib.no_source_many", len(bare), names=names)
 
     def _delete_label(self) -> str:
-        """1.4.0-rc.5 (B86) : « Supprimer de la clé » ou, sur l'ordinateur, « Retirer de la collection Rekordbox »."""
-        return t("lib.delete_local" if self.ctrl.is_local else "lib.delete")
+        """1.4.0-rc.5 (B86) : « Supprimer de la clé » ou, sur l'ordinateur, « Retirer de la collection Rekordbox » ;
+        1.4.3 (A07, C156) : « Supprimer de l'ordinateur » (fichier à la corbeille) sans la protection."""
+        if not self.ctrl.is_local:
+            return t("lib.delete")
+        return t("lib.delete_local" if self.ctrl.settings.protect_foreign else "lib.delete_computer")
 
     def _create_playlist(self) -> None:
         parent = self.playlist.playlist_id if self.playlist is not None and self.playlist.is_folder else 0
@@ -1259,43 +1532,39 @@ class LibraryView(View):
                             initial=p.name, confirm_text=t("action.rename"))
 
     def _delete_playlist(self) -> None:
+        """1.4.3 (A07) : « La playlist seule » (par défaut) ou « La playlist et ses sons »."""
         p = self.playlist
         if p is None:
             return
-        detail = (t("lib.delete_folder_detail") + " " if p.is_folder else "") + t("lib.delete_playlist_detail")
-        ConfirmDialog(self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
-                      lambda: self.ctrl.delete_playlist(p.playlist_id), confirm_text=t("action.delete"), danger=True,
-                      detail=detail)
+        pid = p.playlist_id
 
-    # ------------------------------------------------------------- analyse, grille, doublons
-    def _analyse(self, tracks: Optional[List[LibraryTrack]] = None) -> None:
-        """Sélection : fenêtre de lancement (option « analyser à nouveau »). Sans sélection : vue « Non
-        analysés » et analyse lancée en arrière-plan."""
-        if not self.ctrl.has_library:
-            return
-        if tracks is None:
-            self.show_unanalysed()
-            self._analyse_all()
-            return
-        if all(not x.is_analysed for x in tracks):          # rien à choisir : on lance directement
-            self.ctrl.analyze([x.content_id for x in tracks])
-            return
-        from ..analysis_dialog import AnalysisDialog
+        def show(tracks: List[LibraryTrack], shared: int) -> None:
+            if not self.winfo_exists():
+                return
+            detail = (t("lib.delete_folder_detail") + " " if p.is_folder else "") + t("lib.delete_playlist_detail")
+            if not tracks:
+                ConfirmDialog(self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
+                              lambda: self.ctrl.delete_playlist(pid), confirm_text=t("action.delete"), danger=True,
+                              detail=detail)
+                return
+            local = self.ctrl.is_local
+            protect = local and bool(self.ctrl.settings.protect_foreign)
+            with_detail = t("lib.delete_playlist_tracks_protected" if protect else "lib.delete_playlist_tracks_local"
+                            if local else "lib.delete_playlist_tracks_drive")
+            if shared:
+                with_detail += " " + plural("lib.delete_playlist_shared_one", "lib.delete_playlist_shared_many", shared)
+            ids = [x.content_id for x in tracks]
+            ChoiceConfirmDialog(
+                self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
+                [t("lib.delete_playlist_only"),
+                 plural("lib.delete_playlist_tracks_one", "lib.delete_playlist_tracks_many", len(tracks))],
+                lambda i: self.ctrl.delete_playlist(pid, tracks=ids if i == 1 else ()),
+                confirm_text=t("action.delete"), danger=True,
+                details=[(t("lib.delete_folder_detail") + " " if p.is_folder else "")
+                         + t("lib.delete_playlist_only_hint"), with_detail],
+                warnings=["", self._no_source_warning(tracks, protect)])
 
-        AnalysisDialog(self, self.ctrl, tracks)
-
-    def _analyse_again(self, x: LibraryTrack) -> None:
-        """1.4.1 (C131) : clic droit sur un son ; fenêtre de choix la première fois pour un son de Rekordbox."""
-        from ..reanalyse import analyse_again
-
-        analyse_again(self, self.ctrl, [x.content_id])
-
-    def _restore_rekordbox(self, x: LibraryTrack) -> None:
-        from ..dialogs import ConfirmDialog
-
-        ConfirmDialog(self, t("reanalyse.restore"), t("reanalyse.restore_confirm", title=x.title),
-                      lambda: self.ctrl.restore_rekordbox_analysis(x.content_id),
-                      confirm_text=t("reanalyse.restore"))
+        self.ctrl.playlist_content(pid, show)
 
     def _analyse_all(self) -> None:
         todo = self._unanalysed()
@@ -1392,12 +1661,6 @@ class LibraryView(View):
 
         GenrePlaylistsDialog(self, self.ctrl)
 
-    def _open_quality(self, tracks: List[LibraryTrack]) -> None:
-        """1.4.1 (C135) : onglet Qualité sur la sélection (portée « sélection »)."""
-        win = self.window()
-        if hasattr(win, "open_quality"):
-            win.open_quality([x.content_id for x in tracks],
-                             focus=tracks[0].content_id if len(tracks) == 1 else None)
 
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:

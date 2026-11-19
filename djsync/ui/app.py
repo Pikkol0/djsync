@@ -171,6 +171,7 @@ class DJSyncApp(QMainWindow):
         self.qapp = qt_app()
         settings = settings or Settings.load()
         i18n.set_language(settings.language)
+        theme.apply_background(getattr(settings, "background", "default"))      # 1.4.3 (C53)
         theme.apply_palette(settings.theme)
         theme.apply(self.qapp, settings.zoom)
         reset_icons()
@@ -227,7 +228,9 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
+        QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
+        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
         self._bind_shortcuts()
         self._place_window(settings)
 
@@ -262,6 +265,7 @@ class DJSyncApp(QMainWindow):
             try:
                 restored = self.restoreGeometry(QByteArray.fromBase64(settings.geometry.encode()))
             except Exception:  # noqa: BLE001 - ancienne valeur (format Tk)
+                log.debug("Handled error in _place_window", exc_info=True)  # 1.4.3 (A3-4)
                 restored = False
         if restored:
             g = self.geometry()
@@ -471,7 +475,7 @@ class DJSyncApp(QMainWindow):
             if key == "diagnostic":                       # 1.4.1 (C140) : une entrée, sans sous-entrées
                 b = button(t(text_key), lambda: self.open_diagnostic(), kind="nav")
             else:
-                b = button(t(text_key), lambda k=key: self.show_view(k), kind="nav")
+                b = button(t(text_key), lambda k=key: self._nav_go(k), kind="nav")
             b.setCheckable(True)
             b.setIcon(qicon(icon_name, 18, theme.DIM))
             b.setIconSize(QSize(theme.px(18), theme.px(18)))
@@ -567,7 +571,7 @@ class DJSyncApp(QMainWindow):
         try:
             s.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _toggle_sidebar", exc_info=True)  # 1.4.3 (A3-4)
         self._compact = None
         self._update_compact()
 
@@ -576,13 +580,16 @@ class DJSyncApp(QMainWindow):
         La clé, la file de téléchargements et la lecture en cours sont conservées (contrôleur)."""
         current = self._current or "home"
         i18n.set_language(self.ctrl.settings.language)
+        theme.apply_background(getattr(self.ctrl.settings, "background", "default"))
         theme.apply_palette(self.ctrl.settings.theme)
         theme.apply(self.qapp, self.ctrl.settings.zoom)
         self.ctrl.reset_listeners(self._listener_mark)
         old = self.centralWidget()
         self._nav = {}
         self._build()
+        QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
+        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
         if old is not None:
             old.deleteLater()
         self.show_view(current)
@@ -594,8 +601,10 @@ class DJSyncApp(QMainWindow):
         """Couleur d'accent, zoom ou barre latérale changés : nouvelle feuille de style, sans
         reconstruire les vues."""
         s = self.ctrl.settings
+        theme.apply_background(getattr(s, "background", "default"))
         theme.apply_palette(s.theme)
-        if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT):
+        if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT) or \
+                theme.CURRENT_BACKGROUND != getattr(self, "_built_background", theme.CURRENT_BACKGROUND):
             # 1.3.0-rc.4 (B23) : nouvelle couleur -> toutes les vues sont reconstruites, comme pour un
             # changement de langue. Icônes, pastilles, formes d'onde, logo… sont dessinés à leur création
             # dans la couleur du moment : les reprendre une à une en oubliait (Outils de l'Accueil).
@@ -836,6 +845,7 @@ class DJSyncApp(QMainWindow):
             counts = self.ctrl.diag_counts
             known = [counts.get(k) for k in DIAG_ALERTS if counts.get(k) is not None]
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in diag_total", exc_info=True)  # 1.4.3 (A3-4)
             return None
         return sum(known) if known else None
 
@@ -847,6 +857,12 @@ class DJSyncApp(QMainWindow):
         if self._current and self._current != key:
             self._previous = self._current                     # capture d'écran de l'onglet Retours
         self._current = key
+        if key in ("search", "hq", "import") and getattr(self.ctrl.settings, "search_tab", "") != key:
+            self.ctrl.settings.search_tab = key            # 1.4.3 (C202) : enregistré avec les autres réglages
+            try:
+                self.ctrl.settings.save()
+            except Exception:  # noqa: BLE001
+                log.debug("search tab not saved", exc_info=True)
         self._check_nav(nav_key(key))                       # 1.4.2 (C182) : Haute qualité, Lien -> Rechercher
         self.stack.setCurrentWidget(self.views[key])
         self._reveal_nav(nav_key(key) or key)
@@ -862,6 +878,13 @@ class DJSyncApp(QMainWindow):
                 b.setIcon(qicon(b._icon_name, 18, theme.ACCENT if active else theme.DIM))  # type: ignore[attr-defined]
             except RuntimeError:                       # ancienne interface (changement de langue)
                 pass
+
+    def _nav_go(self, key: str) -> None:
+        """1.4.3 (C202) : « Rechercher » rouvre le dernier onglet utilisé (Recherche, Haute qualité ou Lien)."""
+        if key == "search":
+            last = getattr(self.ctrl.settings, "search_tab", "search")
+            key = last if last in self.views else "search"
+        self.show_view(key)
 
     def go(self, key: str) -> None:
         """1.4.2 (C182) : une page par son nom (raccourcis Ctrl+chiffre) ; « diagnostic » ouvre ses pages."""
@@ -974,6 +997,17 @@ class DJSyncApp(QMainWindow):
             self._shortcut(key, fn)
 
     def _space(self) -> None:
+        """1.4.3 (A2-19) : Espace = lecture, sauf sur un bouton, une case ou une liste déroulante, qu'il
+        active comme partout ailleurs."""
+        from PySide6.QtWidgets import QAbstractButton, QComboBox
+
+        focus = self.qapp.focusWidget()
+        if isinstance(focus, QAbstractButton) and focus.isEnabled() and focus.isVisible():
+            focus.animateClick()
+            return
+        if isinstance(focus, QComboBox) and focus.isEnabled() and focus.isVisible():
+            focus.showPopup()
+            return
         if not self._typing():
             self.ctrl.toggle_play()
 
@@ -1137,11 +1171,11 @@ class DJSyncApp(QMainWindow):
                 pass
         QTimer.singleShot(0, scroll)
 
-    def open_transfer(self, precheck: tuple = ()) -> None:
-        """1.4.2 (C23) : page « Transférer des playlists »."""
+    def open_transfer(self, precheck: tuple = (), sync_from: Optional[str] = None) -> None:
+        """1.4.2 (C23) : page « Transférer et synchroniser des playlists » (nom : 1.4.3, C203)."""
         from .transfer_page import open_transfer
 
-        open_transfer(self, self.ctrl, tuple(precheck or ()))
+        open_transfer(self, self.ctrl, tuple(precheck or ()), sync_from)
 
     def open_set_check(self) -> None:
         from .set_check_dialog import open_set_check
@@ -1412,51 +1446,27 @@ class DJSyncApp(QMainWindow):
         self.show_view(target)
 
     def _settings_ok(self, then: Callable[[], None]) -> bool:
-        """1.4.2 (A2-18) : en quittant les Paramètres avec des réglages pas encore enregistrés, « Enregistrer
-        avant de quitter ? » (Enregistrer / Ne pas enregistrer / Rester). Vrai si l'on peut partir tout de
-        suite ; sinon la question est posée et `then` est rappelé après « Enregistrer » ou « Ne pas
-        enregistrer »."""
+        """1.4.3 (A2-18, option A) : les réglages sont enregistrés dès qu'ils changent ; un champ encore en cours
+        de saisie au moment de quitter la page est enregistré lui aussi. Plus de question : on part toujours."""
         view = self.views.get("settings")
-        if view is None or self.stack.currentWidget() is not view or getattr(self, "_settings_asking", False):
+        if view is None or self.stack.currentWidget() is not view:
             return True
         try:
             pending = view.unsaved()
-        except Exception:  # noqa: BLE001 - jamais bloquer la navigation
-            return True
-        if not pending:
-            return True
-        from .dialogs import BaseDialog
-
-        log.info("Settings not saved: %s", ", ".join(pending))
-        self._settings_asking = True
-        dlg = BaseDialog(self, t("settings.leave_title"), 440)
-        dlg.heading(t("settings.leave_title"))
-        dlg.body.addWidget(label(t("settings.leave_text"), wrap=True))
-        row = hbox(spacing=theme.px(6))
-
-        def done(action: str) -> None:
-            self._settings_asking = False
-            dlg.close()
-            if action == "save":
+            if pending:
+                log.info("Settings saved on leaving: %s", ", ".join(pending))
                 view.save_now()
-            elif action == "discard":
-                view.discard()
-            if action in ("save", "discard"):
-                then()
+        except Exception:  # noqa: BLE001 - jamais bloquer la navigation
+            log.debug("Handled error in _settings_ok", exc_info=True)
+        return True
 
-        dlg.stay_btn = button(t("settings.leave_stay"), lambda: done("stay"), kind="flat")
-        dlg.discard_btn = button(t("settings.leave_discard"), lambda: done("discard"))
-        dlg.save_btn = button(t("settings.leave_save"), lambda: done("save"), kind="primary", icon="check")
-        dlg.save_btn.setDefault(True)
-        row.addWidget(dlg.stay_btn)
-        row.addStretch(1)
-        row.addWidget(dlg.discard_btn)
-        row.addWidget(dlg.save_btn)
-        dlg.body.addLayout(row)
-        dlg.finished.connect(lambda _r: setattr(self, "_settings_asking", False))
-        dlg.show_dialog()
-        self.settings_leave_dialog = dlg
-        return False
+    def _name_buttons(self) -> None:
+        from .widgets import name_icon_buttons
+
+        try:
+            name_icon_buttons(self)
+        except RuntimeError:                       # fenêtre détruite entre-temps
+            log.debug("Buttons not named", exc_info=True)
 
     def _show_page(self, page: QWidget) -> None:
         from .diag_tabs import DiagTabs
@@ -1468,6 +1478,9 @@ class DJSyncApp(QMainWindow):
         else:
             self._check_nav("diagnostic" if diag else nav_key(self._current))
         self.stack.setCurrentWidget(page)
+        from .widgets import name_icon_buttons
+
+        name_icon_buttons(page)                             # 1.4.3 (A2-20) : pages ouvertes à la demande
         if diag:
             self._reveal_nav("diagnostic")
         page.setFocus()
@@ -1660,7 +1673,7 @@ class DJSyncApp(QMainWindow):
             s.maximized = self.isMaximized()
             s.geometry = bytes(self.saveGeometry().toBase64()).decode()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in closeEvent", exc_info=True)  # 1.4.3 (A3-4)
         self.ctrl.shutdown()
         super().closeEvent(e)
 

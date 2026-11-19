@@ -101,6 +101,8 @@ def test_scope_playlist_and_selection(aac):
     tracks = ctrl.library.list_tracks()
     page = QualityPage(aac.views["home"], ctrl)
     assert pump(aac, 6, lambda: not page._loading and len(page.rows) == len(tracks))
+    # 1.4.3 : sous macOS (CI), les playlists du contrôleur arrivent parfois après la page : on les attend
+    assert pump(aac, 6, lambda: any(ctrl.quality_playlist_ids(p.playlist_id) for p in ctrl.playlists))
     pl = next(p for p in ctrl.playlists if ctrl.quality_playlist_ids(p.playlist_id))
     ids = set(ctrl.quality_playlist_ids(pl.playlist_id))
     # 1.4.2 : sous Windows (ci/full), la liste des playlists arrive parfois après la page : on l'attend

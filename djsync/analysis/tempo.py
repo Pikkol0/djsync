@@ -22,7 +22,7 @@ Comme Rekordbox en mode « grille constante », on renvoie une grille à tempo u
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -45,9 +45,18 @@ class BeatGrid:
     confidence: float = 0.0                            # 0..1
     beats: List[Tuple[int, float]] = field(default_factory=list)   # (1..4, secondes)
     variable: bool = False                             # grille qui suit un tempo changeant (voir _warp)
+    profile: Optional[object] = None                   # 1.4.3 (C69) : tempo_profile.TempoProfile
+    # 1.4.3 (C16) : grille par passage (beatswitch) : (début s, BPM, 1er temps fort s) par passage
+    sections: List[Tuple[float, float, float]] = field(default_factory=list)
 
     def beat_tempos(self) -> List[float]:
-        """Tempo de chaque temps (BPM) : constant, ou mesuré d'un temps au suivant si la grille varie."""
+        """Tempo de chaque temps (BPM) : constant, celui de son passage (C16), ou mesuré d'un temps au suivant
+        si la grille varie."""
+        if len(self.sections) > 1 and self.beats:
+            from .tempo_profile import section_at
+
+            secs = sorted(self.sections, key=lambda s: s[0])
+            return [secs[section_at(secs, t)][1] for _, t in self.beats]
         if not self.variable or len(self.beats) < 2:
             return [self.bpm] * len(self.beats)
         t = [b for _, b in self.beats]
@@ -438,8 +447,166 @@ def _harmonic_change(x: np.ndarray, sr: int, times: np.ndarray) -> np.ndarray:
     return out
 
 
-def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatGrid:
-    """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque."""
+def _frame_of(t: np.ndarray, sr: int) -> np.ndarray:
+    """Secondes -> image de l'enveloppe (inverse de t_of dans analyze_tempo)."""
+    return ((np.asarray(t, dtype=np.float64) - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5
+
+
+def _time_of(f: float, sr: int) -> float:
+    return ((f - 0.5) * HOP + N_FFT / 2) / sr + ONSET_LATENCY
+
+
+def _downbeat(x: np.ndarray, sr: int, benv: np.ndarray, times: np.ndarray,
+              debug: Optional[Dict] = None) -> int:
+    """Décalage (0..3) du 1er temps de mesure : celui qui concentre changements harmoniques, attaques et énergie
+    des basses (B12). Moins de 8 temps : 0."""
+    if times.size < 8:
+        return 0
+    frames = _frame_of(times, sr)
+
+    def sample(e: np.ndarray) -> np.ndarray:
+        i = np.clip(np.round(frames).astype(int), 0, e.size - 1)
+        lo, hi = np.clip(i - 1, 0, e.size - 1), np.clip(i + 1, 0, e.size - 1)
+        return np.maximum.reduce([e[lo], e[i], e[hi]])
+
+    nums = np.arange(times.size) % 4
+    bass = sample(benv)
+    harm = _harmonic_change(x, sr, times)
+
+    def z(v: np.ndarray) -> np.ndarray:
+        per = np.array([float(v[nums == j].mean()) if np.any(nums == j) else 0.0 for j in range(4)])
+        return (per - per.mean()) / (per.std() + 1e-9)
+
+    # 1.4.1 (B12) : + énergie des basses (40-120 Hz) dans les 80 ms après le temps : le kick et la basse
+    # appuient le 1er temps. Mesuré sur 62 grilles justes de l'échantillon : 1er temps de Rekordbox
+    # retrouvé 41 fois -> 47 (validation croisée par moitiés : 65 % -> 70 %).
+    low = np.zeros(times.size)
+    if x.size >= 512 * 8:
+        energy, efps = _band_energy(x, sr, 40, 120)
+        k = max(1, int(0.08 * efps))
+        starts = (times * efps).astype(int)
+        low = np.array([np.log(float(energy[a:a + k].mean()) + 1e-9) if 0 <= a and a + k < energy.size else 0.0
+                        for a in starts])
+    scores = list(z(harm) + 0.5 * z(bass) + z(low))
+    if debug is not None:
+        debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
+    return int(np.argmax(scores))
+
+
+SPLIT_MIN_S = 16.0        # un passage plus court n'a pas sa propre grille (fusionné avec son voisin)
+SPLIT_SEARCH_S = 6.0      # recherche du raccord : de part et d'autre de l'écart entre deux paliers
+
+
+def _passage_phase(x: np.ndarray, sr: int, env: np.ndarray, benv: np.ndarray, fps: float, bpm: float,
+                   a: int, b: int) -> float:
+    """1er temps (secondes, absolu) d'une grille à `bpm` calée sur les images a..b, avec les mêmes contrôles
+    temps / contretemps que la grille du son (B11)."""
+    period = fps * 60.0 / bpm
+    ph, _, _ = _best_phase(env[a:b], period)
+    ph = _kick_phase(benv[a:b], period, ph)
+    beat = 60.0 / bpm
+    t0 = _time_of(a + ph, sr)
+    lo_t, hi_t = _time_of(a, sr), _time_of(b, sr)
+    times = np.arange(t0, hi_t, beat)
+    seg = x[max(0, int(lo_t * sr)): int(hi_t * sr)]
+    rel = times - max(0.0, lo_t)
+    if _bass_energy_flip(seg, sr, rel, beat) or _offbeat_score(seg, sr, rel, beat) > OFFBEAT_SCORE_FLIP:
+        t0 += beat / 2
+    return float(t0)
+
+
+def _passage_tempo(env: np.ndarray, benv: np.ndarray, smooth: np.ndarray, fps: float, hint: float) -> float:
+    """Tempo d'un passage, choisi comme celui d'un son entier (candidats, alignement, règle d'octave) : le
+    tempo local de tempo_profile est cherché près du tempo du son et peut lire x4/3 ou x2/3 un passage
+    très différent (140 -> 100 lu 133)."""
+    refined = {_refine_align(smooth, fps, c) for c in _candidates(env, fps)}
+    refined.add(_refine_align(smooth, fps, _fold(hint)))
+    best = max(refined, key=lambda r: r[1])[0]
+    return _choose_octave(env, benv, fps, best)
+
+
+def _split_grid(x: np.ndarray, sr: int, env: np.ndarray, benv: np.ndarray, fps: float, duration: float,
+                profile: Any, debug: Optional[Dict] = None) -> Optional[List[Tuple[float, float, float]]]:
+    """1.4.3 (C16) : beatswitch : une grille par passage (paliers de tempo_profile._plateaus séparés par un vrai
+    changement), chacune avec son tempo exact et son calage ; raccord à l'endroit où la grille du passage
+    suivant colle mieux aux attaques que celle du précédent. Renvoie les passages (début = 1er temps, BPM,
+    un 1er temps de mesure), ou None si un passage manque d'appui."""
+    plat, cuts = list(getattr(profile, "plateaus", []) or []), set(getattr(profile, "cuts", []) or [])
+    if len(plat) < 2 or not cuts:
+        return None
+    groups: List[List[Tuple[float, float, float]]] = [[plat[0]]]
+    for k in range(1, len(plat)):
+        if k - 1 in cuts:
+            groups.append([])
+        groups[-1].append(plat[k])
+    passages = []                    # (cœur début s, cœur fin s, tempo du plus long palier)
+    for g in groups:
+        main = max(g, key=lambda p: p[1] - p[0])
+        passages.append([g[0][0], g[-1][1], main[2]])
+    # un passage trop court rejoint le précédent (motif bref, pas un changement)
+    merged = [passages[0]]
+    for p in passages[1:]:
+        if p[1] - p[0] + 12.0 < SPLIT_MIN_S:
+            merged[-1][1] = p[1]
+        else:
+            merged.append(p)
+    if len(merged) < 2:
+        return None
+    smooth = np.convolve(env, [0.25, 0.5, 0.25], mode="same")
+    n_frames = env.size
+    fr = lambda t: int(np.clip(float(_frame_of(t, sr)), 0, n_frames - 1))   # noqa: E731
+    grids = []                       # (BPM exact, 1er temps s)
+    for c0, c1, tempo in merged:
+        a, b = fr(c0 - 4.0), fr(c1 + 4.0)
+        if b - a < fps * 8:
+            return None
+        bpm = _passage_tempo(env[a:b], benv[a:b], smooth[a:b], fps, tempo)
+        grids.append((bpm, _passage_phase(x, sr, env, benv, fps, bpm, a, b)))
+    # raccords
+    starts = [0.0]
+    for i in range(len(merged) - 1):
+        (bpm_a, t_a), (bpm_b, t_b) = grids[i], grids[i + 1]
+        lo_t = max(starts[-1] + 1.0, merged[i][1] - SPLIT_SEARCH_S)
+        hi_t = min(duration, merged[i + 1][0] + SPLIT_SEARCH_S)
+        if hi_t - lo_t < 1.0:
+            return None
+        beat_a, beat_b = 60.0 / bpm_a, 60.0 / bpm_b
+        ta = t_a + beat_a * np.arange(np.ceil((lo_t - t_a) / beat_a), np.floor((hi_t - t_a) / beat_a) + 1)
+        tb = t_b + beat_b * np.arange(np.ceil((lo_t - t_b) / beat_b), np.floor((hi_t - t_b) / beat_b) + 1)
+        if ta.size < 2 or tb.size < 2:
+            return None
+        mu = float(smooth[fr(lo_t):fr(hi_t) + 1].mean())
+        sa = _sample(smooth, _frame_of(ta, sr)) - mu
+        sb = _sample(smooth, _frame_of(tb, sr)) - mu
+        cands = np.sort(np.concatenate([tb, [lo_t, hi_t]]))
+        score = [float(sa[ta < c].sum() + sb[tb >= c].sum()) for c in cands]
+        cut = float(cands[int(np.argmax(score))])
+        first_b = float(tb[tb >= cut][0]) if np.any(tb >= cut) else float(tb[-1])
+        starts.append(first_b)
+    sections = []
+    for i, (bpm, t0) in enumerate(grids):
+        beat = 60.0 / bpm
+        start = starts[i] if i else float(t0 % beat)
+        if i:
+            start = float(t0 + beat * np.round((start - t0) / beat))       # 1er temps exactement sur la grille
+        end = starts[i + 1] if i + 1 < len(starts) else duration
+        times = np.arange(start, end - 1e-6, beat)
+        down = _downbeat(x, sr, benv, times) if times.size >= 8 else 0
+        if times.size >= 8:
+            down_t = float(times[down])
+        elif times.size:                                  # passage trop court : la mesure continue
+            down_t = float(times[0])
+        else:
+            return None
+        sections.append((float(start), float(bpm), down_t))
+    if debug is not None:
+        debug["split"] = " ".join(f"{s:.1f}s:{b:.2f}" for s, b, _ in sections)
+    return sections
+
+
+def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None, grid_mode: str = "auto") -> BeatGrid:
+    """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque.
+    1.4.3 (C16) : `grid_mode` « never » : toujours une grille fixe (réglage, ou choix de l'utilisateur)."""
     duration = x.size / float(sr)
     if duration < 4.0 or peak_level(x) < 1e-3:
         return BeatGrid()
@@ -476,43 +643,54 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     elif _offbeat_score(x, sr, np.arange(first, duration, beat_len), beat_len, debug) > OFFBEAT_SCORE_FLIP:
         first = (first + beat_len / 2) % beat_len
     times = np.arange(first, duration, beat_len)
-    warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
+    # 1.4.3 (C69) : profil de tempo (beatswitch, accélération, set, live). La grille variable n'est essayée
+    # que pour un tempo qui bouge PEU À PEU (live, accélération, set) : sur l'échantillon du PC fixe, elle se
+    # déclenchait sur 30 sons sur 337 à tempo fixe, souvent calée sur le contretemps (écart médian 120 ms
+    # avec Rekordbox) ; un beatswitch garde une grille fixe (C16 : une grille par passage).
+    from .tempo_profile import TempoProfile, classify
+
+    try:
+        profile = classify(env, fps, bpm, duration, debug)
+    except Exception:  # noqa: BLE001 - le profil n'est qu'une information en plus
+        profile = TempoProfile()
+    warped = None
+    if grid_mode != "never" and profile.kind == "switch":           # 1.4.3 (C16) : une grille par passage
+        try:
+            sections = _split_grid(x, sr, env, benv, fps, duration, profile, debug)
+        except Exception:  # noqa: BLE001 - repli : la grille fixe
+            sections = None
+        if sections:
+            from .tempo_profile import section_beats
+
+            beats = section_beats(sections, duration)
+            # BPM affiché (liste, export.pdb) : celui qui couvre le plus de temps, passages au même tempo cumulés
+            span: Dict[float, float] = {}
+            for i, (st, b, _d) in enumerate(sections):
+                end = sections[i + 1][0] if i + 1 < len(sections) else duration
+                span[round(b, 2)] = span.get(round(b, 2), 0.0) + end - st
+            profile.split, profile.sections = True, sections
+            profile.lo, profile.hi = min(b for _, b, _ in sections), max(b for _, b, _ in sections)
+            return BeatGrid(bpm=max(span, key=span.get), first_beat=beats[0][1] if beats else 0.0,
+                            downbeat_offset=0, confidence=float(min(1.0, coherence * 4)), beats=beats,
+                            variable=False, profile=profile, sections=sections)
+    if grid_mode != "never" and profile.kind in ("live", "ramp", "set"):
+        warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
     variable = warped is not None
+    profile.variable = variable
     if variable:
         times = t_of(warped)
         times = times[(times >= 0) & (times < duration)]
+        # 1.4.3 (C69) : même contrôle temps / contretemps que la grille fixe (B11) : la grille suivie se cale
+        # sur les attaques les plus fortes, parfois celles du contretemps
+        step = float(np.median(np.diff(times)))
+        if times.size > 2 and (_bass_energy_flip(x, sr, times, step)
+                               or _offbeat_score(x, sr, times, step) > OFFBEAT_SCORE_FLIP):
+            mids = (times[:-1] + times[1:]) / 2
+            times = np.concatenate([[mids[0] - step] if mids[0] - step >= 0 else [], mids])
         first = float(times[0])
         bpm = round(float(np.median(60.0 / np.diff(times))), 2)        # tempo affiché : tempo médian
     # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
-    frames = ((times - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5
-
-    def sample(e: np.ndarray) -> np.ndarray:
-        i = np.clip(np.round(frames).astype(int), 0, e.size - 1)
-        lo, hi = np.clip(i - 1, 0, e.size - 1), np.clip(i + 1, 0, e.size - 1)
-        return np.maximum.reduce([e[lo], e[i], e[hi]])
-
-    nums = np.arange(times.size) % 4
-    bass = sample(benv)
-    harm = _harmonic_change(x, sr, times)
-
-    def z(v: np.ndarray) -> np.ndarray:
-        per = np.array([float(v[nums == j].mean()) if np.any(nums == j) else 0.0 for j in range(4)])
-        return (per - per.mean()) / (per.std() + 1e-9)
-
-    # 1.4.1 (B12) : + énergie des basses (40-120 Hz) dans les 80 ms après le temps : le kick et la basse
-    # appuient le 1er temps. Mesuré sur 62 grilles justes de l'échantillon : 1er temps de Rekordbox
-    # retrouvé 41 fois -> 47 (validation croisée par moitiés : 65 % -> 70 %).
-    low = np.zeros(times.size)
-    if times.size >= 8 and x.size >= 512 * 8:
-        energy, efps = _band_energy(x, sr, 40, 120)
-        k = max(1, int(0.08 * efps))
-        starts = (times * efps).astype(int)
-        low = np.array([np.log(float(energy[a:a + k].mean()) + 1e-9) if 0 <= a and a + k < energy.size else 0.0
-                        for a in starts])
-    scores = list(z(harm) + 0.5 * z(bass) + z(low)) if times.size >= 8 else [0.0, 0.0, 0.0, 0.0]
-    if debug is not None:
-        debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
-    down = int(np.argmax(scores))
+    down = _downbeat(x, sr, benv, times, debug)
     beats = [(((k - down) % 4) + 1, float(t)) for k, t in enumerate(times)]
     return BeatGrid(bpm=bpm, first_beat=float(first), downbeat_offset=down,
-                    confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable)
+                    confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable, profile=profile)

@@ -154,7 +154,7 @@ def _remove(path: Path) -> None:
         try:
             path.unlink()
         except OSError:
-            pass
+            log.debug("Ignored error in _remove", exc_info=True)  # 1.4.3 (A3-4)
 
 
 def prepare(p: Plan, downloaded: Path) -> Path:

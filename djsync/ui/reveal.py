@@ -1,10 +1,13 @@
 """1.4.0-rc.2 (C139) : « Afficher dans l'explorateur » (Finder sur Mac) pour le fichier d'un son."""
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, List, Optional, Union
+
+log = logging.getLogger(__name__)
 
 
 def reveal_command(path: Path, platform: Optional[str] = None) -> Union[str, List[str], None]:
@@ -45,6 +48,7 @@ def reveal_entry(ctrl: Any, track: Any) -> tuple:
         try:
             path = ctrl.library.absolute_path(track)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in go", exc_info=True)  # 1.4.3 (A3-4)
             path = None
         if path is None or not reveal(path):
             ctrl.message("error", ctrl.missing_file_text(path or getattr(track, "path", "")))

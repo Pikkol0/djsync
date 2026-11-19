@@ -50,6 +50,7 @@ def _analysis(src: Any, track: LibraryTrack) -> Dict[str, bytes]:
     try:
         dat, ext = src.analysis_files(track)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in _analysis", exc_info=True)  # 1.4.3 (A3-4)
         return {}
     files: Dict[str, bytes] = {}
     for path in (dat, ext, dat.with_suffix(".2EX") if dat else None):
@@ -57,7 +58,7 @@ def _analysis(src: Any, track: LibraryTrack) -> Dict[str, bytes]:
             try:
                 files[path.suffix.upper()] = path.read_bytes()
             except OSError:
-                pass
+                log.debug("Ignored error in _analysis", exc_info=True)  # 1.4.3 (A3-4)
     return files if ".DAT" in files else {}
 
 
@@ -89,7 +90,7 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
     files = {Path(dst.absolute_path(t)).name.lower(): t for t in existing}
 
     plan: List[Tuple[LibraryTrack, Optional[LibraryTrack]]] = []
-    needed = 0
+    sizes: List[int] = []
     for t in tracks:
         found = (dst.find_by_source_url(t.source_url) if t.source_url else None) or by_key.get(_key(t))
         if found is None:
@@ -100,10 +101,13 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
         plan.append((t, found))
         if found is None:
             try:
-                needed += Path(src.absolute_path(t)).stat().st_size
+                sizes.append(Path(src.absolute_path(t)).stat().st_size)
             except OSError:
-                pass
+                log.debug("Ignored error in copy_playlist", exc_info=True)  # 1.4.3 (A3-4)
     probe_dir = Path(dst.default_download_dir("DJSync", None))
+    from ..core.space import cluster_size, estimate_copy
+
+    needed = estimate_copy(sizes, cluster_size(probe_dir)) if sizes else 0     # 1.4.3 (A7-5)
     if needed and needed > _free_space(probe_dir) - 50 * 1024 * 1024:
         raise LibraryError(f"Not enough free space: {needed / 1e6:.0f} MB needed.")
 
@@ -115,33 +119,30 @@ def copy_playlist(src: Any, playlist_id: int, dst: Any, on_progress: Optional[Pr
     # d'export.pdb par lot, au lieu de deux par son) ; la progression et l'arrêt restent son par son.
     batch = dst.long_batch if hasattr(dst, "long_batch") else getattr(dst, "batch", None)
     stopped = False
-    try:
-        for start in range(0, len(plan), COPY_CHUNK):
-            if stopped:
-                break
-            with (batch() if batch is not None else _no_batch()):
-                for i, (t, found) in enumerate(plan[start:start + COPY_CHUNK], start + 1):
-                    if should_stop and should_stop():
-                        stopped = True
-                        break
-                    if on_progress:
-                        on_progress(i, len(plan), t.display_name)
-                    try:
-                        if found is not None:
-                            result.reused += 1
-                            ids.append(found.content_id)
-                            continue
-                        # 1.4.2 (A3-1, A6-3) : même voie que le transfert C23 : jamais par-dessus le fichier
-                        # d'un autre son (« nom (2) »), cues d'un son de l'ordinateur reprises.
-                        added = _send_track(src, dst, t, analyze=analyze)
-                        result.copied += 1
-                        ids.append(added.content_id)
-                    except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas la copie
-                        result.failed += 1
-                        result.problems.append(f"{t.display_name}: {exc}")
-                        log.warning("Copy of %s failed: %s", t.display_name, exc)
-    finally:
-        dst.analyze = analyze
+    for start in range(0, len(plan), COPY_CHUNK):
+        if stopped:
+            break
+        with (batch() if batch is not None else _no_batch()):
+            for i, (t, found) in enumerate(plan[start:start + COPY_CHUNK], start + 1):
+                if should_stop and should_stop():
+                    stopped = True
+                    break
+                if on_progress:
+                    on_progress(i, len(plan), t.display_name)
+                try:
+                    if found is not None:
+                        result.reused += 1
+                        ids.append(found.content_id)
+                        continue
+                    # 1.4.2 (A3-1, A6-3) : même voie que le transfert C23 : jamais par-dessus le fichier
+                    # d'un autre son (« nom (2) »), cues d'un son de l'ordinateur reprises.
+                    added = _send_track(src, dst, t, analyze=analyze)
+                    result.copied += 1
+                    ids.append(added.content_id)
+                except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas la copie
+                    result.failed += 1
+                    result.problems.append(f"{t.display_name}: {exc}")
+                    log.warning("Copy of %s failed: %s", t.display_name, exc)
     new = [cid for cid in dict.fromkeys(ids) if cid not in already]
     if new:
         dst.add_to_playlist(result.playlist_id, new)
@@ -229,10 +230,16 @@ class Comparison:
     free: int = 0                                              # espace libre à l'arrivée (octets)
     new_folders: List[Tuple[str, ...]] = field(default_factory=list)
 
+    block: int = 4096                                          # 1.4.3 (A7-5) : bloc du disque d'arrivée
+
     def needed(self) -> int:
-        """Octets à copier pour les lignes cochées, avec les choix actuels (chaque son compté une fois)."""
+        """Place nécessaire à l'arrivée pour les lignes cochées, avec les choix actuels (chaque son compté une
+        fois). 1.4.3 (A7-5, repris de Sleeve) : chaque fichier arrondi au bloc du disque, plus ses fichiers
+        d'analyse et sa pochette."""
+        from ..core.space import estimate_copy
+
         ids = {cid for line in self.lines if line.will_write for cid in line.copy_ids}
-        return sum(self.sizes.get(cid, 0) for cid in ids)
+        return estimate_copy((self.sizes.get(cid, 0) for cid in ids), self.block) if ids else 0
 
     def tracks_to_copy(self) -> int:
         return len({cid for line in self.lines if line.will_write for cid in line.copy_ids})
@@ -355,7 +362,7 @@ class _Matcher:
         try:
             self.files[Path(self.dst.absolute_path(t)).name.lower()] = t
         except Exception:  # noqa: BLE001 - chemin illisible : cette règle ne s'applique pas à ce son
-            pass
+            log.debug("Ignored error in _index", exc_info=True)  # 1.4.3 (A3-4)
 
     def find(self, t: LibraryTrack) -> Optional[LibraryTrack]:
         if t.content_id in self.known:
@@ -365,6 +372,7 @@ class _Matcher:
             try:
                 cand = self.files.get(Path(self.src.absolute_path(t)).name.lower())
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in find", exc_info=True)  # 1.4.3 (A3-4)
                 cand = None
             if cand is not None and _norm(cand.title) == _norm(t.title):
                 found = cand
@@ -467,8 +475,12 @@ def compare(src: Any, dst: Any, playlist_ids: Any, origin: str = "", on_progress
             line.selected = line.status == CONFLICT
         comp.lines.append(line)
     try:
+        from ..core.space import cluster_size
+
+        comp.block = cluster_size(Path(dst.default_download_dir("DJSync", None)))
         comp.free = _free_space(Path(dst.default_download_dir("DJSync", None)))
     except Exception:  # noqa: BLE001 - espace inconnu : on ne bloque pas
+        log.debug("Handled error in compare", exc_info=True)  # 1.4.3 (A3-4)
         comp.free = 1 << 62
     return comp
 
@@ -496,14 +508,16 @@ def _differences(src: Any, s: LibraryTrack, dst: Any, d: LibraryTrack) -> List[s
         b = sorted((c.slot, c.ms, c.loop_ms or 0) for c in dst.track_cues(d.content_id))
         if a != b:
             out.append("cues")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 - 1.4.3 (A3-4) : illisible = montré comme différence
+        log.info("Cues of %s not compared (shown as different): %s", s.display_name, exc)
+        out.append("cues")
     try:
         ga, gb = src.beat_grid(s.content_id).beats, dst.beat_grid(d.content_id).beats
         if len(ga) != len(gb) or (ga and (abs(ga[0][2] - gb[0][2]) > 1 or abs(ga[-1][2] - gb[-1][2]) > 1)):
             out.append("grid")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 - 1.4.3 (A3-4) : illisible = montré comme différence
+        log.info("Beat grid of %s not compared (shown as different): %s", s.display_name, exc)
+        out.append("grid")
     return out
 
 
@@ -548,9 +562,10 @@ def _send_track(src: Any, dst: Any, t: LibraryTrack, analyze: Optional[bool] = N
                     anlz[".EXT"] = ext
             except Exception as exc:  # noqa: BLE001
                 log.warning("Cues of %s not written to the analysis files: %s", t.display_name, exc)
-    if analyze is not None:
-        dst.analyze = analyze and not anlz                     # analyse reprise : pas de recalcul
-    added = dst.add_track(target, t.title, t.artist or "", t.album, t.source_url, [])
+    # 1.4.3 (A3-3) : passé à add_track, l'attribut partagé `dst.analyze` n'est plus modifié ; analyse reprise :
+    # pas de recalcul ; transfert (analyze None) : jamais d'analyse ici
+    want = bool(analyze) and not anlz
+    added = dst.add_track(target, t.title, t.artist or "", t.album, t.source_url, [], analyze=want)
     if anlz and not added.is_analysed:
         added = dst.import_analysis(added.content_id, anlz, t.bpm, to_musical(t.key))
         if cues and _is_local(dst):                            # ordinateur : Rekordbox lit les cues dans master.db
@@ -580,6 +595,7 @@ def apply(src: Any, dst: Any, comp: Comparison, on_progress: Optional[Progress] 
     try:
         free = _free_space(Path(dst.default_download_dir("DJSync", None)))
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in apply", exc_info=True)  # 1.4.3 (A3-4)
         free = 1 << 62
     need = comp.needed()
     if need and need > free - SPACE_MARGIN:
@@ -592,95 +608,90 @@ def apply(src: Any, dst: Any, comp: Comparison, on_progress: Optional[Progress] 
     matcher = _Matcher(src, dst)
     src_tracks: Dict[int, LibraryTrack] = {}
     counted: set = set()
-    analyze = getattr(dst, "analyze", False)
     batch = dst.long_batch if hasattr(dst, "long_batch") else dst.batch
-    try:
-        dst.analyze = False                                    # l'analyse est reprise, jamais recalculée ici
-        with batch():
-            for line in todo:
-                if should_stop and should_stop():
-                    res.stopped = True
-                    break
-                out = LineResult(line.path, "failed")
-                res.lines.append(out)
-                try:
-                    _d_by_id, kids = _tree(dst)
-                    parent = 0
-                    for name in line.path[:-1]:                # dossiers : fusionnés, créés s'ils manquent
-                        node = (_child(kids, parent, name, folder=True)
-                                or _child(kids, parent, name, folder=True, exact=False))
-                        if node is None:
-                            taken = _child(kids, parent, name, exact=False)
-                            made = dst.create_folder(_free_name(kids, parent, name, comp.origin) if taken else name,
-                                                     parent)
-                            kids.setdefault(parent, []).append(made)
-                            res.folders += 1
-                            node = made
-                        parent = node.playlist_id
-                    target = _child(kids, parent, line.name, folder=False)
-                    if target is not None and line.status == CONFLICT and line.action == KEEP_BOTH:
-                        target = None
-                        name = _free_name(kids, parent, line.name, comp.origin)
-                    elif target is None and _child(kids, parent, line.name, exact=False) is not None:
-                        name = _free_name(kids, parent, line.name, comp.origin)    # casse, ou nom pris
-                    else:
-                        name = line.name
-                    if target is None:
-                        target = dst.create_playlist(name, parent)
-                        out.outcome = "both" if line.action == KEEP_BOTH and line.status == CONFLICT else "created"
-                        out.name = name if name != line.name else ""
-                        already: set = set()
-                    else:
-                        out.outcome = "merged"
-                        already = {t.content_id for t in dst.get_playlist_tracks(target.playlist_id)}
-                    missing = [cid for cid in line.src_track_ids if cid not in src_tracks]
-                    if missing:
-                        for t in src.get_playlist_tracks(line.src_id):
-                            src_tracks.setdefault(t.content_id, t)
-                    ids: List[int] = []
-                    for cid in line.src_track_ids:
-                        done += 1
-                        t = src_tracks.get(cid)
-                        if t is None:                          # retiré du départ depuis la comparaison
-                            continue
-                        if on_progress:
-                            on_progress(done, total, t.display_name)
-                        try:
-                            found = matcher.find(t)
-                            if found is None:
-                                found = _send_track(src, dst, t)
-                                matcher.learn(t, found)
-                                res.copied += 1
-                                counted.add(cid)
-                            elif cid not in counted:
-                                counted.add(cid)
-                                res.reused += 1
-                                if count_differences:
-                                    diff = _differences(src, t, dst, found)
-                                    if diff:
-                                        res.different += 1
-                                        for kind in diff:
-                                            res.different_detail[kind] = res.different_detail.get(kind, 0) + 1
-                            ids.append(found.content_id)
-                        except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas le lot
-                            res.failed += 1
-                            res.problems.append(f"{t.display_name}: {exc}")
-                            log.warning("Transfer of %s failed: %s", t.display_name, exc)
-                    new = [cid for cid in dict.fromkeys(ids) if cid not in already]
-                    if new:
-                        dst.add_to_playlist(target.playlist_id, new)
-                    out.added = len(new)
-                    res.added += len(new)
-                    if out.outcome == "merged":
-                        res.merged += 1
-                    else:
-                        res.created += 1
-                except Exception as exc:  # noqa: BLE001 - une playlist en échec n'arrête pas le lot
-                    out.outcome, out.error = "failed", str(exc)
-                    res.problems.append(f"{' / '.join(line.path)}: {exc}")
-                    log.warning("Transfer of playlist %s failed: %s", " / ".join(line.path), exc)
-    finally:
-        dst.analyze = analyze
+    with batch():                                          # l'analyse est reprise, jamais recalculée ici
+        for line in todo:
+            if should_stop and should_stop():
+                res.stopped = True
+                break
+            out = LineResult(line.path, "failed")
+            res.lines.append(out)
+            try:
+                _d_by_id, kids = _tree(dst)
+                parent = 0
+                for name in line.path[:-1]:                # dossiers : fusionnés, créés s'ils manquent
+                    node = (_child(kids, parent, name, folder=True)
+                            or _child(kids, parent, name, folder=True, exact=False))
+                    if node is None:
+                        taken = _child(kids, parent, name, exact=False)
+                        made = dst.create_folder(_free_name(kids, parent, name, comp.origin) if taken else name,
+                                                 parent)
+                        kids.setdefault(parent, []).append(made)
+                        res.folders += 1
+                        node = made
+                    parent = node.playlist_id
+                target = _child(kids, parent, line.name, folder=False)
+                if target is not None and line.status == CONFLICT and line.action == KEEP_BOTH:
+                    target = None
+                    name = _free_name(kids, parent, line.name, comp.origin)
+                elif target is None and _child(kids, parent, line.name, exact=False) is not None:
+                    name = _free_name(kids, parent, line.name, comp.origin)    # casse, ou nom pris
+                else:
+                    name = line.name
+                if target is None:
+                    target = dst.create_playlist(name, parent)
+                    out.outcome = "both" if line.action == KEEP_BOTH and line.status == CONFLICT else "created"
+                    out.name = name if name != line.name else ""
+                    already: set = set()
+                else:
+                    out.outcome = "merged"
+                    already = {t.content_id for t in dst.get_playlist_tracks(target.playlist_id)}
+                missing = [cid for cid in line.src_track_ids if cid not in src_tracks]
+                if missing:
+                    for t in src.get_playlist_tracks(line.src_id):
+                        src_tracks.setdefault(t.content_id, t)
+                ids: List[int] = []
+                for cid in line.src_track_ids:
+                    done += 1
+                    t = src_tracks.get(cid)
+                    if t is None:                          # retiré du départ depuis la comparaison
+                        continue
+                    if on_progress:
+                        on_progress(done, total, t.display_name)
+                    try:
+                        found = matcher.find(t)
+                        if found is None:
+                            found = _send_track(src, dst, t)
+                            matcher.learn(t, found)
+                            res.copied += 1
+                            counted.add(cid)
+                        elif cid not in counted:
+                            counted.add(cid)
+                            res.reused += 1
+                            if count_differences:
+                                diff = _differences(src, t, dst, found)
+                                if diff:
+                                    res.different += 1
+                                    for kind in diff:
+                                        res.different_detail[kind] = res.different_detail.get(kind, 0) + 1
+                        ids.append(found.content_id)
+                    except Exception as exc:  # noqa: BLE001 - un son en échec n'arrête pas le lot
+                        res.failed += 1
+                        res.problems.append(f"{t.display_name}: {exc}")
+                        log.warning("Transfer of %s failed: %s", t.display_name, exc)
+                new = [cid for cid in dict.fromkeys(ids) if cid not in already]
+                if new:
+                    dst.add_to_playlist(target.playlist_id, new)
+                out.added = len(new)
+                res.added += len(new)
+                if out.outcome == "merged":
+                    res.merged += 1
+                else:
+                    res.created += 1
+            except Exception as exc:  # noqa: BLE001 - une playlist en échec n'arrête pas le lot
+                out.outcome, out.error = "failed", str(exc)
+                res.problems.append(f"{' / '.join(line.path)}: {exc}")
+                log.warning("Transfer of playlist %s failed: %s", " / ".join(line.path), exc)
     res.pdb_state = str(getattr(dst, "pdb_state", "") or "")
     log.info("Playlist transfer: %d created, %d merged, %d folders, %d files copied, %d reused, %d failed%s",
              res.created, res.merged, res.folders, res.copied, res.reused, res.failed,

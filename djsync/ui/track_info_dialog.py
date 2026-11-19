@@ -7,6 +7,8 @@ Le fichier audio n'est ni modifié ni renommé.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import Qt
@@ -19,6 +21,8 @@ from ..models import LibraryTrack
 from . import theme
 from .dialogs import BaseDialog
 from .widgets import button, hbox, label, vbox
+
+log = logging.getLogger(__name__)
 
 THUMB = 96
 
@@ -126,6 +130,7 @@ class TrackInfoDialog(BaseDialog):
                 lib = self.ctrl.library
                 path = lib.artwork_file(self.track) if lib is not None else None
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in _refresh_cover", exc_info=True)  # 1.4.3 (A3-4)
                 path = None
             if path is not None and path.is_file():
                 self._show_pixmap(path.read_bytes())

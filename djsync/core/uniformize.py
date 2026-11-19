@@ -16,6 +16,7 @@ Le fichier audio n'est ni modifié ni renommé (S05 reporté).
 """
 from __future__ import annotations
 
+import logging
 import hashlib
 import json
 import re
@@ -26,6 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from rapidfuzz import fuzz
 
 from .duplicates import normalize
+
+log = logging.getLogger(__name__)
 
 ARTIST_SEP = ", "
 # ce qui distingue une version (gardé dans le titre)
@@ -262,7 +265,7 @@ class ReviewStore:
             tmp.write_text(json.dumps(self.data, ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.path)
         except OSError:
-            pass
+            log.debug("Ignored error in save", exc_info=True)  # 1.4.3 (A3-4)
 
 
 def needs_review(track: Any) -> bool:

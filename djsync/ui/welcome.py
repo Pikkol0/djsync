@@ -10,6 +10,8 @@ la hauteur de son contenu. Revu depuis Paramètres ▸ DJSync.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any
 
 from PySide6.QtCore import QLocale, Qt
@@ -19,6 +21,8 @@ from ..i18n import get_language, set_language, t
 from . import theme
 from .dialogs import BaseDialog
 from .widgets import WrapCheckBox, button, hbox, icon_label, label, vbox
+
+log = logging.getLogger(__name__)
 
 MP3_KEYS = ("mp3_320", "mp3_256", "mp3_192", "mp3_128")
 QUALITY_OF = {"m4a": "original", "best": "yt_best", **{k: k for k in MP3_KEYS}}   # tuile → réglage
@@ -30,6 +34,7 @@ def system_language() -> str:
     try:
         return "fr" if QLocale.system().name().lower().startswith("fr") else "en"
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in system_language", exc_info=True)  # 1.4.3 (A3-4)
         return "en"
 
 

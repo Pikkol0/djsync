@@ -11,13 +11,13 @@ Séquence d'une écriture (rien n'est modifié sur la clé avant l'étape 4) :
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Optional, Sequence, Tuple
 
 from .database import PdbDatabase, Summary
 from .format import PdbError
+from ...core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 Op = Callable[[PdbDatabase], None]
@@ -33,22 +33,45 @@ class PdbStore:
         self.keep, self.session_keep = keep, session_keep
         self.allow_growth = allow_growth
         self._session_backed_up = False
+        # 1.4.3 (A1-2) : octets du fichier tel que DJSync l'a lu ou écrit en dernier, avec sa taille et sa date :
+        # tant que le fichier n'a pas bougé, il n'est pas relu sur la clé (≈ 0,37 s par lecture à 220 sons).
+        self._cache: Optional[Tuple[bytes, int, int]] = None
+        self.reads = 0                          # lectures réelles sur la clé (tests, journal)
 
     def exists(self) -> bool:
         return self.path.is_file()
 
     def load(self) -> PdbDatabase:
+        return PdbDatabase(self._read(), allow_growth=self.allow_growth)
+
+    def loaded(self) -> PdbDatabase:
+        """1.4.3 (A1-2) : le fichier tel que DJSync vient de l'écrire et de le contrôler (sans relecture si rien
+        ne l'a changé depuis)."""
+        return self.load()
+
+    def forget(self) -> None:
+        self._cache = None
+
+    def _stamp(self) -> Tuple[int, int]:
+        st = self.path.stat()
+        return st.st_size, st.st_mtime_ns
+
+    def _read(self) -> bytes:
         try:
-            return PdbDatabase(self.path.read_bytes(), allow_growth=self.allow_growth)
+            size, mtime = self._stamp()
+            if self._cache is not None and self._cache[1:] == (size, mtime) and len(self._cache[0]) == size:
+                return self._cache[0]
+            data = self.path.read_bytes()
+            self.reads += 1
+            self._cache = (data, size, mtime) if len(data) == size else None
+            return data
         except OSError as exc:
+            self._cache = None
             raise PdbError(f"unreadable export.pdb: {exc}") from exc
 
     def apply(self, ops: Sequence[Op]) -> Summary:
         """Applique les opérations ; n'écrit sur la clé que si tout s'est bien passé."""
-        try:
-            original = self.path.read_bytes()
-        except OSError as exc:
-            raise PdbError(f"unreadable export.pdb: {exc}") from exc
+        original = self._read()
         db = PdbDatabase(original, allow_growth=self.allow_growth)
         for op in ops:
             op(db)
@@ -83,10 +106,16 @@ class PdbStore:
             with open(tmp, "wb") as fh:
                 fh.write(data)
                 fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
-            if self.path.read_bytes() != data:
+                durable.flush_fd(fh.fileno())
+            durable.replace(tmp, self.path)
+            self._cache = None
+            back = self.path.read_bytes()          # contrôle gardé (A1-2) : relecture réelle après l'écriture
+            self.reads += 1
+            if back != data:
                 raise OSError("read-back does not match what was written")
+            size, mtime = self._stamp()
+            self._cache = (data, size, mtime) if size == len(data) else None
         except OSError as exc:
+            self._cache = None
             tmp.unlink(missing_ok=True)
             raise PdbError(f"cannot write export.pdb (file used by another program?): {exc}") from exc

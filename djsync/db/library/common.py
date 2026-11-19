@@ -50,6 +50,7 @@ from ..errors import (
     LibraryError,
     PlaylistNotFoundError,
     ReadOnlyError,
+    ShmRepairError,
     TrackNotFoundError,
     UnsupportedFormatError,
 )
@@ -157,6 +158,7 @@ class _Extras:
     native_parts: Tuple[str, ...] = ()      # parmi "grid", "key", "waves"
     graft: Optional[Dict[Path, bytes]] = None           # fichiers à réécrire (None : pas une greffe)
     originals: Dict[Path, bytes] = field(default_factory=dict)   # pour le retour arrière
+    file_size: Optional[int] = None         # 1.4.3 (S05) : nouvelle taille après l'écriture des tags
 
 
 @dataclass
@@ -223,6 +225,32 @@ def extract_video_id(url_or_id: str) -> Optional[str]:
         return text
     m = _VIDEO_ID.search(text)
     return m.group(1) if m else None
+
+
+def _source_keys(urls: Sequence[str]) -> Dict[str, Tuple[str, bool]]:
+    """1.4.3 (B98) : {url: (identifiant YouTube ou adresse sans paramètres, est-ce un identifiant ?)}."""
+    out: Dict[str, Tuple[str, bool]] = {}
+    for url in urls:
+        vid = extract_video_id(url or "")
+        if vid:
+            out[url] = (vid, True)
+        else:
+            arg = (url or "").strip().split("?")[0].split("#")[0]
+            if arg.startswith("http"):
+                out[url] = (arg, False)
+    return out
+
+
+def _match_sources(wanted: Dict[str, Tuple[str, bool]], rows: Sequence[Tuple[Any, ...]]) -> Dict[str, Any]:
+    """1.4.3 (B98) : {url: id du premier son (dans l'ordre des lignes) dont le commentaire correspond}."""
+    hits: Dict[str, Any] = {}
+    for url, (key, is_vid) in wanted.items():
+        for cid, comment in rows:
+            comment = comment or ""
+            if (key in comment) if is_vid else (comment == key):
+                hits[url] = cid
+                break
+    return hits
 
 
 def _safe_name(name: str, fallback: str) -> str:

@@ -18,7 +18,7 @@ import requests
 from ..models import SpotifyPlaylist, SpotifyTrack
 
 API = "https://api.deezer.com"
-MAX_TRACKS = 1000
+MAX_TRACKS = 2000           # 1.4.3 (C185) : comme les autres sources (avant 1 000)
 SHORT_HOSTS = ("deezer.page.link", "link.deezer.com", "dzr.page.link")
 _URL = re.compile(r"deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?(playlist|album|track)/(\d+)", re.IGNORECASE)
 

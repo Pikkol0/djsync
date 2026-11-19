@@ -82,6 +82,27 @@ class TracksMixin:
         rows = self._read(self._tsel() + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
         return self._track(rows[0]) if rows else None
 
+    def find_by_source_urls(self, urls: Sequence[str]) -> Dict[str, LibraryTrack]:
+        """1.4.3 (B98) : `find_by_source_url` pour une liste (résultats d'une recherche) en UNE requête au lieu
+        d'une par résultat ; {url: son} pour les adresses déjà en bibliothèque."""
+        wanted = _source_keys(urls)
+        if not wanted:
+            return {}
+        vids = sorted({k for k, is_vid in wanted.values() if is_vid})
+        exact = sorted({k for k, is_vid in wanted.values() if not is_vid})
+        where = ["instr(c.djComment, ?) > 0"] * len(vids)
+        if exact:
+            where.append("c.djComment IN (%s)" % ",".join("?" * len(exact)))
+        rows = self._read("SELECT c.content_id, c.djComment FROM content c WHERE " + " OR ".join(where)
+                          + " ORDER BY c.content_id", tuple(vids) + tuple(exact))
+        hits = _match_sources(wanted, rows)
+        if not hits:
+            return {}
+        ids = sorted(set(hits.values()))
+        tracks = {t.content_id: t for t in (self._track(r) for r in self._read(
+            self._tsel() + " WHERE c.content_id IN (%s)" % ",".join("?" * len(ids)), tuple(ids)))}
+        return {url: tracks[cid] for url, cid in hits.items() if cid in tracks}
+
     def track_count(self) -> int:
         return self._read("SELECT COUNT(*) FROM content")[0][0]
 
@@ -224,6 +245,7 @@ class TracksMixin:
                     try:
                         file_deleted = self.delete_track(cid, delete_file=delete_files)
                     except TrackNotFoundError:
+                        log.debug("Ignored error in delete_tracks", exc_info=True)  # 1.4.3 (A3-4)
                         continue
                     removed += 1
                     if delete_files and not file_deleted:

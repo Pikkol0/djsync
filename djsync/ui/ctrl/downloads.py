@@ -228,7 +228,7 @@ class DownloadsMixin:
                     log.info("Download %s not added to the library: file removed (%s)", track.video_id,
                              Path(result.file_path).name)
                 except OSError:
-                    pass
+                    log.debug("Ignored error in _run_job", exc_info=True)  # 1.4.3 (A3-4)
                 raise
             self.service.refresh_library()
             job.file_path, job.content_id = result.file_path, added.content_id
@@ -262,7 +262,7 @@ class DownloadsMixin:
                 self.dispatcher.post(self.engine_failure, job.message)
         self.dispatcher.post(self._job_changed, job)
         if job.status == "done":
-            self.dispatcher.post(self._emit, "library")
+            self.dispatcher.post(self._emit_library_soon)          # 1.4.3 (A1-9) : regroupé par 500 ms
             self.dispatcher.post(self._analyse_after_download, job)
 
     def _analyse_after_download(self, job: DownloadJob) -> None:
@@ -322,10 +322,6 @@ class DownloadsMixin:
         self._emit("download_update", job)
         self.dispatcher.submit(lambda: self._run_job(job), pool="dl")
 
-    def remove_job(self, job: DownloadJob) -> None:
-        if not job.is_active and job.status != "queued" and job in self.jobs:
-            self.jobs.remove(job)
-            self._emit("downloads")
 
     def clear_finished(self) -> None:
         self.jobs = [j for j in self.jobs if not j.is_finished]

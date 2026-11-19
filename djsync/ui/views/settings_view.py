@@ -7,6 +7,7 @@ redessine, rien n'est reconstruit) ; la langue reconstruit les pages (rapide). L
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,8 @@ from ..widgets import (
     ShrinkCombo, ShrinkLabel, WrapCheckBox, button, flow_row, hbox, icon_button, icon_label, label, line_edit, panel, vbox,
 )
 from .common import View
+
+log = logging.getLogger(__name__)
 
 BACKUP_CHOICES = ["5", "10", "20", "50"]
 KEY_NOTATIONS = ("auto", "camelot", "musical")
@@ -115,7 +118,7 @@ class SettingsView(View):
         head.addWidget(self.saved)
         head.addWidget(button(t("settings.reset"), self._reset_defaults, kind="flat", icon="back",
                               tooltip=t("settings.reset_tip")))           # 1.3.2 (C57)
-        head.addWidget(button(t("action.save"), self._save, kind="primary", icon="check"))
+        # 1.4.3 (A2-18, option A) : plus de bouton « Enregistrer » : chaque réglage est enregistré dès qu'il change
         self.root.addLayout(head)
         # 1.3.1 (C28) : volet à gauche (sections + recherche), cartes de la section choisie à droite
         self._cards: list = []                 # [(section, carte)]
@@ -192,6 +195,46 @@ class SettingsView(View):
         body.addLayout(right, 1)
         self.root.addLayout(body, 1)
 
+        # 1.4.3 (A3-8) : cartes construites section par section, dans l'ordre d'avant
+        self._build_appearance(s)
+        self._build_usb(s)
+        self._build_local(s)
+        self._build_ffmpeg(s)
+        self._build_analysis(s)
+        self._build_pdb(s)
+        self._build_search(s)
+        self._build_soundcloud(s)
+        self._build_soulseek(s)
+        self._build_watch(s)
+        self._build_engine(s)
+        self._build_backups(s)
+        self._build_advanced(s)
+        self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
+        from ..wheel_guard import guard_children
+
+        guard_children(self.area)              # 1.3.2-rc.3 (B51) : la molette fait défiler, pas les réglages
+        self.page.addStretch(1)
+        self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
+        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
+        self.show_section(start, remember=False)
+
+        controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
+        controller.on("drive", self._backups_state)
+        controller.on("drive", lambda: (setattr(self, "_space_done", False),
+                                        QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
+        controller.on("drives", self._refresh_drives)
+        controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
+        controller.on("drive", self._refresh_drives)
+        self._refresh_drives()
+        self._ffmpeg_status()
+        self._engine_show()
+        self._backups_state()
+        self._wire_autosave()
+
+    # ------------------------------------------------ 1.4.3 (A3-8) : cartes des Paramètres
+    def _build_appearance(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Apparence et performance (mode léger) (découpé de __init__, même ordre)."""
         # ---- apparence
         card = self._card(t("settings.appearance"), "settings")
         row = hbox()
@@ -224,6 +267,17 @@ class SettingsView(View):
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
 
+        row = hbox()                                    # 1.4.3 (C53) : fond
+        row.addWidget(self._fixed(label(t("settings.background"))))
+        self._bg_labels = {k: t(f"settings.background_{k}") for k in theme.BACKGROUNDS}
+        self.bg_menu = ShrinkCombo()
+        self.bg_menu.addItems(list(self._bg_labels.values()))
+        self.bg_menu.setCurrentText(self._bg_labels.get(getattr(s, "background", "default"), self._bg_labels["default"]))
+        self.bg_menu.currentTextChanged.connect(self._background_changed)
+        row.addWidget(self.bg_menu)
+        row.addStretch(1)
+        card.addLayout(row)
+
         # 1.4.0 (C102) : plus de curseur : − / + / 100 % et les raccourcis (Ctrl/Cmd +, −, 0, molette)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.zoom"))))
@@ -238,7 +292,7 @@ class SettingsView(View):
         card.addLayout(row)
         card.addWidget(label(t("settings.zoom_keys", mod="⌘" if sys.platform == "darwin" else "Ctrl"), "faint",
                              wrap=True))
-        controller.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
+        self.ctrl.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
@@ -268,6 +322,9 @@ class SettingsView(View):
         row.addWidget(self.light_state, 1)
         card.addLayout(row)
 
+
+    def _build_usb(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Clé USB et dossier de destination (découpé de __init__, même ordre)."""
         # ---- clé USB
         self._section = "libraries"
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"), key="drive")
@@ -294,6 +351,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_local(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Rekordbox de cet ordinateur (découpé de __init__, même ordre)."""
         # ---- Rekordbox de cet ordinateur (V0.4.0)
         from ...db.local_library import default_music_dir
 
@@ -318,7 +378,15 @@ class SettingsView(View):
         self.local_btn = button(t("action.connect"), self.ctrl.connect_local, kind="primary", icon="computer")
         row.addWidget(self.local_btn)
         card.addLayout(row)
+        self.protect_var = WrapCheckBox(t("settings.protect_foreign"))              # 1.4.3 (A07, C156)
+        self.protect_var.setChecked(s.protect_foreign)
+        self.protect_var.setToolTip(t("settings.protect_foreign_hint"))
+        card.addWidget(self.protect_var)
+        card.addWidget(label(t("settings.protect_foreign_hint"), "faint", wrap=True))
 
+
+    def _build_ffmpeg(self, s: Any) -> None:
+        """1.4.3 (A3-8) : FFmpeg (Avancé, repliée quand tout va bien) (découpé de __init__, même ordre)."""
         # ---- FFmpeg (1.3.1, C89 : Avancé, repliée quand tout va bien)
         self._section = "advanced"
         card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"), fold=True)
@@ -333,6 +401,9 @@ class SettingsView(View):
         self.ffmpeg_state = label("", "dim", wrap=True)     # 1.4.2 (A2-1) : long chemin (Windows) à la ligne
         card.addWidget(self.ffmpeg_state)
 
+
+    def _build_analysis(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Analyse (découpé de __init__, même ordre)."""
         # ---- analyse
         self._section = "analysis"
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
@@ -346,6 +417,14 @@ class SettingsView(View):
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
         card.addWidget(self.cue_var)
+        self.tags_var = WrapCheckBox(t("settings.write_tags"))                    # 1.4.3 (S05)
+        self.tags_var.setChecked(s.write_tags)
+        self.tags_var.setToolTip(t("settings.write_tags_hint"))
+        card.addWidget(self.tags_var)
+        self.gain_var = WrapCheckBox(t("settings.auto_gain"))                    # 1.4.3 (C109)
+        self.gain_var.setChecked(s.auto_gain)
+        self.gain_var.setToolTip(t("settings.auto_gain_hint"))
+        card.addWidget(self.gain_var)
         card.addWidget(label(t("settings.reanalyse_rekordbox"), wrap=True))       # 1.4.1 (C131, D20)
         row = flow_row(spacing=12)                                                  # 1.4.2 (A2-1)
         self.reanalyse_vars = {}
@@ -357,6 +436,16 @@ class SettingsView(View):
             self.reanalyse_vars[part] = box
         card.addLayout(row)
         card.addWidget(label(t("settings.reanalyse_rekordbox_hint"), "faint", wrap=True))
+        row = hbox()                                                                # 1.4.3 (C16)
+        row.addWidget(self._fixed(label(t("settings.tempo_grid"))))
+        self.tempo_grid = ShrinkCombo()
+        for key in ("auto", "never"):
+            self.tempo_grid.addItem(t(f"settings.tempo_grid_{key}"), key)
+        self.tempo_grid.setCurrentIndex(max(0, self.tempo_grid.findData(getattr(s, "tempo_grid", "auto"))))
+        self.tempo_grid.setToolTip(t("settings.tempo_grid_hint"))
+        row.addWidget(self.tempo_grid)
+        row.addStretch(1)
+        card.addLayout(row)
         row = hbox()                                                                # 1.4.1 (C77)
         row.addWidget(self._fixed(label(t("settings.waveform_style"))))
         self.wave_style = ShrinkCombo()
@@ -385,6 +474,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_pdb(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Anciennes platines (export.pdb) (découpé de __init__, même ordre)."""
         # ---- anciennes platines : export.pdb (1.3.1, C90 : état et synchronisation dans Bibliothèques,
         # les deux options techniques dans Avancé)
         self._section = "libraries"
@@ -414,6 +506,9 @@ class SettingsView(View):
         self.pdb_growth_var.setChecked(s.pdb_allow_growth)
         card.addWidget(self.pdb_growth_var)
 
+
+    def _build_search(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Recherche, format et qualité, YouTube (découpé de __init__, même ordre)."""
         # ---- recherche
         # 1.4.0-rc.5 (C165) : l'ancienne carte « Téléchargements » (14 réglages mêlés) coupée en trois :
         # Recherche, Format et qualité, YouTube
@@ -486,6 +581,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_soundcloud(self, s: Any) -> None:
+        """1.4.3 (A3-8) : SoundCloud, fichier d'origine (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
         card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"), key="soundcloud")
         self.sc_original_var = WrapCheckBox(t("sc.settings_original"))
@@ -519,6 +617,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_soulseek(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Soulseek (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
         card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"), key="soulseek")
         self.slsk_var = WrapCheckBox(t("slsk.settings_enable"))
@@ -548,6 +649,9 @@ class SettingsView(View):
         card.addWidget(self.slsk_share_var)
         card.addWidget(label(t("slsk.settings_warning_short"), "warn", wrap=True))
 
+
+    def _build_watch(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Dossier surveillé (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
         self._section = "libraries"                  # 1.4.0-rc.5 (C165) : il alimente la bibliothèque
         card = self._card(t("watch.settings_title"), "watch", t("watch.settings_hint"), show_hint=True,
@@ -575,6 +679,9 @@ class SettingsView(View):
         self.watch_playlist_var.setChecked(s.watch_playlist)
         card.addWidget(self.watch_playlist_var)
 
+
+    def _build_engine(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Moteur de téléchargement (yt-dlp) (découpé de __init__, même ordre)."""
         # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement (C89 : Avancé, repliée)
         self._section = "advanced"
         card = self._card(t("engine.title"), "refresh", t("engine.hint"), fold=True)
@@ -593,6 +700,9 @@ class SettingsView(View):
         card.addLayout(row)
         self._engine_release = None
 
+
+    def _build_backups(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Sauvegardes et espace occupé (découpé de __init__, même ordre)."""
         # ---- sauvegardes
         self._section = "libraries"
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"), key="backups")
@@ -628,9 +738,12 @@ class SettingsView(View):
         from ..space_card import SpaceCard
 
         self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"), key="space")
-        self.space = SpaceCard(self._space_box_layout, controller)
+        self.space = SpaceCard(self._space_box_layout, self.ctrl)
         self.space_box = self._cards[-1][1]
         self._build_about(s)
+
+    def _build_advanced(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Avancé (clé forcée) et Lecture (découpé de __init__, même ordre)."""
         # ---- 1.3.1 (C89) : réglages techniques peu utilisés (Avancé)
         self._section = "advanced"
         card = self._card(t("settings.tech"), "usb", t("settings.tech_hint"))
@@ -658,27 +771,6 @@ class SettingsView(View):
         row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
         row.addStretch(1)
         card.addLayout(row)
-        self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
-        from ..wheel_guard import guard_children
-
-        guard_children(self.area)              # 1.3.2-rc.3 (B51) : la molette fait défiler, pas les réglages
-        self.page.addStretch(1)
-        self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
-        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
-        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
-        self.show_section(start, remember=False)
-
-        controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
-        controller.on("drive", self._backups_state)
-        controller.on("drive", lambda: (setattr(self, "_space_done", False),
-                                        QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
-        controller.on("drives", self._refresh_drives)
-        controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
-        controller.on("drive", self._refresh_drives)
-        self._refresh_drives()
-        self._ffmpeg_status()
-        self._engine_show()
-        self._backups_state()
 
     # ------------------------------------------------ DJSync : version, mises à jour, à propos
     def _build_about(self, s: Any) -> None:
@@ -821,10 +913,6 @@ class SettingsView(View):
 
         WelcomeDialog(self, self.ctrl)
 
-    def _pick_version(self) -> None:
-        from ..version_dialog import VersionDialog
-
-        VersionDialog(self, self.ctrl, on_channel=self.show_rc_var.setChecked)
 
     # 1.3.2-rc.2 (C96) : liste des versions directement dans la carte DJSync
     def load_versions(self) -> None:
@@ -896,7 +984,7 @@ class SettingsView(View):
         try:
             s.save()
         except OSError:
-            pass
+            log.debug("Ignored error in _show_rc_toggled", exc_info=True)  # 1.4.3 (A3-4)
         self.load_versions()
 
     def _install_update(self) -> None:
@@ -1063,7 +1151,7 @@ class SettingsView(View):
             try:
                 self.ctrl.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in show_section", exc_info=True)  # 1.4.3 (A3-4)
 
     def _scroll_to(self, key: str) -> None:
         head = getattr(self, "_heads", {}).get(key)
@@ -1259,6 +1347,13 @@ class SettingsView(View):
         self.theme_name.setText(t(f"theme.{name}"))
         if name != self.ctrl.settings.theme:
             self.ctrl.settings.theme = name
+            self.ctrl.settings.save()
+            self.ctrl._emit("restyle")
+
+    def _background_changed(self, text: str) -> None:
+        name = next((k for k, v in self._bg_labels.items() if v == text), "default")
+        if name != getattr(self.ctrl.settings, "background", "default"):
+            self.ctrl.settings.background = name
             self.ctrl.settings.save()
             self.ctrl._emit("restyle")
 
@@ -1681,7 +1776,7 @@ class SettingsView(View):
                 if path.is_file():
                     shutil.copy2(path, path.with_name(f"settings-before-reset-{_time.strftime('%Y%m%d-%H%M%S')}.json"))
             except OSError:
-                pass
+                log.debug("Ignored error in go", exc_info=True)  # 1.4.3 (A3-4)
             old = s.reset_to_defaults(keep_choices=keep.isChecked())
             s.save()
             self.ctrl.apply_settings()
@@ -1708,7 +1803,7 @@ class SettingsView(View):
         try:
             dlg.body.insertWidget(max(0, dlg.body.count() - 1), keep)
         except Exception:  # noqa: BLE001 - la case est un plus : sans elle, choix par défaut (gardés)
-            pass
+            log.debug("Ignored error in _reset_defaults", exc_info=True)  # 1.4.3 (A3-4)
 
     def unsaved(self) -> List[str]:
         """1.4.2 (A2-18) : réglages modifiés à l'écran mais pas encore enregistrés (ceux qui attendent
@@ -1736,8 +1831,12 @@ class SettingsView(View):
                 "analyze_after_download_usb": self.analyze_usb_var.isChecked(),
                 "analyze_after_download_local": self.analyze_local_var.isChecked(),
                 "auto_cue": self.cue_var.isChecked(),
+                "write_tags": self.tags_var.isChecked(),
+                "protect_foreign": self.protect_var.isChecked(),
+                "auto_gain": self.gain_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
+                "tempo_grid": self.tempo_grid.currentData() or "auto",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
                 "download_quality": self.format_menu.currentData() or "original",
                 "soundcloud_original": self.sc_original_var.isChecked(),
@@ -1776,6 +1875,53 @@ class SettingsView(View):
                 out.append(key)
         return out
 
+    def _autosave_widgets(self) -> List[Any]:
+        """1.4.3 (A2-18) : champs lus par `_save` (même liste que `unsaved`)."""
+        names = ("forced", "contents", "ffmpeg", "views_var", "meta_var", "keep", "merge_undo", "pdb_var",
+                 "pdb_growth_var", "analyze_usb_var", "analyze_local_var", "cue_var", "diag_auto_var", "wave_style",
+                 "format_menu", "sc_original_var", "sc_browser", "sc_token", "yt_browser", "watch_folder", "slsk_var",
+                 "slsk_user", "slsk_password", "slsk_share_var", "player_format", "watch_playlist_var", "watch_target",
+                 "light_menu", "latency_box", "update_var", "show_rc_var", "report_menu", "notation", "local_db",
+                 "local_music", "tags_var", "gain_var", "protect_var",      # 1.4.3 : S05, C109 (oubliés), A07
+                 "tempo_grid")                                               # 1.4.3 (C16)
+        out = [getattr(self, n, None) for n in names]
+        out += list(getattr(self, "reanalyse_vars", {}).values())
+        return [w for w in out if w is not None]
+
+    def _wire_autosave(self) -> None:
+        """1.4.3 (A2-18, option A) : tout est enregistré tout de suite (cases, listes, nombres au changement ;
+        champs de texte à la sortie du champ ou sur Entrée), « ✓ Enregistré » affiché brièvement."""
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(250)
+        self._autosave_timer.timeout.connect(self._autosave_now)
+        for w in self._autosave_widgets():
+            if isinstance(w, QCheckBox):
+                w.toggled.connect(lambda _v: self._autosave())
+            elif isinstance(w, QComboBox):
+                w.currentIndexChanged.connect(lambda _i: self._autosave())
+            elif isinstance(w, QSpinBox):
+                w.valueChanged.connect(lambda _v: self._autosave())
+            elif isinstance(w, QLineEdit):
+                w.editingFinished.connect(self._autosave)
+
+    def _autosave(self) -> None:
+        timer = getattr(self, "_autosave_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _autosave_now(self) -> None:
+        if not self.winfo_exists():
+            return
+        try:
+            pending = self.unsaved()
+        except Exception:  # noqa: BLE001 - jamais d'erreur à l'écran pour un enregistrement automatique
+            log.debug("Handled error in _autosave_now", exc_info=True)
+            pending = ["?"]
+        if pending:
+            log.info("Settings saved: %s", ", ".join(pending))
+            self._save()
+
     def save_now(self) -> None:
         """1.4.2 (A2-18) : « Enregistrer » depuis l'alerte en quittant la page."""
         self._save()
@@ -1802,7 +1948,11 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        s.write_tags = self.tags_var.isChecked()                  # 1.4.3 (S05)
+        s.protect_foreign = self.protect_var.isChecked()          # 1.4.3 (A07, C156)
+        s.auto_gain = self.gain_var.isChecked()                   # 1.4.3 (C109)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
+        s.tempo_grid = self.tempo_grid.currentData() or "auto"                     # 1.4.3 (C16)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
             s.waveform_style = style

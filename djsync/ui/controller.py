@@ -31,10 +31,11 @@ from ..db import (
     drive_from_letter, find_unprepared_drives, find_usb_drives,
 )
 from ..db.errors import (
-    DatabaseOpenError, DuplicatePlaylistError, KeyFullError, PlaylistNotFoundError, ReadOnlyError,
+    DatabaseOpenError, DuplicatePlaylistError, KeyFullError, PlaylistNotFoundError, ReadOnlyError, ShmRepairError,
     TrackNotFoundError, UnsupportedFormatError,
 )
 from ..db import local_library as _local
+from ..db.backups import RestoreBusyError
 from ..db.local_library import LocalRekordbox, LocalRekordboxLibrary, find_local_rekordbox
 from ..i18n import get_language, t
 from ..models import (
@@ -61,10 +62,8 @@ UPDATE_DELAY_MS = 6000       # nouvelle version de DJSync : vérifiée après le
 POLL_MS = 4000
 
 
-_OFFLINE = ("max retries exceeded", "failed to establish a new connection", "getaddrinfo failed",
-            "name or service not known", "temporary failure in name resolution", "nodename nor servname",
-            "network is unreachable", "no route to host", "unable to connect to proxy", "connecttimeout",
-            "connection refused", "urlopen error", "errno 11001")
+# 1.4.3 (A3-3) : déplacé dans core.nettools (core n'importe plus l'interface) ; gardé ici pour les appels existants
+from ..core.nettools import _OFFLINE, is_offline_error  # noqa: E402,F401
 
 
 # 1.4.0-rc.2 (B64, B66, B60) : erreurs fréquentes des sources, dites avec ce qu'il faut faire
@@ -84,19 +83,6 @@ def known_error(exc: Any) -> str:
     return ""
 
 
-def is_offline_error(exc: Any) -> bool:
-    """Pas d'Internet (ou serveur injoignable) : message clair plutôt que la trace technique."""
-    try:
-        import requests
-
-        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-            return True
-    except ImportError:                 # pragma: no cover
-        pass
-    text = str(exc).lower()
-    return any(k in text for k in _OFFLINE)
-
-
 def _same_path(a: Any, b: Any) -> bool:
     try:
         return Path(a).resolve() == Path(b).resolve()
@@ -111,6 +97,9 @@ def _flush() -> None:
         os.sync()
 
 
+_last_eject: Dict[str, str] = {"reason": "", "name": ""}     # 1.4.3 (A7-4) : raison du dernier refus
+
+
 def eject_volume(root: Any) -> bool:
     """Éjection système (Windows : comme « Éjecter » dans l'Explorateur). True si réussie."""
     import subprocess
@@ -118,6 +107,20 @@ def eject_volume(root: Any) -> bool:
 
     root = str(root)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if sys.platform == "win32":                    # 1.4.3 (A7-4) : comme « Retirer en toute sécurité » (Sleeve)
+        from ..core import win_eject
+
+        try:
+            win_eject.eject(root if win_eject.drive_letter(root) else root.rstrip("\\/")[:2] + "\\")
+            log.info("Drive %s ejected (Plug and Play request)", root)
+            return True
+        except win_eject.EjectError as exc:
+            log.info("Drive %s not ejected: %s", root, exc)
+            _last_eject["reason"], _last_eject["name"] = exc.reason, exc.name
+            if exc.reason != "failed":
+                return False
+        except Exception as exc:  # noqa: BLE001 - appel système indisponible : ancienne méthode (Explorateur)
+            log.info("Plug and Play eject unavailable (%s): Explorer eject", exc)
     try:
         if sys.platform == "win32":
             letter = root.rstrip("\\/")[:2]
@@ -199,6 +202,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.settings = settings
         self.dispatcher = dispatcher
         self.service = service or MusicService(ffmpeg_location=settings.ffmpeg_location or None)
+        from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
+
+        self.tempo_grids = TempoGridService(self)
         self.player = player or AudioPlayer(
             post=dispatcher.post, on_event=lambda k, p: self._player_event(k, p),
             ffmpeg_location=settings.ffmpeg_location or None,
@@ -279,6 +285,42 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             except Exception:  # noqa: BLE001 - une vue en erreur ne doit pas casser les autres
                 log.exception("Listener %s", event)
 
+    LIBRARY_COALESCE_MS = 500
+
+    def _emit_library_soon(self) -> None:
+        """1.4.3 (A1-9) : évènement « library » regroupé (un au plus toutes les 500 ms) pour les rafales
+        (téléchargements, lots d'analyse) ; les actions de l'utilisateur gardent l'évènement immédiat."""
+        if self.__dict__.get("_library_pending"):
+            return
+        self._library_pending = True
+
+        def fire() -> None:
+            self._library_pending = False
+            self._emit("library")
+
+        try:
+            self.dispatcher.call_later(self.LIBRARY_COALESCE_MS, fire)
+        except Exception:  # noqa: BLE001 - répartiteur sans minuterie (tests) : évènement immédiat
+            log.debug("library event not delayed", exc_info=True)
+            fire()
+
+    def _refresh_library_async(self, lib: Any, then: Optional[Callable[[], None]] = None) -> None:
+        """1.4.3 (A1-9) : index des doublons rechargé hors du fil de l'interface (il relit toute la
+        bibliothèque sous le verrou) ; `then` dans le fil de l'interface ensuite."""
+        def work() -> None:
+            if self.library is lib:
+                self.service.refresh_library()
+
+        def done(_r: Any = None) -> None:
+            if then is not None:
+                then()
+
+        def failed(exc: BaseException) -> None:
+            log.info("Duplicate index not refreshed: %s", exc)
+            done()
+
+        self.dispatcher.submit(work, done, failed, pool="tools")
+
     # ------------------------------------------------------------------ 1.4.1 (C145) : tâches du volet
     def _sync_analysis_task(self) -> None:
         """File d'analyse -> tâche « analysis » (mêmes textes que l'ancienne carte : « 3 / 10  ·  son »,
@@ -332,6 +374,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         (DuplicatePlaylistError, "error.duplicate_playlist"), (PlaylistNotFoundError, "error.playlist_not_found"),
         (TrackNotFoundError, "error.track_not_found"), (UnsupportedFormatError, "error.unsupported_format"),
         (DriveNotFoundError, "error.drive_not_found"), (DatabaseOpenError, "error.db_open"),
+        (RestoreBusyError, "error.restore_busy"),                   # 1.4.3 (A6-2)
     )
 
     def error_text(self, exc: BaseException) -> str:
@@ -341,6 +384,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return t("error.offline")
         if known_error(exc):
             return t(known_error(exc))
+        if isinstance(exc, ShmRepairError):            # 1.4.3 (B105) : nomme la clé, dit quoi faire
+            return t(f"error.shm_{exc.reason}", drive=exc.drive)
         low = str(exc).lower()
         if self.is_local and ("malformed" in low or "file is not a database" in low):
             return t("error.local_db_unreadable")        # V1.2.0 : retour testeur macOS
@@ -367,6 +412,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 try:
                     running = bool(_local.rekordbox_running())
                 except Exception:  # noqa: BLE001 - simple conseil
+                    log.debug("Handled error in rekordbox_tip", exc_info=True)  # 1.4.3 (A3-4)
                     running = False
             return "\n\n💡 " + t("error.tip_rekordbox_open" if running else "error.tip_file_busy")
         return ""
@@ -441,6 +487,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         try:
             return lib.full_error(exc)
         except Exception:  # noqa: BLE001 - simple aiguillage du message
+            log.debug("Handled error in full_error", exc_info=True)  # 1.4.3 (A3-4)
             return None
 
     def key_full(self, exc: KeyFullError) -> None:
@@ -460,6 +507,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         try:
             return isinstance(drive, UsbDrive) and key_space.state(drive.db_path.parent)[0]
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in full_on_open", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def free_key_space(self, drive: UsbDrive) -> None:
@@ -678,6 +726,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
                 lib.native_parts = self.settings.native_parts()
+                lib.write_tags = self.settings.write_tags          # 1.4.3 (S05)
+                lib.protect_foreign = self.settings.protect_foreign  # 1.4.3 (A07, C156)
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -691,6 +741,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
             lib.native_parts = self.settings.native_parts()
+            lib.write_tags = self.settings.write_tags              # 1.4.3 (S05)
+            lib.pdb_delay = 3.0                       # 1.4.3 (A1-2) : export.pdb réécrit une fois par rafale
+            rec = getattr(lib, "recovery", None)      # 1.4.3 (A6-1) : remplacement interrompu repris à l'ouverture
+            if rec is not None and rec.restored:
+                self.dispatcher.post(self.message, "warn", t("recover.restored", files=", ".join(rec.restored)))
+            if rec is not None and "export.pdb" in rec.damaged:
+                self.dispatcher.post(self.message, "warn", t("recover.pdb_damaged"))
             try:                                      # 1.3.0 (T01) : utile pour les retours « platine »
                 from ..db.usb import drive_filesystem
 
@@ -698,7 +755,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 log.info("Drive %s: file system %s, export.pdb %s", target, drive_filesystem(target.root) or "?",
                          f"present ({pdb.stat().st_size} bytes)" if pdb.is_file() else "absent")
             except OSError:
-                pass
+                log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
             self.service.set_library(lib)
             if old is not None:
                 old.close()
@@ -838,7 +895,13 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             elif ejected:
                 self.message("ok", t("eject.done", drive=drive.label or str(drive.root)))
             else:
-                self.message("warn", t("eject.closed_only", drive=drive.label or str(drive.root)))
+                reason, who = _last_eject.get("reason", ""), _last_eject.get("name", "")
+                _last_eject["reason"] = _last_eject["name"] = ""
+                key = {"in_use_by": "eject.in_use_by", "in_use": "eject.in_use", "rights": "eject.rights"}.get(reason)
+                text = t("eject.closed_only", drive=drive.label or str(drive.root))
+                if key:                                           # 1.4.3 (A7-4) : qui tient la clé, si Windows le dit
+                    text += " " + t(key, name=who)
+                self.message("warn", text)
             self.refresh_drives()
 
         self.dispatcher.submit(work, ok, self._on_error, pool="db")
@@ -862,7 +925,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 try:
                     alive = "full" if lib.full_state()[0] else alive
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("Ignored error in probe", exc_info=True)  # 1.4.3 (A3-4)
             t1 = time.perf_counter()
             drives = find_usb_drives()
             t2 = time.perf_counter()
@@ -971,7 +1034,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
         self.dispatcher.submit(work, done, failed, pool="search")
 
-    def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
+    def search(self, query: str, ok: Callback, err: Optional[Callback] = None, annotate: bool = True) -> None:
         try:
             mode = SearchMode(self.settings.search_mode)
         except ValueError:
@@ -983,6 +1046,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         if self.settings.search_max_minutes:
             extra["max_seconds"] = self.settings.search_max_minutes * 60
         self._views_gen += 1                    # 1.4.0-rc.5 (B90) : les vues de la recherche précédente sont abandonnées
+        if not annotate:
+            extra["annotate"] = False           # 1.4.3 (B98) : marquage des doublons fait ensuite, à part
 
         def work() -> Any:
             start = time.monotonic()
@@ -1003,7 +1068,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             try:
                 self.settings.save()
             except OSError:
-                pass
+                log.debug("Ignored error in feedback_client_id", exc_info=True)  # 1.4.3 (A3-4)
         return self.settings.feedback_id
 
     def album_tracks(self, browse_id: str, ok: Callback, err: Optional[Callback] = None) -> None:
@@ -1034,12 +1099,22 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                                    pool="views")
 
     def reannotate(self, tracks: Sequence[TrackResult], ok: Callback) -> None:
-        """Re-marque les doublons (après un téléchargement ou un changement de clé)."""
-        self.dispatcher.submit(lambda: self.service.annotate(tracks), ok, None, pool="net")
+        """Re-marque les doublons (après un téléchargement ou un changement de clé, ou juste après une recherche).
+        1.4.3 (B98) : file de la recherche (la file « net » est partagée avec bien d'autres tâches)."""
+        def work() -> Any:
+            start = time.monotonic()
+            out = self.service.annotate(tracks)
+            log.debug("Duplicate marking: %d results in %.2f s", len(out), time.monotonic() - start)
+            return out
+
+        self.dispatcher.submit(work, ok, None, pool="search")
 
     # ------------------------------------------------------------ import par URL
     def import_url(self, url: str, ok: Callable[[str, Any], None], err: Optional[Callback] = None) -> None:
         """ok("spotify", SpotifyPlaylist) ou ok("direct", ResolvedUrl)."""
+        def kind_name(k: UrlKind) -> str:
+            return {UrlKind.APPLE: "Apple Music", UrlKind.TIDAL: "Tidal", UrlKind.AMAZON: "Amazon Music"}.get(k, "")
+
         kind = self.service.classify_url(url)
         if kind == UrlKind.SPOTIFY:
             work: Callable[[], Any] = lambda: ("spotify", self.service.fetch_spotify(url))  # noqa: E731
@@ -1051,6 +1126,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                     return "spotify", self.service.fetch_deezer(url)
                 except DeezerError as exc:
                     raise UrlImportError(t("error.deezer_private") if exc.private else str(exc)) from exc
+        elif kind in (UrlKind.APPLE, UrlKind.TIDAL, UrlKind.AMAZON):     # 1.4.3 (C94) : même suite que Spotify
+            def work() -> Any:
+                from ..core.streaming_import import StreamingImportError, fetch
+
+                try:
+                    return "spotify", fetch(kind.value, url)
+                except StreamingImportError as exc:
+                    raise UrlImportError(t("error.streaming_private", name=kind_name(kind)) if exc.private
+                                         else str(exc)) from exc
         elif kind in (UrlKind.YOUTUBE, UrlKind.SOUNDCLOUD):
             work = lambda: ("direct", self.service.resolve_direct(url))  # noqa: E731
         else:
@@ -1113,6 +1197,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._apply_output()
         self.player.ffmpeg_location = s.ffmpeg_location or None
         self.player.latency_offset_ms = s.audio_latency_ms
+        self.player.auto_gain = bool(getattr(s, "auto_gain", True))      # 1.4.3 (C109)
+        self.tempo_grids.apply_settings()                               # 1.4.3 (C16)
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep
@@ -1124,6 +1210,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.key_notation = s.key_notation
             self.library.auto_cue = s.auto_cue
             self.library.native_parts = s.native_parts()
+            self.library.write_tags = s.write_tags                 # 1.4.3 (S05)
+            if hasattr(self.library, "protect_foreign"):           # 1.4.3 (A07, C156)
+                self.library.protect_foreign = s.protect_foreign
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         try:                                       # 1.4.1 (C141) : reflet or / argent coupé en mode léger
@@ -1132,7 +1221,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
             set_enabled(not light_active(s))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("Ignored error in apply_settings", exc_info=True)  # 1.4.3 (A3-4)
         s.save()
         if not self.slsk_ready and self.slsk is not None:   # 1.4.0 (C10.2) : Soulseek désactivé -> déconnecté
             self.slsk_disconnect()
@@ -1172,6 +1261,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         except Exception:  # noqa: BLE001
             log.exception("Pending merges at shutdown")
         self.analysis.cancel()
+        try:
+            from ..analysis.pool import shutdown as stop_analysis_processes
+
+            stop_analysis_processes()               # 1.4.3 (A1-6)
+        except Exception:  # noqa: BLE001
+            log.debug("Ignored error in shutdown (analysis processes)", exc_info=True)
         self.settings.volume = self.player.volume
         self.settings.save()
         self.player.close()

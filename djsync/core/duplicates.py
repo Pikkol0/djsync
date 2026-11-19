@@ -6,6 +6,7 @@ RekordboxUsbLibrary.find_by_source_url).
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
@@ -13,6 +14,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tupl
 from rapidfuzz import fuzz
 
 from ..models import TrackResult
+
+log = logging.getLogger(__name__)
 
 # Mentions parasites entre () ou [] : "(Official Video)", "[Remastered 2011]"...
 _BRACKETS = re.compile(r"[\(\[][^\)\]]*[\)\]]")
@@ -51,6 +54,7 @@ class FakeLibrary:
 
 
 ExactLookup = Callable[[str], Optional[Any]]
+ExactMany = Callable[[List[str]], Dict[str, Any]]      # 1.4.3 (B98) : toute la liste en une requête
 
 
 class DuplicateChecker:
@@ -60,18 +64,22 @@ class DuplicateChecker:
         title_threshold: int = 88,
         artist_threshold: int = 75,
         exact_lookup: Optional[ExactLookup] = None,
+        exact_many: Optional[ExactMany] = None,
     ) -> None:
         self._title_threshold = title_threshold
         self._artist_threshold = artist_threshold
         self._index: List[Tuple[str, str, str, str]] = []
         self._library = library
         self._exact = exact_lookup
+        self._exact_many = exact_many
         self.refresh()
 
-    def set_library(self, library: LibraryProvider, exact_lookup: Optional[ExactLookup] = None) -> None:
+    def set_library(self, library: LibraryProvider, exact_lookup: Optional[ExactLookup] = None,
+                    exact_many: Optional[ExactMany] = None) -> None:
         """Change de bibliothèque (clé branchée / débranchée / changée)."""
         self._library = library
         self._exact = exact_lookup
+        self._exact_many = exact_many
         self.refresh()
 
     def refresh(self) -> None:
@@ -102,11 +110,24 @@ class DuplicateChecker:
         return best[1] if best else None
 
     def annotate(self, results: Iterable[TrackResult]) -> List[TrackResult]:
-        """Marque chaque résultat déjà présent en bibliothèque."""
+        """Marque chaque résultat déjà présent en bibliothèque. 1.4.3 (B98) : les adresses sont cherchées en UNE
+        requête quand la bibliothèque le permet (au lieu d'une par résultat)."""
+        results = list(results)
+        many: Optional[Dict[str, Any]] = None
+        if self._exact_many is not None:
+            try:
+                many = self._exact_many([r.url for r in results if r.url])
+            except Exception:  # noqa: BLE001 - recherche une par une à la place
+                logging.getLogger(__name__).info("Grouped duplicate lookup failed: one by one", exc_info=True)
+                many = None
         out: List[TrackResult] = []
         for r in results:
             match: Optional[str] = None
-            if self._exact is not None:
+            if many is not None:
+                hit = many.get(r.url)
+                if hit is not None:
+                    match = getattr(hit, "display_name", None) or str(hit)
+            elif self._exact is not None:
                 hit = self._exact(r.url)
                 if hit is not None:
                     match = getattr(hit, "display_name", None) or str(hit)
@@ -204,6 +225,44 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
     items = list(tracks)
     if len(items) < 2:
         return []
+    # 1.4.3 (A1-8, B) : même liste de sons (et mêmes réglages) que la fois précédente : résultat repris tel quel
+    sig = (tuple((getattr(t, "content_id", None), getattr(t, "path", None), t.title, t.artist,
+                  int(t.duration_seconds or 0), bool(getattr(t, "is_analysed", False)),
+                  bool(getattr(t, "artwork_path", None))) for t in items),
+           title_threshold, max_duration_gap, frozenset(ignored or ()))
+    with _GROUPS_LOCK:
+        cached = _GROUPS_CACHE.get("last")
+    if cached is not None and cached[0] == sig:
+        return [[items[i] for i in g] for g in cached[1]]
+    out = _duplicate_groups(items, title_threshold, max_duration_gap, ignored)
+    index = {id(x): i for i, x in enumerate(items)}
+    with _GROUPS_LOCK:
+        _GROUPS_CACHE["last"] = (sig, [[index[id(x)] for x in g] for g in out])
+    return out
+
+
+_GROUPS_CACHE: Dict[str, Any] = {}
+_GROUPS_LOCK = __import__("threading").Lock()
+_BLOCK = 1000                     # 1.4.3 (A1-8, A) : lignes de la matrice calculées par bloc
+
+
+def _similar_pairs(titles: List[str], threshold: int) -> Iterable[Tuple[int, int]]:
+    """Paires (i < j) de titres proches : matrice calculée par blocs de 1 000 lignes sur tous les cœurs
+    (13 s et 438 Mo à 20 000 sons en un bloc ; 2,7 s et 73 Mo par blocs, mesuré)."""
+    from rapidfuzz import process
+
+    n = len(titles)
+    for start in range(0, n, _BLOCK):
+        block = process.cdist(titles[start:start + _BLOCK], titles[start:], scorer=fuzz.ratio,
+                              score_cutoff=threshold, dtype="uint8", workers=-1)
+        for i, j in zip(*block.nonzero()):
+            a, b = start + int(i), start + int(j)
+            if a < b:
+                yield a, b
+
+
+def _duplicate_groups(items: List[Any], title_threshold: int, max_duration_gap: int,
+                      ignored: Optional[set]) -> List[List[Any]]:
     keys = []
     for t in items:
         title, artist = split_display(t.title, t.artist)
@@ -218,11 +277,9 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
         return i
 
     try:
-        from rapidfuzz import process
-
-        matrix = process.cdist(titles, titles, scorer=fuzz.ratio, score_cutoff=title_threshold, dtype="uint8")
-        pairs = ((i, j) for i, j in zip(*matrix.nonzero()) if i < j)
+        pairs = list(_similar_pairs(titles, title_threshold))
     except Exception:  # noqa: BLE001 - repli sans numpy
+        log.debug("Handled error in _duplicate_groups", exc_info=True)  # 1.4.3 (A3-4)
         pairs = ((i, j) for i in range(len(items)) for j in range(i + 1, len(items))
                  if fuzz.ratio(titles[i], titles[j]) >= title_threshold)
     ignored = ignored or set()

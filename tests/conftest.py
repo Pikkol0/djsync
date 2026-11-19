@@ -3,6 +3,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("DJSYNC_AUDIO_NULL", "1")       # sortie audio « null » (miniaudio)
+os.environ.setdefault("DJSYNC_ANALYSIS_WORKERS", "1")   # 1.4.3 (A1-6) : un seul calcul ; tests du pool à part
 os.environ.setdefault("DJSYNC_ERROR_REPORTS", "off")  # 1.2.3 : jamais de rapport d'erreur envoyé par les tests
 
 import pytest  # noqa: E402
@@ -26,6 +27,25 @@ def _watched_register(tmp_path_factory):
     watched.use_store(tmp_path_factory.mktemp("watched") / "watched.json")
     yield
     watched.use_store(None)
+
+
+@pytest.fixture(autouse=True)
+def _fake_trash(tmp_path_factory, monkeypatch):
+    """1.4.3 (A07, C156) : corbeille simulée (dossier de test) : un test ne met jamais rien dans la vraie corbeille.
+    Les fichiers envoyés sont listés dans `trash.sent` (test_v143_lot4 teste la vraie corbeille à part)."""
+    from djsync.core import trash
+
+    folder = tmp_path_factory.mktemp("trash")
+    sent = []
+
+    def fake(path):
+        dest = folder / f"{len(sent)}-{path.name}"
+        os.replace(path, dest)
+        sent.append(str(path))
+
+    monkeypatch.setattr(trash, "_backend", fake)
+    monkeypatch.setattr(trash, "sent", sent, raising=False)
+    yield
 
 
 @pytest.fixture(autouse=True)

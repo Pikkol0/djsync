@@ -38,6 +38,10 @@ EXCLUDES = [
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml", "PySide6.QtQuick",
     "PySide6.QtNetwork", "PySide6.QtDBus", "PySide6.QtOpenGL", "PySide6.QtOpenGLWidgets", "PySide6.QtSvg",
     "PySide6.QtPdf", "PySide6.QtMultimedia", "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtSql",
+    # 1.4.3 (C176) : options jamais utilisées par DJSync. yt-dlp a son propre AES en Python (Cryptodome) et se
+    # passe de la compression brotli ; Pillow sans AVIF (pochettes en JPEG, PNG, WebP) ; outils de développement.
+    "Cryptodome", "Crypto", "brotli", "_brotli", "brotlicffi", "PIL._avif", "PIL.AvifImagePlugin", "PIL.ImageTk",
+    "mypy", "ast_serialize", "mypyc",
 ]
 
 a = Analysis(["../app.py"], pathex=[".."], binaries=binaries, datas=datas, hiddenimports=hidden,

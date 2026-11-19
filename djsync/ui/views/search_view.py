@@ -6,7 +6,7 @@ sélection. Double-clic / Entrée : préécoute ; la file d'écoute suit les ré
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QTimer
 
@@ -182,11 +182,16 @@ class SearchView(View):
         self._albums, self._album_open = [], None
         self.back_btn.hide()
 
+        # 1.4.3 (B98) : les résultats s'affichent dès leur arrivée ; « déjà en bibliothèque » suit (sauf si les
+        # sons déjà en bibliothèque sont masqués : il faut alors le savoir avant d'afficher).
+        annotate = bool(self.ctrl.settings.search_hide_owned)
+
         def ok(results: List[TrackResult]) -> None:
             if token != self._token or not self.winfo_exists():
                 return
             self._show_results(results)
-
+            if not annotate:
+                self.refresh_duplicates(token)
 
         def err(exc: BaseException) -> None:
             if token != self._token or not self.winfo_exists():
@@ -196,7 +201,7 @@ class SearchView(View):
             self.table.set_rows([], keep_selection=False)
             self.info.setText(t("search.failed"))
 
-        self.ctrl.search(query, ok, err)
+        self.ctrl.search(query, ok, err, annotate=annotate)
 
     def _show_results(self, results: List[TrackResult], summary: str = "") -> None:
         hidden = 0
@@ -337,15 +342,21 @@ class SearchView(View):
             entries += [None, buy_entry(self.ctrl, x.artist, x.title)]
         return entries
 
-    def refresh_duplicates(self) -> None:
-        """Re-marque les doublons après un téléchargement ou un changement de clé."""
+    def refresh_duplicates(self, token: Optional[int] = None) -> None:
+        """Re-marque les doublons après un téléchargement ou un changement de clé. 1.4.3 (B98) : aussi juste
+        après une recherche (`token` : abandonné si une autre recherche a été lancée entre-temps)."""
         tracks = list(self._tracks.values())
         if not tracks:
             return
 
         def done(annotated: List[TrackResult]) -> None:
-            if not self.winfo_exists():
+            if not self.winfo_exists() or (token is not None and token != self._token):
                 return
+            if token is not None:
+                dups = sum(1 for x in annotated if x.is_duplicate)
+                text = self.info.text()
+                if dups and t("search.in_library", n=dups) not in text:
+                    self.info.setText(text + "  ·  " + t("search.in_library", n=dups))
             for x in annotated:
                 self._tracks[x.video_id] = x
                 row = self.table.row(x.video_id)

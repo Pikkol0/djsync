@@ -11,7 +11,7 @@ import shutil
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ...db import LibraryError, RekordboxUsbLibrary, UsbDrive
 from ...i18n import plural, t
@@ -311,7 +311,7 @@ class LibraryOpsMixin:
                     usage = shutil.disk_usage(existing_parent(d.root))
                     s.total, s.free = usage.total, usage.free
                 except OSError:
-                    pass
+                    log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
                 if connected:
                     try:
                         s.tracks = lib.track_count()
@@ -320,7 +320,7 @@ class LibraryOpsMixin:
                         s.pdb_state = str(getattr(lib, "pdb_state", "") or "")
                         s.pdb_problem = str(getattr(lib, "pdb_problem", "") or "")
                     except LibraryError:
-                        pass
+                        log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
                 out.append(s)
             return out
 
@@ -362,8 +362,66 @@ class LibraryOpsMixin:
     def rename_playlist(self, playlist_id: int, name: str, ok: Optional[Callback] = None) -> None:
         self._write(lambda lib: lib.rename_playlist(playlist_id, name), ok, t("msg.playlist_renamed"))
 
-    def delete_playlist(self, playlist_id: int, ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.delete_playlist(playlist_id), ok, t("msg.playlist_deleted"))
+    def delete_playlist(self, playlist_id: int, ok: Optional[Callback] = None,
+                        tracks: Sequence[int] = ()) -> None:
+        """1.4.3 (A07) : `tracks` : sons supprimés avec la playlist (« La playlist et ses sons »), sous une seule
+        sauvegarde ; leurs fichiers suivent la même règle que « Supprimer » (corbeille sur l'ordinateur)."""
+        ids = [int(c) for c in tracks]
+        if not ids:
+            self._write(lambda lib: lib.delete_playlist(playlist_id), ok, t("msg.playlist_deleted"))
+            return
+
+        def fn(lib: Any) -> Tuple[int, int]:
+            with lib.batch():
+                lib.delete_playlist(playlist_id)
+                return lib.delete_tracks(ids, True)
+
+        def done(result: Tuple[int, int]) -> None:
+            removed, failures = result
+            text = t("msg.playlist_and_tracks_deleted") + " " + plural("msg.deleted_one", "msg.deleted_many", removed)
+            trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
+            if trashed:
+                text += " " + plural("msg.files_trashed_one", "msg.files_trashed_many", trashed)
+            if failures:
+                text += " " + t("msg.files_not_trashed" if self.is_local else "msg.files_not_deleted", n=failures)
+            self.message("warn" if failures else "ok", text)
+            if ok:
+                ok(result)
+
+        self._write(fn, done)
+
+    def playlist_content(self, playlist_id: int, ok: Callable[[List[LibraryTrack], int], None]) -> None:
+        """1.4.3 (A07) : sons d'une playlist (ou de toutes les playlists d'un dossier, listes intelligentes exclues)
+        et combien d'entre eux sont aussi dans une autre playlist. ok(sons, partagés)."""
+        lib = self.library
+        if lib is None:
+            ok([], 0)
+            return
+
+        def work() -> Tuple[List[LibraryTrack], int]:
+            lists = lib.list_playlists()
+            kids: Dict[int, List[Any]] = {}
+            for p in lists:
+                kids.setdefault(p.parent_id, []).append(p)
+            first = next((p for p in lists if p.playlist_id == playlist_id), None)
+            todo, targets = ([first] if first is not None else []), []
+            while todo:
+                p = todo.pop()
+                if p.is_folder:
+                    todo += kids.get(p.playlist_id, [])
+                elif p.is_editable:
+                    targets.append(p.playlist_id)
+            found: Dict[int, LibraryTrack] = {}
+            for pid in targets:
+                for x in lib.get_playlist_tracks(pid):
+                    found.setdefault(x.content_id, x)
+            shared = 0
+            if found and hasattr(lib, "playlists_of"):
+                inside = set(targets)
+                shared = sum(1 for pids in lib.playlists_of(list(found)).values() if set(pids) - inside)
+            return list(found.values()), shared
+
+        self.dispatcher.submit(work, lambda r: ok(*r), self._on_error, pool="db")
 
     def add_to_playlists(self, content_ids: Sequence[int], playlist_ids: Sequence[int]) -> None:
         def run(lib: RekordboxUsbLibrary) -> int:
@@ -373,7 +431,30 @@ class LibraryOpsMixin:
                                                 len(content_ids)))
 
     def remove_from_playlist(self, playlist_id: int, content_ids: Sequence[int]) -> None:
-        self._write(lambda lib: lib.remove_from_playlist(playlist_id, content_ids), None, t("msg.removed_from_playlist"))
+        """1.4.3 (A2-21) : « Annuler » dans la bulle remet les sons retirés, à leur place d'avant."""
+        removed = [int(c) for c in content_ids]
+
+        def fn(lib: Any) -> List[int]:
+            before = [x.content_id for x in lib.get_playlist_tracks(playlist_id)]
+            lib.remove_from_playlist(playlist_id, removed)
+            return before
+
+        def done(before: List[int]) -> None:
+            if before and any(c in before for c in removed):
+                self._emit("message_action", t("action.undo"), lambda: self._undo_remove(playlist_id, removed, before))
+
+        self._write(fn, done, t("msg.removed_from_playlist"))
+
+    def _undo_remove(self, playlist_id: int, removed: Sequence[int], before: Sequence[int]) -> None:
+        back = [c for c in removed if c in before]
+
+        def fn(lib: Any) -> None:
+            with lib.batch():
+                lib.add_to_playlist(playlist_id, back)
+                lib.set_playlist_order(playlist_id, list(before))
+            log.info("Removal from playlist %s undone (%d track(s))", playlist_id, len(back))
+
+        self._write(fn, None, t("msg.remove_undone"))
 
     def move_tracks(self, content_ids: Sequence[int], from_id: int, to_id: int) -> None:
         self._write(lambda lib: lib.move_tracks(content_ids, from_id, to_id), None, t("msg.tracks_moved"))
@@ -385,8 +466,11 @@ class LibraryOpsMixin:
         def done(result: Any) -> None:
             removed, failures = result
             text = plural("msg.deleted_one", "msg.deleted_many", removed)
+            trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
+            if trashed:                                    # 1.4.3 (A07, C156) : récupérables
+                text += " " + plural("msg.files_trashed_one", "msg.files_trashed_many", trashed)
             if failures:
-                text += " " + t("msg.files_not_deleted", n=failures)
+                text += " " + t("msg.files_not_trashed" if self.is_local else "msg.files_not_deleted", n=failures)
             self.message("warn" if failures else "ok", text)
 
         def failed(exc: BaseException) -> None:
@@ -511,6 +595,7 @@ class LibraryOpsMixin:
             try:
                 checked = grid_marks.load(lib.backup_dir)
             except Exception:  # noqa: BLE001
+                log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 checked = set()
             for cid in ids:
                 out[cid]["grid_checked"] = cid in checked
@@ -596,7 +681,11 @@ class LibraryOpsMixin:
                 light = self._light()
                 if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
                     self._wait_while_playing(q)
-                batch = q.take(1 if light else None)
+                from ...analysis.pool import set_light, worker_count
+
+                set_light(light)             # 1.4.3 (A1-6) : plusieurs cœurs, sauf en mode léger
+                workers = worker_count()
+                batch = q.take(1 if light else (max(q.BATCH, workers * 2) if workers > 1 else None))
                 if not batch and q.waiting and not q.cancelled:     # 1.4.0-rc.5 (C161) : même session
                     if q.current != t("analysis.waiting_downloads"):
                         q.current = t("analysis.waiting_downloads")
@@ -676,6 +765,7 @@ class LibraryOpsMixin:
             try:
                 track = lib.get_track(cid)
             except Exception:  # noqa: BLE001 - son disparu : l'analyse le signalera
+                log.debug("Handled error in _skip_missing", exc_info=True)  # 1.4.3 (A3-4)
                 keep.append(cid)
                 continue
             reason = missing_reason(lib, track)
@@ -734,7 +824,12 @@ class LibraryOpsMixin:
         def done(found: Dict[int, str]) -> None:
             if self.library is not lib:
                 return
-            self._missing_files = dict(found)
+            found = dict(found)
+            # 1.4.3 (rc.3) : un passage commencé avant qu'une analyse trouve un fichier introuvable ne l'efface pas
+            for cid, reason in self.missing_files.items():
+                if cid not in found and self.analysis_results.get(cid) == "missing":
+                    found[cid] = reason
+            self._missing_files = found
             self._emit("missing_files")
             if ok:
                 ok(self._missing_files)
@@ -754,8 +849,8 @@ class LibraryOpsMixin:
     def _analysis_batch_saved(self, lib: Any) -> None:
         """Un lot vient d'être enregistré : la bibliothèque affichée suit (pastilles, BPM, « À analyser »)."""
         if self.library is lib and self.analysis.running:
-            self.service.refresh_library()
-            self._emit("library")
+            # 1.4.3 (A1-9) : index des doublons hors du fil de l'interface, évènement regroupé
+            self._refresh_library_async(lib, self._emit_library_soon)
 
     def pause_analysis(self, paused: bool = True) -> None:
         """1.4.1 (C145) : pause (le son en cours finit, le suivant attend) ou reprise de l'analyse."""
@@ -893,19 +988,6 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, failed, pool="match")
 
-    def save_grid(self, content_id: int, beats: Sequence[Any], ok: Optional[Callback] = None,
-                  err: Optional[Callback] = None) -> None:
-        def fail(exc: BaseException) -> None:
-            self._on_error(exc)
-            if err:
-                err(exc)
-
-        def work(lib: Any) -> Any:
-            out = lib.save_beat_grid(content_id, beats)
-            _mark_grid(lib, content_id)                  # 1.4.2 (C113) : grille vérifiée à la main
-            return out
-
-        self._write(work, ok, t("msg.grid_saved"), fail)
 
     def mark_grid_checked(self, content_id: int, ok: Optional[Callback] = None) -> None:
         """1.4.2 (C204) : « Grille juste » : grille marquée vérifiée sans rien y changer (ni base ni export.pdb)."""
@@ -930,6 +1012,7 @@ class LibraryOpsMixin:
         try:
             return int(content_id) in grid_marks.load(lib.backup_dir)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in grid_checked", exc_info=True)  # 1.4.3 (A3-4)
             return False
 
     def save_grid_and_cues(self, content_id: int, beats: Optional[Sequence[Any]], cues: Optional[Sequence[Any]],
@@ -1055,6 +1138,7 @@ class LibraryOpsMixin:
                 try:
                     out[x.content_id] = list(lib.track_cues(x.content_id))
                 except Exception:  # noqa: BLE001 - pas analysé
+                    log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                     out[x.content_id] = []
             return out
 
@@ -1081,9 +1165,6 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: log.info("Playlists of tracks: %s", exc), pool="db")
 
-    def update_metadata(self, content_id: int, title: Optional[str], artist: Optional[str],
-                        ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.update_track_metadata(content_id, title, artist), ok, t("msg.metadata_saved"))
 
     # ------------------------------------------------------------ 1.3.2 (C82) : fusion différée, « Annuler »
     def schedule_duplicates_merge(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
@@ -1142,7 +1223,7 @@ class LibraryOpsMixin:
             try:
                 self.service.refresh_library()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("Ignored error in flush_merges", exc_info=True)  # 1.4.3 (A3-4)
         return n
 
     def _merge_job(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str], artist: Optional[str],

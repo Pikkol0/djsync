@@ -19,7 +19,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import QPushButton, QWidget
 
-from ..analysis.cues import PALETTE, SLOTS, Cue, loop_beats_for, loop_end_ms, suggest_cues
+from ..analysis.cues import PALETTE, SLOTS, Cue, loop_end_ms, suggest_cues
 from ..i18n import t
 from . import theme
 from .widgets import button, hbox, label, vbox
@@ -389,13 +389,6 @@ class CuePanel(QWidget):
 
         ConfirmDialog(self.window(), t("cue.clear_all"), t("cue.clear_all_msg"), go, confirm_text=t("cue.clear_all"),
                       danger=True)
-
-    def loop_label(self, c: Cue) -> str:
-        bpm = 0.0
-        if self.ed.beats:
-            tempos = sorted(b[1] for b in self.ed.beats)
-            bpm = tempos[len(tempos) // 2] / 100.0
-        return str(c.loop_beats or loop_beats_for(c.ms, c.loop_ms or c.ms, bpm))
 
 
 class SuggestCuesDialog:

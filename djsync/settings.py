@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Optional
+from .core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,9 @@ class Settings:
     # ---- V1.1
     language: str = DEFAULT_LANGUAGE   # "en" (défaut) | "fr"
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
+    background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
+    write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
+    auto_gain: bool = True             # 1.4.3 (C109) : volume égalisé entre les sons (lecteur de DJSync)
     zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
     # ---- V1.1-A3
@@ -100,6 +105,14 @@ class Settings:
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
     waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
+    # 1.4.3 (C16) : grille des sons dont le tempo change : « auto » (variable ou par passage) | « never » (fixe)
+    tempo_grid: str = "auto"
+    # 1.4.3 (A07, C156) : sur l'ordinateur, « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas
+    # téléchargés ; coché, ces sons sont seulement retirés de Rekordbox (comme avant la 1.4.3)
+    protect_foreign: bool = False
+    # 1.4.3 (C214) : vues de colonnes de la Bibliothèque : {"current", "custom": {id: {name, shown}},
+    # "saved": {vue d'origine: shown}, "by_list": {clé|liste: id}}
+    library_views: dict = field(default_factory=dict)
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
@@ -110,6 +123,7 @@ class Settings:
     playlist_sorts: dict = field(default_factory=dict)  # {playlist: [colonne, décroissant]} (tri retenu)
     search_field: str = "all"          # recherche : all | title | artist | album
     search_hide_owned: bool = False    # recherche : masquer ce qui est déjà dans la bibliothèque
+    search_tab: str = "search"         # 1.4.3 (C202) : dernier onglet de « Rechercher » (search | hq | import)
     search_max_minutes: int = 0        # recherche : durée maximale (0 = pas de limite ; exclut les mixes)
     feedback_id: str = ""              # onglet Retours : identifiant aléatoire (limites d'envoi)
     # ---- 1.2.2
@@ -181,8 +195,23 @@ class Settings:
             settings.first_run = True              # 1.3.2 (C54) : vrai premier lancement (pas une mise à jour)
             return settings
         except (OSError, json.JSONDecodeError) as exc:
-            log.warning("Unreadable settings (%s): using defaults.", exc)
-            return settings
+            # 1.4.3 (A6-10) : la copie illisible est gardée à part, puis le dernier bon fichier (.bak) est repris
+            log.warning("Unreadable settings (%s): kept aside, trying the last good copy.", exc)
+            try:
+                from datetime import datetime
+
+                shutil.copy2(path, path.with_name(f"settings-unreadable-{datetime.now():%Y%m%d-%H%M%S}.json"))
+            except OSError:
+                log.debug("Ignored error in load", exc_info=True)  # 1.4.3 (A3-4)
+            bak = path.with_name(path.name + ".bak")
+            try:
+                raw = json.loads(bak.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("not an object")
+                log.warning("Settings restored from %s", bak.name)
+            except (OSError, ValueError) as exc2:
+                log.warning("No usable settings backup (%s): using defaults.", exc2)
+                return settings
         for f in fields(cls):
             if f.name in raw and isinstance(raw[f.name], type(getattr(settings, f.name))):
                 setattr(settings, f.name, raw[f.name])  # type incorrect : on garde la valeur par défaut
@@ -193,6 +222,8 @@ class Settings:
 
     def normalize(self) -> "Settings":
         """Valeurs hors limites / inconnues ramenées à des valeurs valides (fichier édité à la main)."""
+        if self.search_tab not in ("search", "hq", "import"):
+            self.search_tab = "search"
         self.zoom = clamp_zoom(self.zoom)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
@@ -220,6 +251,7 @@ class Settings:
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"
         self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
+        self.library_views = self.library_views if isinstance(self.library_views, dict) else {}       # C214
         self.playlist_sorts = dict(list(self.playlist_sorts.items())[-500:]) if isinstance(self.playlist_sorts, dict) else {}
         self.search_field = self.search_field if self.search_field in ("all", "title", "artist", "album") else "all"
         if self.search_mode == "artists":          # 1.2.1 : « Artistes » passe du popup au champ de recherche
@@ -236,6 +268,8 @@ class Settings:
         self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
         if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
             self.waveform_style = "3band"
+        if self.tempo_grid not in ("auto", "never"):                                               # 1.4.3 (C16)
+            self.tempo_grid = "auto"
         return self
 
     def native_parts(self) -> tuple:
@@ -248,7 +282,7 @@ class Settings:
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
                    "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut",
-                   "diag_tab", "auto_lists_open", "panels_folded")
+                   "diag_tab", "auto_lists_open", "panels_folded", "library_views")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 
@@ -276,7 +310,16 @@ class Settings:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
             data = {k: v for k, v in asdict(self).items() if k not in RETIRED}     # 1.4.1 (C143)
-            tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, path)
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(data, indent=2, ensure_ascii=False))
+                fh.flush()
+                durable.flush_fd(fh.fileno())                  # 1.4.3 (A6-10)
+            if path.is_file():                         # 1.4.3 (A6-10) : dernier bon fichier gardé
+                try:
+                    json.loads(path.read_text(encoding="utf-8"))
+                    shutil.copy2(path, path.with_name(path.name + ".bak"))
+                except (OSError, ValueError):
+                    log.debug("Ignored error in save", exc_info=True)  # 1.4.3 (A3-4)
+            durable.replace(tmp, path)
         except OSError as exc:
             log.warning("Settings not saved: %s", exc)

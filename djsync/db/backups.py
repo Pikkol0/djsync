@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -31,6 +30,7 @@ from typing import Any, List, Optional
 from sqlcipher3 import dbapi2 as sqlcipher
 
 from ._key import get_default_key
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +231,7 @@ def ensure_origin(rekordbox_dir: Path, backup_dir: Path, conn: Any = None, key: 
             counts = _counts(c)
             c.close()
         except sqlcipher.Error:
-            pass
+            log.debug("Ignored error in ensure_origin", exc_info=True)  # 1.4.3 (A3-4)
         _write_meta(folder, "origin", stamp, "", [], counts, approx=True)
         log.info("Origin rebuilt from the oldest backup: %s", oldest.name)
     except OSError as exc:
@@ -267,12 +267,28 @@ def delete_point(point: RestorePoint) -> None:
     shutil.rmtree(point.path)
 
 
+class RestoreBusyError(BackupError):
+    """1.4.3 (A6-2) : restauration refusée ou annulée : rien n'a changé sur la clé."""
+
+
+def _not_replaceable(path: Path) -> str:
+    """Raison pour laquelle `path` ne pourrait pas être remplacé (fichier ouvert ailleurs), ou ''."""
+    if not path.exists():
+        return ""
+    try:
+        with open(path, "r+b"):
+            pass
+    except OSError as exc:
+        return str(exc)
+    return ""
+
+
 def _replace(src: Path, dst: Path) -> None:
     tmp = dst.with_name(dst.name + ".djsync-tmp")
     shutil.copyfile(src, tmp)
     with open(tmp, "rb+") as fh:
-        os.fsync(fh.fileno())
-    os.replace(tmp, dst)
+        durable.flush_fd(fh.fileno())
+    durable.replace(tmp, dst)
 
 
 def restore(rekordbox_dir: Path, backup_dir: Path, point: RestorePoint, key: Optional[str] = None) -> RestorePoint:
@@ -287,15 +303,32 @@ def restore(rekordbox_dir: Path, backup_dir: Path, point: RestorePoint, key: Opt
         c.close()
     except sqlcipher.Error as exc:
         raise BackupError(f"This backup is unreadable: {exc}") from exc
+    db = rekordbox_dir / DB_NAME
+    pdb = rekordbox_dir / PDB_NAME
+    # 1.4.3 (A6-2, B) : les deux fichiers doivent pouvoir être remplacés, sinon rien n'est touché.
+    for target in ([db, pdb] if point.has_pdb else [db]):
+        busy = _not_replaceable(target)
+        if busy:
+            raise RestoreBusyError(f"{target.name} is in use by another program (Rekordbox, Explorer?): "
+                                   f"nothing was changed. {busy}")
     before = snapshot(rekordbox_dir, backup_dir, "restore", key=key)
+    db_done = False
     try:
-        db = rekordbox_dir / DB_NAME
         for extra in ("-wal", "-shm"):
             Path(str(db) + extra).unlink(missing_ok=True)
         _replace(point.path / DB_NAME, db)
+        db_done = True
         if point.has_pdb:
-            _replace(point.path / PDB_NAME, rekordbox_dir / PDB_NAME)
+            _replace(point.path / PDB_NAME, pdb)
     except OSError as exc:
+        if db_done:
+            # 1.4.3 (A6-2, A) : tout ou rien : la base revient à l'état d'avant la restauration.
+            try:
+                _replace(before.path / DB_NAME, db)
+            except OSError as back:
+                raise BackupError(f"Restore failed half-way; put back {before.id} by hand: {exc} / {back}") from exc
+            log.warning("Restore of %s cancelled (export.pdb not replaced: %s); database put back", point.id, exc)
+            raise RestoreBusyError(f"Restore cancelled, nothing was changed (export.pdb: {exc}).") from exc
         raise BackupError(f"Restore failed (the previous state is in {before.id}): {exc}") from exc
     log.info("Restored %s (previous state kept in %s)", point.id, before.id)
     return before

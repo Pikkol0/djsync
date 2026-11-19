@@ -6,6 +6,8 @@ visé est retenu (réglage `set_players`). Rapport court à copier ou enregistre
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt
@@ -16,10 +18,12 @@ from . import theme
 from .dialogs import BaseDialog
 from .widgets import button, hbox, label, panel, restyle, vbox
 
-ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint"}
+log = logging.getLogger(__name__)
+
+ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint", "note": "warn"}
 ACTIONS = {"analyse": "set.do_analyse", "pdb": "set.do_pdb", "missing": "set.do_missing", "convert": "set.do_convert",
            "space": "set.do_space", "backup": "set.do_backup", "no_cue": "set.do_no_cue",
-           "empty_playlists": "set.do_empty"}
+           "empty_playlists": "set.do_empty", "grids": "set.do_see"}
 # 1.4.2 (A2-12) : lignes sans bouton : quoi faire. (clé, niveau) ou (clé, état)
 HINTS = {("fs", "error"): "set.fs_format_warn", ("pdb", "absent"): "set.pdb_absent_how"}
 
@@ -105,6 +109,14 @@ class SetCheckDialog(BaseDialog):
         restyle(self.verdict)
         self.again_btn.setEnabled(False)
         players = self.players_key
+        # 1.4.3 (C210) : contrôle visible dans « Tâches en cours » du volet, avec un arrêt
+        stop = {"asked": False}
+
+        def stop_now() -> None:
+            stop["asked"] = True
+            self.ctrl.tasks.mark_stopping("set_check")
+
+        task = self.ctrl.tasks.start("set_check", "task.set_check", icon="check", can_stop=True, stop=stop_now)
 
         def work() -> List[Any]:
             from ..db.usb import drive_filesystem
@@ -112,14 +124,17 @@ class SetCheckDialog(BaseDialog):
             try:
                 fs = drive_filesystem(lib.drive.root) or ""
             except Exception:  # noqa: BLE001 - système de fichiers inconnu : ligne « – »
+                log.debug("Handled error in work", exc_info=True)  # 1.4.3 (A3-4)
                 fs = ""
-            return set_check.run(lib, fs, players, should_stop=lambda: self.ctrl.library is not lib)
+            return set_check.run(lib, fs, players, should_stop=lambda: self.ctrl.library is not lib or stop["asked"])
 
         def ok(checks: List[Any]) -> None:
+            task.finish()
             if token == self._token and self.winfo_exists() and self.ctrl.library is lib:
                 self._show(checks)
 
         def err(exc: BaseException) -> None:
+            task.fail(str(exc))
             if token == self._token and self.winfo_exists():
                 self.again_btn.setEnabled(True)
                 self.verdict.setText(t("set.failed", error=str(exc)))
@@ -157,9 +172,11 @@ class SetCheckDialog(BaseDialog):
             name.setToolTip(t("pdb.older_tip"))
         top.addWidget(name)
         text = label(c.text, "dim" if c.level in ("ok", "skip") else ROLE.get(c.level, "dim"), wrap=True)
+        if c.level == "note":                           # 1.4.3 (C213) : n'empêche pas « Prête »
+            text.setToolTip(t("set.grids_tip"))
         top.addWidget(text, 1)
         act: Optional[Any] = None
-        if c.action and c.level in ("warn", "error"):
+        if c.action and c.level in ("warn", "error", "note"):
             # 1.4.2 (A2-12) : un vrai bouton (le bouton plat ressemblait à du texte)
             act = button(t(ACTIONS.get(c.action, "set.do_see"), n=len(c.ids)), lambda _c=False, ch=c: self.act(ch))
             top.addWidget(act, 0, Qt.AlignTop)
@@ -194,6 +211,10 @@ class SetCheckDialog(BaseDialog):
             win.open_backups()
         elif c.action == "no_cue":
             self._open_library("nocues")
+        elif c.action == "grids":                         # 1.4.3 (C213) : ces sons, avec la colonne Analyse
+            view = getattr(win, "views", {}).get("library")
+            if view is not None and hasattr(view, "show_tracks"):
+                view.show_tracks(c.ids, c.text, view="prepare")
         elif c.action == "empty_playlists" and c.ids:
             self._open_library(f"p{c.ids[0]}")
 
@@ -207,7 +228,7 @@ class SetCheckDialog(BaseDialog):
             try:
                 view._goto(iid)
             except Exception:  # noqa: BLE001 - liste pas encore lue : la Bibliothèque reste ouverte
-                pass
+                log.debug("Ignored error in _open_library", exc_info=True)  # 1.4.3 (A3-4)
 
     # ------------------------------------------------------------------ rapport
     def report_text(self) -> str:

@@ -4,13 +4,17 @@ Téléchargements & analyse, pages du Diagnostic.
 Chaque endroit garde ses entrées propres (Écouter, Ajouter à…, Retirer, Supprimer, Réessayer…) et ajoute ce bloc
 commun, dans le même ordre : Diagnostic de ce son, Grille et cues, Modifier les infos ; Analyser (ou Analyser à
 nouveau, Rétablir l'analyse de Rekordbox), Qualité, Compléter les infos ; Sons compatibles, Afficher dans la
-bibliothèque, Afficher dans l'Explorateur / le Finder, Acheter.
+bibliothèque, Afficher dans l'Explorateur / le Finder, Acheter. 1.4.3 (A04) : Spectre (après Qualité).
 """
 from __future__ import annotations
+
+import logging
 
 from typing import Any, List, Sequence
 
 from ..i18n import t
+
+log = logging.getLogger(__name__)
 
 
 def analyse_tracks(host: Any, ctrl: Any, tracks: Sequence[Any]) -> None:
@@ -55,6 +59,13 @@ def open_quality(host: Any, tracks: Sequence[Any]) -> None:
     win = host.window()
     if hasattr(win, "open_quality"):
         win.open_quality([x.content_id for x in tracks], focus=tracks[0].content_id if len(tracks) == 1 else None)
+
+
+def open_spectrum(host: Any, ctrl: Any, track: Any) -> None:
+    """1.4.3 (A04) : spectrogramme du son (lignes 16 / 19 / 20 kHz)."""
+    from .spectrum_dialog import SpectrumDialog
+
+    SpectrumDialog(host, ctrl, track)
 
 
 def complete_metadata(ctrl: Any, tracks: Sequence[Any]) -> None:
@@ -114,6 +125,7 @@ def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
         try:
             originals = ctrl.rekordbox_originals
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in track_entries", exc_info=True)  # 1.4.3 (A3-4)
             originals = set()
         if one.content_id in originals:
             entries.append((t("reanalyse.restore"), lambda: restore_rekordbox(host, ctrl, one), "back"))
@@ -121,6 +133,8 @@ def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
         entries.append((t("lib.analyse_selection", n=n), lambda: analyse_tracks(host, ctrl, tracks), "wave"))
     if where != "quality":
         entries.append((t("quality.open_sel", n=n), lambda: open_quality(host, tracks), "wave"))
+    if one is not None:                                                         # 1.4.3 (A04)
+        entries.append((t("spectrum.open"), lambda: open_spectrum(host, ctrl, one), "wave"))
     entries.append((t("meta.complete_sel", n=n), lambda: complete_metadata(ctrl, tracks), "tag"))
     if one is not None:
         entries.append(None)

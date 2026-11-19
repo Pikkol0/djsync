@@ -140,7 +140,8 @@ def test_import_on_the_computer_references_in_place(tmp_path, monkeypatch):
         assert len(rep.added) == 1
         x = rep.added[0]
         assert lib.absolute_path(x) == promo.resolve() and x.title == "Nanana"
-        lib.delete_tracks([x.content_id])                  # retiré de la collection : fichier gardé
+        lib.protect_foreign = True                         # 1.4.3 (A07) : protégé : retiré de la collection,
+        lib.delete_tracks([x.content_id])                  # fichier gardé
         assert promo.is_file()
     finally:
         next(gen, None)
@@ -496,7 +497,8 @@ def test_library_never_gives_gold_to_a_fake_lossless(tmp_path):
     assert extra_values(x)["format__color"] == theme.LEVELS["gold"] and "real" not in extra_values(x)
     S.remember(f, 16100)
     v = extra_values(x)
-    assert v["real"] == "≈ 128 kbps" and v["format__color"] == theme.LEVELS["warn"]
+    # 1.4.3 (A04) : confiance affichée (spectre seul : « probable »)
+    assert v["real"] == "≈ 128 kbps (probable)" and v["format__color"] == theme.LEVELS["warn"]
     S.remember(f, 21800)
     assert extra_values(x)["format__color"] == theme.LEVELS["gold"]
 

@@ -1,7 +1,16 @@
 """Connexion à exportLibrary.db (SQLCipher, WAL), transactions atomiques, sauvegardes."""
 from __future__ import annotations
 
+import sys
+import time
+
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
+
+
+def _sqlite_code(exc: BaseException) -> str:
+    """1.4.3 (B105) : erreur SQLite avec son code étendu (pour le journal)."""
+    return (f"{exc} (code {getattr(exc, 'sqlite_errorcode', '?')} "
+            f"{getattr(exc, 'sqlite_errorname', '') or type(exc).__name__})")
 
 
 class LibraryBase:
@@ -32,6 +41,13 @@ class LibraryBase:
         self._busy_timeout_ms = busy_timeout_ms
         self._conn: Optional[Any] = None
         self._lock = threading.RLock()
+        # 1.4.3 (A3-6) : 2e connexion, en lecture seule, pour les lectures faites hors d'une écriture : la base
+        # est en WAL, une lecture voit la dernière version validée sans attendre le verrou des écritures
+        # (sauvegarde, export.pdb). Comme `_read_fast` pour master.db (B52).
+        self._reader: Optional[Any] = None
+        self._reader_lock = threading.Lock()
+        self._reader_off = False                    # désactivée après un échec (lecture normale ensuite)
+        self._closing = False                       # 1.4.3-rc.2 : plus de 2e connexion pendant la fermeture
         self._session_backed_up = False
         self._batch_depth = 0
         self._batch_backed_up = False
@@ -54,6 +70,14 @@ class LibraryBase:
         # suppressions / renommages / infos modifiées sont notés dans un journal sur la clé.
         self._txn_marks: List[Any] = []
         self._pdb_dirty = False
+        # 1.4.3 (A1-2) : hors lot, export.pdb est réécrit `pdb_delay` s après la dernière écriture (une seule fois
+        # pour une rafale de téléchargements ou d'analyses), et toujours avant fermeture, éjection, « Prêt pour le
+        # set » ou toute lecture de son état (`pdb_status`). 0 = tout de suite (défaut ; l'application met 3 s).
+        self.pdb_delay = 0.0
+        self.pdb_delay_max = 30.0                   # rafale sans fin : réécrit quand même toutes les 30 s
+        self._pdb_timer: Optional[threading.Timer] = None
+        self.recovery: Any = None                   # 1.4.3 (A6-1) : reprise faite à l'ouverture (recover.Recovery)
+        self._pdb_pending_since = 0.0
         # ---- analyse / pochettes (V1.1-A4)
         self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
         self.auto_cue = False                       # V0.5.0 : mémoire cue sur le premier temps fort
@@ -88,28 +112,27 @@ class LibraryBase:
         with self._lock:
             if self._conn is not None:
                 return self
+            self._closing = False
+            from ..recover import recover
+
+            # 1.4.3 (A6-1) : remplacement interrompu (clé retirée) : copie temporaire valide remise en place
+            self.recovery = recover(self.db_path.parent, self._key, read_only=self.read_only)
             if not self.db_path.is_file():
                 raise DatabaseOpenError(f"Database not found: {self.db_path}")
 
-            conn = sqlcipher.connect(
-                str(self.db_path),
-                timeout=self._busy_timeout_ms / 1000,
-                isolation_level=None,        # transactions gérées explicitement (BEGIN/COMMIT)
-                check_same_thread=False,     # l'UI Tk utilisera des threads de travail
-            )
             try:
-                conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
-                conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
-                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                conn, tables = self._open_conn()
             except sqlcipher.OperationalError as exc:
-                conn.close()
-                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
-                    raise DatabaseLockedError(
-                        "The database is used by another program (is Rekordbox open?)."
-                    ) from exc
-                raise DatabaseOpenError(str(exc)) from exc
+                if not self._shm_fault(exc):
+                    raise self._open_error(exc) from exc
+                self._repair_shm(exc)                # 1.4.3 (B105) : comme Rekordbox, puis ouverture normale
+                try:
+                    conn, tables = self._open_conn()
+                except sqlcipher.Error as again:
+                    log.warning("Drive database still unreadable after the exclusive repair: %s",
+                                _sqlite_code(again))
+                    raise ShmRepairError(self._drive_name(), "still") from again
             except sqlcipher.DatabaseError as exc:
-                conn.close()
                 raise DatabaseOpenError(
                     "Cannot decrypt the database (wrong key, corrupted file "
                     "or not a OneLibrary database)."
@@ -145,11 +168,99 @@ class LibraryBase:
             log.exception("export.pdb state unknown")
         return self
 
+    def _open_conn(self, exclusive: bool = False) -> Tuple[Any, set]:
+        """Ouvre exportLibrary.db (clé SQLCipher, délai) et lit la liste des tables (premier accès : c'est là
+        qu'une erreur de -wal / -shm apparaît). `exclusive` (B105) : `locking_mode = EXCLUSIVE` avant le premier
+        accès : SQLite garde l'index du journal en mémoire et n'ouvre pas le -shm (comme Rekordbox)."""
+        conn = sqlcipher.connect(
+            str(self.db_path),
+            timeout=self._busy_timeout_ms / 1000,
+            isolation_level=None,        # transactions gérées explicitement (BEGIN/COMMIT)
+            check_same_thread=False,     # l'UI Tk utilisera des threads de travail
+        )
+        try:
+            conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
+            conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
+            if exclusive:
+                conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+            if sys.platform == "darwin":          # 1.4.3 (A7-4) : vidage complet (SQLite se replie sur exFAT)
+                conn.execute("PRAGMA fullfsync = ON")
+                conn.execute("PRAGMA checkpoint_fullfsync = ON")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except BaseException:
+            conn.close()
+            raise
+        return conn, tables
+
+    @staticmethod
+    def _open_error(exc: BaseException) -> LibraryError:
+        if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            return DatabaseLockedError("The database is used by another program (is Rekordbox open?).")
+        return DatabaseOpenError(str(exc))
+
+    def _drive_name(self) -> str:
+        try:
+            return str(self.drive)
+        except Exception:  # noqa: BLE001
+            return str(self.db_path.parent.parent.parent)
+
+    @property
+    def _shm_path(self) -> Path:
+        return Path(str(self.db_path) + "-shm")
+
+    def _shm_fault(self, exc: BaseException) -> bool:
+        """1.4.3 (B105) : erreur d'E/S (ou fichier impossible à ouvrir) à l'ouverture, avec un -shm présent."""
+        log.warning("Drive database open failed: %s", _sqlite_code(exc))
+        code = getattr(exc, "sqlite_errorcode", None)
+        text = str(exc).lower()
+        io = "disk i/o" in text or (isinstance(code, int) and code & 0xFF == 10)            # SQLITE_IOERR
+        cant = "unable to open" in text or (isinstance(code, int) and code & 0xFF == 14)    # SQLITE_CANTOPEN
+        try:
+            return (io or cant) and self._shm_path.exists() and self.db_path.is_file()
+        except OSError:
+            return False
+
+    def _repair_shm(self, cause: BaseException) -> None:
+        """1.4.3 (B105) : comme Rekordbox, réouverture une fois en mode exclusif (le -shm est ignoré, le -wal
+        repris), checkpoint, fermeture. Aucun fichier supprimé ; le mode exclusif n'est jamais gardé (une
+        session, le mode live C15, a besoin du mode partagé). Lève ShmRepairError si c'est impossible."""
+        name = self._drive_name()
+        if self.read_only:
+            log.warning("Drive %s: -shm unreadable, library opened read-only: not repaired", name)
+            raise ShmRepairError(name, "read_only") from cause
+        log.warning("Drive %s: -shm present and unreadable, reopening once in exclusive mode (like Rekordbox)",
+                    name)
+        try:
+            conn, _ = self._open_conn(exclusive=True)
+        except sqlcipher.Error as exc:
+            log.warning("Exclusive open failed: %s", _sqlite_code(exc))
+            raise ShmRepairError(name, "exclusive") from exc
+        try:
+            wal = Path(str(self.db_path) + "-wal")
+            size = wal.stat().st_size if wal.exists() else 0
+            busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if busy:
+                raise sqlcipher.OperationalError("database is locked (checkpoint busy)")
+            log.warning("Drive %s repaired in exclusive mode (journal of %s bytes merged), reopening normally",
+                        name, size)
+        except sqlcipher.Error as exc:
+            log.warning("Exclusive checkpoint failed: %s", _sqlite_code(exc))
+            raise ShmRepairError(name, "exclusive") from exc
+        finally:
+            conn.close()
+
     def close(self) -> None:
+        # 1.4.3-rc.2 : une lecture d'un autre fil ne rouvre plus la 2e connexion pendant la fermeture (blocage
+        # vu en test : connexion de lecture ouverte par le fil « db » pendant la fermeture de la principale)
+        self._closing = True
+        self._close_reader()
+        self._pdb_cancel_timer()
         with self._lock:
             if self._conn is None:
                 return
             if not self.read_only:
+                if self._pdb_dirty:                # 1.4.3 (A1-2) : réécriture en attente faite avant de fermer
+                    self._pdb_flush()
                 self._checkpoint()
             self._conn.close()
             self._conn = None
@@ -188,7 +299,8 @@ class LibraryBase:
             log.info("WAL checkpoint skipped: %s is gone (drive removed?)", self.db_path)
             return
         try:
-            busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            with self._reader_lock:      # 1.4.3 (A3-6) : pas de lecture en cours pendant le checkpoint (TRUNCATE)
+                busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
             if busy:
                 log.warning("Incomplete WAL checkpoint: another process is reading the database.")
         except sqlcipher.Error as exc:
@@ -331,7 +443,7 @@ class LibraryBase:
             try:
                 target.unlink(missing_ok=True)           # A6-6 : pas de copie à moitié écrite sur une clé pleine
             except OSError:
-                pass
+                log.debug("Ignored error in _backup_copy", exc_info=True)  # 1.4.3 (A3-4)
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
         self._session_backed_up = True
         if self._batch_depth > 0:
@@ -355,6 +467,11 @@ class LibraryBase:
                 ) from exc
             try:
                 yield conn
+                if self._txn_marks:
+                    # 1.4.3 (A6-9) : marques (son supprimé, playlist renommée…) dans le journal de la clé AVANT
+                    # le COMMIT : une coupure entre les deux ne peut plus les perdre. Si la transaction est
+                    # annulée, la marque n'a plus d'objet et la réconciliation suivante la retire.
+                    self._pdb_journal().add(self._txn_marks)
                 conn.execute("COMMIT")
             except BaseException as exc:
                 self._txn_ops = []             # transaction annulée : rien à répercuter dans export.pdb
@@ -362,7 +479,7 @@ class LibraryBase:
                 try:
                     conn.execute("ROLLBACK")
                 except sqlcipher.Error:
-                    pass
+                    log.debug("Ignored error in _write", exc_info=True)  # 1.4.3 (A3-4)
                 full = self.full_error(exc) if isinstance(exc, Exception) else None
                 if full is not None and full is not exc:
                     raise full from exc        # A6-6 : « clé pleine » au lieu de « disk I/O error »
@@ -370,15 +487,126 @@ class LibraryBase:
             self._checkpoint()
             if self._txn_ops or self._txn_marks:
                 self._pdb_dirty = True
-                if self._txn_marks:
-                    self._pdb_journal().add(self._txn_marks)
             self._txn_ops, self._txn_marks = [], []
             if self._batch_depth == 0:
+                self._pdb_flush_later()
+
+    # ------------------------------------------------- 1.4.3 (A1-2) : export.pdb après la rafale
+    @property
+    def pdb_pending(self) -> bool:
+        """Une réécriture d'export.pdb attend la fin de la rafale d'écritures."""
+        return self._pdb_timer is not None
+
+    def _pdb_flush_later(self) -> None:
+        if self.pdb_delay <= 0 or not self._pdb_dirty:
+            self._pdb_flush()
+            return
+        now = time.monotonic()
+        if self._pdb_timer is None:
+            self._pdb_pending_since = now
+        elif now - self._pdb_pending_since >= self.pdb_delay_max:
+            self._pdb_cancel_timer()
+            self._pdb_flush()
+            return
+        self._pdb_cancel_timer()
+        timer = threading.Timer(self.pdb_delay, self._pdb_timer_fired)
+        timer.daemon = True
+        timer.name = "djsync-pdb-later"
+        self._pdb_timer = timer
+        timer.start()
+
+    def _pdb_cancel_timer(self) -> None:
+        timer, self._pdb_timer = self._pdb_timer, None
+        if timer is not None:
+            timer.cancel()
+
+    def _pdb_timer_fired(self) -> None:
+        with self._lock:
+            if self._pdb_timer is None or self._pdb_timer is not threading.current_thread():
+                return                              # remplacé ou annulé entre-temps
+            self._pdb_timer = None
+            if self._conn is None or self._batch_depth > 0:
+                return                              # fermée (déjà faite) ou lot en cours (fait à la fin du lot)
+            self._pdb_flush()
+
+    def pdb_flush_now(self) -> None:
+        """Fait tout de suite la réécriture d'export.pdb en attente (éjection, « Prêt pour le set »…)."""
+        if self._pdb_timer is None:
+            return
+        self._pdb_cancel_timer()
+        with self._lock:
+            if self._conn is not None and self._batch_depth == 0:
                 self._pdb_flush()
 
+    def library_identity(self) -> str:
+        """1.4.3 (A3-3) : identifiant stable de cette clé (date de création et nom de l'appareil de la table
+        `property`), pour les réglages par bibliothèque. "" si illisible (noté au journal)."""
+        try:
+            rows = self._read("SELECT COALESCE(createdDate,''), COALESCE(deviceName,'') FROM property LIMIT 1")
+        except Exception as exc:  # noqa: BLE001 - réglages de confort : pas d'erreur à l'écran
+            log.info("Key identity not read (settings per library fall back to the label): %s", exc)
+            return ""
+        return "|".join(str(x) for x in rows[0]) if rows else ""
+
     def _read(self, sql: str, params: Sequence[Any] = ()) -> List[Tuple[Any, ...]]:
+        """Lecture. 1.4.3 (A3-6) : hors d'une écriture du même fil, par la connexion de lecture (sans attendre
+        le verrou des écritures) ; dans une écriture (ou si la connexion de lecture manque), par la connexion
+        principale, qui voit aussi ce que la transaction en cours a écrit."""
+        if not self._owns_lock():
+            rows = self._read_side(sql, params)
+            if rows is not None:
+                return rows
         with self._lock:
             return self._db().execute(sql, params).fetchall()
+
+    def _owns_lock(self) -> bool:
+        owned = getattr(self._lock, "_is_owned", None)
+        return bool(owned()) if owned is not None else True
+
+    def _read_side(self, sql: str, params: Sequence[Any]) -> Optional[List[Tuple[Any, ...]]]:
+        """1.4.3 (A3-6) : lecture par la 2e connexion ; None = passer par la connexion principale."""
+        if self._reader_off or self._closing or self._conn is None or self.journal_mode.lower() != "wal":
+            return None
+        with self._reader_lock:
+            if self._closing:
+                return None
+            try:
+                if self._reader is None:
+                    self._reader = self._open_reader()
+                return self._reader.execute(sql, params).fetchall()
+            except sqlcipher.Error as exc:
+                log.info("Separate read connection unavailable (%s): normal read", exc)
+                self._drop_reader()
+                if not Path(self.db_path).exists():
+                    return None
+                self._reader_off = True
+                return None
+
+    def _open_reader(self) -> Any:
+        conn = sqlcipher.connect(str(self.db_path), timeout=self._busy_timeout_ms / 1000, isolation_level=None,
+                                 check_same_thread=False)
+        try:
+            conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
+            conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
+            conn.execute("PRAGMA query_only = ON")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()
+        except BaseException:
+            conn.close()
+            raise
+        return conn
+
+    def _drop_reader(self) -> None:
+        reader, self._reader = self._reader, None
+        if reader is not None:
+            try:
+                reader.close()
+            except sqlcipher.Error:
+                log.debug("Ignored error in _drop_reader", exc_info=True)  # 1.4.3 (A3-4)
+
+    def _close_reader(self) -> None:
+        with self._reader_lock:
+            self._drop_reader()
+            self._reader_off = False
 
     # ------------------------------------------------- compatibilité / réparation
     @property

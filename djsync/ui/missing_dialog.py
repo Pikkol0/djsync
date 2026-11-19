@@ -566,3 +566,42 @@ class MissingFilesDialog(BaseDialog):
             self, t("missing.merge_title"),
             t("missing.merge_message", missing=f"{mt} — {ma or '—'}", kept=f"{vt} — {va or '—'}"),
             go, confirm_text=t("missing.merge_with"), detail=t("missing.merge_detail"))
+        self._merge_preview(self.merge_dialog, it.track, version)
+
+    def _merge_preview(self, dlg: Any, missing: Any, version: Any) -> None:
+        """1.4.3 (C199) : aperçu « style GitHub » dans la confirmation (playlists et cues, gardé / ajouté /
+        retiré), rempli dès que les playlists et les cues des deux versions sont lus."""
+        from PySide6.QtCore import Qt
+
+        from ..core import merge_preview
+
+        box = label(t("merge.loading"), "dim", wrap=True)
+        box.setTextFormat(Qt.RichText)
+        box.setObjectName("merge_preview")
+        try:
+            dlg.body.insertWidget(max(0, dlg.body.count() - 1), box)
+        except (AttributeError, RuntimeError):
+            return
+        dlg.merge_preview = box
+        got: dict = {}
+
+        def fill() -> None:
+            if "pl" not in got or "cues" not in got:
+                return
+            lines = merge_preview.build(version, [missing], got["pl"], got["cues"], cues_from=missing.content_id,
+                                        files_deleted=False, cues_if_none=True)
+            try:
+                box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM))
+            except RuntimeError:                   # fenêtre fermée entre-temps
+                return
+
+        def pl(found: dict) -> None:
+            got["pl"] = dict(found)
+            fill()
+
+        def cues(found: dict) -> None:
+            got["cues"] = dict(found)
+            fill()
+
+        self.ctrl.track_playlists([missing.content_id, version.content_id], pl)
+        self.ctrl.load_group_cues([missing, version], cues)

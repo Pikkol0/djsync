@@ -14,11 +14,14 @@ Le numéro relie les deux bases ; leurs identifiants internes restent indépenda
 """
 from __future__ import annotations
 
+import logging
 import io
-import os
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
+from ..core import durable  # 1.4.3 (A7-4) : écriture sûre (exFAT sous macOS)
+
+log = logging.getLogger(__name__)
 
 ART_ROOT = "PIONEER/Artwork"
 SIZES = {"": 80, "_m": 240}
@@ -36,6 +39,7 @@ def make_jpegs(image: bytes) -> Optional[Dict[str, bytes]]:
         img.load()
         img = img.convert("RGB")
     except Exception:  # noqa: BLE001 - pochette corrompue : le son est ajouté sans
+        log.debug("Handled error in make_jpegs", exc_info=True)  # 1.4.3 (A3-4)
         return None
     w, h = img.size
     if not w or not h:
@@ -89,7 +93,7 @@ def write(drive_root: Path, number: int, jpegs: Dict[str, bytes]) -> List[Path]:
         with open(tmp, "wb") as fh:
             fh.write(data)
             fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, target)
+            durable.flush_fd(fh.fileno())
+        durable.replace(tmp, target)
         written.append(target)
     return written

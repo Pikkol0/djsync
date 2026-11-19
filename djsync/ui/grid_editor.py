@@ -16,6 +16,7 @@ changer d'onglet la cache sans perdre les modifications ; « Retour » ou Échap
 """
 from __future__ import annotations
 
+import logging
 import copy
 from typing import Any, List, Optional, Tuple
 
@@ -33,6 +34,8 @@ from .cursor import draw_cursor
 from .dialogs import ConfirmDialog
 from .icons import qicon
 from .widgets import button, hbox, icon_button, label, panel, restyle, vbox
+
+log = logging.getLogger(__name__)
 
 COLS_PER_S = 150.0          # forme d'onde détaillée ANLZ : 150 colonnes par seconde
 VIEW_CHOICES = (0.5, 1, 2, 4, 8, 16, 32, 64, 120)   # 1.3.2 (B53) : 0,5 s à 2 min (avant 2 à 32 s)
@@ -279,6 +282,10 @@ class GridEditor(QWidget):
         self.missing.setVisible(bool(controller.file_missing(track)))
         self.missing.setProperty("role", "err")
         self.body.addWidget(self.missing)
+        # 1.4.3 (C16) : son au tempo qui change : à vérifier passage par passage, puis valider (« Grille juste »)
+        self.tempo_banner = label("", "chip_warn", wrap=True)
+        self.tempo_banner.hide()
+        self.body.addWidget(self.tempo_banner)
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setToolTip(t("grid.hint"))
@@ -411,6 +418,17 @@ class GridEditor(QWidget):
         ratio_row.addWidget(button(t("grid.three_halves"), lambda: self._scale(1.5), tooltip=t("grid.three_halves_tip")))
         ratio_row.addStretch(1)
         tv.addLayout(ratio_row)
+        # 1.4.3 (C16) : grille fixe (un seul tempo) <-> grille par passage trouvée par l'analyse
+        mode_row = hbox(spacing=theme.px(4))
+        self.fixed_grid_btn = button(t("grid.fixed_grid"), self._fixed_grid, icon="grid")
+        self.split_grid_btn = button(t("grid.split_grid"), self._split_grid, icon="wave",
+                                     tooltip=t("grid.split_grid_tip"))
+        mode_row.addWidget(self.fixed_grid_btn)
+        mode_row.addWidget(self.split_grid_btn)
+        mode_row.addStretch(1)
+        tv.addLayout(mode_row)
+        self.fixed_grid_btn.hide()
+        self.split_grid_btn.hide()
 
         self.zones = Zones([grid_card, tempo_card], spacing=theme.px(8))
         self.body.addWidget(self.zones)
@@ -457,6 +475,7 @@ class GridEditor(QWidget):
 
             return timeline_lead_seconds(self.ctrl.library.absolute_path(track)) * 1000.0
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _timeline_lead", exc_info=True)  # 1.4.3 (A3-4)
             return 0.0
 
     def _player_seek(self, ms: float, flush: bool = True) -> None:
@@ -613,7 +632,7 @@ class GridEditor(QWidget):
             self.ctrl.settings.grid_magnet = self.magnet
             self.ctrl.settings.save()
         except Exception:  # noqa: BLE001 - réglage de confort
-            pass
+            log.debug("Ignored error in _magnet_changed", exc_info=True)  # 1.4.3 (A3-4)
 
     def snap_ms(self, ms: float, exact: bool = False, cursor: bool = False) -> float:
         """1.4.1 (C92) : position calée sur la grille. Curseur : seulement si l'aimant est mis. Cue : au temps
@@ -629,7 +648,7 @@ class GridEditor(QWidget):
             self.ctrl.settings.grid_fixed_cursor = bool(on)
             self.ctrl.settings.save()
         except Exception:  # noqa: BLE001 - réglage de confort
-            pass
+            log.debug("Ignored error in _set_fixed", exc_info=True)  # 1.4.3 (A3-4)
         self._magnet_enable()
         self._center()
         self.draw()
@@ -684,20 +703,8 @@ class GridEditor(QWidget):
         elif self._wave_state == "loading":         # pas d'ancienne forme d'onde le temps du calcul
             p.setPen(QColor(theme.FAINT))
             p.drawText(self.canvas.rect(), Qt.AlignCenter, t("grid.wave_loading"))
-        elif self.detail:            # une colonne par pixel, max des colonnes ANLZ couvertes
-            n = len(self.detail)
-            for x in range(w):
-                a = int(self._ms(x) / 1000.0 * COLS_PER_S)
-                b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
-                if a >= n or b <= 0:
-                    continue
-                seg = self.detail[max(0, a):min(n, b)]
-                if not seg:
-                    continue
-                v, color = max(seg, key=lambda s: s[0])
-                half = max(1.0, v * (h * 0.42))
-                p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
-                p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
+        elif self.detail:            # 1.4.3 (A1-10) : même image en cache que les 3 bandes
+            self._paint_detail_cached(p, w, h, mid)
         lo, hi = self._ms(-2), self._ms(w + 2)
         font = QFont(p.font())
         font.setBold(True)
@@ -727,6 +734,7 @@ class GridEditor(QWidget):
                 p.setBrush(QColor(theme.WARN))
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
+        self._paint_tempo_changes(p, w, h, lo, hi)
         self._paint_cues(p, w, h)
         if self._kick1 is not None:                               # 1.4.2 (C194) : 1er kick posé
             xk = self._x(self._kick1)
@@ -739,6 +747,27 @@ class GridEditor(QWidget):
             draw_cursor(p, xc, 0, h)
         p.setPen(QColor(theme.FAINT))
         p.drawText(self.canvas.rect().adjusted(0, 1, -theme.px(6), 0), Qt.AlignRight | Qt.AlignTop, time_text)
+
+    def _paint_tempo_changes(self, p: QPainter, w: int, h: int, lo: float, hi: float) -> None:
+        """1.4.3 (C16) : trait orange et « 122 → 140 » là où le tempo de la grille change (grille par passage)."""
+        from .tempo_grids import changes
+
+        if getattr(self, "_changes_of", None) is not self.beats:
+            self._changes_cache = changes(self.beats) if len({b[1] for b in self.beats}) > 1 else []
+            self._changes_of = self.beats
+        marks = self._changes_cache
+        if not marks or len(marks) > max(2, len(self.beats) // 16):     # grille variable de live : pas de traits
+            return
+        fm = QFontMetrics(p.font())
+        for i, before, after in marks:
+            ms = self.beats[i][2]
+            if ms < lo or ms > hi:
+                continue
+            x = self._x(ms)
+            p.setPen(QPen(QColor(theme.WARN), theme.px(2), Qt.DashLine))
+            p.drawLine(QPointF(x, self._label_bottom), QPointF(x, h))
+            text = f"{before:.1f} → {after:.1f}"
+            p.drawText(QPointF(x + 4, self._label_bottom + fm.ascent()), text)
 
     def _paint_cues(self, p: QPainter, w: int, h: int) -> None:
         """Boucles (bande colorée), hot cues (trait + étiquette de la lettre en haut), mémoires (▼ rouge)."""
@@ -868,6 +897,47 @@ class GridEditor(QWidget):
                 return
         super().keyPressEvent(e)
 
+    def _paint_detail_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """1.4.3 (A1-10) : formes d'onde Bleu et RGB dessinées une fois dans une image trois fois plus large que la
+        vue, puis recopiées (avant : boucle Python par pixel à chaque image, 3,3 ms à 704 px)."""
+        from PySide6.QtGui import QPixmap
+
+        dpr = self.canvas.devicePixelRatioF()
+        key = (round(self.px_per_ms, 9), w, h, id(self.detail), dpr, theme.DIM)
+        span_ms = w / self.px_per_ms
+        c = getattr(self, "_detail_cache", None)
+        if c is None or c[0] != key or not (c[1] <= self.start_ms and self.start_ms + span_ms <= c[1] + 3 * span_ms):
+            start = self.start_ms - span_ms
+            pm = QPixmap(int(3 * w * dpr), int(h * dpr))
+            pm.setDevicePixelRatio(dpr)
+            pm.fill(Qt.transparent)
+            q = QPainter(pm)
+            saved = self.start_ms
+            self.start_ms = start
+            try:
+                self._paint_detail(q, 3 * w, h, mid)
+            finally:
+                self.start_ms = saved
+                q.end()
+            c = self._detail_cache = (key, start, pm)
+        p.drawPixmap(QPointF((c[1] - self.start_ms) * self.px_per_ms, 0), c[2])
+
+    def _paint_detail(self, p: QPainter, w: int, h: int, mid: float) -> None:
+        """Une colonne par pixel, max des colonnes ANLZ couvertes."""
+        n = len(self.detail)
+        for x in range(w):
+            a = int(self._ms(x) / 1000.0 * COLS_PER_S)
+            b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
+            if a >= n or b <= 0:
+                continue
+            seg = self.detail[max(0, a):min(n, b)]
+            if not seg:
+                continue
+            v, color = max(seg, key=lambda s: s[0])
+            half = max(1.0, v * (h * 0.42))
+            p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
+            p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
+
     def _paint_bands_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """1.3.2 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la
         vue, puis seulement recopiée, décalée, à chaque image de la lecture (avant, toute la forme d'onde
@@ -920,9 +990,17 @@ class GridEditor(QWidget):
             return
         tempos = sorted(b[1] for b in self.beats)
         bpm = tempos[len(tempos) // 2] / 100.0
-        kind = t("grid.constant") if len(set(tempos)) <= 1 else t("grid.variable")
+        from .tempo_grids import changes as tempo_changes
+
+        kind = t("grid.constant") if len(set(tempos)) <= 1 else \
+            t("grid.split") if len(tempo_changes(self.beats)) < max(2, len(self.beats) // 16) else t("grid.variable")
         delta = self.beats[self.selected][2] - self._original_at(self.selected)
         parts = [f"{bpm:.2f} BPM", kind, plural("grid.beats_one", "grid.beats_many", len(self.beats))]
+        from .views.library_view import tempo_profile_of          # 1.4.3 (C69) : live, beatswitch… détecté
+        p = tempo_profile_of(self.track)
+        if p is not None and p.kind:
+            parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
+        self._refresh_tempo(p)
         if self._native:
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))
@@ -937,6 +1015,54 @@ class GridEditor(QWidget):
         self.state_lbl.setText("  ·  ".join(parts))
         self.state_lbl.setVisible(bool(parts))                  # 1.4.1 (C59) : pastille seulement s'il y a à enregistrer
         self.reset_btn.setEnabled(bool(parts))
+
+    def _refresh_tempo(self, p: Any) -> None:
+        """1.4.3 (C16) : bandeau « à vérifier » et boutons Grille fixe / Grille par passage."""
+        from .tempo_grids import is_constant, main_tempo
+
+        banner = getattr(self, "tempo_banner", None)
+        if banner is None:
+            return
+        changing = p is not None and bool(p.kind)
+        if changing:
+            what = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+            banner.setText(t("grid.tempo_banner_ok", kind=what) if self._grid_marked
+                           else t("grid.tempo_banner", kind=what))
+            role = "chip_ok" if self._grid_marked else "chip_warn"
+            if banner.property("role") != role:
+                banner.setProperty("role", role)
+                restyle(banner)
+        banner.setVisible(changing)
+        constant = is_constant(self.beats)
+        self.fixed_grid_btn.setVisible(not constant)
+        self.fixed_grid_btn.setToolTip(t("grid.fixed_grid_tip", bpm=f"{main_tempo(self.beats):.2f}"))
+        split = getattr(self.ctrl, "tempo_grids", None)
+        has_split = changing and len(getattr(p, "sections", []) or []) > 1 and split is not None
+        self.split_grid_btn.setVisible(has_split and constant)
+
+    def _fixed_grid(self) -> None:
+        """1.4.3 (C16) : un seul tempo pour tout le son, calé sur le temps sélectionné."""
+        from .tempo_grids import TempoGridService
+
+        if not self.beats:
+            return
+        anchor = self.beats[self.selected][2]
+        self.beats, _bpm = TempoGridService.fixed_grid(self.beats, self.selected, self.duration_ms)
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
+
+    def _split_grid(self) -> None:
+        """1.4.3 (C16) : retour à la grille par passage trouvée par l'analyse."""
+        svc = getattr(self.ctrl, "tempo_grids", None)
+        beats = svc.split_grid(self.track, self.duration_ms) if svc is not None else None
+        if not beats:
+            return
+        anchor = self.beats[self.selected][2] if self.beats else 0
+        self.beats = beats
+        self.selected = G.nearest(self.beats, anchor)
+        self._refresh_info()
+        self.draw()
 
     def _original_at(self, index: int) -> int:
         """Position d'origine du temps le plus proche (pour afficher le décalage appliqué)."""
@@ -1150,6 +1276,7 @@ class GridEditor(QWidget):
         try:
             hz = float(self.screen().refreshRate() or 60.0)
         except Exception:  # noqa: BLE001
+            log.debug("Handled error in _frame_interval", exc_info=True)  # 1.4.3 (A3-4)
             hz = 60.0
         best = max(7, int(1000.0 / min(max(hz, 30.0), 144.0)))
         cost = getattr(self.canvas, "paint_ms", 0.0)       # durée moyenne d'un dessin
@@ -1228,6 +1355,7 @@ class GridEditor(QWidget):
             self._grid_marked = True
             if self.winfo_exists():
                 self._refresh_checked()
+                self._refresh_info()                          # 1.4.3 (C16) : bandeau « grille vérifiée »
 
         self.checked_btn.setEnabled(False)
         self.ctrl.mark_grid_checked(self.track.content_id, done)
@@ -1249,6 +1377,9 @@ class GridEditor(QWidget):
 
             beats = self.beats if self.beats != self.original else None
             cues = self.cues if self.cues_dirty() else None
+            svc = getattr(self.ctrl, "tempo_grids", None)         # 1.4.3 (C16) : grille fixe gardée à la réanalyse
+            if svc is not None and beats is not None:
+                svc.remember_choice(self.track, beats)
             self.ctrl.save_grid_and_cues(self.track.content_id, beats, cues, ok=done, err=failed)
 
         if self._native and self.beats != self.original:

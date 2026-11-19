@@ -11,6 +11,7 @@ Le matériel visé (réglage `set_players`) adapte les contrôles aux limites co
 """
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ..i18n import plural, t
+
+log = logging.getLogger(__name__)
 
 PLAYERS = ("all", "recent", "nxs2", "old")
 LIMITS: Dict[str, Dict[str, Any]] = {
@@ -28,7 +31,7 @@ LIMITS: Dict[str, Dict[str, Any]] = {
 }
 LOW_SPACE = 0.05                      # moins de 5 % libres : orange
 BACKUP_OLD_DAYS = 30                  # dernière sauvegarde de plus d'un mois : orange
-LEVELS = ("ok", "warn", "error", "skip")
+LEVELS = ("ok", "warn", "error", "skip", "note")      # note (1.4.3, C213) : orange, sans effet sur le verdict
 
 
 @dataclass
@@ -36,13 +39,13 @@ class Check:
     key: str
     level: str                        # ok, warn, error, skip
     text: str
-    action: str = ""                  # analyse, pdb, missing, convert, space, backup, no_cue, empty_playlists
+    action: str = ""                  # analyse, pdb, missing, convert, space, backup, no_cue, empty_playlists, grids
     ids: List[int] = field(default_factory=list)
     state: str = ""                   # 1.4.2 (A2-12) : détail (ex. « absent » pour export.pdb)
 
     @property
     def mark(self) -> str:
-        return {"ok": "✓", "warn": "!", "error": "✕", "skip": "–"}.get(self.level, "•")
+        return {"ok": "✓", "warn": "!", "error": "✕", "skip": "–", "note": "!"}.get(self.level, "•")
 
 
 def limits(players: str) -> Dict[str, Any]:
@@ -123,6 +126,16 @@ def check_tracks(lib: Any, tracks: Sequence[Any], players: str, marks: Optional[
     return out
 
 
+def check_grids(tracks: Sequence[Any], checked: Any) -> Check:
+    """1.4.3 (C213) : sons analysés dont la grille n'a pas encore été vérifiée à la main (« Grille juste » ou grille
+    corrigée). Orange, mais sans effet sur le verdict : une grille calculée est souvent juste."""
+    todo = [x.content_id for x in tracks if x.is_analysed and x.content_id not in checked]
+    if not todo:
+        return Check("grids", "ok", t("set.grids_ok"))
+    return Check("grids", "note", plural("set.grids_unchecked_one", "set.grids_unchecked_many", len(todo)),
+                 action="grids", ids=todo)
+
+
 def check_playlists(playlists: Sequence[Any]) -> Check:
     lists = [p for p in playlists if not p.is_folder]
     empty = [p for p in lists if p.is_editable and not p.track_count]
@@ -180,26 +193,38 @@ def run(lib: Any, filesystem: str, players: str, should_stop: Optional[Callable[
     try:
         status = lib.pdb_status()
     except Exception as exc:  # noqa: BLE001 - export.pdb illisible : une ligne rouge, pas une erreur
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         status = type("S", (), {"state": "unsupported", "detail": str(exc)})()
     checks.append(check_pdb(status))
     tracks = lib.list_tracks()
     try:
         marks = read_marks(lib, tracks, should_stop=should_stop)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         marks = None
     checks += check_tracks(lib, tracks, players, marks)
+    try:                                                    # 1.4.3 (C213) : grilles vérifiées à la main
+        from ..db import grid_marks
+
+        checked = grid_marks.load(lib.backup_dir)
+    except Exception:  # noqa: BLE001 - registre illisible : aucune grille comptée comme vérifiée
+        log.debug("Handled error in run", exc_info=True)
+        checked = set()
+    pos = next((i + 1 for i, c in enumerate(checks) if c.key == "analysis"), len(checks))
+    checks.insert(pos, check_grids(tracks, checked))
     checks.append(check_playlists(lib.list_playlists()))
     checks.append(check_space(lib.drive.root))
     try:
         points = backups.list_points(lib.backup_dir)
     except Exception:  # noqa: BLE001
+        log.debug("Handled error in run", exc_info=True)  # 1.4.3 (A3-4)
         points = []
     checks.append(check_backup(points))
     return checks
 
 
 def verdict(checks: Sequence[Check]) -> str:
-    levels = {c.level for c in checks}
+    levels = {c.level for c in checks if c.level != "note"}        # 1.4.3 (C213) : une note ne bloque rien
     return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 

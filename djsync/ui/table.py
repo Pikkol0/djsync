@@ -445,8 +445,7 @@ class _KeyDelegate(QStyledItemDelegate):
 
 class TrackTable(QTableView):
     def __init__(self, parent: Any, columns: Sequence[Column], loader: Any = None, show_covers: bool = False,
-                 selectmode: str = "extended", reorderable: bool = False, click_columns: Sequence[str] = (),
-                 badges: bool = False) -> None:
+                 selectmode: str = "extended", reorderable: bool = False, click_columns: Sequence[str] = ()) -> None:
         super().__init__(parent)
         self.columns = list(columns)
         self.fit_content = False              # 1.4.0-rc.4 (C150) : colonnes ajustées au contenu
@@ -487,6 +486,7 @@ class TrackTable(QTableView):
         self._layout_save: Optional[Callable[[], None]] = None
         self.default_hidden: set = set()
         self._user_hidden: set = set()
+        self.on_columns_changed: Optional[Callable[[], None]] = None   # 1.4.3 (C214) : colonne cochée / décochée
         self._user_widths: Dict[str, int] = {}
         self._fitting = False
         self._save_pending = False
@@ -502,6 +502,13 @@ class TrackTable(QTableView):
 
         self._model = _Model(self)
         self.setModel(self._model)
+        # 1.4.3 (A1-5) : sélection lue par plages et gardée jusqu'au prochain changement (« Tout sélectionner »
+        # passait par selectedRows(), qui interroge chaque cellule : 2,9 s à 5 000 sons).
+        self._sel_cache: Any = None
+        self.selectionModel().selectionChanged.connect(self._sel_dirty)
+        for sig in (self._model.modelReset, self._model.layoutChanged, self._model.rowsInserted,
+                    self._model.rowsRemoved):
+            sig.connect(self._sel_dirty)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.SingleSelection if selectmode == "browse"
                               else QAbstractItemView.ExtendedSelection)
@@ -781,6 +788,8 @@ class TrackTable(QTableView):
             self._user_hidden.add(key)
         self._fit_columns()
         self._store_layout()
+        if self.on_columns_changed is not None:
+            self.on_columns_changed()
 
     def reset_layout(self) -> None:
         self._user_hidden = set(self.default_hidden)
@@ -789,6 +798,24 @@ class TrackTable(QTableView):
         self._apply_order()
         self._fit_columns()
         self._store_layout()
+        if self.on_columns_changed is not None:
+            self.on_columns_changed()
+
+    @property
+    def user_hidden(self) -> set:
+        """1.4.3 (C214) : colonnes masquées par l'utilisateur (ou par la vue choisie)."""
+        return set(self._user_hidden)
+
+    def apply_hidden(self, hidden: Any) -> None:
+        """1.4.3 (C214) : colonnes d'une vue (largeurs et ordre gardés)."""
+        self._user_hidden = set(hidden)
+        self._fit_columns()
+        self._store_layout()
+
+    def layout_columns(self) -> List[str]:
+        """1.4.3 (C214) : toutes les colonnes qu'une vue peut afficher ou masquer (N° compris, hors playlist)."""
+        return [c.key for c in self.columns if c.title and not c.stretch and c.key not in ICON_COLUMNS
+                and c.key not in ("chk",)]
 
     def _header_menu(self, pos: QPoint) -> None:
         if self._layout_key is None:
@@ -904,8 +931,6 @@ class TrackTable(QTableView):
         row.tags = tuple(tags)
         self.update_values(iid)
 
-    def refresh_cover(self, iid: str) -> None:
-        self.update_values(iid)
 
     COVER_PX = 30
 
@@ -947,9 +972,20 @@ class TrackTable(QTableView):
     def total(self) -> int:
         return len(self._rows)
 
+    def _sel_dirty(self, *_a: Any) -> None:
+        self._sel_cache = None
+
     def selected_iids(self) -> List[str]:
-        rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
-        return [self._shown[r] for r in rows if 0 <= r < len(self._shown)]
+        shown = self._shown
+        cache = self._sel_cache
+        if cache is not None and cache[0] is shown and cache[1] == len(shown):
+            return list(cache[2])
+        rows: set = set()
+        for rng in self.selectionModel().selection():
+            rows.update(range(rng.top(), rng.bottom() + 1))
+        out = [shown[r] for r in sorted(rows) if 0 <= r < len(shown)]
+        self._sel_cache = (shown, len(shown), out)
+        return list(out)
 
     def selected_rows(self) -> List[Row]:
         return [self._rows[i] for i in self.selected_iids()]

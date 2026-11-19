@@ -24,6 +24,7 @@ Their source code is available at the addresses below.
 | [pydantic](https://github.com/pydantic/pydantic), [async-upnp-client](https://github.com/StevenLooman/async_upnp_client), [aiohttp](https://github.com/aio-libs/aiohttp), aiofiles, multidict | used by aioslsk | MIT / Apache-2.0 |
 | [psutil](https://github.com/giampaolo/psutil) | "is Rekordbox open?" | BSD-3-Clause |
 | [rkbdb2xml](https://github.com/kuwa72/rkbdb2xml) (algorithm, re-implemented in `djsync/analysis/anlz.py`) | analysis folder names computed like Rekordbox | MIT |
+| [Sleeve](https://github.com/alii/sleeve) (methods re-implemented in `djsync/core/durable.py`, `djsync/core/win_eject.py`, `djsync/core/space.py`, `djsync/analysis/rbwave.py`) | safe writes on exFAT under macOS, Windows eject like *Safely Remove Hardware*, space estimate rounded to the drive's blocks; waveforms (PWV2 to PWV7, PWAV, PWVC) computed with Rekordbox's formulas, ported from `wave_creator.rs` and `blue_overview.rs` (1.4.3) | GPL-2.0-or-later |
 | [miniz](https://github.com/richgel999/miniz) (`packaging/launcher`) | single-file Windows launcher | MIT |
 | [Python](https://www.python.org/) (via PyInstaller) | runtime | PSF License |
 

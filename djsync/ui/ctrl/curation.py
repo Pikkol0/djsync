@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ...i18n import t
@@ -24,12 +23,8 @@ class CurationMixin:
             return ""
         if self.is_local:
             return "local:" + str(getattr(lib, "db_path", ""))
-        created = ""
-        try:
-            rows = lib._read("SELECT COALESCE(createdDate,''), COALESCE(deviceName,'') FROM property LIMIT 1")
-            created = "|".join(str(x) for x in rows[0]) if rows else ""
-        except Exception:  # noqa: BLE001
-            pass
+        ident = getattr(lib, "library_identity", None)                 # 1.4.3 (A3-3) : plus de SQL ici
+        created = ident() if callable(ident) else ""
         return "usb:" + (getattr(drive, "label", "") or "") + ":" + created
 
     # ------------------------------------------------------------ infos d'un son (S04)
@@ -188,7 +183,7 @@ class CurationMixin:
         try:
             self.settings.save()
         except OSError:
-            pass
+            log.debug("Ignored error in save_settings_quiet", exc_info=True)  # 1.4.3 (A3-4)
 
     def track_genres(self, ok: Callback) -> None:
         lib = self.library

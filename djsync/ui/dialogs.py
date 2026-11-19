@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QLineEdit, QPushButton, QScrollArea, QWidget,
+    QCheckBox, QComboBox, QDialog, QLineEdit, QPushButton, QWidget,
 )
 
 from ..i18n import t
@@ -128,13 +128,17 @@ class BaseDialog(QDialog):
 class ConfirmDialog(BaseDialog):
     def __init__(self, parent: Any, title: str, message: str, on_confirm: Callable[[], None],
                  confirm_text: str = "", danger: bool = False, detail: str = "",
-                 on_cancel: Optional[Callable[[], None]] = None) -> None:
+                 on_cancel: Optional[Callable[[], None]] = None, warning: str = "") -> None:
         super().__init__(parent, title, 440)
         self._on_confirm, self._on_cancel = on_confirm, on_cancel
         self.heading(title)
         self.body.addWidget(label(message, wrap=True))
         if detail:
             self.body.addWidget(label(detail, "dim", wrap=True))
+        self.warning_lbl = None
+        if warning:                       # 1.4.3 (A07) : ce qui ne pourra pas être retrouvé, en rouge
+            self.warning_lbl = label(warning, "err", wrap=True)
+            self.body.addWidget(self.warning_lbl)
         self.footer(confirm_text or t("action.confirm"), self._ok, danger=danger)
         self.show_dialog()
 
@@ -148,6 +152,56 @@ class ConfirmDialog(BaseDialog):
         super().closeEvent(e)
         if cancel:
             cancel()
+
+
+class ChoiceConfirmDialog(BaseDialog):
+    """1.4.3 (A07) : confirmation avec un choix (boutons radio, le premier coché) ; on_confirm(index choisi).
+    `details[i]` (gris) et `warnings[i]` (rouge) s'affichent sous le choix i quand il est coché."""
+
+    def __init__(self, parent: Any, title: str, message: str, choices: Sequence[str],
+                 on_confirm: Callable[[int], None], confirm_text: str = "", danger: bool = False,
+                 details: Sequence[str] = (), warnings: Sequence[str] = ()) -> None:
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton
+
+        super().__init__(parent, title, 460)
+        self._on_confirm = on_confirm
+        self._details, self._warnings = list(details), list(warnings)
+        self.heading(title)
+        self.body.addWidget(label(message, wrap=True))
+        self.group = QButtonGroup(self)
+        self.radios: List[Any] = []
+        for i, text in enumerate(choices):
+            r = QRadioButton(text)
+            r.setChecked(i == 0)
+            self.group.addButton(r, i)
+            self.radios.append(r)
+            self.body.addWidget(r)
+        self.detail_lbl = label("", "dim", wrap=True)
+        self.warning_lbl = label("", "err", wrap=True)
+        self.body.addWidget(self.detail_lbl)
+        self.body.addWidget(self.warning_lbl)
+        self.group.idToggled.connect(lambda _i, on: on and self._update())
+        self._update()
+        self.footer(confirm_text or t("action.confirm"), self._ok, danger=danger)
+        self.show_dialog()
+
+    @property
+    def choice(self) -> int:
+        return max(0, self.group.checkedId())
+
+    def _update(self) -> None:
+        i = self.choice
+        detail = self._details[i] if i < len(self._details) else ""
+        warning = self._warnings[i] if i < len(self._warnings) else ""
+        self.detail_lbl.setText(detail)
+        self.detail_lbl.setVisible(bool(detail))
+        self.warning_lbl.setText(warning)
+        self.warning_lbl.setVisible(bool(warning))
+
+    def _ok(self) -> None:
+        i = self.choice
+        self.close()
+        self._on_confirm(i)
 
 
 class TextInputDialog(BaseDialog):
@@ -683,32 +737,6 @@ class FiltersPopup(BaseDialog):
         else:
             self._on_apply(words, value, minutes, self._hide_owned.isChecked())
 
-
-class MetadataDialog(BaseDialog):
-    """Modifier le titre et l'artiste d'un son (base + export.pdb ; le fichier n'est pas renommé)."""
-
-    def __init__(self, parent: Any, title: str, artist: str, on_ok: Callable[[str, str], None]) -> None:
-        super().__init__(parent, t("meta.title"), 440)
-        self._on_ok = on_ok
-        self.heading(t("meta.title"))
-        self.body.addWidget(label(t("track.title"), "dim"))
-        self._title = QLineEdit(title)
-        self.body.addWidget(self._title)
-        self.body.addWidget(label(t("track.artist"), "dim"))
-        self._artist = QLineEdit(artist)
-        self.body.addWidget(self._artist)
-        for e in (self._title, self._artist):
-            e.returnPressed.connect(self._ok)
-        self.footer(t("action.save"), self._ok)
-        self.show_dialog()
-        self._title.setFocus()
-        self._title.selectAll()
-
-    def _ok(self) -> None:
-        title, artist = self._title.text().strip(), self._artist.text().strip()
-        if title:
-            self.close()
-            self._on_ok(title, artist)
 
 
 class ErrorReportDialog(BaseDialog):
