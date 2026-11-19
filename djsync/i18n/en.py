@@ -1215,6 +1215,8 @@ STRINGS = {
     "settings.auto_cue_hint": "Players can jump straight to the first beat of a bar. Tracks that already have cues are not changed.",
     "settings.write_tags": "Write the BPM and key into the audio files after the analysis",          # 1.4.3 (S05)
     "settings.write_tags_hint": "Other software (Serato, Traktor, Mixed In Key, file explorers) can then read them. Only the tags are rewritten, never the sound.",
+    "settings.auto_gain": "Same volume for every track (automatic gain, like Rekordbox)",          # 1.4.3 (C109)
+    "settings.auto_gain_hint": "Measured during the analysis; DJSync's player plays every analysed track at the same loudness, without ever clipping. On this computer, the gain is also written to Rekordbox (its Auto Gain knob).",
     "settings.format": "File format",
     # ---- V1.0.0
     "msg.pdb_repaired": "The older players' library (export.pdb) was missing {tracks} track(s) and {playlists} playlist(s): repaired.",

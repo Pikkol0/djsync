@@ -1215,6 +1215,8 @@ STRINGS = {
     "settings.auto_cue_hint": "Les platines peuvent sauter directement au premier temps d'une mesure. Les sons qui ont déjà des cues ne sont pas modifiés.",
     "settings.write_tags": "Écrire le BPM et la tonalité dans les fichiers audio après l'analyse",          # 1.4.3 (S05)
     "settings.write_tags_hint": "Les autres logiciels (Serato, Traktor, Mixed In Key, explorateurs de fichiers) peuvent alors les lire. Seuls les tags sont réécrits, jamais le son.",
+    "settings.auto_gain": "Même volume pour tous les sons (gain automatique, comme Rekordbox)",          # 1.4.3 (C109)
+    "settings.auto_gain_hint": "Mesuré pendant l'analyse ; le lecteur de DJSync joue chaque son analysé à la même sonie, sans jamais saturer. Sur cet ordinateur, le gain est aussi écrit dans Rekordbox (son bouton Auto Gain).",
     "settings.format": "Format des fichiers",
     # ---- V1.0.0
     "msg.pdb_repaired": "Il manquait {tracks} son(s) et {playlists} playlist(s) dans la bibliothèque des anciennes platines (export.pdb) : c'est réparé.",

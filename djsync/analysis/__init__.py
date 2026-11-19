@@ -37,6 +37,15 @@ class AnalysisResult:
     waveforms: Waveforms
     seconds: float = 0.0          # temps de calcul
     cutoff: Optional[int] = None  # 1.4.0 (C46) : coupure du spectre (Hz), vraie qualité du fichier
+    lufs: Optional[float] = None  # 1.4.3 (C109) : sonie intégrée
+    peak_db: Optional[float] = None
+
+    @property
+    def gain_db(self) -> float:
+        """1.4.3 (C109) : gain automatique (dB), comme le « Auto Gain » de Rekordbox."""
+        from .loudness import gain_db
+
+        return gain_db(self.lufs, self.peak_db)
 
     @property
     def bpm(self) -> float:
@@ -79,6 +88,13 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         x, sr = audio.samples, audio.sr
         grid = analyze_tempo(x, sr)
         key = analyze_key(x, sr)
+        try:                                              # 1.4.3 (C109) : gain automatique
+            from .loudness import measure as measure_loudness
+
+            lufs, peak_db = measure_loudness(x, sr)
+        except Exception:  # noqa: BLE001
+            log.debug("Ignored error in analyze_file (loudness)", exc_info=True)
+            lufs = peak_db = None
         wf = None
         if native is not None and rekordbox_rate(native.rate):
             try:
@@ -108,7 +124,12 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
     finally:
         if native is not None:
             native.close()
-    return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff)
+    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff, lufs, peak_db)
+    if not _in_worker and lufs is not None:
+        from .loudness import remember as remember_gain
+
+        remember_gain(path, result.gain_db, peak_db)
+    return result
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,

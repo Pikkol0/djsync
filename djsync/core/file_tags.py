@@ -105,6 +105,13 @@ def after_analysis(path: Union[str, Path], analysis) -> Optional[int]:
     except Exception:  # noqa: BLE001
         before = None
     size = write_analysis_tags(path, analysis.bpm, analysis.key.name)
+    if size is not None and getattr(analysis, "lufs", None) is not None:      # 1.4.3 (C109) : même clé (taille)
+        try:
+            from ..analysis.loudness import remember as remember_gain
+
+            remember_gain(path, analysis.gain_db, analysis.peak_db)
+        except Exception:  # noqa: BLE001
+            log.debug("Ignored error in after_analysis (gain)", exc_info=True)
     if size is not None:
         cutoff = analysis.cutoff if analysis.cutoff is not None else before
         if cutoff is not None:

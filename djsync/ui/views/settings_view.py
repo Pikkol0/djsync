@@ -416,6 +416,10 @@ class SettingsView(View):
         self.tags_var.setChecked(s.write_tags)
         self.tags_var.setToolTip(t("settings.write_tags_hint"))
         card.addWidget(self.tags_var)
+        self.gain_var = WrapCheckBox(t("settings.auto_gain"))                    # 1.4.3 (C109)
+        self.gain_var.setChecked(s.auto_gain)
+        self.gain_var.setToolTip(t("settings.auto_gain_hint"))
+        card.addWidget(self.gain_var)
         card.addWidget(label(t("settings.reanalyse_rekordbox"), wrap=True))       # 1.4.1 (C131, D20)
         row = flow_row(spacing=12)                                                  # 1.4.2 (A2-1)
         self.reanalyse_vars = {}
@@ -1813,6 +1817,7 @@ class SettingsView(View):
                 "analyze_after_download_local": self.analyze_local_var.isChecked(),
                 "auto_cue": self.cue_var.isChecked(),
                 "write_tags": self.tags_var.isChecked(),
+                "auto_gain": self.gain_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
@@ -1926,6 +1931,7 @@ class SettingsView(View):
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
         s.write_tags = self.tags_var.isChecked()                  # 1.4.3 (S05)
+        s.auto_gain = self.gain_var.isChecked()                   # 1.4.3 (C109)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:

@@ -168,3 +168,210 @@ def test_a1_6_run_analysis_prefetches_in_processes(monkeypatch, mp3_file, tmp_pa
     assert all(taken) and len(taken) == 3
     for a, b in zip(expected, got):
         assert a.bpmx100 == b.bpmx100 and a.key.name == b.key.name and a.waveforms == b.waveforms
+
+
+# ------------------------------------------------------------------------- C185 : longues playlists
+def test_c185_sources_read_up_to_2000_tracks():
+    from djsync.core import deezer
+    from djsync.core.urlimport import PLAYLIST_CAP, SOURCES
+
+    assert PLAYLIST_CAP == 2000 and deezer.MAX_TRACKS == 2000
+    assert {s.key: s.limit for s in SOURCES}["youtube"] == 2000 and {s.key: s.limit for s in SOURCES}["spotify"] == 100
+
+
+@pytest.fixture
+def import_demo(tmp_path, monkeypatch):
+    pytest.importorskip("PySide6")
+    from .qt_util import close_window
+    from .test_ui_v024 import _app
+
+    w = _app(tmp_path, monkeypatch)
+    yield w
+    close_window(w)
+
+
+def test_c185_import_loads_pages_on_its_own_and_stops_at_2000(import_demo, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    from djsync.models import ResolvedUrl, TrackResult, UrlKind
+
+    view = import_demo.views["import"]
+    import_demo.show_view("import")
+
+    def tr(i):
+        return TrackResult(video_id=f"V{i:010d}", title=f"T{i}", artist="A", album=None, duration_seconds=200,
+                           thumbnail_url="", result_type="video")
+
+    asked = []
+
+    def import_more(url, start, ok, err=None):
+        asked.append(start)
+        ok(ResolvedUrl(UrlKind.YOUTUBE, "Huge", [tr(i) for i in range(start, start + 200)], url, True, "", True, 3000,
+                       start))
+
+    monkeypatch.setattr(import_demo.ctrl, "import_more", import_more)
+    view._load_direct(ResolvedUrl(UrlKind.YOUTUBE, "Huge", [tr(i) for i in range(1, 201)], "https://youtube.com/p",
+                                  True, "", True, 3000, 1))
+    for _ in range(40):
+        QApplication.processEvents()
+    assert len(view.resolved.tracks) == 2000 and len(asked) == 9
+    assert view.more_box.isVisibleTo(view) and not view.more_btn.isVisibleTo(view)      # « 2 000 premiers sur 3 000 »
+    assert "3000" in view.more_lbl.text().replace(" ", "").replace(" ", "")
+
+
+# ------------------------------------------------------------------------- B89 : recherche Haute qualité
+def test_b89_archive_query_targets_music_and_title_or_artist():
+    from djsync.core.freesources import archive_query
+
+    q = archive_query("Jul bande")
+    assert "(title:(jul) OR creator:(jul))" in q and "(title:(bande) OR creator:(bande))" in q
+    assert "-collection:(podcasts" in q and "radioprograms" in q and "mediatype:(audio)" in q
+
+
+def test_b89_audius_albums_become_album_rows():
+    from djsync.core import freesources as F
+
+    def get(url, params=None):
+        if url == F.AUDIUS_HOSTS:
+            return {"data": ["https://h.example"]}
+        if url.endswith("/v1/tracks/search"):
+            return {"data": []}
+        if url.endswith("/v1/playlists/search"):
+            return {"data": [{"id": "A1", "is_album": True, "playlist_name": "Night Drive", "user": {"name": "Jul"},
+                              "permalink": "/jul/album/night-drive"},
+                             {"id": "P2", "is_album": False, "playlist_name": "Jul mix", "user": {"name": "x"}}]}
+        if url.endswith("/v1/playlists/A1/tracks"):
+            return {"data": [{"id": i, "title": f"T{i}", "duration": 200, "user": {"name": "Jul", "handle": "jul"},
+                              "permalink": f"/jul/t{i}"} for i in (1, 2, 3)]}
+        raise AssertionError(url)
+
+    out = F.audius_search("jul", get=get)
+    albums = [x for x in out if x.is_album]
+    assert len(albums) == 1 and albums[0].track_count == 3 and albums[0].title == "Night Drive"
+    assert [t.track_no for t in albums[0].tracks] == [1, 2, 3] and albums[0].tracks[0].album == "Night Drive"
+
+
+# ------------------------------------------------------------------------------ C53 : fonds
+def test_c53_backgrounds_keep_accent_readable():
+    from djsync.ui import theme
+    from djsync.ui.palettes import MIN_CONTRAST, PALETTES
+
+    try:
+        for bg in theme.BACKGROUNDS:
+            theme.apply_background(bg)
+            for name in PALETTES:
+                theme.apply_palette(name)
+                assert theme.contrast(theme.ACCENT, theme.SURFACE) >= MIN_CONTRAST - 0.05, (bg, name)
+                assert theme.contrast(theme.TEXT, theme.SURFACE) >= 7.0, bg
+        theme.apply_background("bright")
+        assert theme.is_bright() and theme.SURFACE == "#FFFFFF"
+        theme.apply_background("oled")
+        assert theme.BG == "#000000"
+    finally:
+        theme.apply_background("default")
+        theme.apply_palette(theme.DEFAULT_THEME)
+
+
+def test_c53_background_setting_rebuilds_the_window(import_demo):
+    from djsync.ui import theme
+
+    w = import_demo
+    try:
+        w.ctrl.settings.background = "bright"
+        w.ctrl._emit("restyle")
+        assert theme.CURRENT_BACKGROUND == "bright" and w._built_background == "bright" and not w.errors
+        w.show_view("settings")
+        page = w.views["settings"]
+        assert page.bg_menu.count() == 4
+    finally:
+        w.ctrl.settings.background = "default"
+        w.ctrl._emit("restyle")
+    assert theme.CURRENT_BACKGROUND == "default"
+
+
+# ---------------------------------------------------------------------------- S05 : tags du fichier
+@pytest.mark.parametrize("ext,args", [("mp3", ["-b:a", "128k"]), ("m4a", ["-c:a", "aac"]), ("flac", [])])
+def test_s05_bpm_and_key_written_once(tmp_path, ext, args):
+    import mutagen
+
+    from djsync.core.file_tags import write_analysis_tags
+
+    ff = _ffmpeg()
+    f = tmp_path / f"x.{ext}"
+    subprocess.run([ff, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=2", *args, str(f)], check=True)
+    assert write_analysis_tags(f, 123.4, "Am") == f.stat().st_size
+    assert write_analysis_tags(f, 123.4, "Am") is None                     # déjà là : rien n'est réécrit
+    tags = mutagen.File(str(f)).tags
+    text = " ".join(f"{k}={v}" for k, v in tags.items())
+    assert "123" in text and "Am" in text
+
+
+# ------------------------------------------------------------------------- C109 : gain automatique
+def test_c109_loudness_and_gain():
+    from djsync.analysis import loudness
+
+    sr = 22050
+    t = np.arange(sr * 10) / sr
+    quiet = (0.05 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+    loud = (0.5 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+    lq, pq = loudness.measure(quiet, sr)
+    ll, pl = loudness.measure(loud, sr)
+    assert abs((ll - lq) - 20.0) < 0.1 and abs(lq - (-29.0)) < 0.5            # sinus 1 kHz : BS.1770
+    assert loudness.gain_db(lq) == 12.0 and loudness.gain_db(ll) == pytest.approx(loudness.TARGET_LUFS - ll)
+    assert loudness.playback_factor(12.0, pq) <= 10 ** (-pq / 20)               # jamais de saturation
+    assert loudness.measure(np.zeros(10, np.float32), sr) == (None, None)
+
+
+def test_c109_gain_remembered_and_applied_by_the_player(tmp_path, mp3_file):
+    import shutil
+
+    from djsync.analysis import analyze_file, loudness
+    from djsync.audio import player
+
+    loudness.use_store(tmp_path / "gain.json")
+    try:
+        f = tmp_path / "s.mp3"
+        shutil.copy(mp3_file, f)
+        res = analyze_file(f)
+        assert res.lufs is not None and loudness.known(f) == pytest.approx((res.gain_db, res.peak_db), abs=0.01)
+        assert player._gain_of(f) == pytest.approx(loudness.playback_factor(res.gain_db, res.peak_db))
+        assert player._gain_of(tmp_path / "unknown.mp3") == 1.0
+    finally:
+        loudness.use_store(None)
+
+
+def test_c109_s05_local_library_writes_mixer_gain_and_tags(tmp_path, monkeypatch, mp3_file):
+    pytest.importorskip("pyrekordbox")
+    import shutil
+
+    import mutagen
+
+    from djsync.analysis import loudness
+
+    from .test_local_library import DATA
+    from djsync.db import local_library as L
+
+    db_dir = tmp_path / "Pioneer" / "rekordbox"
+    db_dir.mkdir(parents=True)
+    for f in DATA.glob("*"):
+        if f.suffix != ".md":
+            shutil.copy(f, db_dir / f.name)
+    monkeypatch.setattr(L, "rekordbox_running", lambda: False)
+    loudness.use_store(tmp_path / "gain.json")
+    lib = L.LocalRekordboxLibrary(L.LocalRekordbox(db_dir, tmp_path / "Music"), backup_root=tmp_path / "b",
+                                  owned_path=tmp_path / "owned.json", analyze=True).connect()
+    try:
+        lib.write_tags = True
+        music = lib.default_download_dir("A", "B")
+        music.mkdir(parents=True, exist_ok=True)
+        path = music / "beat.mp3"
+        shutil.copy(mp3_file, path)
+        t = lib.add_track(path, "Beat", "A", "B", "", [])
+        assert t.is_analysed
+        gain = lib._read("SELECT GainHigh, GainLow FROM djmdMixerParam WHERE ContentID = :id", {"id": str(t.content_id)})
+        assert gain and (gain[0][0] or gain[0][1])
+        size = lib._read("SELECT FileSize FROM djmdContent WHERE ID = :id", {"id": str(t.content_id)})[0][0]
+        assert size == path.stat().st_size and "TBPM" in mutagen.File(str(path)).tags
+    finally:
+        lib.close()
+        loudness.use_store(None)

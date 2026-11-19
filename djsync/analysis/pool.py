@@ -183,6 +183,10 @@ def _remember(path: Any, result: Any) -> None:
     try:
         from .spectrum import known, remember
 
+        if getattr(result, "lufs", None) is not None:          # 1.4.3 (C109)
+            from .loudness import remember as remember_gain
+
+            remember_gain(path, result.gain_db, result.peak_db)
         if result.cutoff is not None and known(path) is None:
             remember(path, result.cutoff)
         elif result.cutoff is None:

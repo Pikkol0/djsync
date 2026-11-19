@@ -62,6 +62,18 @@ class NowPlaying:
     cover_path: Optional[str] = None       # image locale (pochette Rekordbox de la clé)
 
 
+def _gain_of(path: Path) -> float:
+    """1.4.3 (C109) : facteur du gain automatique mesuré à l'analyse (1 si inconnu)."""
+    try:
+        from ..analysis.loudness import known, playback_factor
+
+        k = known(path)
+        return playback_factor(*k) if k else 1.0
+    except Exception:  # noqa: BLE001
+        log.debug("Handled error in _gain_of", exc_info=True)
+        return 1.0
+
+
 def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
@@ -265,6 +277,8 @@ class AudioPlayer:
         self.meta: Optional[NowPlaying] = None
         self.duration = 0.0
         self._volume = 0.8
+        self.auto_gain = True              # 1.4.3 (C109) : volume égalisé entre les sons (réglage)
+        self._gain = 1.0                   # facteur du son en cours (1 : gain inconnu ou réglage coupé)
         self._gen = 0                      # annule les chargements devenus obsolètes
         self._device = None
         self._lock = threading.Lock()
@@ -370,11 +384,12 @@ class AudioPlayer:
                 self._cb_time, self._cb_frames, self._cb_period = now, self._frames, n / RATE
         if not data:
             return silence
-        if self._volume < 0.999:
+        level = (self._volume ** 2) * (self._gain if self.auto_gain else 1.0)
+        if abs(level - 1.0) > 0.001:
             import numpy as np
 
-            pcm = np.frombuffer(data, dtype="<i2").astype(np.float32) * (self._volume ** 2)
-            data = pcm.astype("<i2").tobytes()
+            pcm = np.frombuffer(data, dtype="<i2").astype(np.float32) * level
+            data = np.clip(pcm, -32768, 32767).astype("<i2").tobytes()
         return data + silence[len(data):]
 
     def _ensure_device(self) -> bool:
@@ -450,6 +465,7 @@ class AudioPlayer:
         self._gen += 1
         self.meta = meta
         self._path = path
+        self._gain = _gain_of(path)                  # 1.4.3 (C109)
         self._set_state(LOADING)
         threading.Thread(target=self._prepare, args=(self._gen, path, meta), daemon=True).start()
 

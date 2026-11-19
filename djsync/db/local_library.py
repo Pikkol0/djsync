@@ -1132,6 +1132,11 @@ class LocalRekordboxLibrary:
             content.AnalysisUpdated = str(int(content.AnalysisUpdated or 0) + 1)
             if ex.file_size:                          # 1.4.3 (S05)
                 content.FileSize = ex.file_size
+            if getattr(ex.analysis, "lufs", None) is not None:       # 1.4.3 (C109) : Auto Gain de Rekordbox
+                try:
+                    self._mixer_gain(db, content, ex.analysis.gain_db, ex.analysis.peak_db)
+                except Exception:  # noqa: BLE001 - le gain n'est qu'un plus
+                    log.info("Auto gain not written for %s", content.ID, exc_info=True)
             if self.auto_cue:
                 self._memory_cue(db, content, ex.analysis.first_downbeat_ms)
             for ext in (".DAT", ".EXT", ".2EX"):
@@ -1142,6 +1147,23 @@ class LocalRekordboxLibrary:
             content.ImagePath = ex.jpegs["path"]
             self._file_row(db, content, ex.jpegs["path"])
         content.updated_at = now
+
+    @staticmethod
+    def _mixer_gain(db: Any, content: Any, gain: float, peak_db: Optional[float]) -> None:
+        """1.4.3 (C109) : gain automatique dans djmdMixerParam (bouton Auto Gain de Rekordbox) et crête."""
+        from pyrekordbox.masterdb import models
+
+        row = db.query(models.DjmdMixerParam).filter_by(ContentID=content.ID).first()
+        now = datetime.now()
+        if row is None:
+            row = models.DjmdMixerParam.create(ID=str(db.generate_unused_id(models.DjmdMixerParam)),
+                                               ContentID=content.ID, GainHigh=0, GainLow=0, PeakHigh=0, PeakLow=0,
+                                               UUID=str(uuid4()), created_at=now, updated_at=now)
+            db.add(row)
+        row.Gain = float(gain)
+        if peak_db is not None:
+            row.Peak = float(peak_db)
+        row.updated_at = now
 
     @staticmethod
     def _memory_cue(db: Any, content: Any, ms: Optional[int]) -> None:

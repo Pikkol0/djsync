@@ -1179,6 +1179,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._apply_output()
         self.player.ffmpeg_location = s.ffmpeg_location or None
         self.player.latency_offset_ms = s.audio_latency_ms
+        self.player.auto_gain = bool(getattr(s, "auto_gain", True))      # 1.4.3 (C109)
         if self.library is not None:
             self.library.contents_dir = s.contents_dir.strip("/\\") or "Contents"
             self.library.backup_keep = s.backup_keep
