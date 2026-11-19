@@ -105,6 +105,12 @@ class Settings:
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
     waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
+    # 1.4.3 (A07, C156) : sur l'ordinateur, « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas
+    # téléchargés ; coché, ces sons sont seulement retirés de Rekordbox (comme avant la 1.4.3)
+    protect_foreign: bool = False
+    # 1.4.3 (C214) : vues de colonnes de la Bibliothèque : {"current", "custom": {id: {name, shown}},
+    # "saved": {vue d'origine: shown}, "by_list": {clé|liste: id}}
+    library_views: dict = field(default_factory=dict)
     local_hosts: list = field(default_factory=list)   # version portable : PC dont la bibliothèque a été acceptée
     diag_ignored: list = field(default_factory=list)  # V1.1.0 : problèmes du diagnostic marqués « ignorer »
     check_updates: bool = True                        # V1.2.0 : nouvelle version de DJSync ? (une fois par jour)
@@ -243,6 +249,7 @@ class Settings:
         self.update_channel = self.update_channel if self.update_channel in ("auto", "stable", "test") else "auto"
         self.error_reports = self.error_reports if self.error_reports in ("ask", "always", "never") else "ask"
         self.table_layouts = self.table_layouts if isinstance(self.table_layouts, dict) else {}
+        self.library_views = self.library_views if isinstance(self.library_views, dict) else {}       # C214
         self.playlist_sorts = dict(list(self.playlist_sorts.items())[-500:]) if isinstance(self.playlist_sorts, dict) else {}
         self.search_field = self.search_field if self.search_field in ("all", "title", "artist", "album") else "all"
         if self.search_mode == "artists":          # 1.2.1 : « Artistes » passe du popup au champ de recherche
@@ -271,7 +278,7 @@ class Settings:
     KEEP_ALWAYS = ("geometry", "maximized", "last_tab", "table_layouts", "playlist_sorts", "feedback_id",
                    "diag_ignored", "genre_playlists", "local_hosts", "settings_section", "settings_version",
                    "last_update_check", "active_drive", "welcome_done", "start_menu_shortcut",
-                   "diag_tab", "auto_lists_open", "panels_folded")
+                   "diag_tab", "auto_lists_open", "panels_folded", "library_views")
     # Gardés si l'utilisateur le souhaite (case cochée par défaut) : langue, dossiers et bibliothèques.
     KEEP_CHOICES = ("language", "forced_drive", "contents_dir", "ffmpeg_location", "local_db_dir", "local_music_dir")
 

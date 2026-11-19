@@ -50,6 +50,7 @@ from ..errors import (
     LibraryError,
     PlaylistNotFoundError,
     ReadOnlyError,
+    ShmRepairError,
     TrackNotFoundError,
     UnsupportedFormatError,
 )

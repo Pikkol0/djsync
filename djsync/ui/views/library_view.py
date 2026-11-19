@@ -23,7 +23,7 @@ from ...core.camelot import neighbors
 from ...i18n import date_text, num, plural, t
 from ...models import LibraryTrack, PlaylistInfo, format_duration, source_from_url
 from .. import theme
-from ..dialogs import ConfirmDialog, PlaylistPicker, TextInputDialog
+from ..dialogs import ChoiceConfirmDialog, ConfirmDialog, PlaylistPicker, TextInputDialog
 from ..table import MIME_IDS, camelot_sort, popup_menu
 from ..icons import qicon
 from ..widgets import (
@@ -1250,15 +1250,34 @@ class LibraryView(View):
         what = t("fmt.quoted", text=names[0]) if len(ids) == 1 else t("lib.delete_many", n=len(ids),
                                                                        names=", ".join(names))
         local = self.ctrl.is_local              # 1.4.0-rc.5 (B86) : sur l'ordinateur, on retire de la collection
-        ConfirmDialog(self, t("lib.delete_local_title" if local else "lib.delete_title"),
-                      t("lib.delete_local_msg" if local else "lib.delete_msg", what=what),
+        protect = local and bool(self.ctrl.settings.protect_foreign)     # 1.4.3 (A07, C156)
+        kind = "local" if protect else "computer" if local else ""
+        ConfirmDialog(self, t(f"lib.delete_{kind}_title" if kind else "lib.delete_title"),
+                      t(f"lib.delete_{kind}_msg" if kind else "lib.delete_msg", what=what),
                       lambda: self.ctrl.delete_tracks(ids, True),
-                      confirm_text=t("action.remove" if local else "action.delete"), danger=True,
-                      detail=t("lib.delete_local_detail" if local else "lib.delete_detail"))
+                      confirm_text=t("action.remove" if protect else "action.delete"), danger=True,
+                      detail=t("lib.delete_protected_detail" if protect else "lib.delete_computer_detail" if local
+                               else "lib.delete_detail"),
+                      warning=self._no_source_warning(self._selected_tracks(), protect))
+
+    @staticmethod
+    def _no_source_warning(tracks: List[LibraryTrack], protect: bool = False) -> str:
+        """1.4.3 (A07, à la place de C83) : sons sans lien d'origine (DJSync ne pourra pas les retélécharger), en
+        rouge dans la confirmation. Avec la protection, ces sons (pas téléchargés par DJSync) gardent leur fichier."""
+        if protect:
+            return ""
+        bare = [x for x in tracks if not (getattr(x, "source_url", "") or "").strip()]
+        if not bare:
+            return ""
+        names = ", ".join(x.title for x in bare[:3]) + (" …" if len(bare) > 3 else "")
+        return plural("lib.no_source_one", "lib.no_source_many", len(bare), names=names)
 
     def _delete_label(self) -> str:
-        """1.4.0-rc.5 (B86) : « Supprimer de la clé » ou, sur l'ordinateur, « Retirer de la collection Rekordbox »."""
-        return t("lib.delete_local" if self.ctrl.is_local else "lib.delete")
+        """1.4.0-rc.5 (B86) : « Supprimer de la clé » ou, sur l'ordinateur, « Retirer de la collection Rekordbox » ;
+        1.4.3 (A07, C156) : « Supprimer de l'ordinateur » (fichier à la corbeille) sans la protection."""
+        if not self.ctrl.is_local:
+            return t("lib.delete")
+        return t("lib.delete_local" if self.ctrl.settings.protect_foreign else "lib.delete_computer")
 
     def _create_playlist(self) -> None:
         parent = self.playlist.playlist_id if self.playlist is not None and self.playlist.is_folder else 0
@@ -1278,14 +1297,39 @@ class LibraryView(View):
                             initial=p.name, confirm_text=t("action.rename"))
 
     def _delete_playlist(self) -> None:
+        """1.4.3 (A07) : « La playlist seule » (par défaut) ou « La playlist et ses sons »."""
         p = self.playlist
         if p is None:
             return
-        detail = (t("lib.delete_folder_detail") + " " if p.is_folder else "") + t("lib.delete_playlist_detail")
-        ConfirmDialog(self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
-                      lambda: self.ctrl.delete_playlist(p.playlist_id), confirm_text=t("action.delete"), danger=True,
-                      detail=detail)
+        pid = p.playlist_id
 
+        def show(tracks: List[LibraryTrack], shared: int) -> None:
+            if not self.winfo_exists():
+                return
+            detail = (t("lib.delete_folder_detail") + " " if p.is_folder else "") + t("lib.delete_playlist_detail")
+            if not tracks:
+                ConfirmDialog(self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
+                              lambda: self.ctrl.delete_playlist(pid), confirm_text=t("action.delete"), danger=True,
+                              detail=detail)
+                return
+            local = self.ctrl.is_local
+            protect = local and bool(self.ctrl.settings.protect_foreign)
+            with_detail = t("lib.delete_playlist_tracks_protected" if protect else "lib.delete_playlist_tracks_local"
+                            if local else "lib.delete_playlist_tracks_drive")
+            if shared:
+                with_detail += " " + plural("lib.delete_playlist_shared_one", "lib.delete_playlist_shared_many", shared)
+            ids = [x.content_id for x in tracks]
+            ChoiceConfirmDialog(
+                self, t("lib.delete_playlist_title"), t("lib.delete_playlist_msg", name=p.name),
+                [t("lib.delete_playlist_only"),
+                 plural("lib.delete_playlist_tracks_one", "lib.delete_playlist_tracks_many", len(tracks))],
+                lambda i: self.ctrl.delete_playlist(pid, tracks=ids if i == 1 else ()),
+                confirm_text=t("action.delete"), danger=True,
+                details=[(t("lib.delete_folder_detail") + " " if p.is_folder else "")
+                         + t("lib.delete_playlist_only_hint"), with_detail],
+                warnings=["", self._no_source_warning(tracks, protect)])
+
+        self.ctrl.playlist_content(pid, show)
 
     def _analyse_all(self) -> None:
         todo = self._unanalysed()

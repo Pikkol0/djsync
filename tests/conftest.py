@@ -30,6 +30,25 @@ def _watched_register(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _fake_trash(tmp_path_factory, monkeypatch):
+    """1.4.3 (A07, C156) : corbeille simulée (dossier de test) : un test ne met jamais rien dans la vraie corbeille.
+    Les fichiers envoyés sont listés dans `trash.sent` (test_v143_lot4 teste la vraie corbeille à part)."""
+    from djsync.core import trash
+
+    folder = tmp_path_factory.mktemp("trash")
+    sent = []
+
+    def fake(path):
+        dest = folder / f"{len(sent)}-{path.name}"
+        os.replace(path, dest)
+        sent.append(str(path))
+
+    monkeypatch.setattr(trash, "_backend", fake)
+    monkeypatch.setattr(trash, "sent", sent, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _qt_cleanup():
     """1.4.2 (C183) : après chaque test, les fenêtres Qt encore ouvertes (pages, bulles, fenêtres créées sans
     fixture) sont vraiment détruites : sinon elles s'accumulent dans le processus et chaque changement de

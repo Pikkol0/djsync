@@ -185,6 +185,8 @@ def test_b86_delete_label_on_the_computer(demo, monkeypatch):  # noqa: F811
     lib = demo.views["library"]
     assert lib._delete_label() == t("lib.delete")
     monkeypatch.setattr(type(demo.ctrl), "is_local", property(lambda _s: True))
+    assert lib._delete_label() == t("lib.delete_computer")          # 1.4.3 (A07) : fichier à la corbeille
+    demo.ctrl.settings.protect_foreign = True                         # protection : seulement retiré
     assert lib._delete_label() == t("lib.delete_local")
     lib._refresh_buttons()
     assert lib.delete_btn.toolTip() == t("lib.delete_local")

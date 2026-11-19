@@ -378,6 +378,11 @@ class SettingsView(View):
         self.local_btn = button(t("action.connect"), self.ctrl.connect_local, kind="primary", icon="computer")
         row.addWidget(self.local_btn)
         card.addLayout(row)
+        self.protect_var = WrapCheckBox(t("settings.protect_foreign"))              # 1.4.3 (A07, C156)
+        self.protect_var.setChecked(s.protect_foreign)
+        self.protect_var.setToolTip(t("settings.protect_foreign_hint"))
+        card.addWidget(self.protect_var)
+        card.addWidget(label(t("settings.protect_foreign_hint"), "faint", wrap=True))
 
 
     def _build_ffmpeg(self, s: Any) -> None:
@@ -1817,6 +1822,7 @@ class SettingsView(View):
                 "analyze_after_download_local": self.analyze_local_var.isChecked(),
                 "auto_cue": self.cue_var.isChecked(),
                 "write_tags": self.tags_var.isChecked(),
+                "protect_foreign": self.protect_var.isChecked(),
                 "auto_gain": self.gain_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
@@ -1931,6 +1937,7 @@ class SettingsView(View):
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
         s.write_tags = self.tags_var.isChecked()                  # 1.4.3 (S05)
+        s.protect_foreign = self.protect_var.isChecked()          # 1.4.3 (A07, C156)
         s.auto_gain = self.gain_var.isChecked()                   # 1.4.3 (C109)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite

@@ -11,7 +11,7 @@ import shutil
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ...db import LibraryError, RekordboxUsbLibrary, UsbDrive
 from ...i18n import plural, t
@@ -362,8 +362,66 @@ class LibraryOpsMixin:
     def rename_playlist(self, playlist_id: int, name: str, ok: Optional[Callback] = None) -> None:
         self._write(lambda lib: lib.rename_playlist(playlist_id, name), ok, t("msg.playlist_renamed"))
 
-    def delete_playlist(self, playlist_id: int, ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.delete_playlist(playlist_id), ok, t("msg.playlist_deleted"))
+    def delete_playlist(self, playlist_id: int, ok: Optional[Callback] = None,
+                        tracks: Sequence[int] = ()) -> None:
+        """1.4.3 (A07) : `tracks` : sons supprimés avec la playlist (« La playlist et ses sons »), sous une seule
+        sauvegarde ; leurs fichiers suivent la même règle que « Supprimer » (corbeille sur l'ordinateur)."""
+        ids = [int(c) for c in tracks]
+        if not ids:
+            self._write(lambda lib: lib.delete_playlist(playlist_id), ok, t("msg.playlist_deleted"))
+            return
+
+        def fn(lib: Any) -> Tuple[int, int]:
+            with lib.batch():
+                lib.delete_playlist(playlist_id)
+                return lib.delete_tracks(ids, True)
+
+        def done(result: Tuple[int, int]) -> None:
+            removed, failures = result
+            text = t("msg.playlist_and_tracks_deleted") + " " + plural("msg.deleted_one", "msg.deleted_many", removed)
+            trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
+            if trashed:
+                text += " " + plural("msg.files_trashed_one", "msg.files_trashed_many", trashed)
+            if failures:
+                text += " " + t("msg.files_not_trashed" if self.is_local else "msg.files_not_deleted", n=failures)
+            self.message("warn" if failures else "ok", text)
+            if ok:
+                ok(result)
+
+        self._write(fn, done)
+
+    def playlist_content(self, playlist_id: int, ok: Callable[[List[LibraryTrack], int], None]) -> None:
+        """1.4.3 (A07) : sons d'une playlist (ou de toutes les playlists d'un dossier, listes intelligentes exclues)
+        et combien d'entre eux sont aussi dans une autre playlist. ok(sons, partagés)."""
+        lib = self.library
+        if lib is None:
+            ok([], 0)
+            return
+
+        def work() -> Tuple[List[LibraryTrack], int]:
+            lists = lib.list_playlists()
+            kids: Dict[int, List[Any]] = {}
+            for p in lists:
+                kids.setdefault(p.parent_id, []).append(p)
+            first = next((p for p in lists if p.playlist_id == playlist_id), None)
+            todo, targets = ([first] if first is not None else []), []
+            while todo:
+                p = todo.pop()
+                if p.is_folder:
+                    todo += kids.get(p.playlist_id, [])
+                elif p.is_editable:
+                    targets.append(p.playlist_id)
+            found: Dict[int, LibraryTrack] = {}
+            for pid in targets:
+                for x in lib.get_playlist_tracks(pid):
+                    found.setdefault(x.content_id, x)
+            shared = 0
+            if found and hasattr(lib, "playlists_of"):
+                inside = set(targets)
+                shared = sum(1 for pids in lib.playlists_of(list(found)).values() if set(pids) - inside)
+            return list(found.values()), shared
+
+        self.dispatcher.submit(work, lambda r: ok(*r), self._on_error, pool="db")
 
     def add_to_playlists(self, content_ids: Sequence[int], playlist_ids: Sequence[int]) -> None:
         def run(lib: RekordboxUsbLibrary) -> int:
@@ -408,8 +466,11 @@ class LibraryOpsMixin:
         def done(result: Any) -> None:
             removed, failures = result
             text = plural("msg.deleted_one", "msg.deleted_many", removed)
+            trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
+            if trashed:                                    # 1.4.3 (A07, C156) : récupérables
+                text += " " + plural("msg.files_trashed_one", "msg.files_trashed_many", trashed)
             if failures:
-                text += " " + t("msg.files_not_deleted", n=failures)
+                text += " " + t("msg.files_not_trashed" if self.is_local else "msg.files_not_deleted", n=failures)
             self.message("warn" if failures else "ok", text)
 
         def failed(exc: BaseException) -> None:

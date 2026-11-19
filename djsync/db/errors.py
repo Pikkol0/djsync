@@ -25,6 +25,23 @@ class DatabaseOpenError(LibraryError):
     """Fichier illisible : mauvaise clé, fichier corrompu, ou ce n'est pas une base OneLibrary."""
 
 
+class ShmRepairError(DatabaseOpenError):
+    """1.4.3 (B105) : la base de la clé ne s'ouvre pas à cause de son fichier d'index partagé (-shm) laissé par un
+    autre ordinateur, et la réouverture exclusive (comme Rekordbox) n'a pas suffi. `reason` : « exclusive »
+    (ouverture exclusive refusée : Rekordbox ouvert, clé en lecture seule), « read_only » (bibliothèque ouverte en
+    lecture seule : rien n'est écrit), « still » (réparée, mais l'ouverture normale échoue encore)."""
+
+    def __init__(self, drive: str, reason: str = "exclusive") -> None:
+        self.drive, self.reason = drive, reason
+        texts = {
+            "exclusive": "could not be opened on its own to repair it (is Rekordbox open? is the drive read-only?)",
+            "read_only": "was opened read-only, so DJSync did not repair it",
+            "still": "was repaired, but the file is still unreadable",
+        }
+        super().__init__(f"The drive {drive} could not be opened: its file exportLibrary.db-shm, left by another "
+                         f"computer, is unreadable, and the database {texts.get(reason, texts['exclusive'])}.")
+
+
 class DatabaseLockedError(LibraryError):
     """Base verrouillée par un autre processus (Rekordbox ouvert ?)."""
 

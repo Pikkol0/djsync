@@ -412,6 +412,10 @@ class LocalRekordboxLibrary:
         self.analyze = analyze
         self.auto_cue = False                  # V0.5.0 : mémoire cue sur le premier temps fort
         self.native_parts: Tuple[str, ...] = ()   # 1.4.1 (C131) : ce qu'une réanalyse refait sur un son de Rekordbox
+        # 1.4.3 (A07, C156) : « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas téléchargés,
+        # sauf si l'utilisateur protège ces sons (réglage « Protéger les sons qui ne viennent pas de DJSync »)
+        self.protect_foreign = False
+        self.last_trashed = 0                      # fichiers mis à la corbeille par la dernière suppression
         self.artwork = artwork
         self.ffmpeg_location = ffmpeg_location or None
         self.key_notation = key_notation
@@ -1744,9 +1748,13 @@ class LocalRekordboxLibrary:
             self._renumber(self._songs(db, pid))
 
     def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
-        """Retire des sons de la collection. Le fichier audio, l'analyse et la pochette ne sont effacés
-        que pour les sons ajoutés par DJSync et rangés dans son dossier de téléchargement."""
+        """Retire des sons de la collection. 1.4.3 (A07, C156) : tous les sons sont traités pareil : leur fichier
+        audio va à la corbeille du système (récupérable), qu'il ait été téléchargé par DJSync ou non, sauf si
+        `protect_foreign` (alors seulement ceux de DJSync, comme avant). Garde-fous : extensions audio
+        seulement, jamais un fichier encore utilisé par un autre son de la collection. L'analyse et la pochette
+        rangées par DJSync sont effacées ; celles de Rekordbox restent. Renvoie (retirés, fichiers non effacés)."""
         removed = failures = 0
+        self.last_trashed = 0
         owned = self.owned.all()
         to_clean: List[Tuple[str, str, Optional[str], Optional[str]]] = []
         with self._write() as db:
@@ -1759,34 +1767,77 @@ class LocalRekordboxLibrary:
                 to_clean.append((c.UUID, c.FolderPath or "", c.AnalysisDataPath, c.ImagePath))
                 self._delete_content(db, c)
                 removed += 1
+        done: set = set()
         for uuid, path, anlz, art in to_clean:
-            if uuid not in owned:
+            mine = uuid in owned
+            if mine:
+                self.owned.remove(uuid)
+                for rel in (anlz, art):
+                    if rel:
+                        folder = self.absolute_path(rel).parent
+                        if self._uuid_dir(uuid).split("/")[1] == folder.name:
+                            shutil.rmtree(folder, ignore_errors=True)
+            # téléchargé par DJSync = créé par DJSync et rangé dans son dossier (un fichier importé sur place n'en est pas)
+            downloaded = mine and self._in_contents(Path(path))
+            if not delete_files or not path or (not downloaded and self.protect_foreign):
                 continue
-            self.owned.remove(uuid)
-            for rel in (anlz, art):
-                if rel:
-                    folder = self.absolute_path(rel).parent
-                    if self._uuid_dir(uuid).split("/")[1] == folder.name:
-                        shutil.rmtree(folder, ignore_errors=True)
-            if delete_files and path and not self._delete_audio(Path(path)):
+            key = os.path.normcase(path)
+            if key in done:                        # même fichier pour deux sons supprimés ensemble
+                continue
+            done.add(key)
+            if self._file_used(path):
+                log.info("File kept, still used by another track: %s", path)
+                continue
+            if not self._delete_audio(Path(path), downloaded):
                 failures += 1
         return removed, failures
 
-    def _delete_audio(self, path: Path) -> bool:
-        root = self.contents_root.resolve()
-        target = path.resolve()
-        if root not in target.parents or target.suffix.lower() not in FILE_TYPES:
-            return False                   # hors du dossier DJSync : on ne touche pas au fichier
+    def _in_contents(self, path: Path) -> bool:
         try:
-            target.unlink(missing_ok=True)
-            parent = target.parent
-            while parent != root and root in parent.parents and not any(parent.iterdir()):
-                parent.rmdir()
-                parent = parent.parent
-            return True
-        except OSError as exc:
-            log.warning("File not deleted (%s): %s", target, exc)
+            return self.contents_root.resolve() in path.resolve().parents
+        except OSError:
             return False
+
+    def _file_used(self, path: str) -> bool:
+        """Le fichier sert encore à un autre son de la collection (comparaison sans tenir compte de la casse)."""
+        rows = self._read("SELECT COUNT(*) FROM djmdContent WHERE LOWER(FolderPath) = LOWER(:p)", {"p": path})
+        return bool(rows and rows[0][0])
+
+    def _delete_audio(self, path: Path, mine: bool = True) -> bool:
+        """Fichier audio à la corbeille (1.4.3, A07). Un fichier de DJSync rangé dans son dossier est effacé
+        si la corbeille le refuse (comme avant) ; un autre fichier reste alors en place (échec signalé)."""
+        from ..core.trash import move_to_trash
+
+        target = path.resolve() if path.exists() else path
+        if target.suffix.lower() not in FILE_TYPES:
+            log.warning("Deletion refused (not an audio file): %s", target)
+            return False
+        if not target.exists():
+            return True
+        root = self.contents_root.resolve()
+        inside = root in target.parents
+        try:
+            move_to_trash(target)
+            self.last_trashed += 1
+        except OSError as exc:
+            if not (mine and inside):
+                log.warning("File not moved to the trash (%s): %s", target, exc)
+                return False
+            log.info("Trash unavailable (%s): DJSync file erased", exc)
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc2:
+                log.warning("File not deleted (%s): %s", target, exc2)
+                return False
+        if inside:
+            try:
+                parent = target.parent
+                while parent != root and root in parent.parents and not any(parent.iterdir()):
+                    parent.rmdir()
+                    parent = parent.parent
+            except OSError:
+                log.debug("Empty folder kept", exc_info=True)
+        return True
 
     def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
         """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""

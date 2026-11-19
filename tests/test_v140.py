@@ -140,7 +140,8 @@ def test_import_on_the_computer_references_in_place(tmp_path, monkeypatch):
         assert len(rep.added) == 1
         x = rep.added[0]
         assert lib.absolute_path(x) == promo.resolve() and x.title == "Nanana"
-        lib.delete_tracks([x.content_id])                  # retiré de la collection : fichier gardé
+        lib.protect_foreign = True                         # 1.4.3 (A07) : protégé : retiré de la collection,
+        lib.delete_tracks([x.content_id])                  # fichier gardé
         assert promo.is_file()
     finally:
         next(gen, None)

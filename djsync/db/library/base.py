@@ -7,6 +7,12 @@ import time
 from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 
 
+def _sqlite_code(exc: BaseException) -> str:
+    """1.4.3 (B105) : erreur SQLite avec son code étendu (pour le journal)."""
+    return (f"{exc} (code {getattr(exc, 'sqlite_errorcode', '?')} "
+            f"{getattr(exc, 'sqlite_errorname', '') or type(exc).__name__})")
+
+
 class LibraryBase:
     """Bibliothèque d'une clé USB Rekordbox. Thread-safe (un verrou protège la connexion)."""
 
@@ -114,28 +120,19 @@ class LibraryBase:
             if not self.db_path.is_file():
                 raise DatabaseOpenError(f"Database not found: {self.db_path}")
 
-            conn = sqlcipher.connect(
-                str(self.db_path),
-                timeout=self._busy_timeout_ms / 1000,
-                isolation_level=None,        # transactions gérées explicitement (BEGIN/COMMIT)
-                check_same_thread=False,     # l'UI Tk utilisera des threads de travail
-            )
             try:
-                conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
-                conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
-                if sys.platform == "darwin":          # 1.4.3 (A7-4) : vidage complet (SQLite se replie sur exFAT)
-                    conn.execute("PRAGMA fullfsync = ON")
-                    conn.execute("PRAGMA checkpoint_fullfsync = ON")
-                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                conn, tables = self._open_conn()
             except sqlcipher.OperationalError as exc:
-                conn.close()
-                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
-                    raise DatabaseLockedError(
-                        "The database is used by another program (is Rekordbox open?)."
-                    ) from exc
-                raise DatabaseOpenError(str(exc)) from exc
+                if not self._shm_fault(exc):
+                    raise self._open_error(exc) from exc
+                self._repair_shm(exc)                # 1.4.3 (B105) : comme Rekordbox, puis ouverture normale
+                try:
+                    conn, tables = self._open_conn()
+                except sqlcipher.Error as again:
+                    log.warning("Drive database still unreadable after the exclusive repair: %s",
+                                _sqlite_code(again))
+                    raise ShmRepairError(self._drive_name(), "still") from again
             except sqlcipher.DatabaseError as exc:
-                conn.close()
                 raise DatabaseOpenError(
                     "Cannot decrypt the database (wrong key, corrupted file "
                     "or not a OneLibrary database)."
@@ -170,6 +167,87 @@ class LibraryBase:
         except Exception:  # noqa: BLE001
             log.exception("export.pdb state unknown")
         return self
+
+    def _open_conn(self, exclusive: bool = False) -> Tuple[Any, set]:
+        """Ouvre exportLibrary.db (clé SQLCipher, délai) et lit la liste des tables (premier accès : c'est là
+        qu'une erreur de -wal / -shm apparaît). `exclusive` (B105) : `locking_mode = EXCLUSIVE` avant le premier
+        accès : SQLite garde l'index du journal en mémoire et n'ouvre pas le -shm (comme Rekordbox)."""
+        conn = sqlcipher.connect(
+            str(self.db_path),
+            timeout=self._busy_timeout_ms / 1000,
+            isolation_level=None,        # transactions gérées explicitement (BEGIN/COMMIT)
+            check_same_thread=False,     # l'UI Tk utilisera des threads de travail
+        )
+        try:
+            conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
+            conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
+            if exclusive:
+                conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+            if sys.platform == "darwin":          # 1.4.3 (A7-4) : vidage complet (SQLite se replie sur exFAT)
+                conn.execute("PRAGMA fullfsync = ON")
+                conn.execute("PRAGMA checkpoint_fullfsync = ON")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except BaseException:
+            conn.close()
+            raise
+        return conn, tables
+
+    @staticmethod
+    def _open_error(exc: BaseException) -> LibraryError:
+        if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            return DatabaseLockedError("The database is used by another program (is Rekordbox open?).")
+        return DatabaseOpenError(str(exc))
+
+    def _drive_name(self) -> str:
+        try:
+            return str(self.drive)
+        except Exception:  # noqa: BLE001
+            return str(self.db_path.parent.parent.parent)
+
+    @property
+    def _shm_path(self) -> Path:
+        return Path(str(self.db_path) + "-shm")
+
+    def _shm_fault(self, exc: BaseException) -> bool:
+        """1.4.3 (B105) : erreur d'E/S (ou fichier impossible à ouvrir) à l'ouverture, avec un -shm présent."""
+        log.warning("Drive database open failed: %s", _sqlite_code(exc))
+        code = getattr(exc, "sqlite_errorcode", None)
+        text = str(exc).lower()
+        io = "disk i/o" in text or (isinstance(code, int) and code & 0xFF == 10)            # SQLITE_IOERR
+        cant = "unable to open" in text or (isinstance(code, int) and code & 0xFF == 14)    # SQLITE_CANTOPEN
+        try:
+            return (io or cant) and self._shm_path.exists() and self.db_path.is_file()
+        except OSError:
+            return False
+
+    def _repair_shm(self, cause: BaseException) -> None:
+        """1.4.3 (B105) : comme Rekordbox, réouverture une fois en mode exclusif (le -shm est ignoré, le -wal
+        repris), checkpoint, fermeture. Aucun fichier supprimé ; le mode exclusif n'est jamais gardé (une
+        session, le mode live C15, a besoin du mode partagé). Lève ShmRepairError si c'est impossible."""
+        name = self._drive_name()
+        if self.read_only:
+            log.warning("Drive %s: -shm unreadable, library opened read-only: not repaired", name)
+            raise ShmRepairError(name, "read_only") from cause
+        log.warning("Drive %s: -shm present and unreadable, reopening once in exclusive mode (like Rekordbox)",
+                    name)
+        try:
+            conn, _ = self._open_conn(exclusive=True)
+        except sqlcipher.Error as exc:
+            log.warning("Exclusive open failed: %s", _sqlite_code(exc))
+            raise ShmRepairError(name, "exclusive") from exc
+        try:
+            wal = Path(str(self.db_path) + "-wal")
+            size = wal.stat().st_size if wal.exists() else 0
+            busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if busy:
+                raise sqlcipher.OperationalError("database is locked (checkpoint busy)")
+            log.warning("Drive %s repaired in exclusive mode (journal of %s bytes merged), reopening normally",
+                        name, size)
+        except sqlcipher.Error as exc:
+            log.warning("Exclusive checkpoint failed: %s", _sqlite_code(exc))
+            raise ShmRepairError(name, "exclusive") from exc
+        finally:
+            conn.close()
 
     def close(self) -> None:
         # 1.4.3-rc.2 : une lecture d'un autre fil ne rouvre plus la 2e connexion pendant la fermeture (blocage

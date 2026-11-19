@@ -31,7 +31,7 @@ from ..db import (
     drive_from_letter, find_unprepared_drives, find_usb_drives,
 )
 from ..db.errors import (
-    DatabaseOpenError, DuplicatePlaylistError, KeyFullError, PlaylistNotFoundError, ReadOnlyError,
+    DatabaseOpenError, DuplicatePlaylistError, KeyFullError, PlaylistNotFoundError, ReadOnlyError, ShmRepairError,
     TrackNotFoundError, UnsupportedFormatError,
 )
 from ..db import local_library as _local
@@ -381,6 +381,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return t("error.offline")
         if known_error(exc):
             return t(known_error(exc))
+        if isinstance(exc, ShmRepairError):            # 1.4.3 (B105) : nomme la clé, dit quoi faire
+            return t(f"error.shm_{exc.reason}", drive=exc.drive)
         low = str(exc).lower()
         if self.is_local and ("malformed" in low or "file is not a database" in low):
             return t("error.local_db_unreadable")        # V1.2.0 : retour testeur macOS
@@ -722,6 +724,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 lib.auto_cue = self.settings.auto_cue
                 lib.native_parts = self.settings.native_parts()
                 lib.write_tags = self.settings.write_tags          # 1.4.3 (S05)
+                lib.protect_foreign = self.settings.protect_foreign  # 1.4.3 (A07, C156)
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -1204,6 +1207,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.auto_cue = s.auto_cue
             self.library.native_parts = s.native_parts()
             self.library.write_tags = s.write_tags                 # 1.4.3 (S05)
+            if hasattr(self.library, "protect_foreign"):           # 1.4.3 (A07, C156)
+                self.library.protect_foreign = s.protect_foreign
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         try:                                       # 1.4.1 (C141) : reflet or / argent coupé en mode léger
