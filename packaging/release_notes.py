@@ -47,7 +47,9 @@ def package_version() -> str:
 def history_row(version: str) -> str:
     for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) >= 2 and cells[0].strip("*") == version:
+        # 1.4.3 : « **1.4.3** (rc.1) » est la ligne de la 1.4.3 (gras et précision entre parenthèses ignorés)
+        name = cells[0].replace("*", "").split(" ", 1)[0] if cells else ""
+        if len(cells) >= 2 and name == version:
             return cells[1]
     return ""
 
