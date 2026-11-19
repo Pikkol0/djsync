@@ -565,22 +565,47 @@ def test_c205_colour_families_side_by_side(demo):  # noqa: F811
 
 
 # ------------------------------------------------------------------ C207 : panneau replié en haut
-def test_c207_folded_panel_moves_to_the_top(demo, monkeypatch):  # noqa: F811
+def test_c207_folded_headers_stay_on_top_in_a_fixed_order(demo, monkeypatch):  # noqa: F811
+    """1.4.2 (C207, option A) : ordre fixe ; un panneau replié ou plus : les deux en-têtes en haut
+    (téléchargements puis analyse), le contenu ouvert dessous ; tout replié : en-têtes en haut, rien dessous."""
+    from .qt_util import pump
+
     s = demo.ctrl.settings
     monkeypatch.setattr(s, "save", lambda *a, **k: None)
     s.panels_folded = {}
+    demo.resize(1280, 800)
     view = demo.views["downloads"]
     demo.show_view("downloads")
-    top, bottom = view._panels["downloads"][0], view._panels["analysis"][0]
-    split = view._split
-    assert split.indexOf(top) == 0 and split.indexOf(bottom) == 1
-    view._toggle_fold("analysis")                                        # Analyse repliée : en haut
-    assert split.indexOf(bottom) == 0 and split.indexOf(top) == 1
-    view._toggle_fold("analysis")                                        # dépliée : retour à sa place
-    assert split.indexOf(top) == 0 and split.indexOf(bottom) == 1
-    view._toggle_fold("downloads")                                       # Téléchargements repliés : déjà en haut
-    assert split.indexOf(top) == 0
+    pump(demo, 0.2)
+    dl_head, an_head = view._heads["downloads"], view._heads["analysis"]
+    dl_body, an_body = view._panels["downloads"][1], view._panels["analysis"][1]
+
+    def y(w):
+        return w.mapTo(view, w.rect().topLeft()).y()
+
+    def check(state):
+        pump(demo, 0.2)
+        assert y(dl_head) < y(an_head), state                              # ordre fixe, toujours
+        assert y(an_head) < view.height() / 3, state                       # en-têtes en haut de la page
+        return y
+
+    view._toggle_fold("analysis")                                          # Analyse repliée
+    check("analysis folded")
+    assert dl_body.isVisible() and not an_body.isVisible()
+    assert y(dl_body) > y(an_head)                                          # contenu ouvert sous les en-têtes
+    view._toggle_fold("analysis")
+    view._toggle_fold("downloads")                                         # Téléchargements repliés
+    check("downloads folded")
+    assert an_body.isVisible() and y(an_body) > y(an_head)
+    view._toggle_fold("analysis")                                          # tout replié (capture du 19/11)
+    check("both folded")
+    assert not view._split.isVisible()
     view._toggle_fold("downloads")
+    view._toggle_fold("analysis")                                          # rien de replié : en-têtes dans leur panneau
+    pump(demo, 0.2)
+    assert not view._strip.isVisible()
+    assert dl_head.parent() is view._panels["downloads"][0] and an_head.parent() is view._panels["analysis"][0]
+    assert y(dl_head) < y(dl_body) < y(an_head) < y(an_body)
 
 
 # ------------------------------------------------------------------ C208 : « export.pdb » dans les libellés
@@ -624,3 +649,43 @@ def test_a68_both_uninstall_boxes_show_a_warning(demo):  # noqa: F811
         assert dlg.both_warn.isHidden()
     finally:
         dlg.close()
+
+
+# ------------------------------------------------------------------ C211 : bouton « Mettre à jour export.pdb »
+def test_c211_home_update_button_names_export_pdb():
+    from djsync.i18n import en, fr
+
+    assert en.STRINGS["home.pdb_update"] == "Update export.pdb"
+    assert fr.STRINGS["home.pdb_update"] == "Mettre à jour export.pdb"
+    assert "CDJ-2000NXS2" in fr.STRINGS["home.pdb_update_tip"]          # la bulle garde les anciennes platines
+
+
+# ------------------------------------------------------------------ C212 : Grille et cues défile au lieu de se tasser
+def test_c212_grid_editor_scrolls_instead_of_overlapping(demo):  # noqa: F811
+    from djsync.ui.grid_editor import GridEditor
+
+    from .qt_util import pump
+
+    track = demo.ctrl.library.list_tracks()[0]
+    ed = GridEditor(demo, demo.ctrl, track)
+    try:
+        inner = ed.page_area.widget()
+        for height in (420, 1400):                                          # fenêtre basse, puis haute
+            ed.setGeometry(0, 0, 1280, height)
+            ed.show()
+            pump(demo, 0.3)
+
+            def box(w):
+                top = w.mapTo(inner, w.rect().topLeft()).y()
+                return top, top + w.height()
+
+            blocks = [box(ed.cue_panel), box(ed.zones), box(ed.save_btn)]
+            for (_a_top, a_bottom), (b_top, _b_bottom) in zip(blocks, blocks[1:]):
+                assert a_bottom <= b_top, (height, blocks)                  # jamais l'un sur l'autre
+            bar = ed.page_area.verticalScrollBar()
+            if height == 420:
+                assert bar.maximum() > 0                                     # trop bas : la page défile
+            else:
+                assert bar.maximum() == 0                                    # assez haut : pas de barre
+    finally:
+        ed.close()

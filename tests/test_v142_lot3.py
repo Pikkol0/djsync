@@ -98,10 +98,10 @@ def test_c189_download_panels_fold_and_remember(demo, monkeypatch):  # noqa: F81
     assert body.isVisible()
     view._toggle_fold("downloads")
     assert s.panels_folded == {"downloads": True}
-    assert body.isHidden() and panel.maximumHeight() < 200
-    assert view.clear_btn.isVisibleTo(panel)                            # titre et boutons restent
+    assert body.isHidden() and panel.isHidden()                         # C207 : seul l'en-tête reste, en haut
+    assert view.clear_btn.isVisibleTo(view) and view._heads["downloads"].parent() is view._strip
     view._toggle_fold("downloads")
-    assert not body.isHidden() and panel.maximumHeight() > 10000
+    assert not body.isHidden() and not panel.isHidden()
     s.panels_folded = {"analysis": True}
     from djsync.settings import Settings
 

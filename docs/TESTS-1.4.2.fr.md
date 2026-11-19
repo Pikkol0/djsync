@@ -157,6 +157,16 @@ C204, C205, C207, C208. Un test qui reprend un test KO de la rc1 le dit (« nouv
 | BIB-6 | Tous | Windows | (**C204**, nouvel essai de 142-BIB-3) Ouvrir Grille et cues d'un son analysé, ne rien changer, cliquer « Grille juste ». | La colonne Analyse de la Bibliothèque montre la grille vérifiée ; le bouton devient « ✓ Grille vérifiée » (grisé). Une modification grise « Grille juste » (Enregistrer s'en charge). Rien n'est écrit dans la base ni dans export.pdb. |
 | COU-2 | Tous | Windows | (**C205**, nouvel essai de 142-COU-1) Paramètres ▸ Apparence ▸ Couleur. | Trois colonnes côte à côte : Vives, Profondes, Douces (titre en tête) ; empilées seulement si l'écran est très étroit. Un clic sur une couleur l'applique et ferme le menu. |
 
+## Stable : retours de la rc.2 (C207, C211, C212)
+
+Pas de rc.3 (décision de l'auteur, 19/11 : corrections d'affichage seulement) ; ces tests se font sur la 1.4.2 stable.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| REC-11 | Tous | Windows | (**C207** option A, nouvel essai de 142-REC-10) Téléchargements et analyse : replier Analyse seule ; la déplier et replier Téléchargements seul ; replier les deux ; tout déplier. | Ordre fixe : Téléchargements toujours au-dessus d'Analyse. Un panneau replié ou plus : les deux en-têtes en haut de la page, le contenu du panneau ouvert dessous. Les deux repliés : en-têtes en haut sous le titre, page vide dessous (plus d'en-têtes en bas ni de titre au milieu). Rien de replié : chaque panneau avec son en-tête, comme avant. État gardé au relancement. |
+| CLE-6 | Tous | Windows | (**C211**) Accueil : carte d'une clé dont export.pdb est à mettre à jour. | Le bouton dit « Mettre à jour export.pdb » (anglais : « Update export.pdb ») ; la bulle parle toujours des anciennes platines (CDJ-2000NXS2, XDJ-1000…). |
+| GRI-7 | Tous | Windows | (**C212**) Grille et cues d'un son analysé : fenêtre basse (moitié d'écran), zoom 125 % puis 150 %. | Rien ne se superpose (hot cues, Mémoires, Grille, Tempo, barre du bas) : une barre de défilement verticale apparaît à droite et la page défile. Fenêtre haute : pas de barre, page comme avant. |
+
 ## Tests automatiques (C183)
 
 | # | Qui | Plateformes | Comment | Attendu |
