@@ -195,6 +195,45 @@ class SettingsView(View):
         body.addLayout(right, 1)
         self.root.addLayout(body, 1)
 
+        # 1.4.3 (A3-8) : cartes construites section par section, dans l'ordre d'avant
+        self._build_appearance(s)
+        self._build_usb(s)
+        self._build_local(s)
+        self._build_ffmpeg(s)
+        self._build_analysis(s)
+        self._build_pdb(s)
+        self._build_search(s)
+        self._build_soundcloud(s)
+        self._build_soulseek(s)
+        self._build_watch(s)
+        self._build_engine(s)
+        self._build_backups(s)
+        self._build_advanced(s)
+        self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
+        from ..wheel_guard import guard_children
+
+        guard_children(self.area)              # 1.3.2-rc.3 (B51) : la molette fait défiler, pas les réglages
+        self.page.addStretch(1)
+        self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
+        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
+        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
+        self.show_section(start, remember=False)
+
+        controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
+        controller.on("drive", self._backups_state)
+        controller.on("drive", lambda: (setattr(self, "_space_done", False),
+                                        QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
+        controller.on("drives", self._refresh_drives)
+        controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
+        controller.on("drive", self._refresh_drives)
+        self._refresh_drives()
+        self._ffmpeg_status()
+        self._engine_show()
+        self._backups_state()
+
+    # ------------------------------------------------ 1.4.3 (A3-8) : cartes des Paramètres
+    def _build_appearance(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Apparence et performance (mode léger) (découpé de __init__, même ordre)."""
         # ---- apparence
         card = self._card(t("settings.appearance"), "settings")
         row = hbox()
@@ -241,7 +280,7 @@ class SettingsView(View):
         card.addLayout(row)
         card.addWidget(label(t("settings.zoom_keys", mod="⌘" if sys.platform == "darwin" else "Ctrl"), "faint",
                              wrap=True))
-        controller.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
+        self.ctrl.on("zoom_preview", lambda z: self.zoom_val.setText(f"{z} %"))
 
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.sidebar"))))
@@ -271,6 +310,9 @@ class SettingsView(View):
         row.addWidget(self.light_state, 1)
         card.addLayout(row)
 
+
+    def _build_usb(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Clé USB et dossier de destination (découpé de __init__, même ordre)."""
         # ---- clé USB
         self._section = "libraries"
         card = self._card(t("settings.drive"), "usb", t("settings.drive_hint"), key="drive")
@@ -297,6 +339,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_local(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Rekordbox de cet ordinateur (découpé de __init__, même ordre)."""
         # ---- Rekordbox de cet ordinateur (V0.4.0)
         from ...db.local_library import default_music_dir
 
@@ -322,6 +367,9 @@ class SettingsView(View):
         row.addWidget(self.local_btn)
         card.addLayout(row)
 
+
+    def _build_ffmpeg(self, s: Any) -> None:
+        """1.4.3 (A3-8) : FFmpeg (Avancé, repliée quand tout va bien) (découpé de __init__, même ordre)."""
         # ---- FFmpeg (1.3.1, C89 : Avancé, repliée quand tout va bien)
         self._section = "advanced"
         card = self._card("FFmpeg", "wave", t("settings.ffmpeg_hint"), fold=True)
@@ -336,6 +384,9 @@ class SettingsView(View):
         self.ffmpeg_state = label("", "dim", wrap=True)     # 1.4.2 (A2-1) : long chemin (Windows) à la ligne
         card.addWidget(self.ffmpeg_state)
 
+
+    def _build_analysis(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Analyse (découpé de __init__, même ordre)."""
         # ---- analyse
         self._section = "analysis"
         card = self._card(t("settings.analysis"), "key", t("settings.analysis_hint"))
@@ -388,6 +439,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_pdb(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Anciennes platines (export.pdb) (découpé de __init__, même ordre)."""
         # ---- anciennes platines : export.pdb (1.3.1, C90 : état et synchronisation dans Bibliothèques,
         # les deux options techniques dans Avancé)
         self._section = "libraries"
@@ -417,6 +471,9 @@ class SettingsView(View):
         self.pdb_growth_var.setChecked(s.pdb_allow_growth)
         card.addWidget(self.pdb_growth_var)
 
+
+    def _build_search(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Recherche, format et qualité, YouTube (découpé de __init__, même ordre)."""
         # ---- recherche
         # 1.4.0-rc.5 (C165) : l'ancienne carte « Téléchargements » (14 réglages mêlés) coupée en trois :
         # Recherche, Format et qualité, YouTube
@@ -489,6 +546,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_soundcloud(self, s: Any) -> None:
+        """1.4.3 (A3-8) : SoundCloud, fichier d'origine (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.1) : SoundCloud, fichier d'origine
         card = self._card(t("sc.settings_title"), "download", t("sc.settings_hint"), key="soundcloud")
         self.sc_original_var = WrapCheckBox(t("sc.settings_original"))
@@ -522,6 +582,9 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+
+    def _build_soulseek(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Soulseek (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.2) : Soulseek, désactivé par défaut, avertissement à la première activation
         card = self._card(t("slsk.settings_title"), "download", t("slsk.settings_hint"), key="soulseek")
         self.slsk_var = WrapCheckBox(t("slsk.settings_enable"))
@@ -551,6 +614,9 @@ class SettingsView(View):
         card.addWidget(self.slsk_share_var)
         card.addWidget(label(t("slsk.settings_warning_short"), "warn", wrap=True))
 
+
+    def _build_watch(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Dossier surveillé (découpé de __init__, même ordre)."""
         # ---- 1.4.0 (C10.3) : dossier surveillé (achats, promos, téléchargements gratuits)
         self._section = "libraries"                  # 1.4.0-rc.5 (C165) : il alimente la bibliothèque
         card = self._card(t("watch.settings_title"), "watch", t("watch.settings_hint"), show_hint=True,
@@ -578,6 +644,9 @@ class SettingsView(View):
         self.watch_playlist_var.setChecked(s.watch_playlist)
         card.addWidget(self.watch_playlist_var)
 
+
+    def _build_engine(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Moteur de téléchargement (yt-dlp) (découpé de __init__, même ordre)."""
         # ---- moteur de téléchargement (yt-dlp) : mises à jour à la demande seulement (C89 : Avancé, repliée)
         self._section = "advanced"
         card = self._card(t("engine.title"), "refresh", t("engine.hint"), fold=True)
@@ -596,6 +665,9 @@ class SettingsView(View):
         card.addLayout(row)
         self._engine_release = None
 
+
+    def _build_backups(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Sauvegardes et espace occupé (découpé de __init__, même ordre)."""
         # ---- sauvegardes
         self._section = "libraries"
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"), key="backups")
@@ -631,9 +703,12 @@ class SettingsView(View):
         from ..space_card import SpaceCard
 
         self._space_box_layout = self._card(t("settings.space"), "usb", t("settings.space_hint"), key="space")
-        self.space = SpaceCard(self._space_box_layout, controller)
+        self.space = SpaceCard(self._space_box_layout, self.ctrl)
         self.space_box = self._cards[-1][1]
         self._build_about(s)
+
+    def _build_advanced(self, s: Any) -> None:
+        """1.4.3 (A3-8) : Avancé (clé forcée) et Lecture (découpé de __init__, même ordre)."""
         # ---- 1.3.1 (C89) : réglages techniques peu utilisés (Avancé)
         self._section = "advanced"
         card = self._card(t("settings.tech"), "usb", t("settings.tech_hint"))
@@ -661,27 +736,6 @@ class SettingsView(View):
         row.addWidget(button(t("latency.test"), self._latency_test, icon="wave"))     # 1.3.0-rc.4 (C39)
         row.addStretch(1)
         card.addLayout(row)
-        self._arrange_sections()                                             # 1.3.2-rc.2 (C121)
-        from ..wheel_guard import guard_children
-
-        guard_children(self.area)              # 1.3.2-rc.3 (B51) : la molette fait défiler, pas les réglages
-        self.page.addStretch(1)
-        self.area.verticalScrollBar().valueChanged.connect(lambda _v: self._on_scroll())
-        start = s.settings_section if s.settings_section in dict(SECTIONS) else "general"
-        self._start_section: Optional[str] = None        # 1.4.0-rc.2 (B57) : section à montrer à l'affichage
-        self.show_section(start, remember=False)
-
-        controller.on("drive", lambda: QTimer.singleShot(300, self._pdb_refresh))
-        controller.on("drive", self._backups_state)
-        controller.on("drive", lambda: (setattr(self, "_space_done", False),
-                                        QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
-        controller.on("drives", self._refresh_drives)
-        controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
-        controller.on("drive", self._refresh_drives)
-        self._refresh_drives()
-        self._ffmpeg_status()
-        self._engine_show()
-        self._backups_state()
 
     # ------------------------------------------------ DJSync : version, mises à jour, à propos
     def _build_about(self, s: Any) -> None:
