@@ -159,7 +159,7 @@ def test_c67_page_on_the_demo_drive(demo, monkeypatch):
     page = demo.stack.currentWidget()
     assert pump(demo, 10, lambda: bool(page.checks))
     keys = [c.key for c in page.checks]
-    assert keys == ["fs", "pdb", "files", "analysis", "formats", "cues", "playlists", "space", "backup"]
+    assert keys == ["fs", "pdb", "files", "analysis", "grids", "formats", "cues", "playlists", "space", "backup"]
     analysis = next(c for c in page.checks if c.key == "analysis")
     assert analysis.level == "warn" and analysis.ids                       # sons de démo jamais analysés
     started = []

@@ -237,6 +237,9 @@ def test_b105_windows_shm_held_by_another_process(shm_key, tmp_path):
             lib.close()
         except ShmRepairError as exc:
             outcome = exc.reason
+        import warnings
+
+        warnings.warn(f"B105 Windows real test: outcome {outcome}")       # visible dans le journal de la CI
         assert outcome in ("opened", "still")
         wal = rb / "exportLibrary.db-wal"
         if outcome == "still":                       # réparée en mode exclusif : -wal fusionné, -shm gardé
