@@ -171,6 +171,7 @@ class DJSyncApp(QMainWindow):
         self.qapp = qt_app()
         settings = settings or Settings.load()
         i18n.set_language(settings.language)
+        theme.apply_background(getattr(settings, "background", "default"))      # 1.4.3 (C53)
         theme.apply_palette(settings.theme)
         theme.apply(self.qapp, settings.zoom)
         reset_icons()
@@ -229,6 +230,7 @@ class DJSyncApp(QMainWindow):
         self._build()
         QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
+        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
         self._bind_shortcuts()
         self._place_window(settings)
 
@@ -578,6 +580,7 @@ class DJSyncApp(QMainWindow):
         La clé, la file de téléchargements et la lecture en cours sont conservées (contrôleur)."""
         current = self._current or "home"
         i18n.set_language(self.ctrl.settings.language)
+        theme.apply_background(getattr(self.ctrl.settings, "background", "default"))
         theme.apply_palette(self.ctrl.settings.theme)
         theme.apply(self.qapp, self.ctrl.settings.zoom)
         self.ctrl.reset_listeners(self._listener_mark)
@@ -586,6 +589,7 @@ class DJSyncApp(QMainWindow):
         self._build()
         QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
+        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
         if old is not None:
             old.deleteLater()
         self.show_view(current)
@@ -597,8 +601,10 @@ class DJSyncApp(QMainWindow):
         """Couleur d'accent, zoom ou barre latérale changés : nouvelle feuille de style, sans
         reconstruire les vues."""
         s = self.ctrl.settings
+        theme.apply_background(getattr(s, "background", "default"))
         theme.apply_palette(s.theme)
-        if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT):
+        if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT) or \
+                theme.CURRENT_BACKGROUND != getattr(self, "_built_background", theme.CURRENT_BACKGROUND):
             # 1.3.0-rc.4 (B23) : nouvelle couleur -> toutes les vues sont reconstruites, comme pour un
             # changement de langue. Icônes, pastilles, formes d'onde, logo… sont dessinés à leur création
             # dans la couleur du moment : les reprendre une à une en oubliait (Outils de l'Accueil).

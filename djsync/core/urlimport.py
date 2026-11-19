@@ -22,6 +22,7 @@ from ..models import ResolvedUrl, TrackResult, UrlKind
 log = logging.getLogger(__name__)
 
 MAX_ENTRIES = 200
+PLAYLIST_CAP = 2000          # 1.4.3 (C185) : sons lus au plus dans une playlist (par pages de MAX_ENTRIES, enchaînées)
 
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com"}
 _SOUNDCLOUD_HOSTS = {"soundcloud.com", "m.soundcloud.com", "on.soundcloud.com", "snd.sc"}
@@ -42,10 +43,10 @@ class Source:
 # Une seule source de vérité : `classify_url` ci-dessous reconnaît exactement ces services (test).
 SOURCES = (
     Source("spotify", "Spotify", "#1DB954", "open.spotify.com/playlist/…", 100),
-    Source("deezer", "Deezer", "#A238FF", "deezer.com/playlist/… · link.deezer.com/…", 1000),   # 1.4.0 (C86)
-    Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", MAX_ENTRIES),
-    Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", MAX_ENTRIES),
-    Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", MAX_ENTRIES),
+    Source("deezer", "Deezer", "#A238FF", "deezer.com/playlist/… · link.deezer.com/…", PLAYLIST_CAP),   # 1.4.0 (C86)
+    Source("youtube", "YouTube", "#FF0033", "youtube.com/watch?v=… · youtu.be/…", PLAYLIST_CAP),    # 1.4.3 (C185)
+    Source("ytmusic", "YouTube Music", "#FF0033", "music.youtube.com/playlist?list=…", PLAYLIST_CAP),
+    Source("soundcloud", "SoundCloud", "#FF5500", "soundcloud.com/…/sets/…", PLAYLIST_CAP),
 )
 
 

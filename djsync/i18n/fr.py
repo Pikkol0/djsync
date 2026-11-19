@@ -896,6 +896,11 @@ STRINGS = {
     "settings.section_djsync": "DJSync",
     "settings.language": "Langue",
     "settings.theme": "Couleur du thème et du logo",
+    "settings.background": "Fond",          # 1.4.3 (C53)
+    "settings.background_default": "Sombre (par défaut)",
+    "settings.background_high_contrast": "Haut contraste",
+    "settings.background_bright": "Lumineux",
+    "settings.background_oled": "OLED (noir pur)",
     "settings.zoom": "Zoom de l'interface",
     "settings.light": "Mode léger",
     "settings.light_auto": "Auto (selon le PC)",
@@ -1208,6 +1213,8 @@ STRINGS = {
     "tools.busy": "Une copie ou une recherche de métadonnées est déjà en cours.",
     "settings.auto_cue": "Mémoire cue sur le premier temps fort",
     "settings.auto_cue_hint": "Les platines peuvent sauter directement au premier temps d'une mesure. Les sons qui ont déjà des cues ne sont pas modifiés.",
+    "settings.write_tags": "Écrire le BPM et la tonalité dans les fichiers audio après l'analyse",          # 1.4.3 (S05)
+    "settings.write_tags_hint": "Les autres logiciels (Serato, Traktor, Mixed In Key, explorateurs de fichiers) peuvent alors les lire. Seuls les tags sont réécrits, jamais le son.",
     "settings.format": "Format des fichiers",
     # ---- V1.0.0
     "msg.pdb_repaired": "Il manquait {tracks} son(s) et {playlists} playlist(s) dans la bibliothèque des anciennes platines (export.pdb) : c'est réparé.",
@@ -1909,6 +1916,8 @@ STRINGS = {
     "import.first_n": "Seuls les {n} premiers sons sont affichés : la playlist en contient davantage.",
     "import.load_more": "Charger les {n} suivants",
     "import.loading_more": "Chargement…",
+    "import.loading_progress": "Chargement de la playlist… {n} sons sur {total}",          # 1.4.3 (C185)
+    "import.loading_progress_n": "Chargement de la playlist… {n} sons",
     "home.actions": "Que voulez-vous faire ?",
     "home.act_download": "Télécharger",
     "home.act_download_sub": "Recherche, haute qualité, lien",

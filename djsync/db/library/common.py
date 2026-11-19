@@ -157,6 +157,7 @@ class _Extras:
     native_parts: Tuple[str, ...] = ()      # parmi "grid", "key", "waves"
     graft: Optional[Dict[Path, bytes]] = None           # fichiers à réécrire (None : pas une greffe)
     originals: Dict[Path, bytes] = field(default_factory=dict)   # pour le retour arrière
+    file_size: Optional[int] = None         # 1.4.3 (S05) : nouvelle taille après l'écriture des tags
 
 
 @dataclass

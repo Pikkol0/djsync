@@ -54,6 +54,10 @@ class IngestMixin:
                         ex.cue_ms = ex.analysis.first_downbeat_ms
                     folder = self.drive.root / ex.anlz_path.lstrip("/")
                     ex.written += [folder, folder.with_suffix(".EXT"), folder.with_suffix(".2EX")]
+                    if getattr(self, "write_tags", False):      # 1.4.3 (S05) : BPM et tonalité dans le fichier
+                        from ...core.file_tags import after_analysis
+
+                        ex.file_size = after_analysis(file_path, ex.analysis)
                 log.info("Analyse %s : %.2f BPM, %s (%s), %.1f s", file_path.name, ex.analysis.bpm,
                          ex.analysis.key.name, ex.analysis.key.camelot, ex.analysis.seconds)
             except Exception as exc:  # noqa: BLE001 - FFmpeg absent, fichier exotique… : son ajouté quand même
@@ -137,6 +141,8 @@ class IngestMixin:
         if ex.anlz_path:
             cols["analysisDataFilePath"] = ex.anlz_path
             cols["analysedBits"] = self._native_analysed_bits(conn)
+        if ex.file_size:                          # 1.4.3 (S05) : tags écrits dans le fichier
+            cols["fileSize"] = ex.file_size
         image_id = self._store_artwork(conn, ex, album_id)
         if image_id is not None:
             cols["image_id"] = image_id

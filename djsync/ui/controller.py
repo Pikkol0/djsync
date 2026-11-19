@@ -721,6 +721,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 ).connect()
                 lib.auto_cue = self.settings.auto_cue
                 lib.native_parts = self.settings.native_parts()
+                lib.write_tags = self.settings.write_tags          # 1.4.3 (S05)
                 self.service.set_library(lib)
                 if old is not None:
                     old.close()
@@ -734,6 +735,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             ).connect()
             lib.auto_cue = self.settings.auto_cue
             lib.native_parts = self.settings.native_parts()
+            lib.write_tags = self.settings.write_tags              # 1.4.3 (S05)
             lib.pdb_delay = 3.0                       # 1.4.3 (A1-2) : export.pdb réécrit une fois par rafale
             rec = getattr(lib, "recovery", None)      # 1.4.3 (A6-1) : remplacement interrompu repris à l'ouverture
             if rec is not None and rec.restored:
@@ -1188,6 +1190,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.key_notation = s.key_notation
             self.library.auto_cue = s.auto_cue
             self.library.native_parts = s.native_parts()
+            self.library.write_tags = s.write_tags                 # 1.4.3 (S05)
             if s.pdb_sync != "off" and not self.is_local:
                 self._repair_pdb(self.library)      # option d'agrandissement activée : rattrapage aussitôt
         try:                                       # 1.4.1 (C141) : reflet or / argent coupé en mode léger

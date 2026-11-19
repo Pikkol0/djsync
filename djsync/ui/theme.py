@@ -36,6 +36,31 @@ LEVELS = {"good": GOOD, "fair": FAIR, "warn": WARN, "bad": ERR, "neutral": DIM, 
 
 ACCENT = ON_ACCENT = ACCENT_DIM = ""
 CURRENT_THEME = DEFAULT_THEME
+INK = "#0E0E10"           # 1.4.3 (C53) : texte sombre posé sur une couleur claire (quel que soit le fond)
+
+# 1.4.3 (C53) : fonds au choix (Paramètres ▸ Apparence) : (BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT)
+BACKGROUNDS = {
+    "default": ("#0E0E10", "#151518", "#1C1C21", "#2A2A31", "#E6E6EA", "#9A9AA5", "#62626C"),
+    "high_contrast": ("#000000", "#0A0A0A", "#161616", "#8A8A8A", "#FFFFFF", "#DADADA", "#ABABAB"),
+    "bright": ("#EEEEF2", "#FFFFFF", "#E4E4EA", "#C9C9D2", "#16161B", "#4E4E5A", "#7C7C88"),
+    "oled": ("#000000", "#08080A", "#111114", "#202026", "#E6E6EA", "#9A9AA5", "#62626C"),
+}
+CURRENT_BACKGROUND = "default"
+
+
+def apply_background(name: str) -> str:
+    """1.4.3 (C53) : couleurs neutres du fond choisi (inconnu -> sombre par défaut). La couleur d'accent est
+    ensuite réappliquée (apply_palette) : sur le fond Lumineux, elle est assombrie jusqu'à rester lisible."""
+    global BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT, CURRENT_BACKGROUND
+    if name not in BACKGROUNDS:
+        name = "default"
+    BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT = BACKGROUNDS[name]
+    CURRENT_BACKGROUND = name
+    return name
+
+
+def is_bright() -> bool:
+    return luminance(BG) > 0.5
 
 ZOOM_MIN, ZOOM_MAX = 80, 200
 BASE_PT = 10.0            # taille de police de base (points) à 100 %
@@ -68,7 +93,21 @@ def contrast(a: str, b: str) -> float:
 
 def on_color(background: str) -> str:
     """Texte (noir du thème ou blanc) le plus lisible posé sur `background`."""
-    return BG if contrast(background, BG) >= contrast(background, "#FFFFFF") else "#FFFFFF"
+    return INK if contrast(background, INK) >= contrast(background, "#FFFFFF") else "#FFFFFF"
+
+
+def readable_accent(accent: str, surface: Optional[str] = None) -> str:
+    """1.4.3 (C53) : accent assez contrasté sur le fond des cartes (assombri sur un fond clair)."""
+    from .palettes import MIN_CONTRAST
+
+    surface = surface or SURFACE
+    if luminance(surface) <= 0.5 or contrast(accent, surface) >= MIN_CONTRAST:
+        return accent
+    for k in range(1, 20):
+        darker = mix(accent, "#000000", k * 0.05)
+        if contrast(darker, surface) >= MIN_CONTRAST:
+            return darker
+    return mix(accent, "#000000", 0.6)
 
 
 def palette_colors(accent: str) -> dict:
@@ -83,7 +122,7 @@ def apply_palette(name: str) -> str:
     name = RETIRED.get(name, name)
     if name not in PALETTES:
         name = DEFAULT_THEME
-    c = palette_colors(PALETTES[name])
+    c = palette_colors(readable_accent(PALETTES[name]))
     ACCENT, ON_ACCENT, ACCENT_DIM = c["ACCENT"], c["ON_ACCENT"], c["ACCENT_DIM"]
     CURRENT_THEME = name
     return name

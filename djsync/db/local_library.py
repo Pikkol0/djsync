@@ -1094,6 +1094,10 @@ class LocalRekordboxLibrary:
                                           sample_rate or 44100, rel_dir=rel_dir)
                 dat = self.share_dir / ex.anlz_path.lstrip("/")
                 ex.written += [dat, dat.with_suffix(".EXT"), dat.with_suffix(".2EX")]
+                if getattr(self, "write_tags", False):          # 1.4.3 (S05) : BPM et tonalité dans le fichier
+                    from ..core.file_tags import after_analysis
+
+                    ex.file_size = after_analysis(file_path, ex.analysis)
             except Exception as exc:  # noqa: BLE001 - son ajouté sans analyse
                 from ..analysis.anlz import CuesUnreadable
 
@@ -1126,6 +1130,8 @@ class LocalRekordboxLibrary:
             content.AnalysisDataPath = ex.anlz_path
             content.Analysed = ANALYSED_FLAG
             content.AnalysisUpdated = str(int(content.AnalysisUpdated or 0) + 1)
+            if ex.file_size:                          # 1.4.3 (S05)
+                content.FileSize = ex.file_size
             if self.auto_cue:
                 self._memory_cue(db, content, ex.analysis.first_downbeat_ms)
             for ext in (".DAT", ".EXT", ".2EX"):

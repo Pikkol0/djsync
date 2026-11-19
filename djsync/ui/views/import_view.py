@@ -418,39 +418,64 @@ class ImportView(View):
             self.ctrl.check_originals(resolved.tracks, self._originals_checked)
 
     # ------------------------------------------------- 1.4.2 (C172) : longues playlists, page par page
-    def _show_more(self, resolved: ResolvedUrl) -> None:
-        """« 200 premiers titres sur 534 » au-dessus du tableau et « Charger les 200 suivants »."""
-        from ...core.urlimport import MAX_ENTRIES
+    def _show_more(self, resolved: ResolvedUrl, failed: bool = False) -> None:
+        """1.4.3 (C185) : une longue playlist se charge toute seule, page après page, jusqu'à 2 000 sons (le
+        tableau défile, sans pages) ; le bandeau dit où en est le chargement. Le bouton « Charger les suivants »
+        ne revient qu'après une erreur réseau (nouvel essai à la main)."""
+        from ...core.urlimport import MAX_ENTRIES, PLAYLIST_CAP
 
         n = len(resolved.tracks)
         if not resolved.truncated:
             self.more_box.hide()
             return
-        self.more_lbl.setText(t("import.first_of", n=n, total=resolved.total) if resolved.total
-                              else t("import.first_n", n=n))
-        left = resolved.total - n if resolved.total else MAX_ENTRIES
-        self.more_btn.setText(t("import.load_more", n=min(MAX_ENTRIES, max(1, left))))
-        self.more_btn.setEnabled(True)
+        if n >= PLAYLIST_CAP:
+            self.more_lbl.setText(t("import.first_of", n=n, total=resolved.total) if resolved.total
+                                  else t("import.first_n", n=n))
+            self.more_btn.hide()
+            self.more_box.show()
+            return
+        if failed:
+            self.more_lbl.setText(t("import.first_of", n=n, total=resolved.total) if resolved.total
+                                  else t("import.first_n", n=n))
+            left = resolved.total - n if resolved.total else MAX_ENTRIES
+            self.more_btn.setText(t("import.load_more", n=min(MAX_ENTRIES, max(1, left))))
+            self.more_btn.setEnabled(True)
+            self.more_btn.show()
+            self.more_box.show()
+            return
+        total = min(resolved.total, PLAYLIST_CAP) if resolved.total else 0
+        self.more_lbl.setText(t("import.loading_progress", n=n, total=total) if total
+                              else t("import.loading_progress_n", n=n))
+        self.more_btn.hide()
         self.more_box.show()
+        from PySide6.QtCore import QTimer
+
+        token = self._token
+        QTimer.singleShot(0, lambda: token == self._token and self.load_more())
 
     def load_more(self) -> None:
+        from ...core.urlimport import PLAYLIST_CAP
+
         resolved = self.resolved
-        if resolved is None or not resolved.truncated:
+        if resolved is None or not resolved.truncated or getattr(self, "_loading_more", None) is resolved:
             return
+        self._loading_more = resolved
         token = self._token
         self.more_btn.setEnabled(False)
         self.more_btn.setText(t("import.loading_more"))
         start = resolved.start + len(resolved.tracks)
 
         def ok(more: ResolvedUrl) -> None:
+            self._loading_more = None
             if token != self._token or not self.winfo_exists() or self.resolved is not resolved:
                 return
             known = {tr.video_id for tr in resolved.tracks}
             added = [tr for tr in more.tracks if tr.video_id not in known]
             from dataclasses import replace
 
-            whole = replace(resolved, tracks=resolved.tracks + added, total=more.total or resolved.total,
-                            truncated=more.truncated and bool(added))
+            room = max(0, PLAYLIST_CAP - len(resolved.tracks))
+            whole = replace(resolved, tracks=resolved.tracks + added[:room], total=more.total or resolved.total,
+                            truncated=(more.truncated and bool(added)) or len(added) > room)
             off = [r.iid for r in self.dl_table.all_rows() if r.values.get("chk") == UNCHECKED]
             dup = dict(self._dup)
             self._load_direct(whole)
@@ -464,9 +489,9 @@ class ImportView(View):
             self._refresh_buttons()
 
         def err(exc: BaseException) -> None:
+            self._loading_more = None
             if token == self._token and self.winfo_exists():
-                self.more_btn.setEnabled(True)
-                self._show_more(resolved)
+                self._show_more(resolved, failed=True)
             self.ctrl._on_error(exc)
 
         self.ctrl.import_more(resolved.source_url, start, ok, err)

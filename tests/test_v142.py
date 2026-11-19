@@ -306,17 +306,23 @@ def test_c172_banner_and_load_more(demo, monkeypatch):
 
     first = ResolvedUrl(UrlKind.YOUTUBE, "Long", [tr(i) for i in range(1, 201)], "https://youtube.com/playlist?list=PLx",
                         True, "", True, 534, 1)
-    view._load_direct(first)
-    assert view.more_box.isVisibleTo(view) and "534" in view.more_lbl.text()
     asked = []
 
     def import_more(url, start, ok, err=None):
         asked.append(start)
-        ok(ResolvedUrl(UrlKind.YOUTUBE, "Long", [tr(i) for i in range(201, 401)], url, True, "", True, 534, start))
+        end = min(start + 199, 534)
+        ok(ResolvedUrl(UrlKind.YOUTUBE, "Long", [tr(i) for i in range(start, end + 1)], url, True, "", end < 534, 534,
+                       start))
 
     monkeypatch.setattr(demo.ctrl, "import_more", import_more)
-    view.load_more()
-    assert asked == [201] and len(view.resolved.tracks) == 400 and view.more_box.isVisibleTo(view)
+    view._load_direct(first)
+    assert view.more_box.isVisibleTo(view) and "534" in view.more_lbl.text()
+    # 1.4.3 (C185) : la suite se charge toute seule, page après page, sans bouton
+    from PySide6.QtWidgets import QApplication
+
+    for _ in range(20):
+        QApplication.processEvents()
+    assert asked == [201, 401] and len(view.resolved.tracks) == 534 and not view.more_box.isVisibleTo(view)
     assert not demo.errors
 
 

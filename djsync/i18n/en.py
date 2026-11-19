@@ -898,6 +898,11 @@ STRINGS = {
     "settings.section_djsync": "DJSync",
     "settings.language": "Language",
     "settings.theme": "Theme and logo colour",
+    "settings.background": "Background",          # 1.4.3 (C53)
+    "settings.background_default": "Dark (default)",
+    "settings.background_high_contrast": "High contrast",
+    "settings.background_bright": "Bright",
+    "settings.background_oled": "OLED (pure black)",
     "settings.zoom": "Interface zoom",
     "settings.light": "Light mode",
     "settings.light_auto": "Auto (depends on the PC)",
@@ -1208,6 +1213,8 @@ STRINGS = {
     "tools.busy": "Another copy or metadata task is running.",
     "settings.auto_cue": "Memory cue on the first downbeat",
     "settings.auto_cue_hint": "Players can jump straight to the first beat of a bar. Tracks that already have cues are not changed.",
+    "settings.write_tags": "Write the BPM and key into the audio files after the analysis",          # 1.4.3 (S05)
+    "settings.write_tags_hint": "Other software (Serato, Traktor, Mixed In Key, file explorers) can then read them. Only the tags are rewritten, never the sound.",
     "settings.format": "File format",
     # ---- V1.0.0
     "msg.pdb_repaired": "The older players' library (export.pdb) was missing {tracks} track(s) and {playlists} playlist(s): repaired.",
@@ -1909,6 +1916,8 @@ STRINGS = {
     "import.first_n": "Only the first {n} tracks are shown: this playlist has more.",
     "import.load_more": "Load the next {n}",
     "import.loading_more": "Loading…",
+    "import.loading_progress": "Loading the playlist… {n} of {total} tracks",          # 1.4.3 (C185)
+    "import.loading_progress_n": "Loading the playlist… {n} tracks",
     "home.actions": "What do you want to do?",
     "home.act_download": "Download",
     "home.act_download_sub": "Search, high quality, link",

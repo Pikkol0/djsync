@@ -69,6 +69,8 @@ class Settings:
     # ---- V1.1
     language: str = DEFAULT_LANGUAGE   # "en" (défaut) | "fr"
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
+    background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
+    write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
     zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
     # ---- V1.1-A3

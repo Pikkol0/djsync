@@ -267,6 +267,17 @@ class SettingsView(View):
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
 
+        row = hbox()                                    # 1.4.3 (C53) : fond
+        row.addWidget(self._fixed(label(t("settings.background"))))
+        self._bg_labels = {k: t(f"settings.background_{k}") for k in theme.BACKGROUNDS}
+        self.bg_menu = ShrinkCombo()
+        self.bg_menu.addItems(list(self._bg_labels.values()))
+        self.bg_menu.setCurrentText(self._bg_labels.get(getattr(s, "background", "default"), self._bg_labels["default"]))
+        self.bg_menu.currentTextChanged.connect(self._background_changed)
+        row.addWidget(self.bg_menu)
+        row.addStretch(1)
+        card.addLayout(row)
+
         # 1.4.0 (C102) : plus de curseur : − / + / 100 % et les raccourcis (Ctrl/Cmd +, −, 0, molette)
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.zoom"))))
@@ -401,6 +412,10 @@ class SettingsView(View):
         self.cue_var.setChecked(s.auto_cue)
         self.cue_var.setToolTip(t("settings.auto_cue_hint"))
         card.addWidget(self.cue_var)
+        self.tags_var = WrapCheckBox(t("settings.write_tags"))                    # 1.4.3 (S05)
+        self.tags_var.setChecked(s.write_tags)
+        self.tags_var.setToolTip(t("settings.write_tags_hint"))
+        card.addWidget(self.tags_var)
         card.addWidget(label(t("settings.reanalyse_rekordbox"), wrap=True))       # 1.4.1 (C131, D20)
         row = flow_row(spacing=12)                                                  # 1.4.2 (A2-1)
         self.reanalyse_vars = {}
@@ -1316,6 +1331,13 @@ class SettingsView(View):
             self.ctrl.settings.save()
             self.ctrl._emit("restyle")
 
+    def _background_changed(self, text: str) -> None:
+        name = next((k for k, v in self._bg_labels.items() if v == text), "default")
+        if name != getattr(self.ctrl.settings, "background", "default"):
+            self.ctrl.settings.background = name
+            self.ctrl.settings.save()
+            self.ctrl._emit("restyle")
+
     def _zoom_step(self, delta: int) -> None:
         keys = getattr(self.window(), "zoom_keys", None)
         if keys is not None:
@@ -1790,6 +1812,7 @@ class SettingsView(View):
                 "analyze_after_download_usb": self.analyze_usb_var.isChecked(),
                 "analyze_after_download_local": self.analyze_local_var.isChecked(),
                 "auto_cue": self.cue_var.isChecked(),
+                "write_tags": self.tags_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
@@ -1902,6 +1925,7 @@ class SettingsView(View):
         s.analyze_after_download_usb = self.analyze_usb_var.isChecked()
         s.analyze_after_download_local = self.analyze_local_var.isChecked()
         s.auto_cue = self.cue_var.isChecked()
+        s.write_tags = self.tags_var.isChecked()                  # 1.4.3 (S05)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
