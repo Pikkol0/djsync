@@ -187,6 +187,11 @@ def _remember(path: Any, result: Any) -> None:
             from .loudness import remember as remember_gain
 
             remember_gain(path, result.gain_db, result.peak_db)
+        profile = getattr(getattr(result, "grid", None), "profile", None)      # 1.4.3 (C69)
+        if profile is not None:
+            from .tempo_profile import remember as remember_tempo
+
+            remember_tempo(path, profile)
         if result.cutoff is not None and known(path) is None:
             remember(path, result.cutoff)
         elif result.cutoff is None:

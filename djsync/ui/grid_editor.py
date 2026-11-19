@@ -956,6 +956,10 @@ class GridEditor(QWidget):
         kind = t("grid.constant") if len(set(tempos)) <= 1 else t("grid.variable")
         delta = self.beats[self.selected][2] - self._original_at(self.selected)
         parts = [f"{bpm:.2f} BPM", kind, plural("grid.beats_one", "grid.beats_many", len(self.beats))]
+        from .views.library_view import tempo_profile_of          # 1.4.3 (C69) : live, beatswitch… détecté
+        p = tempo_profile_of(self.track)
+        if p is not None and p.kind:
+            parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
         if self._native:
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))

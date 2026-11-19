@@ -77,7 +77,7 @@ def test_c188_auto_lists_in_a_foldable_group_remembered(demo, monkeypatch):  # n
     group = view._items[L.AUTO]
     assert view.nav.indexOfTopLevelItem(group) >= 0
     kids = {group.child(i).data(0, Qt.UserRole) for i in range(group.childCount())}
-    assert kids == {L.TODO, L.ORPH, L.MISS, L.NOCUE}
+    assert kids == {L.TODO, L.ORPH, L.MISS, L.NOCUE, L.TEMPO}                 # 1.4.3 (C69) : + Tempo qui change
     assert not group.flags() & Qt.ItemIsSelectable                   # jamais ouvert comme une liste
     assert group.isExpanded()
     group.setExpanded(False)

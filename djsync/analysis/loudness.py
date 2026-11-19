@@ -7,8 +7,9 @@
   lecteur de DJSync (préécoute et Bibliothèque) quand « Volume égalisé » est actif ; sur l'ordinateur, le gain
   est aussi écrit dans master.db (djmdMixerParam), là où Rekordbox garde le sien.
 
-TARGET_LUFS est une première valeur (musique de club, masters forts) : à caler sur les gains de Rekordbox de
-l'échantillon de 194 sons (master.db du PC portable) pendant la rc.
+TARGET_LUFS calé le 19/11/2026 sur les gains « Auto Gain » de Rekordbox (147 sons de l'échantillon du PC fixe,
+djmdMixerParam) : Rekordbox amène chaque son à −10,7 LUFS (écart-type 0,5 dB ; même crête mesurée, à 0,0 dB
+près). Avec −10,7 : écart moyen 0,35 dB, 96 % des sons à 1 dB près (avec −9 : 1,8 dB, 2 %).
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-TARGET_LUFS = -9.0
+TARGET_LUFS = -10.7
 MAX_GAIN_DB = 12.0
 
 

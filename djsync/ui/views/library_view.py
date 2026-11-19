@@ -39,7 +39,8 @@ TODO = "todo"             # titres pas encore analysés
 ORPH = "orphans"          # 1.3.2 (C56) : titres qui ne sont dans aucune playlist
 MISS = "missing"          # 1.3.2-rc.3 (C124) : titres dont le fichier est introuvable
 NOCUE = "nocues"           # 1.4.1 (C60) : titres sans hot cue
-SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE)
+TEMPO = "tempo"            # 1.4.3 (C69) : titres dont le tempo change (live, beatswitch, accélération, set)
+SPECIAL = (ALL, TODO, ORPH, MISS, NOCUE, TEMPO)
 AUTO = "autolists"         # 1.4.2 (C188) : groupe repliable des listes automatiques (jamais ouvert)
 _FORMATS = {1: "MP3", 4: "AAC", 5: "FLAC", 11: "WAV", 12: "AIFF"}
 
@@ -101,6 +102,30 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     elif info.fake:
         out["format__color"] = out["bitrate__color"] = out["real__color"] = theme.LEVELS["warn"]
     return out
+
+
+def tempo_profile_of(x: LibraryTrack) -> Any:
+    """1.4.3 (C69) : profil de tempo mesuré à l'analyse (registre tempo.json), None sinon."""
+    from ...analysis.tempo_profile import lookup
+
+    try:
+        return lookup(Path(x.path).name, x.file_size)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def tempo_text(p: Any) -> str:
+    """« Version live détectée · grille variable » : jamais affirmé, la grille dit ce qui a été écrit."""
+    if p is None or not p.kind:
+        return ""
+    head = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+    return f"{head} · {t('tempo.grid_variable') if p.variable else t('tempo.grid_fixed')}"
+
+
+def tempo_values(x: LibraryTrack) -> Dict[str, Any]:
+    """1.4.3 (C69) : pastille sur le BPM et bulle quand le tempo du son change."""
+    text = tempo_text(tempo_profile_of(x))
+    return {"bpm__dot": theme.SKY, "bpm__tip": text} if text else {}
 
 
 def total_duration(seconds: int) -> str:
@@ -577,6 +602,8 @@ class LibraryView(View):
         item(group, MISS, t("lib.missing"), theme.ERR if miss else "", icon="warn", count=miss)
         marks = getattr(self, "_cue_marks", None)                                                     # C60
         item(group, NOCUE, t("lib.no_cues"), "", icon="grid", count="" if marks is None else len(self._no_cue_tracks()))
+        tempo_n = len(self._tempo_tracks())                                                           # C69
+        item(group, TEMPO, t("lib.tempo_changes"), theme.SKY if tempo_n else "", icon="wave", count=tempo_n)
         group.setExpanded(bool(getattr(self.ctrl.settings, "auto_lists_open", True)))
         self._auto_group_counts(group)
         children: Dict[int, List[PlaylistInfo]] = {}
@@ -953,7 +980,7 @@ class LibraryView(View):
              "album": x.album or "", "bpm": f"{x.bpm:.0f}" if x.bpm else "—",
              "duration": format_duration(x.duration_seconds), "format": _fmt(x), "added": date_text(x.date_added),
              **self._source_values(x), "grid": "1" if x.is_analysed else "", **extra_values(x),
-             **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x),
+             **self._playlist_values(x), **self._cue_values(x), **self._extra_values(x), **tempo_values(x),
              "_tip": self._missing_tip(x.content_id)},
             ("missing",) if x.content_id in self.ctrl.missing_files else (), x,
         )
@@ -1054,6 +1081,15 @@ class LibraryView(View):
         else:
             DuplicatesDialog(win, self.ctrl, focus_ids=ids)
 
+    def _tempo_tracks(self) -> List[LibraryTrack]:
+        """1.4.3 (C69) : sons dont l'analyse a vu le tempo changer."""
+        out = []
+        for x in self.all_tracks:
+            p = tempo_profile_of(x) if x.is_analysed else None
+            if p is not None and p.kind:
+                out.append(x)
+        return out
+
     def _no_cue_tracks(self) -> List[LibraryTrack]:
         marks = getattr(self, "_cue_marks", None) or {}
         return [x for x in self.all_tracks if x.content_id in marks and not marks[x.content_id].hot]
@@ -1098,6 +1134,10 @@ class LibraryView(View):
                 return
             self.table.set_empty("check", t("lib.empty_no_cues_title"))
             self._apply_rows(self._no_cue_tracks(), pos=False)
+            return
+        if self.current == TEMPO:                                  # 1.4.3 (C69)
+            self.table.set_empty("check", t("lib.empty_tempo_title"))
+            self._apply_rows(self._tempo_tracks(), pos=False)
             return
         if self.current == ALL or self.playlist is None or self.playlist.is_folder:
             tracks = self.all_tracks if self.current == ALL else []
@@ -1157,6 +1197,10 @@ class LibraryView(View):
             self.title_lbl.setText(t("lib.no_cues"))
             n = len(self._no_cue_tracks())
             self.sub_lbl.setText("  ·  ".join([plural("lib.tracks_one", "lib.tracks_many", n), t("lib.no_cues_hint")]))
+        elif self.current == TEMPO:                                # 1.4.3 (C69)
+            self.title_lbl.setText(t("lib.tempo_changes"))
+            n = len(self._tempo_tracks())
+            self.sub_lbl.setText("  ·  ".join([plural("lib.tracks_one", "lib.tracks_many", n), t("lib.tempo_hint")]))
         elif self.current == MISS:                                 # 1.3.2-rc.3 (C124)
             self.title_lbl.setText(t("lib.missing"))
             n = len(self._missing_tracks())

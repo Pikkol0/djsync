@@ -188,3 +188,14 @@ suit la même règle que « Supprimer ».
 | VUE-2 | Tous | Windows | (**C214**) Dans une vue, cocher une colonne de plus (bouton Colonnes ou clic droit sur l'en-tête). | « (modifiée) » avec Enregistrer et Revenir ; Revenir remet la vue ; Enregistrer la garde (vue d'origine : « Rétablir la vue d'origine » dans le menu). |
 | VUE-3 | Tous | Windows | (**C214**) « Nouvelle vue… », la nommer ; la renommer puis la supprimer. Choisir une vue différente pour deux playlists, passer de l'une à l'autre, relancer DJSync. | Chaque playlist retrouve sa vue ; textes en anglais et en français. |
 
+
+## rc.1, lot 5 — mesures sur le PC fixe : tempo qui change, volume calé sur Rekordbox
+
+Fiches : **C69** (tempo qui change), **C109** (référence de volume). Mesures : `claude/mesures-1.4.3.md` (docs du projet).
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| ANA-9 | Auteur | Windows | (**C69**) Analyser la playlist « testlivesetbeatswitchetcccc » (19 sons) avec DJSync, puis Bibliothèque ▸ Listes automatiques ▸ « Tempo qui change ». | Une douzaine de sons listés (les deux sets, les beatswitchs, la plupart des lives) ; pastille bleue sur le BPM ; bulle « Version live détectée · grille variable », « Beatswitch détecté (122 → 140 BPM) · grille fixe : à vérifier dans Grille et cues »… Les lives sans batterie nette ne sont pas signalés (rien d'affirmé). |
+| ANA-10 | Auteur | Windows | (**C69**) Analyser des sons de club à tempo fixe (house, techno, hardstyle). | Aucun dans « Tempo qui change » ; grille fixe partout (« tempo constant » dans Grille et cues). |
+| GRI-8 | Auteur | Windows | (**C69**) Grille et cues sur un son signalé « grille variable » (live, accélération, set), puis sur un beatswitch. | La ligne d'infos dit le type détecté (« Version live détectée ») ; la grille variable suit les temps, sur le temps et pas le contretemps. Beatswitch : grille fixe, juste sur un des deux passages (une grille par passage : C16). |
+| LEC-7 | Auteur | Windows | (**C109**) Bibliothèque de l'ordinateur : analyser avec DJSync un son déjà analysé par Rekordbox (Auto Gain), comparer le gain dans Rekordbox avant et après. | Écart de 1 dB au plus (référence −10,7 LUFS, calée sur 147 sons de Rekordbox). |

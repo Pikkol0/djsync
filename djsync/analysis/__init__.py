@@ -129,6 +129,13 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         from .loudness import remember as remember_gain
 
         remember_gain(path, result.gain_db, peak_db)
+    if not _in_worker and grid.profile is not None:              # 1.4.3 (C69) : tempo qui change
+        try:
+            from .tempo_profile import remember as remember_tempo
+
+            remember_tempo(path, grid.profile)
+        except Exception:  # noqa: BLE001
+            log.debug("Ignored error in analyze_file (tempo profile)", exc_info=True)
     return result
 
 

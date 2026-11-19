@@ -45,6 +45,7 @@ class BeatGrid:
     confidence: float = 0.0                            # 0..1
     beats: List[Tuple[int, float]] = field(default_factory=list)   # (1..4, secondes)
     variable: bool = False                             # grille qui suit un tempo changeant (voir _warp)
+    profile: Optional[object] = None                   # 1.4.3 (C69) : tempo_profile.TempoProfile
 
     def beat_tempos(self) -> List[float]:
         """Tempo de chaque temps (BPM) : constant, ou mesuré d'un temps au suivant si la grille varie."""
@@ -476,11 +477,31 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     elif _offbeat_score(x, sr, np.arange(first, duration, beat_len), beat_len, debug) > OFFBEAT_SCORE_FLIP:
         first = (first + beat_len / 2) % beat_len
     times = np.arange(first, duration, beat_len)
-    warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
+    # 1.4.3 (C69) : profil de tempo (beatswitch, accélération, set, live). La grille variable n'est essayée
+    # que pour un tempo qui bouge PEU À PEU (live, accélération, set) : sur l'échantillon du PC fixe, elle se
+    # déclenchait sur 30 sons sur 337 à tempo fixe, souvent calée sur le contretemps (écart médian 120 ms
+    # avec Rekordbox) ; un beatswitch garde une grille fixe (C16 : une grille par passage).
+    from .tempo_profile import TempoProfile, classify
+
+    try:
+        profile = classify(env, fps, bpm, duration, debug)
+    except Exception:  # noqa: BLE001 - le profil n'est qu'une information en plus
+        profile = TempoProfile()
+    warped = None
+    if profile.kind in ("live", "ramp", "set"):
+        warped = _warp(env, fps, bpm, ((first - ONSET_LATENCY) * sr - N_FFT / 2) / HOP + 0.5, debug)
     variable = warped is not None
+    profile.variable = variable
     if variable:
         times = t_of(warped)
         times = times[(times >= 0) & (times < duration)]
+        # 1.4.3 (C69) : même contrôle temps / contretemps que la grille fixe (B11) : la grille suivie se cale
+        # sur les attaques les plus fortes, parfois celles du contretemps
+        step = float(np.median(np.diff(times)))
+        if times.size > 2 and (_bass_energy_flip(x, sr, times, step)
+                               or _offbeat_score(x, sr, times, step) > OFFBEAT_SCORE_FLIP):
+            mids = (times[:-1] + times[1:]) / 2
+            times = np.concatenate([[mids[0] - step] if mids[0] - step >= 0 else [], mids])
         first = float(times[0])
         bpm = round(float(np.median(60.0 / np.diff(times))), 2)        # tempo affiché : tempo médian
     # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
@@ -515,4 +536,4 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> BeatG
     down = int(np.argmax(scores))
     beats = [(((k - down) % 4) + 1, float(t)) for k, t in enumerate(times)]
     return BeatGrid(bpm=bpm, first_beat=float(first), downbeat_offset=down,
-                    confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable)
+                    confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable, profile=profile)
