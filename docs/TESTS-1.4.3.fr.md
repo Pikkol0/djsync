@@ -147,3 +147,44 @@ C16, C69, A01 : mesures sur le PC portable.
 | MAJ-6 | Tous | Windows | (**C72**) Depuis la 1.4.3-rc.1, mettre à jour vers la rc suivante depuis Paramètres. | Téléchargement bien plus court que la taille de DJSync.exe (journal : « Delta update: x MB downloaded instead of y MB ») ; DJSync redémarre dans la nouvelle version. Depuis une version d'avant la 1.4.3 : téléchargement complet comme avant. |
 | ESP-6 | Tous | Windows | (**C176**) Taille de DJSync.exe et du dossier `.djsync\app` après extraction, comparées à la 1.4.2. | Plus petit (modules jamais utilisés retirés) ; tout fonctionne (recherche, téléchargement YouTube, pochettes). Détail dans l'annotation « App size (C176) » du build. |
 | CLE-9 | Tous | Windows | Après ANA-6 et TAG-1 : la clé dans Rekordbox puis sur platines. | Tous les sons se lisent ; grilles, cues et playlists inchangés. |
+
+## rc.1, lot 4 — clé illisible, mêmes règles pour tous les sons, « Prêt pour le set ? », vues de colonnes
+
+Fiches : B105, A07 (avec C156), C213, C214. Décisions : `claude/spec-c83-c156.md`. Tests automatiques :
+`tests/test_v143_lot4.py`. Sautées (attendent l'auteur) : C16, C69, A01 (accès au PC portable).
+
+Inventaire A07 (protections « son de Rekordbox » sur l'ordinateur) : **suppression** : remplacée (corbeille du
+système, réglage de protection désactivé par défaut) ; **réanalyse** : déjà un choix et une confirmation (D20,
+C131), inchangée ; **grille** : déjà une confirmation « Cette grille vient de Rekordbox » avant d'enregistrer,
+inchangée ; **cues** : aucune protection ; **Uniformiser** : propositions décochées (orange) pour un son pas
+téléchargé par DJSync (S06) : c'est déjà un avertissement, inchangé. La fusion de doublons (Doublons, Introuvables)
+suit la même règle que « Supprimer ».
+
+### Clé et données
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| CLE-10 | Auteur | Windows | (**B105**) Une clé passée par Rekordbox sur le Mac et retirée sans éjecter (cas de CLE-1), ou la clé du 14/11 si elle est encore dans cet état ; l'ouvrir dans DJSync, puis envoyer le journal. | La clé s'ouvre, rien n'est perdu (sons et playlists ajoutés en dernier sur le Mac présents). Journal : « Drive database open failed: … (code …) », « reopening once in exclusive mode », « repaired in exclusive mode ». Aucun fichier supprimé dans PIONEER/rekordbox. |
+| CLE-11 | Auteur | Windows | (**B105**) Même clé, Rekordbox ouvert sur cette clé (Appareil), puis ouvrir la clé dans DJSync. | Message clair qui nomme la clé (« fermez Rekordbox, vérifiez que la clé n'est pas en lecture seule ») ; rien de changé. Rekordbox fermé : la clé s'ouvre. |
+| CLE-12 | Testeur platines | Platines | (**B105**) Après CLE-10 : la clé sur les platines puis dans Rekordbox. | Tout se lit comme avant. |
+
+### Supprimer (ordinateur et clé)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| SUP-1 | Tous | Windows | (**A07**, **C156**) Bibliothèque de l'ordinateur, Rekordbox fermé : supprimer un son que DJSync n'a **pas** téléchargé (ajouté par Rekordbox). | Bouton « Supprimer de l'ordinateur » ; confirmation : le fichier va dans la corbeille. Après : son retiré de Rekordbox, fichier dans la Corbeille de Windows (« Restaurer » le remet à sa place) ; message « 1 fichier mis à la corbeille ». |
+| SUP-2 | Tous | Windows | (**C156**) Paramètres ▸ Bibliothèques ▸ cocher « Protéger les sons qui ne viennent pas de DJSync », refaire SUP-1 avec un autre son. | Bouton « Retirer de la collection Rekordbox » ; le fichier reste où il est. Un son téléchargé par DJSync va toujours à la corbeille. |
+| SUP-3 | Tous | Windows | (**C156**) Deux entrées Rekordbox qui pointent vers le même fichier (même chemin) : en supprimer une. | Le fichier reste (encore utilisé par l'autre son). |
+| SUP-4 | Tous | Windows | (**A07**) Supprimer une playlist (clé, puis ordinateur) : garder « La playlist seule » ; puis une autre avec « La playlist et ses sons ». | Seule : les sons restent dans « Tous les sons ». Avec ses sons : sons supprimés (clé : effacés ; ordinateur : corbeille) ; la confirmation dit combien sont aussi dans d'autres playlists. Pour un dossier : les sons de toutes ses playlists (listes intelligentes exclues). |
+| SUP-5 | Tous | Windows | (**A07**, à la place de C83) Supprimer des sons dont certains ont été importés depuis des fichiers (pas de lien YouTube ou SoundCloud). | Ligne rouge dans la confirmation : « n sons n'ont pas de lien d'origine : DJSync ne pourra pas les retélécharger (titres…) ». |
+| SUP-6 | Testeur Mac | macOS | (**C156**) SUP-1 sur le Mac. | Fichier dans la Corbeille du Finder (« Remettre » fonctionne). |
+
+### « Prêt pour le set ? » et Bibliothèque
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| SET-6 | Tous | Windows | (**C213**) Clé avec des sons analysés dont certaines grilles ont été marquées « Grille juste » ; ouvrir « Prêt pour le set ? ». | Ligne orange « Grilles : n grilles pas encore vérifiées » juste après Analyse ; le verdict ne change pas à cause d'elle (reste « Prête » si tout le reste est vert). « Voir » ouvre la Bibliothèque sur ces sons seuls (bandeau, ✕ pour tout revoir), vue « Préparer un set » avec la colonne Analyse. |
+| VUE-1 | Tous | Windows | (**C214**) Bibliothèque ▸ « Vue : Découvrir / ranger ▾ » : essayer Préparer un set, Mixer, Vérifier la qualité, Tout voir. | Les colonnes changent d'un coup ; largeurs et ordre gardés. Après mise à jour, les colonnes choisies avant restent (vue « Mes colonnes » si elles ne correspondent à aucune vue). |
+| VUE-2 | Tous | Windows | (**C214**) Dans une vue, cocher une colonne de plus (bouton Colonnes ou clic droit sur l'en-tête). | « (modifiée) » avec Enregistrer et Revenir ; Revenir remet la vue ; Enregistrer la garde (vue d'origine : « Rétablir la vue d'origine » dans le menu). |
+| VUE-3 | Tous | Windows | (**C214**) « Nouvelle vue… », la nommer ; la renommer puis la supprimer. Choisir une vue différente pour deux playlists, passer de l'une à l'autre, relancer DJSync. | Chaque playlist retrouve sa vue ; textes en anglais et en français. |
+
