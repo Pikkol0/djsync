@@ -1623,7 +1623,7 @@ STRINGS = {
     "home.pdb_no_tip": "No export.pdb on this drive. This file is read by older players (CDJ-2000NXS2, XDJ-1000…): they will not show its playlists. In Rekordbox, also export the drive in the “Device Library” format once: DJSync then keeps it up to date.",
     "home.pdb_stale": "export.pdb: to update",
     "home.pdb_detail": "Not yet on older players: {detail}",
-    "home.pdb_update": "Update for older players",
+    "home.pdb_update": "Update export.pdb",  # 1.4.2 (C211)
     "home.pdb_update_tip": "Brings export.pdb (older players: CDJ-2000NXS2, XDJ-1000…) in line with this drive's library. Close Rekordbox first.",
     "home.pdb_updating": "Updating…",
     "home.pdb_stale_tip": "export.pdb is read by older players (CDJ-2000NXS2, XDJ-1000…): they do not see everything added by DJSync yet. Settings ▸ Older players ▸ Synchronise now. Detail: {detail}",

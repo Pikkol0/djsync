@@ -1623,7 +1623,7 @@ STRINGS = {
     "home.pdb_no_tip": "Pas d'export.pdb sur cette clé. Ce fichier est lu par les anciennes platines (CDJ-2000NXS2, XDJ-1000…) : elles n'afficheront pas ses playlists. Dans Rekordbox, exportez aussi la clé une fois au format « Device Library » : DJSync le tiendra ensuite à jour.",
     "home.pdb_stale": "export.pdb : à mettre à jour",
     "home.pdb_detail": "Pas encore sur les anciennes platines : {detail}",
-    "home.pdb_update": "Mettre à jour pour les anciennes platines",
+    "home.pdb_update": "Mettre à jour export.pdb",  # 1.4.2 (C211)
     "home.pdb_update_tip": "Met export.pdb (anciennes platines : CDJ-2000NXS2, XDJ-1000…) en accord avec la bibliothèque de cette clé. Fermez Rekordbox avant.",
     "home.pdb_updating": "Mise à jour…",
     "home.pdb_stale_tip": "export.pdb est lu par les anciennes platines (CDJ-2000NXS2, XDJ-1000…) : elles ne voient pas encore tout ce que DJSync a ajouté. Paramètres ▸ Anciennes platines ▸ Synchroniser maintenant. Détail : {detail}",

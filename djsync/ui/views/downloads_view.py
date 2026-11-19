@@ -29,14 +29,22 @@ class DownloadsView(View):
         self._tracks: Dict[str, LibraryTrack] = {}
         self._loaded_for = None
         self.root.addLayout(self.header(t("tab.downloads")))
+        # 1.4.2 (C207, option A) : dès qu'un panneau est replié, les deux en-têtes se rangent en haut, dans un
+        # ordre fixe (téléchargements puis analyse) ; le contenu du panneau ouvert est dessous. Tout replié :
+        # en-têtes en haut, le reste de la page vide (l'espace extensible sous la zone des panneaux).
+        self._strip = QWidget()
+        vbox(self._strip, spacing=theme.px(6))
+        self.root.addWidget(self._strip)
         split = QSplitter(Qt.Vertical)
         split.setChildrenCollapsible(False)
         self.root.addWidget(split, 1)
+        self.root.addStretch(0)
 
         # ------------------------------------------------------------ téléchargements
         top = QWidget()
         tv = vbox(top, spacing=theme.px(6))
-        head = hbox(spacing=theme.px(8))
+        dl_head = QWidget()
+        head = hbox(dl_head, spacing=theme.px(8))
         self._dl_fold = self._fold_button("downloads")                  # 1.4.2 (C189) : panneau repliable
         head.addWidget(self._dl_fold)
         head.addWidget(icon_label("download", 18, theme.ACCENT))
@@ -55,7 +63,7 @@ class DownloadsView(View):
         self.clear_btn = button(t("dl.clear_finished"), self.ctrl.clear_finished, kind="flat", icon="trash")
         for b in (self.play_btn, self.retry_btn, self.clear_btn):
             head.addWidget(b)
-        tv.addLayout(head)
+        tv.addWidget(dl_head)
         dl_body = QWidget()
         tv.addWidget(dl_body, 1)
         tv = vbox(dl_body, spacing=theme.px(6))
@@ -86,7 +94,8 @@ class DownloadsView(View):
         bottom = QWidget()
         bv = vbox(bottom, spacing=theme.px(6))
         bv.setContentsMargins(0, theme.px(10), 0, 0)
-        head = hbox(spacing=theme.px(8))
+        an_head = QWidget()
+        head = hbox(an_head, spacing=theme.px(8))
         self._an_fold = self._fold_button("analysis")                   # 1.4.2 (C189)
         head.addWidget(self._an_fold)
         head.addWidget(icon_label("wave", 18, theme.ACCENT))
@@ -107,7 +116,7 @@ class DownloadsView(View):
         head.addWidget(self.analyse_sel_btn)
         self.analyse_btn = button("", self._analyse_toggle, kind="primary", icon="wave")
         head.addWidget(self.analyse_btn)
-        bv.addLayout(head)
+        bv.addWidget(an_head)
         an_body = QWidget()
         bv.addWidget(an_body, 1)
         bv = vbox(an_body, spacing=theme.px(6))
@@ -135,6 +144,7 @@ class DownloadsView(View):
         split.setSizes([theme.px(300), theme.px(360)])
         self._split = split
         self._panels = {"downloads": (top, dl_body, self._dl_fold), "analysis": (bottom, an_body, self._an_fold)}
+        self._heads = {"downloads": dl_head, "analysis": an_head}
         for key in self._panels:
             self._apply_fold(key)
         self._order_panels()
@@ -174,29 +184,31 @@ class DownloadsView(View):
     def _apply_fold(self, key: str) -> None:
         """1.4.2 (C189) : replié, le panneau ne garde que son en-tête (titre, résumé, boutons) ; l'autre
         panneau prend la place. État retenu entre les sessions."""
-        panel, body, btn = self._panels[key]
+        _panel, _body, btn = self._panels[key]
         folded = bool(self._folded().get(key, False))
-        body.setVisible(not folded)
         btn.setIcon(qicon("chevron_right" if folded else "chevron_down", 16, theme.DIM))
         btn.setToolTip(t("dl.unfold_tip") if folded else t("dl.fold_tip"))
-        if folded:
-            m = panel.layout().contentsMargins()
-            panel.setMaximumHeight(panel.layout().itemAt(0).sizeHint().height() + m.top() + m.bottom())
-        else:
-            panel.setMaximumHeight(16777215)
         self._order_panels()
 
     def _order_panels(self) -> None:
-        """1.4.2 (C207) : les panneaux repliés se rangent en haut de la page, l'autre prend la place dessous."""
-        if len(getattr(self, "_panels", {})) < 2:
+        """1.4.2 (C207, option A) : ordre fixe. Rien de replié : chaque en-tête dans son panneau. Un panneau
+        replié ou plus : les deux en-têtes en haut (téléchargements puis analyse), seuls les contenus des
+        panneaux ouverts restent dans la zone des panneaux, cachée quand tout est replié."""
+        if len(getattr(self, "_heads", {})) < 2:
             return
         folded = self._folded()
-        keys = list(self._panels)                                    # ordre d'origine : téléchargements, analyse
-        order = [k for k in keys if folded.get(k, False)] + [k for k in keys if not folded.get(k, False)]
-        for i, key in enumerate(order):
-            panel = self._panels[key][0]
-            if self._split.indexOf(panel) != i:
-                self._split.insertWidget(i, panel)
+        any_folded = any(folded.get(k, False) for k in self._panels)
+        strip = self._strip.layout()
+        for key, (panel, body, _btn) in self._panels.items():
+            head = self._heads[key]
+            if any_folded:
+                strip.addWidget(head)                               # addWidget reprend l'ordre d'appel
+            else:
+                panel.layout().insertWidget(0, head)
+            body.setVisible(not folded.get(key, False))
+            panel.setVisible(not folded.get(key, False))
+        self._strip.setVisible(any_folded)
+        self._split.setVisible(not all(folded.get(k, False) for k in self._panels))
 
     # ================================================================ téléchargements
     @staticmethod

@@ -241,7 +241,21 @@ class GridEditor(QWidget):
         self._label_top, self._label_bottom = 14, 32               # bande des étiquettes (B16, recalculée au dessin)
         self._lead_ms = self._timeline_lead(track)
         self._kick1: Optional[float] = None     # 1.4.2 (C194) : 1er kick posé, en attente du second
-        self.body = vbox(self, margins=theme.px(18), spacing=theme.px(8))
+        # 1.4.2 (C212) : page dans une zone qui défile à la verticale. Fenêtre trop basse (ou zoom fort) : la page
+        # garde la hauteur minimale de chaque bloc et une barre de défilement apparaît, au lieu de tasser les
+        # blocs les uns sur les autres (boutons de la grille, du tempo et des mémoires superposés).
+        from PySide6.QtWidgets import QFrame, QScrollArea
+
+        outer = vbox(self)
+        self.page_area = QScrollArea()
+        self.page_area.setWidgetResizable(True)
+        self.page_area.setFrameShape(QFrame.NoFrame)
+        self.page_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        inner.setObjectName("grid_inner")
+        self.body = vbox(inner, margins=theme.px(18), spacing=theme.px(8))
+        self.page_area.setWidget(inner)
+        outer.addWidget(self.page_area)
 
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
