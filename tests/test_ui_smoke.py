@@ -20,7 +20,7 @@ from .test_usb_library import usb  # noqa: E402,F401  (fixture)
 
 
 class FakeService(MusicService):
-    def search(self, query, limit=20, mode=SearchMode.ALL, exclude=None):
+    def search(self, query, limit=20, mode=SearchMode.ALL, exclude=None, **kw):
         return self.annotate([
             TrackResult(video_id=f"id{i:09d}", title=f"Titre {i}", artist="Artiste", duration_seconds=180,
                         result_type="song" if i % 2 else "video", views=None if i % 2 else 1000 * i)

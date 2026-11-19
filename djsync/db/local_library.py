@@ -602,6 +602,13 @@ class LocalRekordboxLibrary:
                 raise
             finally:
                 self._writing -= 1
+            if self._writing == 0:
+                # 1.4.3 (A1-4) : la session ne garde plus les objets écrits ; sinon chaque lecture (rollback)
+                # les faisait tous expirer, de plus en plus lentement au fil de la session (0,7 → 63 ms).
+                try:
+                    db.session.expunge_all()
+                except Exception:  # noqa: BLE001
+                    log.debug("expunge_all failed", exc_info=True)
             self._file_id = self._identity()
             log.info("Computer library: change saved to master.db (size %s, -wal %s)", self._file_id[2], self._file_id[6])
             _XML_QUIET.report()
@@ -662,6 +669,28 @@ class LocalRekordboxLibrary:
             return None
         rows = self._read(_TRACK_SQL + "WHERE instr(c.Commnt, :v) > 0 LIMIT 1", {"v": vid})
         return self._track(rows[0]) if rows else None
+
+    def find_by_source_urls(self, urls: Sequence[str]) -> Dict[str, LibraryTrack]:
+        """1.4.3 (B98) : comme `find_by_source_url`, pour toute une liste, en une requête sur la connexion de
+        lecture (sans attendre les écritures)."""
+        from .library.common import _match_sources, _source_keys
+
+        wanted = {u: k for u, k in _source_keys(urls).items() if k[1]}
+        vids = sorted({k for k, _ in wanted.values()})
+        if not vids:
+            return {}
+        params = {f"v{i}": v for i, v in enumerate(vids)}
+        where = " OR ".join(f"instr(c.Commnt, :v{i}) > 0" for i in range(len(vids)))
+        rows = self._read_fast(f"SELECT c.ID, c.Commnt FROM djmdContent c WHERE ({where}) ORDER BY c.created_at",
+                               params)
+        hits = _match_sources(wanted, rows)
+        if not hits:
+            return {}
+        ids = sorted({str(v) for v in hits.values()})
+        id_params = {f"i{i}": v for i, v in enumerate(ids)}
+        tracks = {str(t.content_id): t for t in (self._track(r) for r in self._read_fast(
+            _TRACK_SQL + "WHERE c.ID IN (%s)" % ",".join(f":i{i}" for i in range(len(ids))), id_params))}
+        return {url: tracks[str(cid)] for url, cid in hits.items() if str(cid) in tracks}
 
     def track_count(self) -> int:
         return int(self._read(f"SELECT COUNT(*) FROM djmdContent c WHERE {_VISIBLE} "

@@ -6,6 +6,7 @@ RekordboxUsbLibrary.find_by_source_url).
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
@@ -51,6 +52,7 @@ class FakeLibrary:
 
 
 ExactLookup = Callable[[str], Optional[Any]]
+ExactMany = Callable[[List[str]], Dict[str, Any]]      # 1.4.3 (B98) : toute la liste en une requête
 
 
 class DuplicateChecker:
@@ -60,18 +62,22 @@ class DuplicateChecker:
         title_threshold: int = 88,
         artist_threshold: int = 75,
         exact_lookup: Optional[ExactLookup] = None,
+        exact_many: Optional[ExactMany] = None,
     ) -> None:
         self._title_threshold = title_threshold
         self._artist_threshold = artist_threshold
         self._index: List[Tuple[str, str, str, str]] = []
         self._library = library
         self._exact = exact_lookup
+        self._exact_many = exact_many
         self.refresh()
 
-    def set_library(self, library: LibraryProvider, exact_lookup: Optional[ExactLookup] = None) -> None:
+    def set_library(self, library: LibraryProvider, exact_lookup: Optional[ExactLookup] = None,
+                    exact_many: Optional[ExactMany] = None) -> None:
         """Change de bibliothèque (clé branchée / débranchée / changée)."""
         self._library = library
         self._exact = exact_lookup
+        self._exact_many = exact_many
         self.refresh()
 
     def refresh(self) -> None:
@@ -102,11 +108,24 @@ class DuplicateChecker:
         return best[1] if best else None
 
     def annotate(self, results: Iterable[TrackResult]) -> List[TrackResult]:
-        """Marque chaque résultat déjà présent en bibliothèque."""
+        """Marque chaque résultat déjà présent en bibliothèque. 1.4.3 (B98) : les adresses sont cherchées en UNE
+        requête quand la bibliothèque le permet (au lieu d'une par résultat)."""
+        results = list(results)
+        many: Optional[Dict[str, Any]] = None
+        if self._exact_many is not None:
+            try:
+                many = self._exact_many([r.url for r in results if r.url])
+            except Exception:  # noqa: BLE001 - recherche une par une à la place
+                logging.getLogger(__name__).info("Grouped duplicate lookup failed: one by one", exc_info=True)
+                many = None
         out: List[TrackResult] = []
         for r in results:
             match: Optional[str] = None
-            if self._exact is not None:
+            if many is not None:
+                hit = many.get(r.url)
+                if hit is not None:
+                    match = getattr(hit, "display_name", None) or str(hit)
+            elif self._exact is not None:
                 hit = self._exact(r.url)
                 if hit is not None:
                     match = getattr(hit, "display_name", None) or str(hit)

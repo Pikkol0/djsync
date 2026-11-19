@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -209,6 +210,8 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
     files = list(files)
     pids = list(playlist_ids)
     report = ImportReport()
+    started = time.monotonic()
+    copied_bytes = 0
     try:
         before = {x.path.casefold(): x for x in lib.list_tracks()}
         known = list(before.values())
@@ -234,6 +237,11 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
                 else:
                     target = dest if convert else place(f, dest)
                 copied = target if fresh and target.resolve() != f.resolve() else None
+                if copied is not None:
+                    try:
+                        copied_bytes += copied.stat().st_size
+                    except OSError:
+                        pass
                 rel_key = _db_key(lib, target)
                 was = before.get(rel_key)
                 track = lib.add_track(target, info.title, info.artist, info.album, None, pids, meta=info.meta)
@@ -250,12 +258,21 @@ def import_files(lib: Any, files: Iterable[Path], playlist_ids: Iterable[int] = 
                 report.failed.append((f, str(exc)[:200]))
             if progress:
                 progress(i, len(files))
+    _log_import(report, len(files), copied_bytes, time.monotonic() - started)
     if report.added and known:
         new_ids = {x.content_id for x in report.added}
         for g in find_duplicate_groups(known + report.added):
             if any(x.content_id in new_ids for x in g) and any(x.content_id not in new_ids for x in g):
                 report.duplicates += [x for x in g if x.content_id in new_ids]
     return report
+
+
+def _log_import(report: ImportReport, total: int, copied_bytes: int, seconds: float) -> None:
+    """1.4.3 (A1-12) : une ligne de journal par import : sons, durée, Mo copiés, débit (pour mesurer)."""
+    mb = copied_bytes / 1e6
+    rate = mb / seconds if seconds > 0 else 0.0
+    log.info("Import finished: %d files (%d added, %d already there, %d failed) in %.1f s; %.1f MB copied, "
+             "%.1f MB/s", total, len(report.added), len(report.already), len(report.failed), seconds, mb, rate)
 
 
 def find_in_library(lib: Any, files: Iterable[Path], player_format: str = "") -> "tuple[List[Any], List[Path]]":

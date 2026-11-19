@@ -971,7 +971,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
 
         self.dispatcher.submit(work, done, failed, pool="search")
 
-    def search(self, query: str, ok: Callback, err: Optional[Callback] = None) -> None:
+    def search(self, query: str, ok: Callback, err: Optional[Callback] = None, annotate: bool = True) -> None:
         try:
             mode = SearchMode(self.settings.search_mode)
         except ValueError:
@@ -983,6 +983,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         if self.settings.search_max_minutes:
             extra["max_seconds"] = self.settings.search_max_minutes * 60
         self._views_gen += 1                    # 1.4.0-rc.5 (B90) : les vues de la recherche précédente sont abandonnées
+        if not annotate:
+            extra["annotate"] = False           # 1.4.3 (B98) : marquage des doublons fait ensuite, à part
 
         def work() -> Any:
             start = time.monotonic()
@@ -1034,8 +1036,15 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                                    pool="views")
 
     def reannotate(self, tracks: Sequence[TrackResult], ok: Callback) -> None:
-        """Re-marque les doublons (après un téléchargement ou un changement de clé)."""
-        self.dispatcher.submit(lambda: self.service.annotate(tracks), ok, None, pool="net")
+        """Re-marque les doublons (après un téléchargement ou un changement de clé, ou juste après une recherche).
+        1.4.3 (B98) : file de la recherche (la file « net » est partagée avec bien d'autres tâches)."""
+        def work() -> Any:
+            start = time.monotonic()
+            out = self.service.annotate(tracks)
+            log.debug("Duplicate marking: %d results in %.2f s", len(out), time.monotonic() - start)
+            return out
+
+        self.dispatcher.submit(work, ok, None, pool="search")
 
     # ------------------------------------------------------------ import par URL
     def import_url(self, url: str, ok: Callable[[str, Any], None], err: Optional[Callback] = None) -> None:

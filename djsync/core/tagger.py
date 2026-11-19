@@ -24,7 +24,9 @@ def _fetch_cover(url: Optional[str]) -> Optional[bytes]:
     try:
         import requests                  # import tardif : démarrage plus rapide
 
-        resp = requests.get(url, timeout=10)
+        from .nettools import session
+
+        resp = session("artwork").get(url, timeout=10)      # 1.4.3 (A1-13) : connexion gardée ouverte
         resp.raise_for_status()
         return resp.content
     except requests.RequestException as exc:

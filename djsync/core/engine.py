@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+from . import nettools
+
 log = logging.getLogger(__name__)
 
 PACKAGES = ("yt-dlp", "yt-dlp-ejs")           # distributions PyPI installées ensemble
@@ -112,7 +114,7 @@ def _which(names: List[str], extra: List[Path]) -> Optional[str]:
             if cand.is_file():
                 return str(cand)
     for n in names:
-        found = shutil.which(n)
+        found = nettools.which(n)          # 1.4.3 (A1-13) : gardé en mémoire
         if found:
             return found
     return None

@@ -33,9 +33,9 @@ _IA_FORMATS = {"flac": ("flac", True), "24bit flac": ("flac", True), "wave": ("w
 
 
 def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Any:
-    import requests
+    from .nettools import session
 
-    r = requests.get(url, params=params, timeout=TIMEOUT, headers={"User-Agent": APP})
+    r = session("freesources").get(url, params=params, timeout=TIMEOUT, headers={"User-Agent": APP})
     r.raise_for_status()
     return r.json()
 

@@ -7,7 +7,6 @@ décodent aussi sans FFmpeg (module `wave` standard), ce qui sert aux tests et a
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 import sys
 import wave
@@ -182,7 +181,9 @@ def find_ffmpeg(location: Optional[str] = None) -> Optional[str]:
             cand = Path(location) / name
             if cand.is_file():
                 return str(cand)
-    return shutil.which("ffmpeg")
+    from ..core.nettools import which
+
+    return which("ffmpeg")                    # 1.4.3 (A1-13) : gardé en mémoire
 
 
 def _no_window() -> int:

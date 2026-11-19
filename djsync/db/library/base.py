@@ -32,6 +32,12 @@ class LibraryBase:
         self._busy_timeout_ms = busy_timeout_ms
         self._conn: Optional[Any] = None
         self._lock = threading.RLock()
+        # 1.4.3 (A3-6) : 2e connexion, en lecture seule, pour les lectures faites hors d'une écriture : la base
+        # est en WAL, une lecture voit la dernière version validée sans attendre le verrou des écritures
+        # (sauvegarde, export.pdb). Comme `_read_fast` pour master.db (B52).
+        self._reader: Optional[Any] = None
+        self._reader_lock = threading.Lock()
+        self._reader_off = False                    # désactivée après un échec (lecture normale ensuite)
         self._session_backed_up = False
         self._batch_depth = 0
         self._batch_backed_up = False
@@ -146,6 +152,7 @@ class LibraryBase:
         return self
 
     def close(self) -> None:
+        self._close_reader()
         with self._lock:
             if self._conn is None:
                 return
@@ -188,7 +195,8 @@ class LibraryBase:
             log.info("WAL checkpoint skipped: %s is gone (drive removed?)", self.db_path)
             return
         try:
-            busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            with self._reader_lock:      # 1.4.3 (A3-6) : pas de lecture en cours pendant le checkpoint (TRUNCATE)
+                busy, _, _ = self._db().execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
             if busy:
                 log.warning("Incomplete WAL checkpoint: another process is reading the database.")
         except sqlcipher.Error as exc:
@@ -377,8 +385,62 @@ class LibraryBase:
                 self._pdb_flush()
 
     def _read(self, sql: str, params: Sequence[Any] = ()) -> List[Tuple[Any, ...]]:
+        """Lecture. 1.4.3 (A3-6) : hors d'une écriture du même fil, par la connexion de lecture (sans attendre
+        le verrou des écritures) ; dans une écriture (ou si la connexion de lecture manque), par la connexion
+        principale, qui voit aussi ce que la transaction en cours a écrit."""
+        if not self._owns_lock():
+            rows = self._read_side(sql, params)
+            if rows is not None:
+                return rows
         with self._lock:
             return self._db().execute(sql, params).fetchall()
+
+    def _owns_lock(self) -> bool:
+        owned = getattr(self._lock, "_is_owned", None)
+        return bool(owned()) if owned is not None else True
+
+    def _read_side(self, sql: str, params: Sequence[Any]) -> Optional[List[Tuple[Any, ...]]]:
+        """1.4.3 (A3-6) : lecture par la 2e connexion ; None = passer par la connexion principale."""
+        if self._reader_off or self._conn is None or self.journal_mode.lower() != "wal":
+            return None
+        with self._reader_lock:
+            try:
+                if self._reader is None:
+                    self._reader = self._open_reader()
+                return self._reader.execute(sql, params).fetchall()
+            except sqlcipher.Error as exc:
+                log.info("Separate read connection unavailable (%s): normal read", exc)
+                self._drop_reader()
+                if not Path(self.db_path).exists():
+                    return None
+                self._reader_off = True
+                return None
+
+    def _open_reader(self) -> Any:
+        conn = sqlcipher.connect(str(self.db_path), timeout=self._busy_timeout_ms / 1000, isolation_level=None,
+                                 check_same_thread=False)
+        try:
+            conn.execute("PRAGMA key = '%s'" % self._key.replace("'", "''"))
+            conn.execute(f"PRAGMA busy_timeout = {int(self._busy_timeout_ms)}")
+            conn.execute("PRAGMA query_only = ON")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()
+        except BaseException:
+            conn.close()
+            raise
+        return conn
+
+    def _drop_reader(self) -> None:
+        reader, self._reader = self._reader, None
+        if reader is not None:
+            try:
+                reader.close()
+            except sqlcipher.Error:
+                pass
+
+    def _close_reader(self) -> None:
+        with self._reader_lock:
+            self._drop_reader()
+            self._reader_off = False
 
     # ------------------------------------------------- compatibilité / réparation
     @property
