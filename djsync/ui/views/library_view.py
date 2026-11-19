@@ -332,6 +332,31 @@ class LibraryView(View):
         self.banner.hide()
         mv.addWidget(self.banner)
 
+        # 1.4.3 (C213) : liste ouverte depuis « Prêt pour le set ? » (grilles pas encore vérifiées…)
+        self.focus_banner = panel(role="banner")
+        fl = hbox(self.focus_banner, margins=theme.px(8), spacing=theme.px(8))
+        fl.addWidget(icon_label("grid", 16, theme.WARN))
+        self.focus_lbl = label("")
+        fl.addWidget(self.focus_lbl, 1)
+        fl.addWidget(icon_button("close", self.clear_focus, t("action.close"), size=14))
+        self.focus_banner.hide()
+        mv.addWidget(self.focus_banner)
+        self._focus: Optional[Tuple[set, str]] = None
+
+        # 1.4.3 (C214) : « Vue : … ▾ » au-dessus du tableau, « (modifiée) » avec Enregistrer / Revenir
+        views_row = hbox(spacing=theme.px(6))
+        self.view_btn = button("", self._views_menu, icon="columns", tooltip=t("views.tip"))
+        self.view_btn.setProperty("kind", "flat")
+        views_row.addWidget(self.view_btn)
+        self.view_mod = label(t("views.modified"), "warn")
+        views_row.addWidget(self.view_mod)
+        self.view_save = button(t("views.save"), self._view_save, icon="check")
+        self.view_revert = button(t("views.revert"), self._view_revert, icon="refresh")
+        views_row.addWidget(self.view_save)
+        views_row.addWidget(self.view_revert)
+        views_row.addStretch(1)
+        mv.addLayout(views_row)
+
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
         self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS + C113_COLUMNS,
                              new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
@@ -345,6 +370,12 @@ class LibraryView(View):
         self.table.menu_builder = self._menu
         self.table.on_delete = self._delete
         self.table.on_files_dropped = lambda paths: self.import_paths(paths)      # 1.4.0 (C26)
+        from ..column_views import ColumnViews                                         # 1.4.3 (C214)
+
+        self._views = ColumnViews(controller.settings.library_views, self.table.layout_columns())
+        self._views.first_use(self.table.user_hidden)
+        self.table.on_columns_changed = self._show_view
+        self._show_view()
         from ..suggestions_panel import SuggestionsPanel
 
         content = hbox(spacing=theme.px(8))
@@ -487,6 +518,8 @@ class LibraryView(View):
             self.playlists, self.all_tracks, self.stats = data["playlists"], data["tracks"], data.get("stats", {})
             if full:
                 self.current, self._dirty = ALL, False
+                self._focus = None                                      # 1.4.3 (C213)
+                self._apply_list_view()                                 # 1.4.3 (C214) : vue de cette bibliothèque
             if self.current not in SPECIAL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
             self._count_orphans()
@@ -646,7 +679,120 @@ class LibraryView(View):
         self._select_nav(iid)
         self.filter.clear()
         self.table.set_filter("")
+        if self._focus is not None:                       # 1.4.3 (C213) : une autre liste : filtre retiré
+            self._focus = None
+            self._apply_harmonic()
+        self._apply_list_view()
         self._fill_table()
+
+    # ------------------------------------------------------------------ 1.4.3 (C214) : vues de colonnes
+    def _list_key(self) -> str:
+        return f"{self._drive_key()}|{self.current}"
+
+    def _apply_list_view(self) -> None:
+        """La vue retenue pour cette liste (s'il y en a une) remplace la vue en cours."""
+        view = self._views.for_list(self._list_key())
+        if view and (view != self._views.current or self._views.modified(self.table.user_hidden)):
+            self._views.select(view)
+            self.table.apply_hidden(self._views.hidden(view))
+        self._show_view()
+
+    def _show_view(self) -> None:
+        if not hasattr(self, "view_btn"):
+            return
+        view = self._views.current
+        self.view_btn.setText(t("views.label", name=self._views.name(view)) + "  ▾")
+        modified = self._views.modified(self.table.user_hidden)
+        for w in (self.view_mod, self.view_save, self.view_revert):
+            w.setVisible(modified)
+
+    def select_view(self, view: str, remember: bool = True) -> None:
+        """Choix d'une vue (menu « Vue ») : colonnes appliquées, retenue pour la liste ouverte."""
+        self._views.select(view, self._list_key() if remember else "")
+        self.table.apply_hidden(self._views.hidden(view))
+        self.ctrl.save_settings_quiet()
+        self._show_view()
+
+    def _views_entries(self) -> list:
+        cur = self._views.current
+        entries: list = []
+        for view in self._views.ids():
+            name = self._views.name(view)
+            entries.append((("✓ " if view == cur else "    ") + name, lambda v=view: self.select_view(v)))
+        entries += [None, (t("views.new") + "…", self._view_new, "plus")]
+        if self._views.is_custom(cur):
+            entries += [(t("views.rename") + "…", self._view_rename, "edit"),
+                        (t("views.delete"), self._view_delete, "trash")]
+        elif self._views.is_changed_builtin(cur):
+            entries.append((t("views.restore"), self._view_restore, "refresh"))
+        entries += [None, (t("table.columns") + "…", self._columns_menu, "columns")]
+        return entries
+
+    def _views_menu(self) -> None:
+        b = self.view_btn
+        popup_menu(b, self._views_entries(), b.mapToGlobal(b.rect().bottomLeft()))
+
+    def _view_save(self) -> None:
+        view = self._views.current
+        self._views.save(view, self.table.user_hidden)
+        self.ctrl.save_settings_quiet()
+        self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
+        self._show_view()
+
+    def _view_revert(self) -> None:
+        self.table.apply_hidden(self._views.hidden(self._views.current))
+        self._show_view()
+
+    def _view_new(self) -> None:
+        def create(name: str) -> None:
+            view = self._views.create(name, self.table.user_hidden)
+            self.select_view(view)
+            self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
+
+        TextInputDialog(self, t("views.new"), t("views.name_prompt"), create, confirm_text=t("action.create"))
+
+    def _view_rename(self) -> None:
+        view = self._views.current
+
+        def rename(name: str) -> None:
+            self._views.rename(view, name)
+            self.ctrl.save_settings_quiet()
+            self._show_view()
+
+        TextInputDialog(self, t("views.rename"), t("views.name_prompt"), rename, initial=self._views.name(view),
+                        confirm_text=t("action.rename"))
+
+    def _view_delete(self) -> None:
+        view = self._views.current
+        name = self._views.name(view)
+
+        def go() -> None:
+            self._views.delete(view)
+            self.select_view(self._views.current, remember=False)
+
+        ConfirmDialog(self, t("views.delete"), t("views.delete_msg", name=name), go, confirm_text=t("action.delete"),
+                      danger=True)
+
+    def _view_restore(self) -> None:
+        view = self._views.current
+        self._views.restore_builtin(view)
+        self.select_view(view, remember=False)
+
+    # ---------------------------------------------- 1.4.3 (C213) : sons montrés depuis « Prêt pour le set ? »
+    def show_tracks(self, ids: Any, title: str, view: str = "") -> None:
+        """Ouvre « Tous les sons » sur ces sons seulement (bandeau avec ✕), dans la vue `view` si donnée."""
+        self.ctrl._emit("navigate", "library")
+        wanted = {int(i) for i in ids}
+        if self.current != ALL:
+            self._goto(ALL)
+        if view:
+            self.select_view(view, remember=False)
+        self._focus = (wanted, title)
+        self._apply_harmonic()
+
+    def clear_focus(self) -> None:
+        self._focus = None
+        self._apply_harmonic()
 
     @property
     def playlist(self) -> Optional[PlaylistInfo]:
@@ -1096,6 +1242,20 @@ class LibraryView(View):
         self._refresh_buttons()
 
     def _apply_harmonic(self) -> None:
+        self._apply_harmonic_only()
+        focus = getattr(self, "_focus", None)               # 1.4.3 (C213) : en plus du filtre harmonique
+        if focus is None:
+            self.focus_banner.hide()
+        else:
+            ids, title = focus
+            harm = self.table.row_filter
+            self.table.row_filter = (lambda r: bool(r.data and r.data.content_id in ids)
+                                     and (harm is None or harm(r)))
+            self.focus_lbl.setText(title)
+            self.focus_banner.show()
+        self.table.refilter()
+
+    def _apply_harmonic_only(self) -> None:
         base = self._harmonic
         if base is None or not base.camelot:
             self.table.row_filter = None
@@ -1117,7 +1277,6 @@ class LibraryView(View):
                 text += "  ·  " + t("lib.harmonic_bpm", bpm=f"{base.bpm:.0f}")
             self.banner_lbl.setText(text)
             self.banner.show()
-        self.table.refilter()
 
     # -------------------------------------------------------------------- boutons
     def _sort_slot(self) -> str:

@@ -486,6 +486,7 @@ class TrackTable(QTableView):
         self._layout_save: Optional[Callable[[], None]] = None
         self.default_hidden: set = set()
         self._user_hidden: set = set()
+        self.on_columns_changed: Optional[Callable[[], None]] = None   # 1.4.3 (C214) : colonne cochée / décochée
         self._user_widths: Dict[str, int] = {}
         self._fitting = False
         self._save_pending = False
@@ -787,6 +788,8 @@ class TrackTable(QTableView):
             self._user_hidden.add(key)
         self._fit_columns()
         self._store_layout()
+        if self.on_columns_changed is not None:
+            self.on_columns_changed()
 
     def reset_layout(self) -> None:
         self._user_hidden = set(self.default_hidden)
@@ -795,6 +798,24 @@ class TrackTable(QTableView):
         self._apply_order()
         self._fit_columns()
         self._store_layout()
+        if self.on_columns_changed is not None:
+            self.on_columns_changed()
+
+    @property
+    def user_hidden(self) -> set:
+        """1.4.3 (C214) : colonnes masquées par l'utilisateur (ou par la vue choisie)."""
+        return set(self._user_hidden)
+
+    def apply_hidden(self, hidden: Any) -> None:
+        """1.4.3 (C214) : colonnes d'une vue (largeurs et ordre gardés)."""
+        self._user_hidden = set(hidden)
+        self._fit_columns()
+        self._store_layout()
+
+    def layout_columns(self) -> List[str]:
+        """1.4.3 (C214) : toutes les colonnes qu'une vue peut afficher ou masquer (N° compris, hors playlist)."""
+        return [c.key for c in self.columns if c.title and not c.stretch and c.key not in ICON_COLUMNS
+                and c.key not in ("chk",)]
 
     def _header_menu(self, pos: QPoint) -> None:
         if self._layout_key is None:

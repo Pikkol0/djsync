@@ -402,3 +402,143 @@ def test_a07_delete_playlist_alone_or_with_its_tracks(demo):  # noqa: F811
     find(demo, ChoiceConfirmDialog)._ok()
     assert pump(demo, 6, lambda: "Classiques" not in [p.name for p in demo.ctrl.library.list_playlists()])
     assert len(demo.ctrl.library.list_tracks()) == 7 and not demo.errors
+
+
+# ------------------------------------------------------------------------------ C213 : grilles non vérifiées
+def _tr(cid, analysed=True):
+    return types.SimpleNamespace(content_id=cid, is_analysed=analysed)
+
+
+def test_c213_unchecked_grids_line_does_not_change_the_verdict():
+    from djsync.core.set_check import Check, check_grids, report, verdict
+
+    c = check_grids([_tr(1), _tr(2), _tr(3, False)], {2})
+    assert c.level == "note" and c.ids == [1] and c.action == "grids" and c.mark == "!"
+    assert verdict([Check("files", "ok", ""), c]) == "ok"
+    assert verdict([Check("files", "warn", ""), c]) == "warn"
+    assert check_grids([_tr(1)], {1}).level == "ok"
+    assert "1" in report([c], "DEMO", "all")
+
+
+def test_c213_set_check_lists_grids_and_see_opens_the_library(demo, monkeypatch):  # noqa: F811
+    from djsync.core import set_check
+    from djsync.ui.set_check_dialog import SetCheckDialog
+    from .qt_util import pump
+
+    lib_view = demo.views["library"]
+    demo.show_view("library")
+    assert pump(demo, 4, lambda: lib_view.table.total == 10)
+    ids = [x.content_id for x in lib_view.all_tracks[:3]]
+    monkeypatch.setattr(set_check, "check_grids", lambda tracks, checked: set_check.Check(
+        "grids", "note", "3 beat grids not checked yet.", action="grids", ids=ids))
+    page = SetCheckDialog(demo, demo.ctrl)
+    assert pump(demo, 10, lambda: "grids" in page.rows)
+    keys = [c.key for c in page.checks]
+    assert keys.index("grids") == keys.index("analysis") + 1
+    row = page.rows["grids"]
+    assert row["action"] is not None and row["text"].property("role") == "warn"
+    row["action"].click()
+    assert pump(demo, 4, lambda: demo.current == "library" and lib_view.table.count == 3)
+    assert lib_view.focus_banner.isVisible() and "3" in lib_view.focus_lbl.text()
+    assert "analysis" not in lib_view.table.user_hidden and lib_view._views.current == "prepare"
+    lib_view.clear_focus()
+    assert lib_view.table.count == 10 and not lib_view.focus_banner.isVisible()
+    page.close()
+    assert not demo.errors
+
+
+# ------------------------------------------------------------------------------ C214 : vues de colonnes
+OPT = ["pos", "key", "artist", "album", "bpm", "duration", "format", "source", "added", "genre", "bitrate", "real",
+       "playlists", "cues", "analysis", "dup", "path", "size", "rate", "color", "rating", "mytags", "last_played"]
+
+
+def test_c214_views_logic():
+    from djsync.ui.column_views import DEFAULT, ColumnViews
+
+    data: dict = {}
+    v = ColumnViews(data, OPT)
+    default_hidden = v.hidden(DEFAULT)
+    assert v.first_use(default_hidden) == "discover" and not data["custom"]           # rien ne change à l'écran
+    assert v.shown("all") == set(OPT) and "analysis" in v.shown("prepare") and "real" in v.shown("quality")
+    assert not v.modified(default_hidden) and v.modified(default_hidden - {"genre"})
+    v.save("discover", default_hidden - {"genre"})                                   # vue d'origine modifiée
+    assert "genre" in v.shown("discover") and v.is_changed_builtin("discover")
+    v.restore_builtin("discover")
+    assert "genre" not in v.shown("discover")
+    mine = v.create("  Préparation club ", {"path"})
+    assert v.name(mine) == "Préparation club" and v.shown(mine) == set(OPT) - {"path"}
+    v.select(mine, "E:|p3")
+    assert v.for_list("E:|p3") == mine and v.current == mine
+    v.rename(mine, "Club")
+    assert v.name(mine) == "Club"
+    v.delete(mine)
+    assert v.for_list("E:|p3") == "" and v.current == DEFAULT and mine not in v.ids()
+    other = ColumnViews({}, OPT)                                                     # colonnes à soi : gardées
+    assert other.first_use({"pos"}) not in ("discover", "all") and other.name(other.current)
+    assert other.shown(other.current) == set(OPT) - {"pos"}
+
+
+def test_c214_library_view_menu_modified_save_revert_and_per_list(demo):  # noqa: F811
+    from djsync.i18n import t
+    from djsync.ui.dialogs import TextInputDialog
+    from djsync.ui.views.library_view import ALL
+    from .qt_util import find, pump
+
+    demo.show_view("library")
+    lib = demo.views["library"]
+    assert pump(demo, 4, lambda: lib.table.total == 10)
+    assert lib._views.current == "discover" and t("views.discover") in lib.view_btn.text()
+    assert not lib.view_mod.isVisible()
+    names = [e[0].strip("✓ ").strip() for e in lib._views_entries() if e]
+    assert names[:5] == [t(f"views.{k}") for k in ("discover", "prepare", "mix", "quality", "all")]
+    lib.select_view("quality")
+    assert "bitrate" not in lib.table.user_hidden and "playlists" in lib.table.user_hidden
+    lib.table.set_column_visible("genre", True)                                     # colonne changée
+    assert lib.view_mod.isVisible() and lib.view_save.isVisible() and lib.view_revert.isVisible()
+    lib._view_revert()
+    assert "genre" in lib.table.user_hidden and not lib.view_mod.isVisible()
+    lib.table.set_column_visible("genre", True)
+    lib._view_save()
+    assert not lib.view_mod.isVisible() and "genre" in demo.ctrl.settings.library_views["saved"]["quality"]
+    # vue retenue par liste
+    house = _goto_playlist(lib, "House")
+    lib.select_view("prepare")
+    lib._goto(ALL)
+    assert lib._views.current == "quality"
+    lib._goto(f"p{house.playlist_id}")
+    assert lib._views.current == "prepare" and "analysis" not in lib.table.user_hidden
+    # nouvelle vue nommée
+    lib._view_new()
+    dlg = find(demo, TextInputDialog)
+    dlg._entry.setText("Mes sets")
+    dlg._ok()
+    custom = demo.ctrl.settings.library_views["custom"]
+    assert [c["name"] for c in custom.values()] == ["Mes sets"] and "Mes sets" in lib.view_btn.text()
+    assert any(t("views.rename") in (e[0] if e else "") for e in lib._views_entries())
+    assert not demo.errors
+
+
+def test_c214_texts_in_both_languages():
+    from djsync.i18n import en, fr
+
+    for k in ("discover", "prepare", "mix", "quality", "all", "label", "modified", "save", "revert", "new", "mine"):
+        assert f"views.{k}" in en.STRINGS and f"views.{k}" in fr.STRINGS
+    assert fr.STRINGS["views.label"] == "Vue : {name}" and fr.STRINGS["views.modified"] == "(modifiée)"
+
+
+def test_a07_protection_setting_off_by_default_and_saved(demo, monkeypatch):  # noqa: F811
+    from djsync.settings import Settings
+    from .qt_util import pump
+
+    assert Settings().protect_foreign is False
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    assert not view.protect_var.isChecked()
+    view.protect_var.setChecked(True)
+    assert pump(demo, 3, lambda: demo.ctrl.settings.protect_foreign is True)
+    assert view.unsaved() == []
+    for box, name in ((view.tags_var, "write_tags"), (view.gain_var, "auto_gain")):   # S05, C109 : aussi tout de suite
+        want = not box.isChecked()
+        box.setChecked(want)
+        assert pump(demo, 3, lambda n=name, w=want: getattr(demo.ctrl.settings, n) == w)

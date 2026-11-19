@@ -1871,7 +1871,7 @@ class SettingsView(View):
                  "format_menu", "sc_original_var", "sc_browser", "sc_token", "yt_browser", "watch_folder", "slsk_var",
                  "slsk_user", "slsk_password", "slsk_share_var", "player_format", "watch_playlist_var", "watch_target",
                  "light_menu", "latency_box", "update_var", "show_rc_var", "report_menu", "notation", "local_db",
-                 "local_music")
+                 "local_music", "tags_var", "gain_var", "protect_var")      # 1.4.3 : S05, C109 (oubliés), A07
         out = [getattr(self, n, None) for n in names]
         out += list(getattr(self, "reanalyse_vars", {}).values())
         return [w for w in out if w is not None]

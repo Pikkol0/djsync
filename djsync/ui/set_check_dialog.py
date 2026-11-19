@@ -20,10 +20,10 @@ from .widgets import button, hbox, label, panel, restyle, vbox
 
 log = logging.getLogger(__name__)
 
-ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint"}
+ROLE = {"ok": "accent", "warn": "warn", "error": "err", "skip": "faint", "note": "warn"}
 ACTIONS = {"analyse": "set.do_analyse", "pdb": "set.do_pdb", "missing": "set.do_missing", "convert": "set.do_convert",
            "space": "set.do_space", "backup": "set.do_backup", "no_cue": "set.do_no_cue",
-           "empty_playlists": "set.do_empty"}
+           "empty_playlists": "set.do_empty", "grids": "set.do_see"}
 # 1.4.2 (A2-12) : lignes sans bouton : quoi faire. (clé, niveau) ou (clé, état)
 HINTS = {("fs", "error"): "set.fs_format_warn", ("pdb", "absent"): "set.pdb_absent_how"}
 
@@ -172,9 +172,11 @@ class SetCheckDialog(BaseDialog):
             name.setToolTip(t("pdb.older_tip"))
         top.addWidget(name)
         text = label(c.text, "dim" if c.level in ("ok", "skip") else ROLE.get(c.level, "dim"), wrap=True)
+        if c.level == "note":                           # 1.4.3 (C213) : n'empêche pas « Prête »
+            text.setToolTip(t("set.grids_tip"))
         top.addWidget(text, 1)
         act: Optional[Any] = None
-        if c.action and c.level in ("warn", "error"):
+        if c.action and c.level in ("warn", "error", "note"):
             # 1.4.2 (A2-12) : un vrai bouton (le bouton plat ressemblait à du texte)
             act = button(t(ACTIONS.get(c.action, "set.do_see"), n=len(c.ids)), lambda _c=False, ch=c: self.act(ch))
             top.addWidget(act, 0, Qt.AlignTop)
@@ -209,6 +211,10 @@ class SetCheckDialog(BaseDialog):
             win.open_backups()
         elif c.action == "no_cue":
             self._open_library("nocues")
+        elif c.action == "grids":                         # 1.4.3 (C213) : ces sons, avec la colonne Analyse
+            view = getattr(win, "views", {}).get("library")
+            if view is not None and hasattr(view, "show_tracks"):
+                view.show_tracks(c.ids, c.text, view="prepare")
         elif c.action == "empty_playlists" and c.ids:
             self._open_library(f"p{c.ids[0]}")
 
