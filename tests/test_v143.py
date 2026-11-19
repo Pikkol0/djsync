@@ -13,6 +13,7 @@ from djsync.db import backups
 from djsync.db.pdb import store as pdb_store
 
 from .test_pdb_sync import make_usb, open_lib, pdb_of
+from .test_v122 import demo, usb  # noqa: F401  (fixtures)
 from .test_usb_library import make_wav
 
 
@@ -340,3 +341,140 @@ def test_a1_13_which_and_sessions_are_kept(monkeypatch):
     assert nettools.session("artwork") is nettools.session("artwork")
     assert nettools.session("artwork") is not nettools.session("freesources")
     nettools.clear()
+
+
+# ------------------------------------------------------------------ A1-8 : doublons par blocs + résultat gardé
+def test_a1_8_blocks_and_cache_give_the_same_groups(monkeypatch):
+    from djsync.core import duplicates as D
+
+    class T:
+        def __init__(self, i, title, artist, d=200):
+            self.content_id, self.path, self.title, self.artist, self.duration_seconds = i, f"/{i}", title, artist, d
+
+    base = [T(i, f"Song number {i // 2}", "Artist") for i in range(60)]
+    D._GROUPS_CACHE.clear()
+    full = D.find_duplicate_groups(base)
+    monkeypatch.setattr(D, "_BLOCK", 7)
+    D._GROUPS_CACHE.clear()
+    blocks = D.find_duplicate_groups(base)
+    assert [[x.content_id for x in g] for g in full] == [[x.content_id for x in g] for g in blocks]
+    calls = []
+    monkeypatch.setattr(D, "_duplicate_groups", lambda *a: calls.append(1) or [])
+    again = D.find_duplicate_groups([T(t.content_id, t.title, t.artist) for t in base])
+    assert calls == [] and len(again) == len(full)           # même liste : rien n'est recalculé
+
+
+# ------------------------------------------------------------------ A1-5 : sélection
+def test_a1_5_select_all_reads_ranges_once():
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from djsync.ui.table import Column, Row, TrackTable
+
+    QApplication.instance() or QApplication([])
+    table = TrackTable(None, [Column("title", "Title", 100)], selectmode="extended")
+    table.set_rows([Row(str(i), {"title": f"t{i}"}) for i in range(500)])
+    table.selectAll()
+    first = table.selected_iids()
+    assert len(first) == 500 and table._sel_cache is not None
+    assert table.selected_iids() == first
+    table.clearSelection()
+    assert table.selected_iids() == []
+
+
+# ------------------------------------------------------------------ A6-4, A6-5 : bibliothèque de l'ordinateur
+def test_a6_4_first_copy_of_the_session_is_kept_apart(tmp_path, monkeypatch):
+    pytest.importorskip("pyrekordbox")
+    import shutil as sh
+
+    from djsync.db import local_library as L
+
+    from .test_local_library import DATA
+
+    db_dir = tmp_path / "pc" / "Pioneer" / "rekordbox"
+    db_dir.mkdir(parents=True)
+    for f in DATA.glob("*"):
+        if f.suffix != ".md":
+            sh.copy(f, db_dir / f.name)
+    monkeypatch.setattr(L, "rekordbox_running", lambda: False)
+    target = L.LocalRekordbox(db_dir, tmp_path / "pc" / "Music")
+    lib = L.LocalRekordboxLibrary(target, backup_root=tmp_path / "bk", owned_path=tmp_path / "owned.json",
+                                  analyze=False).connect()
+    lib.backup_keep = 2
+    try:
+        for i in range(4):
+            lib.create_playlist(f"P{i}")
+    finally:
+        lib.close()
+    sessions = list((tmp_path / "bk").glob("session-*"))
+    assert len(sessions) == 1 and len(list((tmp_path / "bk").glob("master-*"))) == 2
+
+
+def test_a6_5_playlist_xml_written_safely_and_repaired(tmp_path):
+    pytest.importorskip("pyrekordbox")
+    from djsync.db import local_library as L
+
+    from .test_local_library import DATA
+
+    L.safe_playlist_xml_save()
+    from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
+
+    assert getattr(MasterPlaylistXml.save, "_djsync_safe", False)
+    db_dir = tmp_path / "rb"
+    db_dir.mkdir()
+    xml = db_dir / L.PLAYLIST_XML
+    good = (DATA / L.PLAYLIST_XML).read_bytes()
+    bk = tmp_path / "bk" / "master-20261119-010000-000"
+    bk.mkdir(parents=True)
+    (bk / L.PLAYLIST_XML).write_bytes(good)
+    xml.write_bytes(b"")                                   # vidé par une coupure
+    assert L.repair_playlist_xml(db_dir, tmp_path / "bk")
+    assert xml.read_bytes() == good and list((tmp_path / "bk").glob("masterPlaylists6.xml-unreadable-*"))
+    assert not L.repair_playlist_xml(db_dir, tmp_path / "bk")   # lisible : rien à faire
+
+
+# ------------------------------------------------------------------ A6-10 : réglages
+def test_a6_10_unreadable_settings_kept_and_last_good_used(tmp_path):
+    from djsync.settings import Settings
+
+    path = tmp_path / "settings.json"
+    s = Settings()
+    s.search_mode = "songs"
+    s.save(path)
+    s.search_mode = "videos"
+    s.save(path)                                            # .bak = version précédente (« songs »)
+    path.write_text('{"search_mode": "vid', encoding="utf-8")
+    back = Settings.load(path)
+    assert back.search_mode == "songs"
+    assert list(tmp_path.glob("settings-unreadable-*.json"))
+
+
+# ------------------------------------------------------------------ C206 : Spotify au-delà de 100
+def test_c206_announced_total():
+    from djsync.core.spotify import _announced_total
+
+    assert _announced_total('<meta property="og:description" content="Playlist · x · 250 songs">', None) == 250
+    assert _announced_total("", {"trackCount": 321}) == 321
+    assert _announced_total("<html></html>", None) == 0
+
+
+# ------------------------------------------------------------------ C202 : dernier onglet de Rechercher
+def test_c202_settings_keep_a_valid_tab():
+    from djsync.settings import Settings
+
+    s = Settings()
+    s.search_tab = "nope"
+    s.normalize()
+    assert s.search_tab == "search"
+
+
+def test_c202_search_reopens_the_last_tab(demo):  # noqa: F811
+    from .qt_util import pump
+
+    demo.show_view("hq")
+    pump(demo, 0.2)
+    assert demo.ctrl.settings.search_tab == "hq"
+    demo.show_view("library")
+    demo._nav_go("search")
+    pump(demo, 0.2)
+    assert demo._current == "hq"
