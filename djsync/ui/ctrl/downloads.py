@@ -322,10 +322,6 @@ class DownloadsMixin:
         self._emit("download_update", job)
         self.dispatcher.submit(lambda: self._run_job(job), pool="dl")
 
-    def remove_job(self, job: DownloadJob) -> None:
-        if not job.is_active and job.status != "queued" and job in self.jobs:
-            self.jobs.remove(job)
-            self._emit("downloads")
 
     def clear_finished(self) -> None:
         self.jobs = [j for j in self.jobs if not j.is_finished]

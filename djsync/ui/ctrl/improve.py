@@ -44,13 +44,6 @@ class ImproveMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: (self._on_error(exc), ok([])), pool="tools")
 
-    def improve_scan(self, ok: Callable[[List[Any]], None], progress: Callable[[int, int], None],
-                     lossless_only: bool = False) -> None:
-        """1.4.0 (C47) : sons sous le seuil de toute la bibliothèque."""
-        from ...core.improve import LOSSLESS_RANK, select
-
-        limit = LOSSLESS_RANK if lossless_only else int(self.settings.improve_threshold or 256)
-        self.quality_scan(lambda rows: ok(select(rows, under=limit)), progress)
 
     def quality_playlist_ids(self, playlist_id: int) -> List[int]:
         lib = self.library
@@ -105,8 +98,6 @@ class ImproveMixin:
         if row.video:
             self.find_alternatives(row.track, got_clean)
 
-    def improve_search(self, weak: Any, ok: Callable[[Any], None]) -> None:
-        self.quality_search(weak, ok)
 
     # ------------------------------------------------------------------ remplacement
     def quality_apply(self, rows: Sequence[Any]) -> int:

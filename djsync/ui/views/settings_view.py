@@ -824,10 +824,6 @@ class SettingsView(View):
 
         WelcomeDialog(self, self.ctrl)
 
-    def _pick_version(self) -> None:
-        from ..version_dialog import VersionDialog
-
-        VersionDialog(self, self.ctrl, on_channel=self.show_rc_var.setChecked)
 
     # 1.3.2-rc.2 (C96) : liste des versions directement dans la carte DJSync
     def load_versions(self) -> None:

@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QLineEdit, QPushButton, QScrollArea, QWidget,
+    QCheckBox, QComboBox, QDialog, QLineEdit, QPushButton, QWidget,
 )
 
 from ..i18n import t
@@ -683,32 +683,6 @@ class FiltersPopup(BaseDialog):
         else:
             self._on_apply(words, value, minutes, self._hide_owned.isChecked())
 
-
-class MetadataDialog(BaseDialog):
-    """Modifier le titre et l'artiste d'un son (base + export.pdb ; le fichier n'est pas renommé)."""
-
-    def __init__(self, parent: Any, title: str, artist: str, on_ok: Callable[[str, str], None]) -> None:
-        super().__init__(parent, t("meta.title"), 440)
-        self._on_ok = on_ok
-        self.heading(t("meta.title"))
-        self.body.addWidget(label(t("track.title"), "dim"))
-        self._title = QLineEdit(title)
-        self.body.addWidget(self._title)
-        self.body.addWidget(label(t("track.artist"), "dim"))
-        self._artist = QLineEdit(artist)
-        self.body.addWidget(self._artist)
-        for e in (self._title, self._artist):
-            e.returnPressed.connect(self._ok)
-        self.footer(t("action.save"), self._ok)
-        self.show_dialog()
-        self._title.setFocus()
-        self._title.selectAll()
-
-    def _ok(self) -> None:
-        title, artist = self._title.text().strip(), self._artist.text().strip()
-        if title:
-            self.close()
-            self._on_ok(title, artist)
 
 
 class ErrorReportDialog(BaseDialog):

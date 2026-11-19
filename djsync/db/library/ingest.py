@@ -291,7 +291,8 @@ class IngestMixin:
                         tuple(cols.values())).lastrowid
                     conn.execute("UPDATE property SET numberOfContents = (SELECT COUNT(*) FROM content)")
 
-                self._memory_cue(conn, content_id, ex, audio["fileType"])
+                # 1.3.0 : pas de mémoire cue dans la table `cue` (Rekordbox la laisse vide, cues dans les ANLZ) ;
+                # 1.4.3 (A3-2) : l'ancienne fonction, devenue inaccessible, est retirée
                 for pid in playlist_ids:
                     self._append(conn, pid, [content_id])
                 paths = self._stage_tracks(conn, [content_id])
@@ -303,30 +304,6 @@ class IngestMixin:
             raise
         return self.get_track(content_id)
 
-    @staticmethod
-    def _memory_cue(conn: Any, content_id: int, ex: _Extras, file_type: int) -> None:
-        """Mémoire cue au premier temps fort dans la table `cue` (en plus des fichiers ANLZ), seulement
-        si le son n'a encore aucun cue. Pas pour le MP3 : les platines y repèrent la position par
-        numéro de trame MPEG, que DJSync ne calcule pas (la mémoire reste dans l'ANLZ)."""
-        return              # 1.3.0 : Rekordbox laisse la table `cue` vide (cues dans les ANLZ seulement)
-        if ex.cue_ms is None or file_type == 1:  # pragma: no cover - ancien comportement, gardé pour mémoire
-            return
-        try:
-            if conn.execute("SELECT 1 FROM cue WHERE content_id = ? LIMIT 1", (content_id,)).fetchone():
-                return
-        except Exception:  # noqa: BLE001 - base sans table cue (ancien format) : ANLZ seulement
-            log.debug("Handled error in _memory_cue", exc_info=True)  # 1.4.3 (A3-4)
-            return
-        ms = int(ex.cue_ms)
-        conn.execute(
-            "INSERT INTO cue (content_id, kind, colorTableIndex, cueComment, isActiveLoop, beatLoopNumerator, "
-            "beatLoopDenominator, inUsec, outUsec, in150FramePerSec, out150FramePerSec, inMpegFrameNumber, "
-            "outMpegFrameNumber, inMpegAbs, outMpegAbs, inDecodingStartFramePosition, outDecodingStartFramePosition, "
-            "inFileOffsetInBlock, OutFileOffsetInBlock, inNumberOfSampleInBlock, outNumberOfSampleInBlock) "
-            "VALUES (?, 0, 0, '', 0, 0, 0, ?, -1, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
-            (content_id, ms * 1000, ms * 150 // 1000))
-        conn.execute("UPDATE content SET cueUpdateCount = COALESCE(cueUpdateCount, 0) + 1 WHERE content_id = ?",
-                     (content_id,))
 
     def _analysis_job(self, content_id: int, force: bool = False) -> Optional[Tuple[int, _Extras, Any]]:
         """Phase longue (HORS verrou) : analyse + pochette. None si rien à faire."""

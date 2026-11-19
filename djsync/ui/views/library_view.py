@@ -1286,35 +1286,6 @@ class LibraryView(View):
                       lambda: self.ctrl.delete_playlist(p.playlist_id), confirm_text=t("action.delete"), danger=True,
                       detail=detail)
 
-    # ------------------------------------------------------------- analyse, grille, doublons
-    def _analyse(self, tracks: Optional[List[LibraryTrack]] = None) -> None:
-        """Sélection : fenêtre de lancement (option « analyser à nouveau »). Sans sélection : vue « Non
-        analysés » et analyse lancée en arrière-plan."""
-        if not self.ctrl.has_library:
-            return
-        if tracks is None:
-            self.show_unanalysed()
-            self._analyse_all()
-            return
-        if all(not x.is_analysed for x in tracks):          # rien à choisir : on lance directement
-            self.ctrl.analyze([x.content_id for x in tracks])
-            return
-        from ..analysis_dialog import AnalysisDialog
-
-        AnalysisDialog(self, self.ctrl, tracks)
-
-    def _analyse_again(self, x: LibraryTrack) -> None:
-        """1.4.1 (C131) : clic droit sur un son ; fenêtre de choix la première fois pour un son de Rekordbox."""
-        from ..reanalyse import analyse_again
-
-        analyse_again(self, self.ctrl, [x.content_id])
-
-    def _restore_rekordbox(self, x: LibraryTrack) -> None:
-        from ..dialogs import ConfirmDialog
-
-        ConfirmDialog(self, t("reanalyse.restore"), t("reanalyse.restore_confirm", title=x.title),
-                      lambda: self.ctrl.restore_rekordbox_analysis(x.content_id),
-                      confirm_text=t("reanalyse.restore"))
 
     def _analyse_all(self) -> None:
         todo = self._unanalysed()
@@ -1411,12 +1382,6 @@ class LibraryView(View):
 
         GenrePlaylistsDialog(self, self.ctrl)
 
-    def _open_quality(self, tracks: List[LibraryTrack]) -> None:
-        """1.4.1 (C135) : onglet Qualité sur la sélection (portée « sélection »)."""
-        win = self.window()
-        if hasattr(win, "open_quality"):
-            win.open_quality([x.content_id for x in tracks],
-                             focus=tracks[0].content_id if len(tracks) == 1 else None)
 
     def _duplicates(self) -> None:
         if not self.ctrl.has_library:

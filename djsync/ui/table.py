@@ -445,8 +445,7 @@ class _KeyDelegate(QStyledItemDelegate):
 
 class TrackTable(QTableView):
     def __init__(self, parent: Any, columns: Sequence[Column], loader: Any = None, show_covers: bool = False,
-                 selectmode: str = "extended", reorderable: bool = False, click_columns: Sequence[str] = (),
-                 badges: bool = False) -> None:
+                 selectmode: str = "extended", reorderable: bool = False, click_columns: Sequence[str] = ()) -> None:
         super().__init__(parent)
         self.columns = list(columns)
         self.fit_content = False              # 1.4.0-rc.4 (C150) : colonnes ajustées au contenu
@@ -911,8 +910,6 @@ class TrackTable(QTableView):
         row.tags = tuple(tags)
         self.update_values(iid)
 
-    def refresh_cover(self, iid: str) -> None:
-        self.update_values(iid)
 
     COVER_PX = 30
 

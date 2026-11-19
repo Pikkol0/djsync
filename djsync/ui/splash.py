@@ -18,13 +18,6 @@ log = logging.getLogger(__name__)
 WIDTH, HEIGHT = 320, 200
 
 
-def native_splash_active() -> bool:
-    try:
-        import pyi_splash  # noqa: F401  (n'existe que dans l'exécutable PyInstaller)
-        return True
-    except ImportError:
-        return False
-
 
 _native_closed = False
 

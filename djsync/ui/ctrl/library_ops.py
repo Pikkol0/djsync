@@ -895,19 +895,6 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, failed, pool="match")
 
-    def save_grid(self, content_id: int, beats: Sequence[Any], ok: Optional[Callback] = None,
-                  err: Optional[Callback] = None) -> None:
-        def fail(exc: BaseException) -> None:
-            self._on_error(exc)
-            if err:
-                err(exc)
-
-        def work(lib: Any) -> Any:
-            out = lib.save_beat_grid(content_id, beats)
-            _mark_grid(lib, content_id)                  # 1.4.2 (C113) : grille vérifiée à la main
-            return out
-
-        self._write(work, ok, t("msg.grid_saved"), fail)
 
     def mark_grid_checked(self, content_id: int, ok: Optional[Callback] = None) -> None:
         """1.4.2 (C204) : « Grille juste » : grille marquée vérifiée sans rien y changer (ni base ni export.pdb)."""
@@ -1085,9 +1072,6 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, ok, lambda exc: log.info("Playlists of tracks: %s", exc), pool="db")
 
-    def update_metadata(self, content_id: int, title: Optional[str], artist: Optional[str],
-                        ok: Optional[Callback] = None) -> None:
-        self._write(lambda lib: lib.update_track_metadata(content_id, title, artist), ok, t("msg.metadata_saved"))
 
     # ------------------------------------------------------------ 1.3.2 (C82) : fusion différée, « Annuler »
     def schedule_duplicates_merge(self, keep_id: int, remove_ids: Sequence[int], title: Optional[str] = None,
