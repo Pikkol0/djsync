@@ -35,12 +35,36 @@ class Step:
 def run_analysis(content_ids: Sequence[int], step: Callable[[int], Step], get_track: Callable[[int], Any],
                  flush: Optional[Callable[[List[Any]], List[bool]]] = None, chunk: int = 8,
                  on_progress: Optional[Progress] = None,
-                 should_stop: Optional[Callable[[], bool]] = None) -> Tuple[int, int, int]:
+                 should_stop: Optional[Callable[[], bool]] = None,
+                 path_of: Optional[Callable[[int], Optional[Path]]] = None,
+                 ffmpeg: Optional[str] = None) -> Tuple[int, int, int]:
     """Analyse une liste de sons (doublons retirés, ordre gardé). `step(cid)` calcule (hors verrou) et
     renvoie un Step ; les Step « pending » sont enregistrés par `flush(jobs)` par lots de `chunk`
     (`flush` renvoie un booléen par travail). LibraryError dans `step` = échec expliqué.
-    Renvoie (analysés, ignorés, échecs). Arrêt propre entre deux sons."""
+    Renvoie (analysés, ignorés, échecs). Arrêt propre entre deux sons.
+    1.4.3 (A1-6) : `path_of(cid)` (fichier à analyser, None si le son sera ignoré) permet de calculer les sons
+    suivants d'avance sur plusieurs cœurs (analysis/pool.py) ; les écritures restent ici, dans l'ordre."""
     ids = list(dict.fromkeys(int(c) for c in content_ids))
+    if path_of is None or len(ids) < 2:
+        return _run(ids, step, get_track, flush, chunk, on_progress, should_stop, None)
+    from ..analysis.pool import prefetching, worker_count
+
+    if worker_count() <= 1:
+        return _run(ids, step, get_track, flush, chunk, on_progress, should_stop, None)
+    paths: List[Optional[Path]] = []
+    for cid in ids:
+        try:
+            paths.append(path_of(cid))
+        except Exception:  # noqa: BLE001 - le son sera traité (et son erreur dite) par `step`
+            log.debug("Handled error in run_analysis path_of", exc_info=True)
+            paths.append(None)
+    with prefetching(paths, ffmpeg) as pre:
+        return _run(ids, step, get_track, flush, chunk, on_progress, should_stop, pre)
+
+
+def _run(ids: List[int], step: Callable[[int], Step], get_track: Callable[[int], Any],
+         flush: Optional[Callable[[List[Any]], List[bool]]], chunk: int, on_progress: Optional[Progress],
+         should_stop: Optional[Callable[[], bool]], pre: Any) -> Tuple[int, int, int]:
     done = skipped = failed = 0
     pending: List[Tuple[Any, bool]] = []          # (travail, compte comme analysé)
 
@@ -61,6 +85,8 @@ def run_analysis(content_ids: Sequence[int], step: Callable[[int], Step], get_tr
     for i, cid in enumerate(ids, start=1):
         if should_stop and should_stop():
             break
+        if pre is not None:
+            pre.advance(i - 1)
         problem = ""
         try:
             res = step(cid)

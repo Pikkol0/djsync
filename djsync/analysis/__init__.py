@@ -17,9 +17,10 @@ from typing import List, Optional, Tuple, Union
 from .anlz import write_files
 from .decode import ANALYSIS_SR, DecodeError, find_ffmpeg
 from .decode import decode as decode_audio      # (le nom « decode » reste celui du sous-module)
+from .decode import decode_with_native
 from .key import KeyResult, analyze_key
 from .tempo import BeatGrid, analyze_tempo
-from .waveform import Waveforms, compute_waveforms
+from .waveform import Waveforms, compute_waveforms, compute_waveforms_rekordbox, rekordbox_rate
 
 log = logging.getLogger(__name__)
 
@@ -59,20 +60,54 @@ class AnalysisResult:
         return [(n, int(round(bpm * 100)), int(round(t * 1000))) for (n, t), bpm in zip(self.grid.beats, tempos)]
 
 
-def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None) -> AnalysisResult:
-    started = time.perf_counter()
-    audio = decode_audio(path, ffmpeg_location, ANALYSIS_SR)
-    x, sr = audio.samples, audio.sr
-    grid = analyze_tempo(x, sr)
-    key = analyze_key(x, sr)
-    wf = compute_waveforms(x, sr, audio.duration)
-    cutoff = None
-    try:                                              # 1.4.0 (C46) : ~0,2 s, gardé dans le registre
-        from .spectrum import measure_and_remember
+def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, *, _in_worker: bool = False,
+                 _skip_spectrum: bool = False) -> AnalysisResult:
+    """Un seul décodage (1.4.3, A1-7) : mono 22 050 Hz pour le tempo et la tonalité, et le même son à sa
+    fréquence d'origine pour les formes d'onde (calculées comme Rekordbox, A7-3) et le spectre.
+    1.4.3 (A1-6) : résultat déjà calculé par un processus d'analyse s'il y en a un (analysis/pool.py)."""
+    if not _in_worker:
+        from .pool import current
 
-        cutoff = measure_and_remember(path, ffmpeg_location, audio.duration)
-    except Exception:  # noqa: BLE001 - la vraie qualité n'est qu'une information en plus
-        log.debug("Ignored error in analyze_file", exc_info=True)  # 1.4.3 (A3-4)
+        pre = current()
+        if pre is not None:
+            ready = pre.take(path, ffmpeg_location)
+            if ready is not None:
+                return ready
+    started = time.perf_counter()
+    audio, native = decode_with_native(path, ffmpeg_location, ANALYSIS_SR)
+    try:
+        x, sr = audio.samples, audio.sr
+        grid = analyze_tempo(x, sr)
+        key = analyze_key(x, sr)
+        wf = None
+        if native is not None and rekordbox_rate(native.rate):
+            try:
+                wf = compute_waveforms_rekordbox(native)
+            except Exception:  # noqa: BLE001 - repli : l'ancien calcul
+                log.warning("Rekordbox waveforms failed for %s, previous method used", Path(path).name, exc_info=True)
+        if wf is None:
+            wf = compute_waveforms(x, sr, audio.duration)
+        cutoff = None
+        try:                                              # 1.4.0 (C46) : gardé dans le registre
+            from .spectrum import known, measure_and_remember, measure_native, remember
+
+            cutoff = None if _skip_spectrum else known(path)
+            if cutoff is None and not _skip_spectrum:
+                if native is not None:
+                    cutoff = measure_native(native, audio.duration)
+                    if not _in_worker:                 # le registre est écrit par le processus principal
+                        remember(path, cutoff)
+                elif _in_worker:
+                    from .spectrum import measure
+
+                    cutoff = measure(path, ffmpeg_location, audio.duration)
+                else:
+                    cutoff = measure_and_remember(path, ffmpeg_location, audio.duration)
+        except Exception:  # noqa: BLE001 - la vraie qualité n'est qu'une information en plus
+            log.debug("Ignored error in analyze_file", exc_info=True)  # 1.4.3 (A3-4)
+    finally:
+        if native is not None:
+            native.close()
     return AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff)
 
 

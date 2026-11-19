@@ -79,6 +79,55 @@ def run(target: str) -> int:
         return {"count": len(DRAW)}
 
     check("icons", icons)
+
+    def analysis_processes() -> Dict[str, Any]:
+        """1.4.3 (A1-6) : l'analyse tourne dans 2 processus séparés depuis l'exe (multiprocessing figé) et
+        donne le même résultat que dans le fil (formes d'onde calculées comme Rekordbox, A7-3)."""
+        import os
+        import tempfile
+        import wave
+
+        import numpy as np
+
+        from .analysis import analyze_file, pool
+
+        with tempfile.TemporaryDirectory() as d:
+            files = []
+            t = np.arange(44100 * 6) / 44100.0
+            x = (0.6 * np.sin(2 * np.pi * 55 * t) * np.exp(-10 * (t % 0.5)) * 32767).astype("<i2")
+            for i in range(2):
+                f = Path(d) / f"s{i}.wav"
+                with wave.open(str(f), "wb") as w:
+                    w.setnchannels(1)
+                    w.setsampwidth(2)
+                    w.setframerate(44100)
+                    w.writeframes(x.tobytes())
+                files.append(f)
+            local = [analyze_file(f) for f in files]
+            old = os.environ.get("DJSYNC_ANALYSIS_WORKERS")
+            os.environ["DJSYNC_ANALYSIS_WORKERS"] = "2"
+            try:
+                with pool.prefetching(files, None) as pre:
+                    if pre is None:
+                        raise RuntimeError("analysis processes unavailable")
+                    got = []
+                    for i, f in enumerate(files):
+                        pre.advance(i)
+                        ready = pre.take(f, None)
+                        if ready is None:
+                            raise RuntimeError("no result from the analysis processes")
+                        got.append(ready)
+            finally:
+                pool.shutdown()
+                if old is None:
+                    os.environ.pop("DJSYNC_ANALYSIS_WORKERS", None)
+                else:
+                    os.environ["DJSYNC_ANALYSIS_WORKERS"] = old
+            if any(a.waveforms != b.waveforms or a.bpmx100 != b.bpmx100 for a, b in zip(local, got)):
+                raise RuntimeError("results differ between processes and thread")
+            return {"processes": 2, "bpm": got[0].bpm}
+
+    check("analysis_processes", analysis_processes)
     if sys.platform == "darwin":                  # sortie de la « translocation » (premier lancement)
         def mac_translocation() -> str:
             import ctypes

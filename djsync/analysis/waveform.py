@@ -207,6 +207,30 @@ def _three_band(peak: np.ndarray, L: np.ndarray, M: np.ndarray, H: np.ndarray, n
     return det.astype(np.uint8).tobytes(), prev.astype(np.uint8).tobytes(), tuple(norm)
 
 
+def rekordbox_rate(rate: int) -> bool:
+    """1.4.3 (A7-3) : fréquences où les formes d'onde sont calculées comme Rekordbox."""
+    from .rbwave import supported
+
+    return supported(rate)
+
+
+def compute_waveforms_rekordbox(native) -> Waveforms:
+    """1.4.3 (A7-3) : toutes les formes d'onde avec les formules de Rekordbox (rbwave, repris de Sleeve), sur
+    le son à sa fréquence d'origine (decode.NativeAudio). L'ancien calcul (`compute_waveforms`) reste le repli
+    (fichier à une autre fréquence, WAV sans FFmpeg, erreur)."""
+    from .rbwave import WaveFeed
+
+    feed = WaveFeed(native.rate)
+    for chunk in native.mix_chunks():
+        feed.push(chunk)
+    out = feed.finish()
+    if out is None:
+        raise ValueError("no audio")
+    pwv3, pwv5, pwav, pwv2, pwv4, pwv7, pwv6, pwvc = out
+    return Waveforms(detail=pwv3, color_detail=pwv5, preview=pwav, tiny_preview=pwv2, color_preview=pwv4,
+                     band_detail=pwv7, band_preview=pwv6, band_norm=tuple(int(v) for v in pwvc))
+
+
 # ------------------------------------------------- éditeur de grille (V1.0.0)
 GRID_RATE = 450              # points par seconde (2,2 ms) : 3 fois plus fin que le PWV7 des platines
 

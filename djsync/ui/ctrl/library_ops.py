@@ -620,7 +620,11 @@ class LibraryOpsMixin:
                 light = self._light()
                 if light:                    # 1.4.0 (C65) : mode léger, pas d'analyse pendant la lecture
                     self._wait_while_playing(q)
-                batch = q.take(1 if light else None)
+                from ...analysis.pool import set_light, worker_count
+
+                set_light(light)             # 1.4.3 (A1-6) : plusieurs cœurs, sauf en mode léger
+                workers = worker_count()
+                batch = q.take(1 if light else (max(q.BATCH, workers * 2) if workers > 1 else None))
                 if not batch and q.waiting and not q.cancelled:     # 1.4.0-rc.5 (C161) : même session
                     if q.current != t("analysis.waiting_downloads"):
                         q.current = t("analysis.waiting_downloads")

@@ -7,6 +7,7 @@ décodent aussi sans FFmpeg (module `wave` standard), ce qui sert aux tests et a
 from __future__ import annotations
 
 import logging
+import math
 import re
 import subprocess
 import sys
@@ -205,12 +206,16 @@ def _duration_hint(path: Path) -> float:
         return 0.0
 
 
-def _decode_ffmpeg(path: Path, ffmpeg: str, sr: int) -> np.ndarray:
+def _decode_ffmpeg(path: Path, ffmpeg: str, sr: int, extra: Optional[tuple] = None) -> np.ndarray:
     """V0.5.0 : lecture en flux directement dans un tableau pré-alloué (durée connue d'avance) —
     plus de copie intégrale du tampon de sortie : le pic mémoire d'un mix d'1 h passe d'environ
     800 Mo à la taille du signal mono (≈ 320 Mo à 22 kHz)."""
     cmd = [ffmpeg, "-v", "error", "-nostdin", "-i", str(path), "-map", "0:a:0", "-vn",
            "-ac", "1", "-ar", str(sr), "-f", "f32le", "-acodec", "pcm_f32le", "-"]
+    if extra is not None:                    # 1.4.3 (A1-7) : 2e sortie, fréquence d'origine, même décodage
+        file, rate = extra
+        cmd += ["-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(rate), "-f", "f32le", "-acodec", "pcm_f32le", "-y",
+                str(file)]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
                                 creationflags=_no_window())
@@ -294,6 +299,109 @@ def _decode_wav(path: Path, sr: int) -> np.ndarray:
     return _resample(data, rate, sr)
 
 
+class NativeAudio:
+    """1.4.3 (A1-7, A7-3) : le même son en mono à sa fréquence d'origine (≤ 96 kHz), écrit par FFmpeg dans
+    un fichier temporaire pendant le décodage principal (une seule lecture du fichier). Sert au spectre
+    (vraie qualité, sans second décodage) et aux formes d'onde calculées comme Rekordbox (à 44,1 / 48 kHz,
+    comme lui). Les valeurs sont celles de `-ac 1` (mêmes tranches qu'avant pour le spectre)."""
+
+    def __init__(self, file: Path, rate: int, channels: int, lead: float):
+        self.file = file
+        self.rate = rate
+        self.channels = channels
+        self.frames = file.stat().st_size // 4 if file.is_file() else 0
+        self.lead_frames = int(round(lead * rate)) if lead > 0 else 0
+
+    @property
+    def duration(self) -> float:
+        return self.frames / float(self.rate) if self.rate else 0.0
+
+    def read(self, start: int, count: int) -> np.ndarray:
+        """Échantillons [start, start + count) tels que FFmpeg les a écrits (sans le silence de calage)."""
+        start = max(0, start)
+        count = max(0, min(count, self.frames - start))
+        if count <= 0:
+            return np.zeros(0, dtype=np.float32)
+        with open(self.file, "rb") as f:
+            f.seek(start * 4)
+            return np.fromfile(f, dtype="<f4", count=count)
+
+    def mix_chunks(self, size: int = 1 << 20):
+        """(G + D) / 2 sur la base de temps de Rekordbox (silence de calage compris), par morceaux. FFmpeg
+        mélange en G·√½ + D·√½ ; un fichier mono reste tel quel."""
+        gain = np.float32(math.sqrt(0.5)) if self.channels >= 2 else np.float32(1.0)
+        lead = self.lead_frames
+        while lead > 0:
+            n = min(lead, size)
+            yield np.zeros(n, dtype=np.float32)
+            lead -= n
+        with open(self.file, "rb") as f:
+            while True:
+                x = np.fromfile(f, dtype="<f4", count=size)
+                if x.size == 0:
+                    break
+                x = x * gain
+                np.nan_to_num(x, copy=False)
+                np.clip(x, -1.0, 1.0, out=x)
+                yield x
+
+    def close(self) -> None:
+        try:
+            self.file.unlink(missing_ok=True)
+        except OSError:
+            log.debug("Ignored error in NativeAudio.close", exc_info=True)
+
+
+def _channels(path: Path) -> int:
+    try:
+        import mutagen
+
+        return int(getattr(mutagen.File(str(path)).info, "channels", 2) or 2)
+    except Exception:  # noqa: BLE001
+        log.debug("Handled error in _channels", exc_info=True)
+        return 2
+
+
+def decode_with_native(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
+                       sr: int = ANALYSIS_SR) -> "tuple[Decoded, Optional[NativeAudio]]":
+    """`decode` + le même son à sa fréquence d'origine (NativeAudio), en un seul passage de FFmpeg. Sans
+    FFmpeg (WAV seulement) ou en cas d'échec de la sortie en plus : (decode(...), None)."""
+    import os
+    import tempfile
+
+    path = Path(path)
+    ffmpeg = find_ffmpeg(ffmpeg_location)
+    if not ffmpeg:
+        return decode(path, ffmpeg_location, sr), None
+    rate = min(_native_rate(path) or 44100, 96000)
+    fd, name = tempfile.mkstemp(prefix="djsync-native-", suffix=".f32")
+    os.close(fd)
+    extra = Path(name)
+    try:
+        samples = _decode_ffmpeg(path, ffmpeg, sr, extra=(extra, rate))
+    except DecodeError:
+        extra.unlink(missing_ok=True)
+        return decode(path, ffmpeg_location, sr), None
+    decoded = _finish(path, samples, sr, True)
+    native = NativeAudio(extra, rate, _channels(path), timeline_lead_seconds(path))
+    if native.frames == 0:
+        native.close()
+        return decoded, None
+    return decoded, native
+
+
+def _finish(path: Path, samples: np.ndarray, sr: int, from_ffmpeg: bool) -> Decoded:
+    samples = samples.astype(np.float32, copy=False)
+    np.nan_to_num(samples, copy=False)
+    np.clip(samples, -1.0, 1.0, out=samples)
+    if from_ffmpeg:
+        lead = timeline_lead_seconds(path)
+        if lead > 0:
+            pad = int(round(lead * sr))
+            samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples])
+    return Decoded(samples, sr, samples.size / float(sr))
+
+
 def decode(path: Union[str, Path], ffmpeg_location: Optional[str] = None, sr: int = ANALYSIS_SR) -> Decoded:
     """Décode tout le fichier en mono à `sr` Hz."""
     path = Path(path)
@@ -309,12 +417,4 @@ def decode(path: Union[str, Path], ffmpeg_location: Optional[str] = None, sr: in
         samples = _decode_wav(path, sr)
     else:
         raise DecodeError("FFmpeg not found: required to analyse this format (Settings > FFmpeg).")
-    samples = samples.astype(np.float32, copy=False)
-    np.nan_to_num(samples, copy=False)
-    np.clip(samples, -1.0, 1.0, out=samples)
-    if ffmpeg:
-        lead = timeline_lead_seconds(path)
-        if lead > 0:
-            pad = int(round(lead * sr))
-            samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples])
-    return Decoded(samples, sr, samples.size / float(sr))
+    return _finish(path, samples, sr, bool(ffmpeg))

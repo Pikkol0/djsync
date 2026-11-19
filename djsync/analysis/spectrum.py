@@ -239,6 +239,22 @@ def measure(path: Union[str, Path], ffmpeg_location: Optional[str] = None,
     return REPRESENTATIVE.get(kbps) if kbps else None
 
 
+def measure_native(native, duration: float = 0.0) -> Optional[int]:
+    """1.4.3 (A1-7) : même mesure que `measure`, sur le son déjà décodé à sa fréquence d'origine
+    (decode.NativeAudio) : plus de second passage de FFmpeg (3 tranches de 20 s)."""
+    sr = native.rate
+    duration = native.duration or duration
+    starts = [max(0.0, duration * p - SLICE / 2) for p in POSITIONS] if duration > SLICE else [0.0]
+    feats = []
+    for start in starts:
+        x = native.read(int(round(start * sr)), int(round(SLICE * sr)))
+        if sr < 40000:
+            return cutoff_of(x, sr)
+        feats.append(slice_features(x, sr))
+    kbps, _edge = classify(feats)
+    return REPRESENTATIVE.get(kbps) if kbps else None
+
+
 def estimate(cutoff: Optional[int], sr: int = 44100) -> int:
     """Débit équivalent d'après la coupure : 128, 192, 256, 320 ou LOSSLESS ; 0 si inconnu. Un fichier à
     moins de 44,1 kHz ne peut pas monter à 21 kHz : on compare à sa fréquence de Nyquist."""

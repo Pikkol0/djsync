@@ -1292,7 +1292,15 @@ class LocalRekordboxLibrary:
             self.owned.add(uuid)
             return Step(DONE, "; ".join(ex.problems))
 
-        return run_analysis(content_ids, step, self.get_track, None, chunk, on_progress, should_stop)
+        def path_of(cid: int) -> Optional[Path]:
+            """1.4.3 (A1-6) : fichier que `step` analysera (None : son ignoré)."""
+            track = self.get_track(cid)
+            if track.is_analysed and not force:
+                return None
+            return Path(track.path)
+
+        return run_analysis(content_ids, step, self.get_track, None, chunk, on_progress, should_stop,
+                            path_of, self.ffmpeg_location)
 
     # ------------------------------------- 1.4.1 (C131, D20) : sons analysés par Rekordbox
     def native_ids(self, content_ids: Sequence[int]) -> set:

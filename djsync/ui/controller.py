@@ -1236,6 +1236,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         except Exception:  # noqa: BLE001
             log.exception("Pending merges at shutdown")
         self.analysis.cancel()
+        try:
+            from ..analysis.pool import shutdown as stop_analysis_processes
+
+            stop_analysis_processes()               # 1.4.3 (A1-6)
+        except Exception:  # noqa: BLE001
+            log.debug("Ignored error in shutdown (analysis processes)", exc_info=True)
         self.settings.volume = self.player.volume
         self.settings.save()
         self.player.close()

@@ -503,7 +503,22 @@ class IngestMixin:
                         out.append(False)
             return out
 
-        return run_analysis(content_ids, step, self.get_track, flush, chunk, on_progress, should_stop)
+        def path_of(cid: int) -> Optional[Path]:
+            """1.4.3 (A1-6) : fichier que `step` analysera (None : son ignoré)."""
+            row = self._read("SELECT path, analysisDataFilePath, masterDbId FROM content WHERE content_id = ?", (cid,))
+            if not row:
+                return None
+            db_path, anlz, master = row[0]
+            if master is not None:
+                parts = tuple(p for p in getattr(self, "native_parts", ()) if p in NATIVE_PARTS) if force else ()
+                if not parts or not anlz:
+                    return None
+            elif anlz and not force:
+                return None
+            return self.absolute_path(db_path)
+
+        return run_analysis(content_ids, step, self.get_track, flush, chunk, on_progress, should_stop,
+                            path_of, self.ffmpeg_location)
 
     def unanalysed_tracks(self) -> List[LibraryTrack]:
         """Sons ajoutés par DJSync (avant la V1.1-A4) sans analyse : candidats à `analyze_missing`."""
