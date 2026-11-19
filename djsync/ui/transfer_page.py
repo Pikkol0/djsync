@@ -181,7 +181,8 @@ class TransferPage(BaseDialog):
     modal = False
     back_keeps_page = True
 
-    def __init__(self, parent: Any, controller: Any, precheck: Tuple[int, ...] = ()) -> None:
+    def __init__(self, parent: Any, controller: Any, precheck: Tuple[int, ...] = (),
+                 sync_from: Optional[str] = None) -> None:
         super().__init__(parent, t("transfer.title"), 860, 640)
         self.ctrl = controller
         self.ends: List[Any] = []
@@ -198,6 +199,8 @@ class TransferPage(BaseDialog):
         self._build_run()
         self._build_summary()
         self.reload_ends()
+        if sync_from:
+            self.start_sync(sync_from)
         # 1.4.2 (B110) : une clé branchée ou retirée pendant que la page est ouverte apparaît / disparaît
         controller.on("drives", self._libraries_changed)
         controller.on("drive", self._libraries_changed)
@@ -297,6 +300,32 @@ class TransferPage(BaseDialog):
             self._ends_changed()
         else:
             self._update_setup()
+
+    def start_sync(self, key: str) -> bool:
+        """1.4.3 (C203) : ouverture depuis la carte d'une bibliothèque : « Synchroniser les deux », cette
+        bibliothèque d'un côté, l'autre (de préférence de l'autre type : clé ↔ ordinateur) en face."""
+        i = DIRECTIONS.index("sync")
+        if not self.direction.model().item(i).isEnabled():
+            return False
+        me = next((e for e in self.ends if e.key == key), None)
+        if me is None:
+            return False
+        others = [e for e in self.ends if e.key != key]
+        other = next((e for e in others if e.is_local != me.is_local), others[0] if others else None)
+        if other is None:
+            return False
+        self.direction.blockSignals(True)
+        self.direction.setCurrentIndex(i)
+        self.direction.blockSignals(False)
+        self._direction_changed(reload=False)
+        for box, k in ((self.from_box, me.key), (self.to_box, other.key)):
+            j = box.findData(k)
+            if j >= 0:
+                box.blockSignals(True)
+                box.setCurrentIndex(j)
+                box.blockSignals(False)
+        self._ends_changed()
+        return True
 
     def direction_key(self) -> str:
         return self.direction.currentData() or DIRECTIONS[0]
@@ -676,13 +705,17 @@ class TransferPage(BaseDialog):
         self.pages.setCurrentWidget(self.setup_page)
 
 
-def open_transfer(parent: Any, controller: Any, precheck: Tuple[int, ...] = ()) -> Optional[TransferPage]:
-    """Ouvre la page (ou y revient si un transfert est en cours ou en revue)."""
+def open_transfer(parent: Any, controller: Any, precheck: Tuple[int, ...] = (),
+                  sync_from: Optional[str] = None) -> Optional[TransferPage]:
+    """Ouvre la page (ou y revient si un transfert est en cours ou en revue). 1.4.3 (C203) : `sync_from` = clé de
+    la bibliothèque d'où l'on vient (bouton d'une carte de l'Accueil) : ouverture sur « Synchroniser les deux »."""
     win = parent.window() if parent is not None else None
     if win is not None and hasattr(win, "reopen_dialog_page"):
         page = win.reopen_dialog_page(TransferPage)
         if page is not None:
+            if sync_from and not page.running and page.pages.currentWidget() is page.setup_page:
+                page.start_sync(sync_from)
             return page
-    page = TransferPage(parent, controller, precheck)
+    page = TransferPage(parent, controller, precheck, sync_from)
     page.show_dialog()
     return page

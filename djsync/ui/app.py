@@ -1165,11 +1165,11 @@ class DJSyncApp(QMainWindow):
                 pass
         QTimer.singleShot(0, scroll)
 
-    def open_transfer(self, precheck: tuple = ()) -> None:
-        """1.4.2 (C23) : page « Transférer des playlists »."""
+    def open_transfer(self, precheck: tuple = (), sync_from: Optional[str] = None) -> None:
+        """1.4.2 (C23) : page « Transférer et synchroniser des playlists » (nom : 1.4.3, C203)."""
         from .transfer_page import open_transfer
 
-        open_transfer(self, self.ctrl, tuple(precheck or ()))
+        open_transfer(self, self.ctrl, tuple(precheck or ()), sync_from)
 
     def open_set_check(self) -> None:
         from .set_check_dialog import open_set_check

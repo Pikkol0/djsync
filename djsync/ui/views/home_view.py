@@ -124,7 +124,8 @@ class HomeView(View):
         self.actions_row = ColumnsBox(spacing=10)          # 1.4.2 (A2-17) : 2 colonnes si la place manque
         self.actions: dict = {}
         for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
-                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize)):
+                               ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize),
+                               ("transfer", "copy", self.act_transfer)):                  # 1.4.3 (C203)
             # 1.4.2 (A2-17) : titre en gras, sous-titre en gris normal (même graisse partout avant)
             b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
             b.clicked.connect(lambda _c=False, f=cmd: f())
@@ -341,6 +342,17 @@ class HomeView(View):
         lay.addLayout(mid, 1)
         return box
 
+    def act_transfer(self, summary: Any = None) -> None:
+        """1.4.3 (C203) : « Transférer et synchroniser des playlists ». Depuis la carte d'une bibliothèque :
+        ouverture sur « Synchroniser les deux » (sinon le sens unique habituel)."""
+        win = self.window()
+        if not hasattr(win, "open_transfer"):
+            return
+        key = None
+        if summary is not None:
+            key = "local" if summary.is_local else str(summary.drive.root)
+        win.open_transfer((), key)
+
     def prepare_drive(self, u: Any) -> None:
         """1.4.2 (C24) : confirmation avec le nom et le lecteur, puis le gabarit de clé vide est posé."""
         from ..dialogs import ConfirmDialog
@@ -424,6 +436,11 @@ class HomeView(View):
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
                                      icon=icon))
+        if len(getattr(self, "_summaries", []) or []) >= 2:           # 1.4.3 (C203) : clé et ordinateur branchés
+            sync = button(t("transfer.card_button"), lambda _c=False, x=s: self.act_transfer(x), icon="copy")
+            sync.setToolTip(t("transfer.card_tip"))
+            sync.setObjectName("transfer_sync")
+            actions.addWidget(sync)
         diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
         diag.setToolTip(t("diag.button_tip"))
         actions.addWidget(diag)
