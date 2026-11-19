@@ -2196,6 +2196,6 @@ STRINGS = {
     "recover.done": "Bibliothèque remise depuis le point de restauration {point}.",
     "recover.failed": "La bibliothèque n'a pas pu être remise : {detail}",
     "error.restore_busy": "Restauration non faite : export.pdb ou la bibliothèque est ouvert dans un autre programme (Rekordbox, une fenêtre de l'Explorateur sur la clé ?). Rien n'a été changé : fermez-le, puis réessayez.",
-    "import.spotify_truncated_of": "Spotify ne donne que les 100 premiers morceaux sur {n}.",
-    "import.spotify_rest": "Pour le reste : découpez la playlist dans Spotify en playlists de 100 morceaux ou moins, ou collez les morceaux manquants en lignes « Artiste - Titre » dans « Coller une liste… ».",
+    "import.spotify_truncated_of": "Spotify ne donne que les 100 premiers sons sur {n}.",
+    "import.spotify_rest": "Pour le reste : découpez la playlist dans Spotify en playlists de 100 sons ou moins, ou collez les sons manquants en lignes « Artiste - Titre » dans « Coller une liste… ».",
 }

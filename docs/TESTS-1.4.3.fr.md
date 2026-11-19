@@ -43,7 +43,7 @@ A3-5, A3-10 (code) ; C202, C206. Specs : `claude/spec-1.4.3.md` (A1-2, A6-1, A6-
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
 | REC-4 | Tous | Windows | (**C202**) Rechercher ▸ onglet Haute qualité ; aller dans la Bibliothèque ; revenir par « Rechercher » ; quitter et relancer DJSync, cliquer « Rechercher ». | Haute qualité se rouvre les deux fois. |
-| IMP-2 | Tous | Windows | (**C206**) Lien ou playlist ▸ une playlist Spotify publique de plus de 100 titres. | « Spotify ne donne que les 100 premiers morceaux sur n. » et la marche à suivre pour le reste (découper la playlist, ou « Coller une liste… »). |
+| IMP-2 | Tous | Windows | (**C206**) Lien ou playlist ▸ une playlist Spotify publique de plus de 100 titres. | « Spotify ne donne que les 100 premiers sons sur n. » et la marche à suivre pour le reste (découper la playlist, ou « Coller une liste… »). |
 
 ### Reporté à la rc.2
 
