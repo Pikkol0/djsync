@@ -314,6 +314,13 @@ class DJSyncApp(QMainWindow):
             _shine(not light_active(self.ctrl.settings, info))     # 1.4.1 (C141) : reflet coupé en mode léger
             log.info("Machine: %s, light mode %s (%s)", info.describe(),
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
+            try:                                       # 1.4.3-rc.3 (B126) : partie compilée de rapidfuzz présente ?
+                from ..core.duplicates import fuzzy_backend
+
+                backend = fuzzy_backend()
+                (log.info if backend == "compiled" else log.warning)("Fuzzy matching (rapidfuzz): %s", backend)
+            except Exception:  # noqa: BLE001 - information seulement
+                log.debug("Fuzzy backend not checked", exc_info=True)
             if should_offer(self.ctrl.settings, info):
                 self.queue_startup("light_mode", lambda: self.offer_light_mode(info))
             elif light_active(self.ctrl.settings, info):

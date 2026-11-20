@@ -69,6 +69,17 @@ def run(target: str) -> int:
 
     check("tools", tools)
 
+    def fuzzy() -> str:
+        """1.4.3-rc.3 (B126) : rapidfuzz avec sa partie compilée (en Python pur, les doublons gèlent l'app)."""
+        from .core.duplicates import fuzzy_backend
+
+        backend = fuzzy_backend()
+        if backend != "compiled":
+            raise RuntimeError(f"rapidfuzz runs its pure-Python fallback ({backend})")
+        return backend
+
+    check("rapidfuzz_compiled", fuzzy)
+
     def icons() -> Dict[str, Any]:
         """1.4.0-rc.6 (C160) : toutes les icônes dessinées se dessinent dans le build (dont l'œil « watch »)."""
         from .ui.icons import DRAW, pil_icon

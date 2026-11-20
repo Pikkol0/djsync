@@ -20,7 +20,9 @@ import sys
 
 datas, binaries, hidden = [], [], []
 # 1.4.0 (C10.2) : aioslsk (Soulseek), imported only when Soulseek is turned on
-for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3", "aioslsk"):    # numpy: native hook
+# 1.4.3-rc.3 (B126) : rapidfuzz avec ses modules compilés (process_cpp_impl, fuzz_cpp_avx2…), importés à
+# l'exécution : sans eux, il se rabat en silence sur son code Python pur et les doublons gèlent l'app
+for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3", "aioslsk", "rapidfuzz"):  # numpy: hook
     datas += collect_data_files(pkg)               # .py excluded by default
     binaries += collect_dynamic_libs(pkg)
     hidden += collect_submodules(pkg)

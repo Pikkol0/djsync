@@ -253,3 +253,16 @@ Sautées (mesure sur la tour impossible depuis la session) : **B115**, **B118** 
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
 | ANA-12 | Auteur | Windows | (**A01**) Analyser à nouveau la playlist d'échantillon (sons déjà analysés par Rekordbox), puis `python -m djsync.analysis --compare local --playlist "<nom>" --csv x.csv`. | Accord sur la tonalité au moins égal à celui de la rc.1 ; pas plus de tonalités mineures données à tort. |
+
+## rc.3 — gel de l'exe à l'ouverture et après une suppression
+
+Fiche : **B126** (régression de la rc.1, exe seulement). Cause (relevé py-spy du 21/11) : la colonne « Doublon »,
+masquée par défaut, relançait la recherche des doublons à chaque chargement de la bibliothèque, et rapidfuzz tournait
+dans l'exe avec son code Python pur (partie compilée absente). Correctifs : A (partie compilée incluse dans l'exe,
+vérifiée au démarrage et par l'autotest du build) et D (doublons calculés seulement si la colonne Doublon est affichée).
+Tests automatiques : `tests/test_v143_rc3_b126.py`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GEL-1 | Auteur | Windows | (**B126**) Exe rc.3 : lancer DJSync, ouvrir la bibliothèque de l'ordinateur, passer tout de suite la souris sur la liste ; puis supprimer 3 sons et repasser la souris. Envoyer le journal. | Le surlignage suit la souris dès l'ouverture et après la suppression (plus de vingtaine de secondes de lenteur). Journal : « Fuzzy matching (rapidfuzz): compiled » au démarrage ; plus de « Slow drive check » de plusieurs secondes. |
+| GEL-2 | Tous | Windows | (**B126**) Bibliothèque ▸ Colonnes ▸ cocher « Doublon ». | La colonne se remplit en une ou deux secondes (⧉ sur les sons qui ont un doublon) ; un clic sur ⧉ ouvre Doublons. |

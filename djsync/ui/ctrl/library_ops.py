@@ -630,9 +630,11 @@ class LibraryOpsMixin:
 
         self.dispatcher.submit(work, done, lambda exc: log.info("Cue marks not read: %s", exc), pool="cues")
 
-    def track_extras(self, tracks: Sequence[LibraryTrack], ok: Callable[[Dict[int, Dict[str, Any]]], None]) -> None:
+    def track_extras(self, tracks: Sequence[LibraryTrack], ok: Callable[[Dict[int, Dict[str, Any]]], None],
+                     dups: bool = True) -> None:
         """1.4.2 (C113) : colonnes My Tags, Dernière lecture, Analyse (grille vérifiée à la main) et Doublon,
-        lues hors du fil de l'interface ; ok() n'est pas appelé si la bibliothèque a changé entre-temps."""
+        lues hors du fil de l'interface ; ok() n'est pas appelé si la bibliothèque a changé entre-temps.
+        1.4.3-rc.3 (B126) : `dups` False (colonne Doublon masquée) : pas de recherche de doublons."""
         lib = self.library
         items = [x for x in tracks if x is not None]
         if lib is None or not items:
@@ -655,7 +657,7 @@ class LibraryOpsMixin:
                 checked = set()
             for cid in ids:
                 out[cid]["grid_checked"] = cid in checked
-            for group in find_duplicate_groups(items):           # comme « Ses doublons » de l'onglet Un son
+            for group in (find_duplicate_groups(items) if dups else ()):   # comme « Ses doublons » de l'onglet Un son
                 gids = [y.content_id for y in group]
                 for cid in gids:
                     out.setdefault(cid, {})["dup"] = [g for g in gids if g != cid]

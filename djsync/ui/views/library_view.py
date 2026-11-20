@@ -779,6 +779,10 @@ class LibraryView(View):
         self._show_view()
 
     def _show_view(self) -> None:
+        # 1.4.3-rc.3 (B126) : colonne Doublon tout juste affichée : doublons calculés maintenant
+        if getattr(self, "_extras_dups", True) is False and getattr(self, "_extras", None) is not None \
+                and self._dup_shown():
+            self._read_extras()
         if not hasattr(self, "view_btn"):
             return
         view = self._views.current
@@ -1069,8 +1073,18 @@ class LibraryView(View):
         self.ctrl.cue_marks(tracks, ok)
 
     # ------------------------------------------------------------------ 1.4.2 (C113) : nouvelles colonnes
+    def _dup_shown(self) -> bool:
+        """1.4.3-rc.3 (B126) : colonne Doublon affichée (sinon, aucune recherche de doublons au chargement)."""
+        try:
+            return not self.table.isColumnHidden(self.table.column_index("dup"))
+        except Exception:  # noqa: BLE001 - colonne absente : rien à calculer
+            log.debug("Dup column state unknown", exc_info=True)
+            return False
+
     def _read_extras(self) -> None:
         key, tracks = self._drive_key(), list(self.all_tracks)
+        dups = self._dup_shown()
+        self._extras_dups = dups
 
         def ok(extras: Dict[int, Dict[str, Any]]) -> None:
             if not self.winfo_exists() or key != self._drive_key():
@@ -1080,7 +1094,7 @@ class LibraryView(View):
             self.table.update_many({r.iid: self._extra_values(r.data)
                                     for r in self.table.all_rows() if r.data is not None})
 
-        self.ctrl.track_extras(tracks, ok)
+        self.ctrl.track_extras(tracks, ok, dups=dups)
 
     def _show_mytags_once(self) -> None:
         """La colonne My Tags s'affiche d'elle-même la première fois qu'une bibliothèque en a (ensuite, le

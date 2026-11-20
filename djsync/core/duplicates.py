@@ -241,6 +241,15 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
     return out
 
 
+def fuzzy_backend() -> str:
+    """1.4.3-rc.3 (B126) : « compiled » si rapidfuzz utilise sa partie compilée, « python » s'il s'est rabattu
+    sur son code Python pur (50 à 100 fois plus lent : partie compilée absente de l'exe)."""
+    from rapidfuzz import fuzz as _fuzz, process as _process
+
+    mods = (getattr(_process.cdist, "__module__", "") or "", getattr(_fuzz.ratio, "__module__", "") or "")
+    return "python" if any(m.endswith("_py") for m in mods) else "compiled"
+
+
 _GROUPS_CACHE: Dict[str, Any] = {}
 _GROUPS_LOCK = __import__("threading").Lock()
 _BLOCK = 1000                     # 1.4.3 (A1-8, A) : lignes de la matrice calculées par bloc

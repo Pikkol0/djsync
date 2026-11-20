@@ -223,6 +223,9 @@ def test_c113_mytags_history_and_grid_marks(demo, tmp_path):
     assert row is not None and "Peak" in row.values["mytags"] and row.values["last_played"] == "2026-11-08"
     assert demo.ctrl.settings.mytags_column_shown and not view.table.isColumnHidden(view.table.column_index("mytags"))
     # « One More Time » et « One More Time (Clip Officiel) » : doublon marqué, clic -> Doublons
+    # 1.4.3-rc.3 (B126) : doublons calculés seulement quand la colonne Doublon est affichée
+    view.table.set_column_visible("dup", True)
+    assert pump(demo, 10, lambda: any(r.values.get("dup") for r in view.table.all_rows()))
     dup = next(r for r in view.table.all_rows() if r.values.get("dup"))
     view._cell_click(dup.iid, "dup")
     assert pump(demo, 4, lambda: type(demo.stack.currentWidget()).__name__ == "DuplicatesDialog")
