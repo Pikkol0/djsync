@@ -237,7 +237,8 @@ def test_columns_sort_and_source_are_remembered(demo_app):
     lib = app.views["library"]
     assert pump(app, 5, lambda: lib.table.total > 0)
     table = lib.table
-    assert "album" in table._user_hidden and "source" not in table._user_hidden   # défaut proposé
+    # défaut proposé (1.4.3-rc.2, C218 : colonnes de la vue « Essentiel », Source masquée)
+    assert "album" in table._user_hidden and "source" in table._user_hidden and "playlists" not in table._user_hidden
     table.set_column_visible("album", True)
     assert "album" not in ctrl.settings.table_layouts["library"]["hidden"]
     i = table.column_index("artist")
