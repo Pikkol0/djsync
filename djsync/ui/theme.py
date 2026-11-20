@@ -299,7 +299,10 @@ QTableView, QTreeWidget, QListWidget {{ background: {SURFACE}; alternate-backgro
 QTableView::item {{ padding: 0 {p(6)}px; border: 0; }}
 QTableView::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {{ background: {row_hover}; }}
 QTableView::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{ background: {ACCENT_DIM}; color: {TEXT}; }}
-QTreeWidget::item, QListWidget::item {{ padding: {p(4)}px {p(4)}px; border-radius: {r6}px; }}
+/* 1.4.3-rc.2 (B114): one continuous, square highlight per row (each column and the arrow area were rounded apart);
+   rounded "pills" only for lone items (Settings sections, menus) */
+QTreeWidget::item, QListWidget::item {{ padding: {p(4)}px {p(4)}px; border-radius: 0; }}
+QListWidget#settingsSections::item {{ border-radius: {r6}px; }}
 QTreeWidget, QListWidget {{ padding: {p(4)}px; }}
 QHeaderView {{ background: transparent; }}
 QHeaderView::section {{ background: {SURFACE}; color: {FAINT}; border: 0; border-bottom: 1px solid {BORDER};

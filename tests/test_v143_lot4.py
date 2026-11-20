@@ -461,13 +461,13 @@ def test_c214_views_logic():
     data: dict = {}
     v = ColumnViews(data, OPT)
     default_hidden = v.hidden(DEFAULT)
-    assert v.first_use(default_hidden) == "discover" and not data["custom"]           # rien ne change à l'écran
+    assert v.first_use(default_hidden) == "essential" and not data["custom"]          # rien ne change à l'écran
     assert v.shown("all") == set(OPT) and "analysis" in v.shown("prepare") and "real" in v.shown("quality")
     assert not v.modified(default_hidden) and v.modified(default_hidden - {"genre"})
-    v.save("discover", default_hidden - {"genre"})                                   # vue d'origine modifiée
-    assert "genre" in v.shown("discover") and v.is_changed_builtin("discover")
-    v.restore_builtin("discover")
-    assert "genre" not in v.shown("discover")
+    v.save("essential", default_hidden - {"genre"})                                   # vue d'origine modifiée
+    assert "genre" in v.shown("essential") and v.is_changed_builtin("essential")
+    v.restore_builtin("essential")
+    assert "genre" not in v.shown("essential")
     mine = v.create("  Préparation club ", {"path"})
     assert v.name(mine) == "Préparation club" and v.shown(mine) == set(OPT) - {"path"}
     v.select(mine, "E:|p3")
@@ -477,7 +477,7 @@ def test_c214_views_logic():
     v.delete(mine)
     assert v.for_list("E:|p3") == "" and v.current == DEFAULT and mine not in v.ids()
     other = ColumnViews({}, OPT)                                                     # colonnes à soi : gardées
-    assert other.first_use({"pos"}) not in ("discover", "all") and other.name(other.current)
+    assert other.first_use({"pos"}) not in ("essential", "all") and other.name(other.current)
     assert other.shown(other.current) == set(OPT) - {"pos"}
 
 
@@ -490,10 +490,10 @@ def test_c214_library_view_menu_modified_save_revert_and_per_list(demo):  # noqa
     demo.show_view("library")
     lib = demo.views["library"]
     assert pump(demo, 4, lambda: lib.table.total == 10)
-    assert lib._views.current == "discover" and t("views.discover") in lib.view_btn.text()
+    assert lib._views.current == "essential" and t("views.essential") in lib.view_btn.text()
     assert not lib.view_mod.isVisible()
     names = [e[0].strip("✓ ").strip() for e in lib._views_entries() if e]
-    assert names[:5] == [t(f"views.{k}") for k in ("discover", "prepare", "mix", "quality", "all")]
+    assert names[:4] == [t(f"views.{k}") for k in ("essential", "prepare", "quality", "all")]
     lib.select_view("quality")
     assert "bitrate" not in lib.table.user_hidden and "playlists" in lib.table.user_hidden
     lib.table.set_column_visible("genre", True)                                     # colonne changée
@@ -524,7 +524,7 @@ def test_c214_library_view_menu_modified_save_revert_and_per_list(demo):  # noqa
 def test_c214_texts_in_both_languages():
     from djsync.i18n import en, fr
 
-    for k in ("discover", "prepare", "mix", "quality", "all", "label", "modified", "save", "revert", "new", "mine"):
+    for k in ("essential", "prepare", "quality", "all", "modified", "save", "revert", "new", "mine"):
         assert f"views.{k}" in en.STRINGS and f"views.{k}" in fr.STRINGS
     assert fr.STRINGS["views.label"] == "Vue : {name}" and fr.STRINGS["views.modified"] == "(modifiée)"
 

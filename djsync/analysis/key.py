@@ -2,11 +2,16 @@
 
 Méthode (Krumhansl-Schmuckler ; profils = moitié Sha'ath / KeyFinder, moitié profil appris sur 206
 sons analysés par Rekordbox — V1.1-A4.1, validation croisée : 67,5 % -> 71,8 % de tonalités
-identiques à Rekordbox, 83,5 % -> 90,3 % de tonalités compatibles pour le mix) :
+identiques à Rekordbox, 83,5 % -> 90,3 % de tonalités compatibles pour le mix).
+1.4.3 (A01, 19/11/2026, 288 sons du PC fixe analysés par Rekordbox) : basses à partir de C1 (au lieu de C2 :
+moins de confusions majeur / mineur de même tonique), profils mêlés à moitié avec ceux appris sur ces 288 sons,
+léger avantage aux mineures (Rekordbox : 245 mineures sur 288). Validation croisée en 5 parts : 70,5 % ->
+74,7 % identiques, 85,1 % -> 90,6 % compatibles ; par famille, rap, house/pop, techno en hausse, afro/latino
+et sons majeurs à un son près (détail : claude/mesures-1.4.3.md) :
   1. spectre (FFT 8192 points à 22 050 Hz : ~2,7 Hz de résolution) sur tout le morceau ;
   2. accordage : écart moyen (en centièmes de demi-ton) des pics spectraux au tempérament égal,
      pour ne pas se tromper de demi-ton sur une vidéo YouTube légèrement accélérée ;
-  3. chromagramme : énergie de chaque bin attribuée à sa classe de hauteur (C2 à C7), poids
+  3. chromagramme : énergie de chaque bin attribuée à sa classe de hauteur (C1 à C7), poids
      triangulaire selon la distance au demi-ton ; les pics seuls comptent (fond de bruit retiré) ;
      On moyenne le chromagramme accordé et celui à 440 Hz : aucun des deux ne gagne seul (un son
      désaccordé d'un quart de ton est ambigu, Rekordbox tranche parfois dans l'autre sens) ;
@@ -34,13 +39,14 @@ SHAATH_MAJOR = np.array([7.23900502618145, 3.50351166725158, 3.58430582939911, 2
 SHAATH_MINOR = np.array([7.00255045759871, 3.14360061770071, 4.35908323706906, 5.40104234087157, 3.67498728785599,
                   4.08766432493939, 3.90972451219255, 6.20271651004128, 3.63478133929837, 2.86817271296547,
                   5.35435930648155, 3.83423117440823])
-# Profils utilisés : 50 % Sha'ath + 50 % moyenne des chromas (tournés sur la tonique Rekordbox) de
-# 206 sons réels (29 majeurs, 177 mineurs : rap/club FR surtout), normalisés à 100.
-MAJOR = np.array([12.4558, 6.3104, 8.1697, 5.5927, 10.769, 8.0643, 5.6778, 12.2947, 6.219, 8.8315, 6.9589, 8.6563])
-MINOR = np.array([12.9, 6.0059, 8.6862, 9.8416, 6.5706, 8.4704, 6.5798, 11.8502, 7.0887, 5.9945, 9.3565, 6.6555])
+# Profils utilisés : moitié ceux de la V1.1-A4.1 (50 % Sha'ath + 50 % chromas de 206 sons réels), moitié la
+# moyenne des chromas (tournés sur la tonique Rekordbox) de 288 autres sons (43 majeurs, 245 mineurs), à 100.
+MAJOR = np.array([12.5323, 6.1503, 8.7647, 5.5422, 10.7088, 8.1104, 5.9471, 12.0399, 6.1255, 9.1626, 6.2404, 8.6759])
+MINOR = np.array([13.0879, 6.2501, 8.8100, 9.6276, 6.4834, 8.6482, 6.2142, 11.8949, 7.3093, 6.1660, 9.0289, 6.4796])
+MINOR_BIAS = 0.05                    # avantage aux mineures (corrélation), comme Rekordbox
 N_FFT = 8192
 HOP = 4096
-MIDI_LO, MIDI_HI = 36, 96            # C2 .. C7
+MIDI_LO, MIDI_HI = 24, 96            # C1 .. C7 (1.4.3, A01 : C2 avant)
 
 
 @dataclass
@@ -109,7 +115,7 @@ def analyze_key(x: np.ndarray, sr: int, debug: Optional[Dict] = None) -> KeyResu
     for tonic in range(12):
         rolled = np.roll(chroma, -tonic)
         scores[tonic] = np.corrcoef(rolled, MAJOR)[0, 1]
-        scores[12 + tonic] = np.corrcoef(rolled, MINOR)[0, 1]
+        scores[12 + tonic] = np.corrcoef(rolled, MINOR)[0, 1] + MINOR_BIAS
     order = np.argsort(scores)[::-1]
     best, second = scores[order[0]], scores[order[1]]
     if not np.isfinite(best) or best < 0.1:

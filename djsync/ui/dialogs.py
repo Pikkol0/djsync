@@ -15,7 +15,7 @@ from ..i18n import t
 from ..models import SEARCH_MODE_LABELS, PlaylistInfo, SearchMode
 from . import theme
 from .icons import qicon
-from .widgets import button, hbox, label, vbox
+from .widgets import RowTree, button, hbox, label, vbox
 
 
 class BaseDialog(QDialog):
@@ -161,9 +161,16 @@ class ChoiceConfirmDialog(BaseDialog):
     def __init__(self, parent: Any, title: str, message: str, choices: Sequence[str],
                  on_confirm: Callable[[int], None], confirm_text: str = "", danger: bool = False,
                  details: Sequence[str] = (), warnings: Sequence[str] = ()) -> None:
-        from PySide6.QtWidgets import QButtonGroup, QRadioButton
+        from PySide6.QtWidgets import QButtonGroup
 
+        from .widgets import WrapRadioButton
+
+        # 1.4.3-rc.2 (B119) : largeur au texte (choix sur une ligne si possible, 680 px au plus), choix et textes
+        # sur plusieurs lignes au-delà (plus rien de coupé)
         super().__init__(parent, title, 460)
+        fm = self.fontMetrics()
+        longest = max([fm.horizontalAdvance(c) for c in choices] or [0]) + theme.px(16 * 2 + 28)
+        self.setMinimumWidth(min(max(theme.px(460), longest), theme.px(680)))
         self._on_confirm = on_confirm
         self._details, self._warnings = list(details), list(warnings)
         self.heading(title)
@@ -171,7 +178,7 @@ class ChoiceConfirmDialog(BaseDialog):
         self.group = QButtonGroup(self)
         self.radios: List[Any] = []
         for i, text in enumerate(choices):
-            r = QRadioButton(text)
+            r = WrapRadioButton(text)
             r.setChecked(i == 0)
             self.group.addButton(r, i)
             self.radios.append(r)
@@ -259,7 +266,6 @@ class PlaylistPicker(BaseDialog):
                  on_ok: Callable[[List[int]], None], multi: bool = True, preselect: Sequence[int] = (),
                  new_name: str = "", exclude: Sequence[int] = (), allow_empty: bool = False,
                  subtitle: str = "", none_text: str = "") -> None:
-        from PySide6.QtWidgets import QTreeWidget
 
         super().__init__(parent, title, 460, 560)
         self.ctrl = controller
@@ -285,7 +291,7 @@ class PlaylistPicker(BaseDialog):
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
         self.body.addWidget(self._filter)
-        self._tree = QTreeWidget()
+        self._tree = RowTree()
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setUniformRowHeights(True)

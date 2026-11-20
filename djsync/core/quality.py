@@ -293,6 +293,10 @@ def _probe_header(path: Path) -> AudioInfo:
     elif "vorbis" in name or "ogg" in name:
         codec = "vorbis"
     bitrate = int(round((getattr(info, "bitrate", 0) or 0) / 1000))
+    if codec == "mp3":                          # 1.4.3-rc.2 (B123) : débit de la trame d'en-tête (32) écarté
+        from ..analysis.encoder import mean_mp3_kbps, trusted_kbps
+
+        bitrate = trusted_kbps(bitrate, mean_mp3_kbps(path, float(getattr(info, "length", 0) or 0)))
     from ..analysis.spectrum import known
 
     return AudioInfo(codec=codec, bitrate=bitrate, sample_rate=int(getattr(info, "sample_rate", 0) or 0),

@@ -328,8 +328,13 @@ class LibraryOpsMixin:
 
     # -------------------------------------------------------- bibliothèque (écriture)
     def _write(self, fn: Callable[[RekordboxUsbLibrary], Any], ok: Optional[Callback] = None,
-               success: str = "", err: Optional[Callback] = None) -> None:
-        """Exécute une écriture dans le thread DB puis rafraîchit les vues et les doublons."""
+               success: str = "", err: Optional[Callback] = None, removed: Optional[Tuple[int, List[int]]] = None,
+               ) -> None:
+        """Exécute une écriture dans le thread DB puis rafraîchit les vues et les doublons.
+
+        1.4.3-rc.2 (B120, B121) : `removed` = (playlist, sons) pour un retrait d'une playlist (playlist > 0) ou une
+        suppression (0) : la Bibliothèque retire ces lignes sans recharger la liste ouverte (`take_removal`), et
+        l'index des doublons est relu plus tard, hors du fil de la base (rien à relire pour un retrait)."""
         lib = self.library
         if lib is None:
             self.message("error", t("msg.no_drive"))
@@ -337,7 +342,8 @@ class LibraryOpsMixin:
 
         def work() -> Any:
             result = fn(lib)
-            self.service.refresh_library()
+            if removed is None:
+                self.service.refresh_library()
             return result
 
         def done(result: Any) -> None:
@@ -346,11 +352,38 @@ class LibraryOpsMixin:
                 self.message("warn", warning)
             elif success:
                 self.message("ok", success)
+            if removed is not None:
+                self._removal = (int(removed[0]), [int(c) for c in removed[1]])
+                if not removed[0]:                       # suppression : doublons relus plus tard
+                    self._refresh_duplicates_later(lib)
             self._emit("library")
+            self._removal = None
             if ok:
                 ok(result)
 
         self.dispatcher.submit(work, done, err or self._on_error, pool="db")
+
+    def take_removal(self) -> Optional[Tuple[int, List[int]]]:
+        """1.4.3-rc.2 (B121) : (playlist, sons) retirés par l'écriture qui déclenche l'évènement « library » en
+        cours (playlist 0 : sons supprimés de la bibliothèque), None sinon."""
+        return getattr(self, "_removal", None)
+
+    DUP_REFRESH_MS = 3000
+
+    def _refresh_duplicates_later(self, lib: Any) -> None:
+        """1.4.3-rc.2 (B120) : index des doublons relu une fois après une rafale de suppressions."""
+        if self.__dict__.get("_dup_refresh_pending"):
+            return
+        self._dup_refresh_pending = True
+
+        def fire() -> None:
+            self._dup_refresh_pending = False
+            self._refresh_library_async(lib)
+
+        try:
+            self.dispatcher.call_later(self.DUP_REFRESH_MS, fire)
+        except Exception:  # noqa: BLE001 - répartiteur sans minuterie (tests)
+            fire()
 
     def create_playlist(self, name: str, parent_id: int = 0, ok: Optional[Callback] = None,
                         err: Optional[Callback] = None) -> None:
@@ -443,7 +476,7 @@ class LibraryOpsMixin:
             if before and any(c in before for c in removed):
                 self._emit("message_action", t("action.undo"), lambda: self._undo_remove(playlist_id, removed, before))
 
-        self._write(fn, done, t("msg.removed_from_playlist"))
+        self._write(fn, done, t("msg.removed_from_playlist"), removed=(playlist_id, removed))
 
     def _undo_remove(self, playlist_id: int, removed: Sequence[int], before: Sequence[int]) -> None:
         back = [c for c in removed if c in before]
@@ -463,15 +496,35 @@ class LibraryOpsMixin:
         self._write(lambda lib: lib.set_playlist_order(playlist_id, content_ids), ok, t("msg.order_saved"))
 
     def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True, without_copy: str = "") -> None:
-        def done(result: Any) -> None:
-            removed, failures = result
+        ids = [int(c) for c in content_ids]
+        lib0 = self.library
+        # 1.4.3-rc.2 (B120) : sur l'ordinateur, la base d'abord (les lignes disparaissent), puis les fichiers à la
+        # corbeille dans un travail à part, en lot ; le message attend la fin de la corbeille
+        later = bool(delete_files and not without_copy and hasattr(lib0, "trash_pending"))
+
+        def report(removed: int, failures: int, trashed: int) -> None:
             text = plural("msg.deleted_one", "msg.deleted_many", removed)
-            trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
             if trashed:                                    # 1.4.3 (A07, C156) : récupérables
                 text += " " + plural("msg.files_trashed_one", "msg.files_trashed_many", trashed)
             if failures:
                 text += " " + t("msg.files_not_trashed" if self.is_local else "msg.files_not_deleted", n=failures)
             self.message("warn" if failures else "ok", text)
+
+        def done(result: Any) -> None:
+            removed, failures = result
+            if not later:
+                trashed = int(getattr(self.library, "last_trashed", 0) or 0) if self.is_local else 0
+                report(removed, failures, trashed)
+                return
+
+            def trashed_ok(res: Tuple[int, int]) -> None:
+                report(removed, res[1], int(getattr(lib0, "last_trashed", 0) or 0))
+
+            def trash_failed(exc: BaseException) -> None:
+                log.warning("Files of deleted tracks not moved to the trash: %s", exc)
+                report(removed, 0, 0)
+
+            self.dispatcher.submit(lib0.trash_pending, trashed_ok, trash_failed, pool="tools")
 
         def failed(exc: BaseException) -> None:
             # 1.4.2 (A6-6, règle 3) : clé pleine → suppression sans copie proposée s'il existe un point de retour
@@ -492,9 +545,12 @@ class LibraryOpsMixin:
 
         if without_copy:
             self._write(lambda lib: lib.delete_tracks(content_ids, delete_files, without_copy=without_copy), done,
-                        err=failed)
+                        err=failed, removed=(0, ids))
+        elif later:
+            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files, files_later=True), done,
+                        err=failed, removed=(0, ids))
         else:
-            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done, err=failed)
+            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done, err=failed, removed=(0, ids))
 
     # ------------------------------------------------------------ export.pdb (anciennes platines)
     def pdb_status(self, ok: Callback) -> None:

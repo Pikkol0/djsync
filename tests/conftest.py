@@ -49,6 +49,15 @@ def _fake_trash(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _backup_every_write(monkeypatch):
+    """1.4.3-rc.2 (B120) : une copie de master.db par rafale (60 s) ; les tests gardent une copie par écriture
+    (rotation, transferts), sauf ceux de B120 qui remettent la rafale."""
+    from djsync.db import local_library
+
+    monkeypatch.setattr(local_library, "BACKUP_BURST_S", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _qt_cleanup():
     """1.4.2 (C183) : après chaque test, les fenêtres Qt encore ouvertes (pages, bulles, fenêtres créées sans
     fixture) sont vraiment détruites : sinon elles s'accumulent dans le processus et chaque changement de

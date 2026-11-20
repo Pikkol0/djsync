@@ -262,7 +262,10 @@ def test_c60_library_column_and_no_hot_cue_entry(tmp_path, monkeypatch):
                     and lib.table.row(str(target.content_id)).values.get("cues") == "AB")
         row = lib.table.row(str(target.content_id))
         assert len(row.values["cues__dots"]) == 2 and "1 memory" in row.values["cues__tip"]
-        assert not lib.table.isColumnHidden(lib.table.column_index("cues"))       # visible par défaut
+        # 1.4.3-rc.2 (C218) : « Cues » hors de la vue « Essentiel » (par défaut) : affichée à la demande
+        assert lib.table.isColumnHidden(lib.table.column_index("cues"))
+        lib.table.set_column_visible("cues", True)
+        assert not lib.table.isColumnHidden(lib.table.column_index("cues"))
         lib._goto(NOCUE)
         assert pump(app, 4, lambda: lib.table.total == 10)
         assert str(target.content_id) not in lib.table.displayed_iids()

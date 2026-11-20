@@ -87,6 +87,10 @@ class SpaceCard:
         self.footprint_detail = label("", "dim", wrap=True)
         self.footprint_detail.hide()
         layout.addWidget(self.footprint_detail)
+        self.footprint_music = label("", "", wrap=True)          # 1.4.3-rc.2 (C228) : sons téléchargés, à part
+        self.footprint_music.setObjectName("djsync_music")
+        self.footprint_music.hide()
+        layout.addWidget(self.footprint_music)
         self.footprint_data: Optional[Dict[str, int]] = None
         top = hbox(spacing=theme.px(8))
         self.summary = label(t("space.idle"), "dim", wrap=True)
@@ -241,6 +245,10 @@ class SpaceCard:
             self.footprint.setToolTip(t("space.footprint_tip"))
             self.footprint.show()
             self.footprint_detail.show()
+            music = fp.get("music", 0)
+            self.footprint_music.setText(t("space.fp_music_apart", size=human_size(music)))
+            self.footprint_music.setToolTip(t("space.fp_music_apart_tip"))
+            self.footprint_music.setVisible(bool(music))
         except RuntimeError:                          # carte détruite entre-temps
             log.debug("Footprint label gone", exc_info=True)
 

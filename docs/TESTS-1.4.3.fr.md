@@ -213,3 +213,43 @@ Fiches : **C16** (sons au tempo qui change : grille par passage, validation, gri
 | PLA-7 | Testeur platines | Platines | (**C16**) Clé avec un beatswitch analysé par DJSync (grille par passage) : charger le son, laisser passer le changement, synchroniser avec un autre son. | Le BPM affiché change au passage ; la grille reste sur les temps après le changement ; la synchro suit le nouveau tempo. |
 | QUA-9 | Auteur | Windows | (**A04**) Mauvaise qualité ▸ « Recalculer la qualité supposée », puis passer la souris sur la colonne « Qualité réelle » d'un MP3 encodé par LAME et d'un m4a. | « ≈ 320 kbps (sûr) » quand le spectre monte jusqu'au passe-bas réglé par LAME ; « (probable) » sinon ; bulle : « spectre coupé vers … kHz · encodé par LAME 3.100 (CBR, 320 kbps, passe-bas 20.5 kHz) · … ». Un faux 320 (MP3 ré-encodé depuis un 128) : « ≈ 128 kbps (sûr) ». |
 | QUA-10 | Auteur | Windows, macOS | (**A04**) Clic droit sur un son ▸ « Spectre ». | Fenêtre avec le spectrogramme du son entier (noir → bleu → rouge → jaune), graduations en kHz, pointillés à 16, 19 et 20 kHz, temps en bas ; la qualité et ses indices en haut. Fichier absent : message clair. |
+
+## rc.2 — corrections après les tests de la rc.1
+
+Fiches : **A01** (tonalité, profils à moitié appris sur Rekordbox), **B123**, **C224**, **C206** (IMP-2 KO), **C207** (REC-11 KO,
+1.4.2), **C212** (GRI-7 KO, 1.4.2), **B120** (avec B116, B121), **B117**, **B119**, **B122**, **B124**, **B114**, **C217**, **C218**,
+**C228**. Spec : `claude/spec-1.4.3-rc2.md` (docs du projet). Tests automatiques : `tests/test_v143_rc2_fiches.py`.
+Sautées (mesure sur la tour impossible depuis la session) : **B115**, **B118** → 1.4.4.
+
+### Bibliothèque
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| SUP-7 | Tous | Windows | (**B120**) Bibliothèque de l'ordinateur (la plus grosse possible), Rekordbox fermé : supprimer 1 son, puis 10 ; retirer 5 sons d'une playlist, un par un. Envoyer le journal. | Plus de gel : les lignes disparaissent tout de suite ; message « n sons supprimés · n fichiers mis à la corbeille » un peu après. Journal : « master.db backed up in x s » une fois pour toute la rafale (pas à chaque suppression). Les fichiers sont dans la corbeille. |
+| SUP-8 | Tous | Windows | (**B121**) Playlist triée par BPM, défilée vers le bas, un son choisi : retirer un autre son de la playlist. | La playlist n'est pas rechargée : tri, défilement et sélection restent ; « # » renuméroté ; « Annuler » remet le son. |
+| SUP-9 | Auteur | Windows | (**B120**) Supprimer un son, ouvrir Rekordbox, y changer une playlist, le fermer, puis supprimer un autre son dans DJSync dans la minute. | Deux copies `master-…` dans le dossier des sauvegardes (l'écriture de Rekordbox entre les deux relance une copie). |
+| VUE-4 | Tous | Windows | (**C218**) Bibliothèque : le bouton de la vue est juste à droite de « Colonnes » et n'affiche que son nom (« Essentiel ▾ »). Essayer les 4 vues. | Essentiel : #, Titre, Artiste, BPM, Tonalité, Durée, Playlists, Ajouté le. Préparer un set : … Analyse, Cues, Note, Couleur, My Tags, Dernière lecture, Playlists. Qualité et fichiers : … Qualité supposée, Format, Débit, Fréquence, Source, Doublon, Taille, Chemin. Tout voir : toutes, dans cet ordre puis le reste. |
+| VUE-5 | Tous | Windows | (**C218**) Après la mise à jour : une playlist qui était sur « Mixer », une sur « Découvrir / ranger » modifiée (Enregistrer en rc.1). Puis glisser une colonne à une autre place. | « Mixer » devient « Préparer un set » ; la vue modifiée est gardée telle quelle sous le nom « Découvrir / ranger » (vue personnelle). Colonne déplacée : « (modifiée) » ; Revenir remet l'ordre, Enregistrer le garde. |
+| LIB-4 | Tous | Windows | (**C224**) Barre de la Bibliothèque : « Importer » ; menu ☰ ▸ « Harmonique » (un son choisi), puis ☰ de nouveau. | Plus de bouton « Harmonique » dans la barre ; dans ☰ il active le filtre (bandeau), coché « ✓ Harmonique » tant qu'il est actif ; un nouveau clic l'enlève. |
+| LIB-5 | Tous | Windows | (**C217**) Accueil avec la clé et l'ordinateur ; puis Bibliothèque ▸ ☰, et clic droit sur une playlist. | Plus de bouton « Transférer et synchroniser » sur les cartes (la tuile reste) ; l'entrée est dans ☰ et dans le menu de la playlist (playlist précochée). |
+| LIB-6 | Tous | Windows | (**B114**) Choisir une playlist dans le volet de gauche (un dossier avec flèche), une ligne de la fenêtre « Ajouter à une playlist », un filtre. | Un surlignage rectangulaire d'un seul tenant sur toute la ligne, zone de la flèche comprise ; plus de morceaux arrondis. Les sections des Paramètres gardent leurs coins arrondis. |
+| QUA-11 | Auteur | Windows | (**B123**) Les MP3 vus à 32 kbps (Obito, STUNTMEN, Prêt à partir, Heads Will Roll) : Mauvaise qualité ▸ « Recalculer la qualité supposée », puis colonnes Débit et Qualité supposée. Importer un de ces fichiers à nouveau. | Débit ≈ 117 à 131 kbps (débit moyen) ; « ≈ 128 kbps » en orange comme les vrais 128 kbps, plus en rouge. Un son importé ensuite a d'emblée le bon débit. |
+
+### Fenêtres et pages
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| IMP-18 | Tous | Windows | (**C206**, IMP-2 KO) Lien ou playlist ▸ playlist Spotify de plus de 100 titres, fenêtre de largeur moyenne. | Le message Spotify est sur sa propre ligne au-dessus de « Correspondance » et « Coller une liste… », sur plusieurs lignes si besoin, jamais coupé. |
+| REC-12 | Tous | Windows | (**C207**, REC-11 KO) Téléchargements et analyse : replier Analyse, puis Téléchargements, puis déplier Téléchargements, puis Analyse. | Chaque panneau garde son contenu juste sous son en-tête ; Téléchargements toujours au-dessus ; tout replié : les deux en-têtes en haut, rien dessous. |
+| GRI-11 | Tous | Windows | (**C212**, GRI-7 KO) Grille et cues, fenêtre étroite (≈ 700 px) puis basse. | Une barre de défilement horizontale (et verticale si basse) apparaît ; rien ne se superpose ni n'est coupé. |
+| GRI-12 | Tous | Windows | (**B117**) Grille et cues, forme d'onde Bleu puis RGB, zoom au maximum. | Contour lisse comme les 3 bandes, plus d'escalier ni de pixels ; mêmes couleurs ; défilement fluide. |
+| SUP-10 | Tous | Windows | (**B119**) Supprimer une playlist (choix « La playlist seule » / « La playlist et ses sons »), en anglais puis en français. | Fenêtre assez large ; les textes des choix passent à la ligne au besoin, rien de coupé. |
+| FUS-3 | Tous | Windows | (**B122**) Doublons pendant la vérification du son (beaucoup de groupes), un groupe choisi en bas de la liste. | La liste ne bouge pas (ni largeur, ni défilement) quand les compteurs changent. |
+| FUS-4 | Tous | Windows | (**B124**) Doublons ▸ un groupe ▸ « Ce que la fusion va faire », dans les 4 thèmes. | Lignes « = » lisibles (couleur du texte) ; une ligne longue finit par « … », texte entier dans la bulle. |
+| ESP-7 | Tous | Windows | (**C228**, ESP-1) Paramètres ▸ Bibliothèques ▸ Espace. | « DJSync sur cet ordinateur » ne compte plus les sons téléchargés ; ligne à part « Sons téléchargés par DJSync sur cet ordinateur : … ». |
+
+### Analyse
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| ANA-12 | Auteur | Windows | (**A01**) Analyser à nouveau la playlist d'échantillon (sons déjà analysés par Rekordbox), puis `python -m djsync.analysis --compare local --playlist "<nom>" --csv x.csv`. | Accord sur la tonalité au moins égal à celui de la rc.1 ; pas plus de tonalités mineures données à tort. |

@@ -40,20 +40,22 @@ class EncoderInfo:
     kbps: int = 0            # débit annoncé par l'en-tête (CBR : le débit ; ABR : la cible ; VBR : le minimum)
     lowpass: int = 0         # filtre passe-bas réglé à l'encodage (Hz), 0 si inconnu (LAME seulement)
     profile: str = ""        # AAC : « AAC LC », « HE-AAC »…
+    mean: int = 0            # 1.4.3-rc.2 (B123) : débit moyen (données audio ÷ durée), MP3 seulement, 0 inconnu
 
     @property
     def lame(self) -> bool:
         return self.name.upper().startswith("LAME")
 
     def to_list(self) -> list:
-        return [self.codec, self.name, self.mode, int(self.kbps), int(self.lowpass), self.profile]
+        return [self.codec, self.name, self.mode, int(self.kbps), int(self.lowpass), self.profile, int(self.mean)]
 
     @classmethod
     def from_list(cls, v: Optional[list]) -> Optional["EncoderInfo"]:
         if not v:
             return None
         try:
-            return cls(str(v[0]), str(v[1]), str(v[2]), int(v[3]), int(v[4]), str(v[5]) if len(v) > 5 else "")
+            return cls(str(v[0]), str(v[1]), str(v[2]), int(v[3]), int(v[4]), str(v[5]) if len(v) > 5 else "",
+                       int(v[6]) if len(v) > 6 else 0)
         except (TypeError, ValueError, IndexError):
             return None
 
@@ -127,7 +129,45 @@ def read_mp3(path: Union[str, Path]) -> Optional[EncoderInfo]:
         info.mode = "CBR" if _next_same_bitrate(data, pos, frame) else ""
     if not info.name:
         info.name = _id3_software(path)
+    info.mean = mean_mp3_kbps(path)
     return info
+
+
+# 1.4.3-rc.2 (B123) : écart au-delà duquel le débit de l'en-tête n'est pas cru (débit moyen affiché à la place)
+MEAN_GAP = 0.25
+
+
+def mean_mp3_kbps(path: Union[str, Path], length: float = 0.0) -> int:
+    """Débit moyen d'un MP3 : octets audio (sans les étiquettes ID3v2 / ID3v1) ÷ durée, 0 si inconnu.
+
+    1.4.3-rc.2 (B123) : certains MP3 VBR ont une en-tête Xing sans le nombre d'octets : la durée est juste
+    (nombre de trames), mais le débit lu est celui de la trame d'en-tête, souvent 32 kbps."""
+    try:
+        p = Path(path)
+        size = p.stat().st_size
+        with open(p, "rb") as fh:
+            head = fh.read(10)
+            tail = b""
+            if size >= 128:
+                fh.seek(size - 128)
+                tail = fh.read(3)
+        if not length:
+            from mutagen.mp3 import MP3
+
+            length = float(MP3(str(p)).info.length or 0.0)
+    except Exception:  # noqa: BLE001 - fichier illisible : pas de débit moyen
+        return 0
+    audio = size - _id3_end(head) - (128 if tail == b"TAG" else 0)
+    if length <= 0.5 or audio <= 0:
+        return 0
+    return int(round(audio * 8 / length / 1000))
+
+
+def trusted_kbps(header: int, mean: int) -> int:
+    """Débit à afficher : celui de l'en-tête, sauf s'il manque ou s'écarte de plus de 25 % du débit moyen."""
+    if mean and (not header or abs(header - mean) > MEAN_GAP * mean):
+        return mean
+    return header
 
 
 def _next_same_bitrate(data: bytes, pos: int, frame: tuple) -> bool:

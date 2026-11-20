@@ -231,7 +231,8 @@ def estimate_copy(sizes: Iterable[int], block: int) -> int:
 
 
 # ------------------------------------------------------------- 1.4.3 (C200) : DJSync sur cet ordinateur
-FOOTPRINT_PARTS = ("app", "caches", "backups", "settings", "music")
+# 1.4.3-rc.2 (C228) : les sons téléchargés (« music ») sont comptés à part, plus dans le total de DJSync
+FOOTPRINT_PARTS = ("app", "caches", "backups", "settings")
 
 
 def app_size() -> int:
@@ -254,7 +255,7 @@ def app_size() -> int:
 
 def djsync_footprint(data_dir: Path, music_dir: Optional[Path] = None) -> Dict[str, int]:
     """Place prise par DJSync sur cet ordinateur : application, caches, sauvegardes (master.db), réglages et
-    journaux, sons téléchargés sur l'ordinateur ; « total » = la somme."""
+    journaux ; « total » = leur somme. « music » : sons téléchargés sur l'ordinateur, à part (1.4.3-rc.2, C228)."""
     data_dir = Path(data_dir)
     cache, backups = data_dir / "cache", data_dir / "Backups"
     out = {"app": app_size(), "caches": _sizes([cache]), "backups": _sizes([backups]),
