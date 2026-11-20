@@ -564,10 +564,10 @@ def test_c205_colour_families_side_by_side(demo):  # noqa: F811
     assert demo.ctrl.settings.theme == "teal"
 
 
-# ------------------------------------------------------------------ C207 : panneau replié en haut
+# ------------------------------------------------------------------ C207 : panneau replié
 def test_c207_folded_headers_stay_on_top_in_a_fixed_order(demo, monkeypatch):  # noqa: F811
-    """1.4.2 (C207, option A) : ordre fixe ; un panneau replié ou plus : les deux en-têtes en haut
-    (téléchargements puis analyse), le contenu ouvert dessous ; tout replié : en-têtes en haut, rien dessous."""
+    """1.4.3-rc.2 (C207, REC-11 KO) : ordre fixe ; chaque panneau garde son contenu juste sous son en-tête
+    (déplier Téléchargements n'ouvre plus son contenu sous Analyse) ; tout replié : en-têtes en haut."""
     from .qt_util import pump
 
     s = demo.ctrl.settings
@@ -586,25 +586,26 @@ def test_c207_folded_headers_stay_on_top_in_a_fixed_order(demo, monkeypatch):  #
     def check(state):
         pump(demo, 0.2)
         assert y(dl_head) < y(an_head), state                              # ordre fixe, toujours
-        assert y(an_head) < view.height() / 3, state                       # en-têtes en haut de la page
-        return y
+        assert dl_head.parent() is view._panels["downloads"][0], state     # chaque en-tête dans son panneau
+        assert an_head.parent() is view._panels["analysis"][0], state
 
     view._toggle_fold("analysis")                                          # Analyse repliée
     check("analysis folded")
     assert dl_body.isVisible() and not an_body.isVisible()
-    assert y(dl_body) > y(an_head)                                          # contenu ouvert sous les en-têtes
+    assert y(dl_head) < y(dl_body) < y(an_head)                            # contenu juste sous son en-tête
     view._toggle_fold("analysis")
     view._toggle_fold("downloads")                                         # Téléchargements repliés
     check("downloads folded")
-    assert an_body.isVisible() and y(an_body) > y(an_head)
+    assert an_body.isVisible() and y(dl_head) < y(an_head) < y(an_body)
+    assert y(an_head) < view.height() / 3
     view._toggle_fold("analysis")                                          # tout replié (capture du 19/11)
     check("both folded")
-    assert not view._split.isVisible()
-    view._toggle_fold("downloads")
-    view._toggle_fold("analysis")                                          # rien de replié : en-têtes dans leur panneau
+    assert y(an_head) < view.height() / 3                                  # en-têtes en haut de la page
+    view._toggle_fold("downloads")                                         # Téléchargements dépliés (REC-11)
+    check("downloads unfolded")
+    assert dl_body.isVisible() and y(dl_head) < y(dl_body) < y(an_head)
+    view._toggle_fold("analysis")                                          # rien de replié
     pump(demo, 0.2)
-    assert not view._strip.isVisible()
-    assert dl_head.parent() is view._panels["downloads"][0] and an_head.parent() is view._panels["analysis"][0]
     assert y(dl_head) < y(dl_body) < y(an_head) < y(an_body)
 
 

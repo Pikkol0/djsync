@@ -90,6 +90,10 @@ class ImportView(View):
         self.root.addLayout(bar)
         self.root.addLayout(self._sources_row())
 
+        # 1.4.3-rc.2 (C206) : limite de Spotify sur sa propre ligne, au-dessus (plus coupée entre les réglages)
+        self.note_lbl = label("", "dim", wrap=True)
+        self.note_lbl.hide()
+        self.root.addWidget(self.note_lbl)
         opts = hbox()
         self.info = label("", "dim")
         opts.addWidget(self.info, 1)
@@ -221,6 +225,7 @@ class ImportView(View):
         token = self._token
         self._set_go(False)
         self.info.setText(t("import.reading_link"))
+        self.note_lbl.hide()
         self.table.show_skeleton(6)
 
         def ok(kind: str, data: Any) -> None:
@@ -300,8 +305,9 @@ class ImportView(View):
             note = ""
             if playlist.truncated:                                  # 1.4.3 (C206) : « 100 premiers sur n » + quoi faire
                 total = getattr(playlist, "total", 0) or 0
-                note = "  ·  " + (t("import.spotify_truncated_of", n=total) if total > len(playlist.tracks)
-                                  else t("import.spotify_truncated")) + " " + t("import.spotify_rest")
+                self.note_lbl.setText((t("import.spotify_truncated_of", n=total) if total > len(playlist.tracks)
+                                       else t("import.spotify_truncated")) + " " + t("import.spotify_rest"))
+                self.note_lbl.show()                                # 1.4.3-rc.2 : sur sa propre ligne
         else:                                                       # 1.4.0 (C86) : Deezer
             note = "  ·  " + t("import.list_truncated", n=len(playlist.tracks)) if playlist.truncated else ""
         self.info.setText(t("import.matching_progress", name=playlist.name, n=n, done=0) + note)

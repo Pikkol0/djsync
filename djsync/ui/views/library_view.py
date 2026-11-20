@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QHeaderView, QProgressBar, QSplitter, QTreeWidget, QTreeWidgetItem, QWidget,
+    QAbstractItemView, QComboBox, QHeaderView, QProgressBar, QSplitter, QTreeWidgetItem, QWidget,
 )
 
 from ...core.camelot import neighbors
@@ -27,7 +27,7 @@ from ..dialogs import ChoiceConfirmDialog, ConfirmDialog, PlaylistPicker, TextIn
 from ..table import MIME_IDS, camelot_sort, popup_menu
 from ..icons import qicon
 from ..widgets import (
-    Column, FitBar, Row, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
+    Column, FitBar, Row, RowTree, TrackTable, button, hbox, icon_button, icon_label, label, line_edit, panel, restyle, vbox,
 )
 from .common import focus_list, View
 from .cue_column import cue_values, cue_column
@@ -63,9 +63,15 @@ _CODECS = {".flac": "flac", ".wav": "wav", ".aiff": "aiff", ".aif": "aiff", ".mp
 def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     """1.3.1 (C37) : valeurs affichées des colonnes de métadonnées."""
     color = TRACK_COLORS.get(x.color)
+    from ...analysis.encoder import lookup as encoder_lookup, trusted_kbps
+
+    enc = encoder_lookup(Path(x.path).name, x.file_size)     # 1.4.3 (A04)
+    # 1.4.3-rc.2 (B123) : débit moyen (mesuré à l'analyse ou au recalcul de la qualité) quand celui de la base,
+    # lu sur la trame d'en-tête, s'en écarte (MP3 VBR affichés à 32 kbps) ; la base n'est pas réécrite
+    kbps = trusted_kbps(x.bitrate or 0, getattr(enc, "mean", 0) or 0)
     out: Dict[str, Any] = {
         "genre": x.genre, "year": str(x.year) if x.year else "", "label": x.label,
-        "bitrate": t("unit.kbps", n=x.bitrate) if x.bitrate else "",
+        "bitrate": t("unit.kbps", n=kbps) if kbps else "",
         "rate": t("unit.khz", n=num(x.sample_rate / 1000)) if x.sample_rate else "",
         "rating": "★" * x.rating + "☆" * (5 - x.rating) if x.rating else "",
         "color": t(f"color.{x.color}") if color else "",
@@ -85,13 +91,11 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
     suffix = Path(x.path).suffix.lower()
     lossless = x.file_type in (5, 11, 12) or suffix in (".wav", ".flac", ".aiff", ".aif")
     codec = _CODECS.get(suffix) or ({5: "flac", 11: "wav", 12: "aiff"}.get(x.file_type, ""))
-    from ...analysis.encoder import lookup as encoder_lookup
     from ...core.improve import confidence_suffix, quality_clues
 
-    info = AudioInfo(codec=codec, bitrate=x.bitrate or 0, sample_rate=x.sample_rate or 0,
+    info = AudioInfo(codec=codec, bitrate=kbps, sample_rate=x.sample_rate or 0,
                      cutoff=lookup(Path(x.path).name, x.file_size) or 0,
-                     source=source_from_url(getattr(x, "source_url", "")),
-                     encoder=encoder_lookup(Path(x.path).name, x.file_size))     # 1.4.3 (A04)
+                     source=source_from_url(getattr(x, "source_url", "")), encoder=enc)
     real = info.real_kbps
     if real:
         out["real"] = (t("quality.lossless") if real >= 9999 else f"≈ {real} kbps") + confidence_suffix(info)
@@ -100,8 +104,9 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
             out["real"] += " · YouTube"
         elif info.opus_signature and real <= 192:
             out["real"] += " · Opus"
-        out["real__color"] = levels.color(levels.audio_quality(info.effective_kbps, info.real_lossless))
-    tier = None if info.fake else ("gold" if lossless else ("silver" if x.bitrate and x.bitrate >= 300 else None))
+        # 1.4.3-rc.2 (B123) : couleur tirée de la valeur affichée (pas du débit de l'en-tête)
+        out["real__color"] = levels.color(levels.audio_quality(min(real, 9999), real >= 9999 or info.real_lossless))
+    tier = None if info.fake else ("gold" if lossless else ("silver" if kbps and kbps >= 300 else None))
     if tier:
         out["format__color"] = out["bitrate__color"] = theme.LEVELS[tier]
     elif info.fake:
@@ -154,7 +159,7 @@ def _local_files(mime: Any) -> List[str]:
     return [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
 
 
-class NavTree(QTreeWidget):
+class NavTree(RowTree):
     """Arbre de navigation ; accepte les titres glissés depuis le tableau (ajout à une playlist)."""
 
     def __init__(self, view: "LibraryView") -> None:
@@ -338,18 +343,22 @@ class LibraryView(View):
                   self.analyse_btn, self.analysis_bar):
             bar.add(w, keep_text=w is self.analyse_btn)        # « Analyser / Arrêter » toujours écrit
         bar.add_stretch()
-        self.import_btn = button(t("import_files.button"), self._import_files, icon="folder",
+        # 1.4.3-rc.2 (C224) : « Importer » (texte court) ; « Harmonique » passe dans le menu ☰
+        self.import_btn = button(t("import_files.short"), self._import_files, icon="folder",
                                  tooltip=t("import_files.tip"))              # 1.4.0 (C26)
         bar.add(self.import_btn, secondary=True)
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
-        bar.add(self.harm_btn, secondary=True)
+        self.harm_btn.hide()                                     # état du filtre (coche du menu ☰), hors barre
         self.sug_btn = button(t("sug.title"), lambda: self.show_suggestions(self.sug_btn.isChecked()),
                               icon="playlist", tooltip=t("sug.tip"))           # 1.3.1 (C30)
         self.sug_btn.setCheckable(True)
         bar.add(self.sug_btn, secondary=True)
         self.cols_btn = button(t("table.columns"), self._columns_menu, icon="columns", tooltip=t("lib.columns_tip"))
         bar.add(self.cols_btn, secondary=True)
+        # 1.4.3-rc.2 (C218) : la vue juste à côté de « Colonnes », son nom seul (« Préparer un set ▾ »)
+        self.view_btn = button("", self._views_menu, icon="columns", tooltip=t("views.tip"))
+        bar.add(self.view_btn, secondary=True, keep_text=True)
         self.tools_btn = icon_button("menu", self._tools_menu, t("lib.tools"))
         bar.add(self.tools_btn)
         self.delete_btn = button("", self._delete, kind="danger", icon="trash", tooltip=t("lib.delete"))
@@ -381,11 +390,8 @@ class LibraryView(View):
         mv.addWidget(self.focus_banner)
         self._focus: Optional[Tuple[set, str]] = None
 
-        # 1.4.3 (C214) : « Vue : … ▾ » au-dessus du tableau, « (modifiée) » avec Enregistrer / Revenir
+        # 1.4.3 (C214) : « (modifiée) » avec Enregistrer / Revenir au-dessus du tableau (vue changée seulement)
         views_row = hbox(spacing=theme.px(6))
-        self.view_btn = button("", self._views_menu, icon="columns", tooltip=t("views.tip"))
-        self.view_btn.setProperty("kind", "flat")
-        views_row.addWidget(self.view_btn)
         self.view_mod = label(t("views.modified"), "warn")
         views_row.addWidget(self.view_mod)
         self.view_save = button(t("views.save"), self._view_save, icon="check")
@@ -396,7 +402,9 @@ class LibraryView(View):
         mv.addLayout(views_row)
 
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
-        self.remember_layout(self.table, "library", default_hidden=("album", "format") + EXTRA_COLUMNS + C113_COLUMNS,
+        # 1.4.3-rc.2 (C218) : par défaut, les colonnes de la vue « Essentiel »
+        self.remember_layout(self.table, "library",
+                             default_hidden=("album", "format", "source", "cues") + EXTRA_COLUMNS + C113_COLUMNS,
                              new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
@@ -412,6 +420,9 @@ class LibraryView(View):
 
         self._views = ColumnViews(controller.settings.library_views, self.table.layout_columns())
         self._views.first_use(self.table.user_hidden)
+        if self._views.migrated:                       # 1.4.3-rc.2 (C218) : vues d'origine revues
+            self.table.apply_hidden(self._views.hidden(self._views.current))
+            self.table.apply_order(self._views.order(self._views.current))
         self.table.on_columns_changed = self._show_view
         self._show_view()
         from ..suggestions_panel import SuggestionsPanel
@@ -548,6 +559,9 @@ class LibraryView(View):
         key = self._drive_key()
         if full or not self.all_tracks:
             self.table.show_skeleton()
+        # 1.4.3-rc.2 (B121) : sons retirés de la playlist ouverte (ou supprimés) : les lignes sortent du tableau
+        # tout de suite, la liste n'est pas rechargée (tri, défilement et sélection gardés)
+        kept_rows = not full and self._drop_removed_rows()
 
         def ok(data: Dict[str, Any]) -> None:
             if key != self._drive_key() or not self.winfo_exists():
@@ -572,12 +586,35 @@ class LibraryView(View):
             if self.suggestions.isVisible():
                 self.suggestions.refresh()
             self._fill_nav()
-            if self._dirty:
+            if self._dirty or kept_rows:
                 self._show_header()
+                self._refresh_buttons()
                 return
             self._fill_table()
 
         self.ctrl.load_library(ok)
+
+    def _drop_removed_rows(self) -> bool:
+        """1.4.3-rc.2 (B121) : vrai si l'écriture en cours n'a fait que retirer des sons, déjà ôtés du tableau."""
+        take = getattr(self.ctrl, "take_removal", None)
+        removal = take() if take is not None else None
+        if removal is None or self._dirty:
+            return False
+        pid, ids = removal
+        if pid and self.current != f"p{pid}":
+            return False                                  # retrait d'une autre playlist : rien d'affiché ne change
+        if not pid and self.current not in SPECIAL and (self.playlist is None or self.playlist.is_folder):
+            return False
+        self.table.remove_rows([str(c) for c in ids])
+        if pid and self.in_playlist:                     # « # » : positions renumérotées comme dans la base
+            rows = sorted(self.table.all_rows(), key=lambda r: (r.data.sequence if r.data else 0))
+            import dataclasses
+
+            for n, r in enumerate(rows, start=1):
+                if r.data is not None and r.data.sequence != n:
+                    r.data = dataclasses.replace(r.data, sequence=n)
+                self.table.update_values(r.iid, pos=n)
+        return True
 
     # ----------------------------------------------------------------- navigation
     def _fill_nav(self) -> None:
@@ -734,17 +771,19 @@ class LibraryView(View):
     def _apply_list_view(self) -> None:
         """La vue retenue pour cette liste (s'il y en a une) remplace la vue en cours."""
         view = self._views.for_list(self._list_key())
-        if view and (view != self._views.current or self._views.modified(self.table.user_hidden)):
+        if view and (view != self._views.current
+                     or self._views.modified(self.table.user_hidden, self.table.column_order())):
             self._views.select(view)
             self.table.apply_hidden(self._views.hidden(view))
+            self.table.apply_order(self._views.order(view))
         self._show_view()
 
     def _show_view(self) -> None:
         if not hasattr(self, "view_btn"):
             return
         view = self._views.current
-        self.view_btn.setText(t("views.label", name=self._views.name(view)) + "  ▾")
-        modified = self._views.modified(self.table.user_hidden)
+        self.bar.set_text(self.view_btn, self._views.name(view) + "  ▾")
+        modified = self._views.modified(self.table.user_hidden, self.table.column_order())
         for w in (self.view_mod, self.view_save, self.view_revert):
             w.setVisible(modified)
 
@@ -752,6 +791,7 @@ class LibraryView(View):
         """Choix d'une vue (menu « Vue ») : colonnes appliquées, retenue pour la liste ouverte."""
         self._views.select(view, self._list_key() if remember else "")
         self.table.apply_hidden(self._views.hidden(view))
+        self.table.apply_order(self._views.order(view))
         self.ctrl.save_settings_quiet()
         self._show_view()
 
@@ -771,23 +811,24 @@ class LibraryView(View):
         return entries
 
     def _views_menu(self) -> None:
-        b = self.view_btn
+        b = self.view_btn if self.view_btn.isVisible() else self.tools_btn       # bouton sorti de la barre
         popup_menu(b, self._views_entries(), b.mapToGlobal(b.rect().bottomLeft()))
 
     def _view_save(self) -> None:
         view = self._views.current
-        self._views.save(view, self.table.user_hidden)
+        self._views.save(view, self.table.user_hidden, self.table.column_order())
         self.ctrl.save_settings_quiet()
         self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
         self._show_view()
 
     def _view_revert(self) -> None:
         self.table.apply_hidden(self._views.hidden(self._views.current))
+        self.table.apply_order(self._views.order(self._views.current))
         self._show_view()
 
     def _view_new(self) -> None:
         def create(name: str) -> None:
-            view = self._views.create(name, self.table.user_hidden)
+            view = self._views.create(name, self.table.user_hidden, self.table.column_order())
             self.select_view(view)
             self.ctrl.message("ok", t("views.saved", name=self._views.name(view)))
 
@@ -1677,6 +1718,9 @@ class LibraryView(View):
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
         entries.append((t("transfer.menu") + "…", lambda: self._transfer(), "copy"))       # 1.4.2 (C23)
+        # 1.4.3-rc.2 (C224) : filtre harmonique (coché quand il est actif)
+        entries.append((("✓ " if self._harmonic is not None else "") + t("lib.harmonic"), self._toggle_harmonic,
+                        "key"))
         entries += self._overflow_entries()
         b = self.tools_btn
         popup_menu(b, entries, b.mapToGlobal(b.rect().bottomLeft()))
@@ -1691,8 +1735,8 @@ class LibraryView(View):
         out = self.bar.overflow
         if not out:
             return []
-        actions = {self.import_btn: (t("import_files.button"), self._import_files, "folder"),
-                   self.harm_btn: (t("lib.harmonic"), self._toggle_harmonic, "key"),
+        actions = {self.import_btn: (t("import_files.short"), self._import_files, "folder"),
+                   self.view_btn: (self._views.name(self._views.current) + "…", self._views_menu, "columns"),
                    self.sug_btn: (t("sug.title"), lambda: (self.sug_btn.toggle(),
                                                             self.show_suggestions(self.sug_btn.isChecked())),
                                   "playlist"),

@@ -761,6 +761,17 @@ class TrackTable(QTableView):
             return
         self._user_order = self.column_order()
         self._store_layout()
+        if self.on_columns_changed is not None:          # 1.4.3-rc.2 (C218) : colonne déplacée : vue « modifiée »
+            self.on_columns_changed()
+
+    def apply_order(self, keys: Sequence[str]) -> None:
+        """1.4.3-rc.2 (C218) : ordre d'une vue ; les colonnes qu'elle ne range pas gardent leur ordre, après."""
+        known = [c.key for c in self.columns]
+        first = [k for k in dict.fromkeys(keys) if k in known]
+        self._user_order = first + [k for k in self.column_order() if k not in set(first)]
+        self._apply_order()
+        self._fit_columns()
+        self._store_layout()
 
     def columns_menu(self, global_pos: Any) -> Any:
         """Menu des colonnes (clic droit sur l'en-tête, ou bouton « Colonnes ») ; reste ouvert."""
@@ -875,6 +886,19 @@ class TrackTable(QTableView):
             self._fit_columns()
         if reset_sort:
             self._sort_key, self._sort_desc = None, False
+        self._rebuild(selected, top)
+
+    def remove_rows(self, iids: Sequence[str]) -> None:
+        """1.4.3-rc.2 (B121) : lignes retirées sans tout reconstruire (tri, défilement et sélection gardés)."""
+        gone = set(iids) & set(self._rows)
+        if not gone:
+            return
+        top = self.verticalScrollBar().value()
+        selected = set(self.selected_iids()) - gone
+        for i in gone:
+            del self._rows[i]
+        self._order = [i for i in self._order if i not in gone]
+        self.__dict__.pop("_content_cache", None)
         self._rebuild(selected, top)
 
     def show_skeleton(self, n: int = 8) -> None:

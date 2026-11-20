@@ -15,6 +15,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import List, Sequence
 from urllib.parse import quote
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,30 @@ def move_to_trash(path: Path) -> None:
     if path.exists():
         raise OSError(f"Still there after moving to the trash: {path}")
     log.info("Moved to the trash: %s", path)
+
+
+def move_many_to_trash(paths: Sequence[Path]) -> List[Path]:
+    """1.4.3-rc.2 (B120) : plusieurs fichiers à la corbeille ; sous Windows en un seul appel au système (un appel
+    par fichier coûtait une à plusieurs dixièmes de seconde chacun). Renvoie les fichiers restés en place."""
+    paths = [Path(p) for p in paths]
+    if sys.platform == "win32" and _backend is _system and len(paths) > 1:
+        try:
+            _windows_many(paths)
+        except OSError as exc:
+            log.info("Recycle Bin refused a batch (%s): files moved one by one", exc)
+        left = [p for p in paths if p.exists()]
+        for p in paths:
+            if not p.exists():
+                log.info("Moved to the trash: %s", p)
+        paths = left
+    refused: List[Path] = []
+    for p in paths:
+        try:
+            move_to_trash(p)
+        except OSError as exc:
+            log.info("Not moved to the trash (%s): %s", p, exc)
+            refused.append(p)
+    return refused
 
 
 def _system(path: Path) -> None:
@@ -58,6 +83,23 @@ def _windows(path: Path) -> None:
     code = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if code or op.fAnyOperationsAborted:
         raise OSError(f"Recycle Bin refused {path} (code {code})")
+
+
+def _windows_many(paths: Sequence[Path]) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_uint16), ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+
+    fo_delete, allow_undo, no_confirm, silent, no_ui = 3, 0x40, 0x10, 0x04, 0x400
+    names = "".join(str(Path(p).resolve()) + "\0" for p in paths)
+    op = SHFILEOPSTRUCTW(None, fo_delete, names, None, allow_undo | no_confirm | silent | no_ui, False, None, None)
+    code = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    if code or op.fAnyOperationsAborted:
+        raise OSError(f"Recycle Bin refused {len(paths)} files (code {code})")
 
 
 # -------------------------------------------------------------------------------------------------- macOS

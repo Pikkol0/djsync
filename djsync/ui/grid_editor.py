@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import copy
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
@@ -118,6 +118,82 @@ def band_image(wave: Any, start_ms: float, px_per_ms: float, w: int, h: int, mid
         img[dy <= vals[None, :]] = argb
     q = QImage(img.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied)
     return q.copy()                                      # l'image garde ses propres données
+
+
+_DETAIL_ARRAYS: Dict[Tuple[int, str], Any] = {}
+
+
+def _detail_arrays(detail: Any, dim: str) -> Any:
+    """(hauteurs 0..1, couleurs 0xRRGGBB) de la forme d'onde ANLZ, une fois par forme d'onde (noir -> `dim`)."""
+    import numpy as np
+
+    key = (id(detail), dim)
+    hit = _DETAIL_ARRAYS.get(key)
+    if hit is not None and hit[0] is detail:
+        return hit[1], hit[2]
+    vals = np.fromiter((float(v) for v, _c in detail), dtype=np.float32, count=len(detail))
+    dim_rgb = int(dim[1:7], 16) if dim.startswith("#") and len(dim) >= 7 else 0x808080
+
+    def rgb(c: str) -> int:
+        try:
+            x = int(str(c)[1:7], 16)
+        except ValueError:
+            return dim_rgb
+        return dim_rgb if x == 0 else x
+
+    cols = np.fromiter((rgb(c) for _v, c in detail), dtype=np.uint32, count=len(detail))
+    _DETAIL_ARRAYS.clear()                    # une seule forme d'onde ouverte à la fois
+    _DETAIL_ARRAYS[key] = (detail, vals, cols)
+    return vals, cols
+
+
+def detail_image(detail: Any, start_ms: float, px_per_ms: float, w: int, h: int, mid: float, amp: float,
+                 dim: str) -> Any:
+    """1.4.3-rc.2 (B117) : image (QImage, w × h pixels réels) des formes d'onde Bleu et RGB, comme les 3 bandes.
+
+    Avant : une marche par colonne ANLZ (150 par seconde), sans lissage : au zoom, l'escalier se voyait. Ici,
+    zoomé (colonne plus large qu'un pixel), hauteur et couleur interpolées entre les colonnes (contour continu) ;
+    dézoomé, le maximum des colonnes couvertes (et sa couleur) ; bords haut et bas antialiasés."""
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    if w <= 0 or h <= 0 or not detail:
+        return None
+    vals, cols = _detail_arrays(detail, dim)
+    n = vals.size
+    xs = np.arange(w + 1, dtype=np.float64)
+    pos = (start_ms + xs / px_per_ms) / 1000.0 * COLS_PER_S          # bords des pixels, en colonnes ANLZ
+    per_px = (pos[-1] - pos[0]) / max(1, w)
+    r, g, b = ((cols >> 16) & 0xFF).astype(np.float32), ((cols >> 8) & 0xFF).astype(np.float32), \
+        (cols & 0xFF).astype(np.float32)
+    if per_px < 1.0:                                                   # zoomé : interpolation linéaire
+        centre = (pos[:-1] + pos[1:]) / 2.0 - 0.5
+        i0 = np.clip(np.floor(centre).astype(np.int64), 0, n - 1)
+        i1 = np.clip(i0 + 1, 0, n - 1)
+        f = np.clip(centre - np.floor(centre), 0.0, 1.0).astype(np.float32)
+        hv = vals[i0] * (1 - f) + vals[i1] * f
+        rr, gg, bb = (c[i0] * (1 - f) + c[i1] * f for c in (r, g, b))
+        inside = (centre > -1.0) & (centre < n)
+    else:                                                              # dézoomé : maximum des colonnes couvertes
+        a = np.clip(np.floor(pos[:-1]).astype(np.int64), 0, n - 1)
+        e = np.clip(np.maximum(a + 1, np.floor(pos[1:]).astype(np.int64)), 1, n)
+        q = (np.clip(vals, 0, 1) * 65535).astype(np.uint64) << np.uint64(24) | cols.astype(np.uint64)
+        best = np.maximum.reduceat(np.append(q, np.uint64(0)), np.append(a, e[-1]))[:-1]
+        hv = (best >> np.uint64(24)).astype(np.float32) / 65535.0
+        c = (best & np.uint64(0xFFFFFF)).astype(np.uint32)
+        rr, gg, bb = (((c >> s) & 0xFF).astype(np.float32) for s in (16, 8, 0))
+        inside = (pos[:-1] < n) & (pos[1:] > 0)
+    half = np.where(inside, np.maximum(1.0, hv * np.float32(amp)), 0.0).astype(np.float32)
+    dy = np.abs(np.arange(h, dtype=np.float32) + 0.5 - np.float32(mid))[:, None]
+    cover = np.clip(half[None, :] - dy + 0.5, 0.0, 1.0)              # 0..1 : bord antialiasé
+    alpha = (cover * 255.0 + 0.5).astype(np.uint32)
+    img = (alpha << 24) | ((rr[None, :] * cover + 0.5).astype(np.uint32) << 16) \
+        | ((gg[None, :] * cover + 0.5).astype(np.uint32) << 8) | (bb[None, :] * cover + 0.5).astype(np.uint32)
+    img = np.ascontiguousarray(img, dtype=np.uint32)
+    out = QImage(img.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied)
+    return out.copy()
+
+
 SCROLL_STEPS = 1000
 
 
@@ -244,8 +320,8 @@ class GridEditor(QWidget):
         self._label_top, self._label_bottom = 14, 32               # bande des étiquettes (B16, recalculée au dessin)
         self._lead_ms = self._timeline_lead(track)
         self._kick1: Optional[float] = None     # 1.4.2 (C194) : 1er kick posé, en attente du second
-        # 1.4.2 (C212) : page dans une zone qui défile à la verticale. Fenêtre trop basse (ou zoom fort) : la page
-        # garde la hauteur minimale de chaque bloc et une barre de défilement apparaît, au lieu de tasser les
+        # 1.4.2 (C212) : page dans une zone qui défile (1.4.3-rc.2 : aussi à l'horizontale, fenêtre étroite).
+        # Fenêtre trop basse (ou zoom fort) : la page garde la hauteur minimale de chaque bloc et une barre de défilement apparaît, au lieu de tasser les
         # blocs les uns sur les autres (boutons de la grille, du tempo et des mémoires superposés).
         from PySide6.QtWidgets import QFrame, QScrollArea
 
@@ -253,7 +329,7 @@ class GridEditor(QWidget):
         self.page_area = QScrollArea()
         self.page_area.setWidgetResizable(True)
         self.page_area.setFrameShape(QFrame.NoFrame)
-        self.page_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.page_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)     # 1.4.3-rc.2 (C212) : aussi en largeur
         inner = QWidget()
         inner.setObjectName("grid_inner")
         self.body = vbox(inner, margins=theme.px(18), spacing=theme.px(8))
@@ -923,20 +999,15 @@ class GridEditor(QWidget):
         p.drawPixmap(QPointF((c[1] - self.start_ms) * self.px_per_ms, 0), c[2])
 
     def _paint_detail(self, p: QPainter, w: int, h: int, mid: float) -> None:
-        """Une colonne par pixel, max des colonnes ANLZ couvertes."""
-        n = len(self.detail)
-        for x in range(w):
-            a = int(self._ms(x) / 1000.0 * COLS_PER_S)
-            b = max(a + 1, int(self._ms(x + 1) / 1000.0 * COLS_PER_S))
-            if a >= n or b <= 0:
-                continue
-            seg = self.detail[max(0, a):min(n, b)]
-            if not seg:
-                continue
-            v, color = max(seg, key=lambda s: s[0])
-            half = max(1.0, v * (h * 0.42))
-            p.setPen(QColor(theme.DIM if color in ("#000000", "#000") else color))
-            p.drawLine(QPointF(x, mid - half), QPointF(x, mid + half))
+        """1.4.3-rc.2 (B117) : contour continu, antialiasé, en pixels réels de l'écran (detail_image)."""
+        from PySide6.QtCore import QRectF
+
+        dev = p.device()
+        dpr = float(dev.devicePixelRatioF()) if dev is not None and hasattr(dev, "devicePixelRatioF") else 1.0
+        img = detail_image(self.detail, self.start_ms, self.px_per_ms * dpr, int(round(w * dpr)),
+                           int(round(h * dpr)), mid * dpr, h * dpr * 0.42, theme.DIM)
+        if img is not None:
+            p.drawImage(QRectF(0, 0, w, h), img)
 
     def _paint_bands_cached(self, p: QPainter, w: int, h: int, mid: float) -> None:
         """1.3.2 (C52) : la forme d'onde est dessinée UNE fois dans une image trois fois plus large que la

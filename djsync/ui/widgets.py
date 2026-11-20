@@ -9,7 +9,8 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QObject, QSize, Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QRadioButton, QToolButton,
+    QTreeWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -468,15 +469,28 @@ class FlowLayout(QLayout):
         return y + line - y0
 
 
-class WrapCheckBox(QCheckBox):
-    """1.4.2 (A2-1) : case à cocher dont le texte passe à la ligne quand la largeur manque (une QCheckBox
-    garde son texte sur une ligne et imposait sa largeur à toute la page des Paramètres). Même API que
-    QCheckBox (text, isChecked, toggled…)."""
+class RowTree(QTreeWidget):
+    """1.4.3-rc.2 (B114) : arbre dont la ligne choisie est surlignée d'un seul tenant, zone de la flèche
+    comprise (la feuille de style ne peut pas colorer cette zone sans effacer les flèches)."""
+
+    def drawBranches(self, painter: Any, rect: Any, index: Any) -> None:  # noqa: N802
+        from PySide6.QtGui import QColor
+
+        model = self.selectionModel()
+        if model is not None and model.isSelected(index):
+            painter.fillRect(rect, QColor(theme.ACCENT_DIM))
+        super().drawBranches(painter, rect, index)
+
+
+class _WrapText:
+    """1.4.2 (A2-1), 1.4.3-rc.2 (B119) : bouton à cocher (case ou bouton radio) dont le texte passe à la ligne
+    quand la largeur manque, au lieu d'imposer sa largeur (ou d'être coupé)."""
 
     MIN_TEXT = 140          # px à 100 % : largeur minimale réservée au texte
+    _CONTENTS = "SE_CheckBoxContents"
+    _CONTROL = "CE_CheckBox"
 
-    def __init__(self, text: str = "", parent: Any = None) -> None:
-        super().__init__(text, parent)
+    def _setup(self) -> None:
         from PySide6.QtWidgets import QSizePolicy
 
         pol = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
@@ -496,7 +510,7 @@ class WrapCheckBox(QCheckBox):
     def _text_rect(self, width: int) -> Any:
         from PySide6.QtWidgets import QStyle
 
-        return self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(width), self)
+        return self.style().subElementRect(getattr(QStyle, self._CONTENTS), self._opt(width), self)
 
     def _indicator_width(self) -> int:
         return max(0, super().sizeHint().width() - self.fontMetrics().horizontalAdvance(self.text()))
@@ -524,14 +538,35 @@ class WrapCheckBox(QCheckBox):
         opt = self._opt()
         text = opt.text
         opt.text = ""
-        p.drawControl(QStyle.CE_CheckBox, opt)
-        rect = self.style().subElementRect(QStyle.SE_CheckBoxContents, self._opt(), self)
+        p.drawControl(getattr(QStyle, self._CONTROL), opt)
+        rect = self.style().subElementRect(getattr(QStyle, self._CONTENTS), self._opt(), self)
         role = QPalette.WindowText
         p.drawItemText(rect, int(Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap), self.palette(),
                        self.isEnabled(), text, role)
 
     def hitButton(self, pos: Any) -> bool:  # noqa: N802
         return self.rect().contains(pos)
+
+
+class WrapCheckBox(_WrapText, QCheckBox):
+    """1.4.2 (A2-1) : case à cocher dont le texte passe à la ligne quand la largeur manque (une QCheckBox
+    garde son texte sur une ligne et imposait sa largeur à toute la page des Paramètres). Même API que
+    QCheckBox (text, isChecked, toggled…)."""
+
+    def __init__(self, text: str = "", parent: Any = None) -> None:
+        QCheckBox.__init__(self, text, parent)
+        self._setup()
+
+
+class WrapRadioButton(_WrapText, QRadioButton):
+    """1.4.3-rc.2 (B119) : bouton radio dont le texte passe à la ligne (choix de la suppression d'une playlist)."""
+
+    _CONTENTS = "SE_RadioButtonContents"
+    _CONTROL = "CE_RadioButton"
+
+    def __init__(self, text: str = "", parent: Any = None) -> None:
+        QRadioButton.__init__(self, text, parent)
+        self._setup()
 
 
 def flow_row(*widgets: Any, spacing: int = 6) -> "FlowLayout":

@@ -98,8 +98,8 @@ def test_c189_download_panels_fold_and_remember(demo, monkeypatch):  # noqa: F81
     assert body.isVisible()
     view._toggle_fold("downloads")
     assert s.panels_folded == {"downloads": True}
-    assert body.isHidden() and panel.isHidden()                         # C207 : seul l'en-tête reste, en haut
-    assert view.clear_btn.isVisibleTo(view) and view._heads["downloads"].parent() is view._strip
+    assert body.isHidden() and not panel.isHidden()                     # 1.4.3-rc.2 (C207) : l'en-tête reste
+    assert view.clear_btn.isVisibleTo(view) and view._heads["downloads"].parent() is panel
     view._toggle_fold("downloads")
     assert not body.isHidden() and not panel.isHidden()
     s.panels_folded = {"analysis": True}

@@ -130,6 +130,7 @@ class DuplicatesDialog(BaseDialog):
         head.addWidget(label(t("dup.title"), "h2"))
         head.addStretch(1)
         self.count = label(t("dup.searching"), "dim")
+        self.count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         head.addWidget(self.count)
         self.body.addLayout(head)
         # 1.3.2 (C84) : fine barre d'avancement (recherche par titre, puis vérification par le son)
@@ -137,11 +138,16 @@ class DuplicatesDialog(BaseDialog):
         self.bar.setTextVisible(False)
         self.bar.setFixedHeight(theme.px(3))
         self.bar.setRange(0, 0)
+        # 1.4.3-rc.2 (B122) : la barre cachée garde sa place (la liste ne remonte plus de quelques pixels)
+        pol = self.bar.sizePolicy()
+        pol.setRetainSizeWhenHidden(True)
+        self.bar.setSizePolicy(pol)
         self.body.addWidget(self.bar)
 
         main = hbox(spacing=theme.px(10))
         self.list = QListWidget()
         self.list.setFixedWidth(theme.px(240))
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)    # 1.4.3-rc.2 (B122) : largeur du texte fixe
         # 1.3.2 (C98) : groupe affiché bien visible, même quand la liste n'a pas le focus
         self.list.setObjectName("dupGroups")
         self.list.setStyleSheet(
@@ -280,6 +286,13 @@ class DuplicatesDialog(BaseDialog):
         todo = sum(1 for ok in self.verified if not ok)
         n = len(self.groups)
         self.ctrl.set_diag_count("dup", n)                     # 1.3.1 (C41) : compteur de l'onglet
+        # 1.4.3-rc.2 (B122) : compteur de largeur fixe (celle du plus long texte possible pour ce nombre)
+        wide = "8" * max(2, len(str(max(n, len(self.verified)))))
+        fm = self.count.fontMetrics()
+        need = max(fm.horizontalAdvance(t("dup.audio_checking", i=wide, n=wide)),
+                   fm.horizontalAdvance(plural("dup.groups_one", "dup.groups_many", int(wide))))
+        if need > self.count.minimumWidth():
+            self.count.setMinimumWidth(need)
         if todo:
             self.count.setText(t("dup.audio_checking", i=n - todo, n=n))
             self.bar.setRange(0, max(1, len(self.verified)))   # C84
@@ -378,6 +391,7 @@ class DuplicatesDialog(BaseDialog):
         self._update_count()
         if 0 <= row < self.list.count():              # 1.3.2 (C98) : sélection et défilement gardés
             self.list.setCurrentRow(row)
+            self.list.doItemsLayout()                 # 1.4.3-rc.2 (B122) : hauteur connue avant de redéfiler
             self.list.verticalScrollBar().setValue(top)
         self.list.blockSignals(False)
 
@@ -624,7 +638,9 @@ class DuplicatesDialog(BaseDialog):
 
         try:
             lines = self.merge_preview_lines()
-            box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM) if lines else "")
+            box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM, theme.TEXT) if lines else "")
+            cut = any(len(x.text) > merge_preview.MAX_CHARS for x in lines)
+            box.setToolTip(merge_preview.to_plain(lines) if cut else "")      # 1.4.3-rc.2 (B124)
             box.setVisible(bool(lines))
             self.merge_preview_title.setVisible(bool(lines))
         except RuntimeError:                         # détail redessiné entre-temps

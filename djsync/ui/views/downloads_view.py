@@ -29,15 +29,13 @@ class DownloadsView(View):
         self._tracks: Dict[str, LibraryTrack] = {}
         self._loaded_for = None
         self.root.addLayout(self.header(t("tab.downloads")))
-        # 1.4.2 (C207, option A) : dès qu'un panneau est replié, les deux en-têtes se rangent en haut, dans un
-        # ordre fixe (téléchargements puis analyse) ; le contenu du panneau ouvert est dessous. Tout replié :
-        # en-têtes en haut, le reste de la page vide (l'espace extensible sous la zone des panneaux).
-        self._strip = QWidget()
-        vbox(self._strip, spacing=theme.px(6))
-        self.root.addWidget(self._strip)
+        # 1.4.3-rc.2 (C207, REC-11 KO) : ordre fixe (téléchargements puis analyse), chaque en-tête reste dans son
+        # panneau, son contenu juste dessous. Replié, un panneau n'a que la hauteur de son en-tête ; tout
+        # replié : les deux en-têtes en haut, le reste de la page vide (espace extensible sous les panneaux).
         split = QSplitter(Qt.Vertical)
         split.setChildrenCollapsible(False)
         self.root.addWidget(split, 1)
+        self._stretch_at = self.root.count()
         self.root.addStretch(0)
 
         # ------------------------------------------------------------ téléchargements
@@ -191,24 +189,27 @@ class DownloadsView(View):
         self._order_panels()
 
     def _order_panels(self) -> None:
-        """1.4.2 (C207, option A) : ordre fixe. Rien de replié : chaque en-tête dans son panneau. Un panneau
-        replié ou plus : les deux en-têtes en haut (téléchargements puis analyse), seuls les contenus des
-        panneaux ouverts restent dans la zone des panneaux, cachée quand tout est replié."""
+        """1.4.3-rc.2 (C207) : ordre fixe, chaque en-tête dans son panneau et son contenu juste dessous. Un
+        panneau replié garde la hauteur de son en-tête (l'autre prend la place) ; tout replié : les en-têtes en
+        haut de la page, l'espace extensible dessous."""
         if len(getattr(self, "_heads", {})) < 2:
             return
+        from PySide6.QtWidgets import QSizePolicy
+
         folded = self._folded()
-        any_folded = any(folded.get(k, False) for k in self._panels)
-        strip = self._strip.layout()
+        all_folded = all(folded.get(k, False) for k in self._panels)
         for key, (panel, body, _btn) in self._panels.items():
-            head = self._heads[key]
-            if any_folded:
-                strip.addWidget(head)                               # addWidget reprend l'ordre d'appel
+            is_folded = bool(folded.get(key, False))
+            body.setVisible(not is_folded)
+            lay = panel.layout()
+            if is_folded:
+                m = lay.contentsMargins()
+                panel.setMaximumHeight(self._heads[key].sizeHint().height() + m.top() + m.bottom())
             else:
-                panel.layout().insertWidget(0, head)
-            body.setVisible(not folded.get(key, False))
-            panel.setVisible(not folded.get(key, False))
-        self._strip.setVisible(any_folded)
-        self._split.setVisible(not all(folded.get(k, False) for k in self._panels))
+                panel.setMaximumHeight(16_777_215)                   # QWIDGETSIZE_MAX
+            panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed if is_folded else QSizePolicy.Expanding)
+        self.root.setStretchFactor(self._split, 0 if all_folded else 1)
+        self.root.setStretch(self._stretch_at, 1 if all_folded else 0)
 
     # ================================================================ téléchargements
     @staticmethod

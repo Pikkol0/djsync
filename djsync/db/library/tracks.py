@@ -121,10 +121,15 @@ class TracksMixin:
         if audio is None or audio.info is None:
             raise UnsupportedFormatError("Unreadable audio file (invalid header).")
         info = audio.info
+        kbps = int((getattr(info, "bitrate", 0) or 0) / 1000)
+        if path.suffix.lower() == ".mp3":         # 1.4.3-rc.2 (B123) : débit moyen si l'en-tête dit 32 kbps
+            from ...analysis.encoder import mean_mp3_kbps, trusted_kbps
+
+            kbps = trusted_kbps(kbps, mean_mp3_kbps(path, float(getattr(info, "length", 0) or 0)))
         return {
             "fileType": ftype,
             "length": int(getattr(info, "length", 0) or 0),        # B27 : tronquée, comme Rekordbox
-            "bitrate": int((getattr(info, "bitrate", 0) or 0) / 1000),
+            "bitrate": kbps,
             "bitDepth": int(getattr(info, "bits_per_sample", 0) or 16),
             "samplingRate": int(getattr(info, "sample_rate", 0) or 0),
         }

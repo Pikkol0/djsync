@@ -591,7 +591,7 @@ class MissingFilesDialog(BaseDialog):
             lines = merge_preview.build(version, [missing], got["pl"], got["cues"], cues_from=missing.content_id,
                                         files_deleted=False, cues_if_none=True)
             try:
-                box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM))
+                box.setText(merge_preview.to_html(lines, theme.GOOD, theme.ERR, theme.DIM, theme.TEXT))
             except RuntimeError:                   # fenêtre fermée entre-temps
                 return
 

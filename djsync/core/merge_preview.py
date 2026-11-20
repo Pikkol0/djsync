@@ -96,13 +96,19 @@ def counts(lines: Sequence[Line]) -> Dict[str, int]:
     return {s: sum(1 for x in lines if x.sign == s) for s in (KEEP, ADD, REMOVE)}
 
 
-def to_html(lines: Sequence[Line], ok: str, err: str, dim: str) -> str:
-    """Texte riche : une section par sujet, « + » en vert, « − » en rouge, « = » en gris."""
+MAX_CHARS = 90             # 1.4.3-rc.2 (B124) : ligne plus longue coupée avec « … » (texte entier en infobulle)
+
+
+def to_html(lines: Sequence[Line], ok: str, err: str, dim: str, text: str = "", max_chars: int = MAX_CHARS) -> str:
+    """Texte riche : une section par sujet, « + » en vert, « − » en rouge, « = » dans la couleur du texte.
+
+    1.4.3-rc.2 (B124) : les lignes « = » héritaient d'une couleur noire (illisible sur fond gris) : couleur du
+    texte du thème donnée explicitement (`text`, `dim` à défaut) ; lignes longues coupées avec « … »."""
     from html import escape
 
     from ..i18n import t
 
-    color = {ADD: ok, REMOVE: err, KEEP: dim}
+    color = {ADD: ok, REMOVE: err, KEEP: text or dim}
     parts: List[str] = []
     for section in ("info", "tracks", "playlists", "cues"):
         rows = [x for x in lines if x.section == section]
@@ -110,7 +116,12 @@ def to_html(lines: Sequence[Line], ok: str, err: str, dim: str) -> str:
             continue
         parts.append(f"<b>{escape(t('merge.section_' + section))}</b>")
         for x in rows:
+            body = x.text if not max_chars or len(x.text) <= max_chars else x.text[:max_chars - 1].rstrip() + "…"
             parts.append(f"<span style='color:{color[x.sign]}; font-family: monospace;'>{escape(x.sign)}</span>"
-                         f"&nbsp;<span style='color:{color[x.sign] if x.sign != KEEP else 'inherit'};'>"
-                         f"{escape(x.text)}</span>")
+                         f"&nbsp;<span style='color:{color[x.sign]};'>{escape(body)}</span>")
     return "<br>".join(parts)
+
+
+def to_plain(lines: Sequence[Line]) -> str:
+    """1.4.3-rc.2 (B124) : texte entier de l'aperçu (infobulle)."""
+    return "\n".join(f"{x.sign} {x.text}" for x in lines)

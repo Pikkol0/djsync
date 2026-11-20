@@ -436,11 +436,8 @@ class HomeView(View):
         else:
             actions.addWidget(button(t("action.connect"), lambda d=s.drive: self.ctrl.connect(d), kind="primary",
                                      icon=icon))
-        if len(getattr(self, "_summaries", []) or []) >= 2:           # 1.4.3 (C203) : clé et ordinateur branchés
-            sync = button(t("transfer.card_button"), lambda _c=False, x=s: self.act_transfer(x), icon="copy")
-            sync.setToolTip(t("transfer.card_tip"))
-            sync.setObjectName("transfer_sync")
-            actions.addWidget(sync)
+        # 1.4.3-rc.2 (C217) : plus de bouton « Transférer et synchroniser » sur les cartes (la tuile reste ;
+        # aussi dans la Bibliothèque : menu ☰ et clic droit sur une playlist)
         diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
         diag.setToolTip(t("diag.button_tip"))
         actions.addWidget(diag)

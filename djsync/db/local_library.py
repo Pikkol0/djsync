@@ -99,6 +99,9 @@ def quiet_playlist_xml() -> None:
 MASTER_DB = "master.db"
 PLAYLIST_XML = "masterPlaylists6.xml"
 SESSION_KEEP = 5               # 1.4.3 (A6-4) : copies « début de session » de master.db gardées
+# 1.4.3-rc.2 (B120) : une copie de master.db par rafale d'écritures : pas de nouvelle copie si la dernière a moins
+# de 60 s et qu'aucune autre session (Rekordbox) n'a écrit depuis la dernière écriture de DJSync
+BACKUP_BURST_S = 60.0
 
 
 def safe_playlist_xml_save() -> None:
@@ -612,9 +615,23 @@ class LocalRekordboxLibrary:
         return self._backup_root
 
     def _backup(self) -> None:
-        """master.db (+ -wal, masterPlaylists6.xml) copiés avant la modification ; rotation."""
+        """master.db (+ -wal, masterPlaylists6.xml) copiés avant la modification ; rotation.
+
+        1.4.3-rc.2 (B120) : une copie par rafale (BACKUP_BURST_S) : la copie (plusieurs secondes sur une grosse
+        bibliothèque, verrou tenu) n'est plus refaite à chaque suppression ou retrait. Une écriture faite entre-temps
+        par une autre session (fichier changé depuis la dernière écriture de DJSync) relance une copie."""
         if self._batch_depth > 0 and self._batch_backed_up:
             return
+        import time
+
+        burst = getattr(self, "_burst", None)            # (instant de la dernière copie, empreinte après écriture)
+        if burst is not None and time.monotonic() - burst[0] < BACKUP_BURST_S and burst[1] is not None \
+                and self._identity() == burst[1]:
+            log.debug("master.db backup skipped: last copy %.0f s ago, no other writer", time.monotonic() - burst[0])
+            if self._batch_depth > 0:
+                self._batch_backed_up = True
+            return
+        started = time.monotonic()
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
         target = self.backup_dir / f"master-{stamp}"
         try:
@@ -637,6 +654,8 @@ class LocalRekordboxLibrary:
                 self._session_saved = True
         except OSError as exc:
             raise LibraryError(f"Backup failed, write cancelled for safety: {exc}") from exc
+        self._burst = (started, None)                    # empreinte notée après l'écriture (_write)
+        log.info("master.db backed up in %.2f s", time.monotonic() - started)
         if self._batch_depth > 0:
             self._batch_backed_up = True
 
@@ -698,6 +717,9 @@ class LocalRekordboxLibrary:
                 except Exception:  # noqa: BLE001
                     log.debug("expunge_all failed", exc_info=True)
             self._file_id = self._identity()
+            burst = getattr(self, "_burst", None)
+            if burst is not None:                         # 1.4.3-rc.2 (B120) : état laissé par DJSync
+                self._burst = (burst[0], self._file_id)
             log.info("Computer library: change saved to master.db (size %s, -wal %s)", self._file_id[2], self._file_id[6])
             _XML_QUIET.report()
 
@@ -1747,13 +1769,17 @@ class LocalRekordboxLibrary:
         for pid in affected:
             self._renumber(self._songs(db, pid))
 
-    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True) -> Tuple[int, int]:
+    def delete_tracks(self, content_ids: Sequence[int], delete_files: bool = True,
+                      files_later: bool = False) -> Tuple[int, int]:
         """Retire des sons de la collection. 1.4.3 (A07, C156) : tous les sons sont traités pareil : leur fichier
         audio va à la corbeille du système (récupérable), qu'il ait été téléchargé par DJSync ou non, sauf si
         `protect_foreign` (alors seulement ceux de DJSync, comme avant). Garde-fous : extensions audio
         seulement, jamais un fichier encore utilisé par un autre son de la collection. L'analyse et la pochette
-        rangées par DJSync sont effacées ; celles de Rekordbox restent. Renvoie (retirés, fichiers non effacés)."""
-        removed = failures = 0
+        rangées par DJSync sont effacées ; celles de Rekordbox restent. Renvoie (retirés, fichiers non effacés).
+
+        1.4.3-rc.2 (B120) : `files_later` : la base seule est écrite ici (rapide) ; les fichiers attendent
+        `trash_pending()` (travail à part, en lot). Les fichiers encore utilisés sont cherchés en une requête."""
+        removed = 0
         self.last_trashed = 0
         owned = self.owned.all()
         to_clean: List[Tuple[str, str, Optional[str], Optional[str]]] = []
@@ -1767,6 +1793,7 @@ class LocalRekordboxLibrary:
                 to_clean.append((c.UUID, c.FolderPath or "", c.AnalysisDataPath, c.ImagePath))
                 self._delete_content(db, c)
                 removed += 1
+        files: List[Tuple[str, bool]] = []
         done: set = set()
         for uuid, path, anlz, art in to_clean:
             mine = uuid in owned
@@ -1785,12 +1812,68 @@ class LocalRekordboxLibrary:
             if key in done:                        # même fichier pour deux sons supprimés ensemble
                 continue
             done.add(key)
-            if self._file_used(path):
+            files.append((path, downloaded))
+        self._pending_files = list(getattr(self, "_pending_files", []) or []) + files
+        if files_later:
+            return removed, 0
+        _trashed, failures = self.trash_pending()
+        return removed, failures
+
+    def trash_pending(self) -> Tuple[int, int]:
+        """1.4.3-rc.2 (B120) : fichiers des sons supprimés (`delete_tracks`) à la corbeille, en lot. Renvoie
+        (fichiers mis à la corbeille ou déjà absents, échecs) ; `last_trashed` : mis à la corbeille."""
+        files, self._pending_files = list(getattr(self, "_pending_files", []) or []), []
+        self.last_trashed = 0
+        if not files:
+            return 0, 0
+        used = self._files_used([p for p, _m in files])
+        todo = []
+        for path, downloaded in files:
+            if os.path.normcase(path).lower() in used:
                 log.info("File kept, still used by another track: %s", path)
                 continue
-            if not self._delete_audio(Path(path), downloaded):
-                failures += 1
-        return removed, failures
+            todo.append((Path(path), downloaded))
+        failures = sum(1 for ok in self._delete_audio_many(todo) if not ok)
+        return len(todo) - failures, failures
+
+    def _files_used(self, paths: Sequence[str]) -> set:
+        """Chemins (en minuscules) encore utilisés par un son de la collection : une requête par lot de 400."""
+        out: set = set()
+        uniq = sorted({p.lower() for p in paths if p})
+        for i in range(0, len(uniq), 400):
+            chunk = uniq[i:i + 400]
+            marks = ", ".join(f":p{k}" for k in range(len(chunk)))
+            rows = self._read(f"SELECT LOWER(FolderPath) FROM djmdContent WHERE LOWER(FolderPath) IN ({marks})",
+                              {f"p{k}": v for k, v in enumerate(chunk)})
+            out |= {os.path.normcase(str(r[0])).lower() for r in rows if r and r[0]}
+        return out
+
+    def _delete_audio_many(self, files: Sequence[Tuple[Path, bool]]) -> List[bool]:
+        """Fichiers à la corbeille en un seul appel au système quand c'est possible (Windows), sinon un par un."""
+        from ..core.trash import move_many_to_trash
+
+        ok: Dict[int, bool] = {}
+        batch: List[Tuple[int, Path]] = []
+        for i, (path, _mine) in enumerate(files):
+            target = path.resolve() if path.exists() else path
+            if target.suffix.lower() not in FILE_TYPES:
+                log.warning("Deletion refused (not an audio file): %s", target)
+                ok[i] = False
+            elif not target.exists():
+                ok[i] = True
+            else:
+                batch.append((i, target))
+        if len(batch) > 1:
+            refused = set(move_many_to_trash([p for _i, p in batch]))
+            for i, p in batch:
+                if p not in refused:
+                    ok[i] = True
+                    self.last_trashed += 1
+                    self._prune_empty(p)
+            batch = [(i, p) for i, p in batch if p in refused]
+        for i, p in batch:                                 # un par un (ou repli : effacement des fichiers de DJSync)
+            ok[i] = self._delete_audio(p, files[i][1])
+        return [ok.get(i, False) for i in range(len(files))]
 
     def _in_contents(self, path: Path) -> bool:
         try:
@@ -1830,14 +1913,21 @@ class LocalRekordboxLibrary:
                 log.warning("File not deleted (%s): %s", target, exc2)
                 return False
         if inside:
-            try:
-                parent = target.parent
-                while parent != root and root in parent.parents and not any(parent.iterdir()):
-                    parent.rmdir()
-                    parent = parent.parent
-            except OSError:
-                log.debug("Empty folder kept", exc_info=True)
+            self._prune_empty(target)
         return True
+
+    def _prune_empty(self, target: Path) -> None:
+        """Dossiers vides laissés dans le dossier de DJSync par un fichier supprimé, retirés."""
+        root = self.contents_root.resolve()
+        if root not in target.parents:
+            return
+        try:
+            parent = target.parent
+            while parent != root and root in parent.parents and not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
+        except OSError:
+            log.debug("Empty folder kept", exc_info=True)
 
     def playlists_of(self, content_ids: Sequence[int]) -> Dict[int, List[int]]:
         """1.2.1 (C11) : {son: [playlists qui le contiennent]}, pour l'outil Doublons."""

@@ -15,13 +15,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QHeaderView, QProgressBar, QScrollArea,
-                               QStackedWidget, QTreeWidget, QTreeWidgetItem, QWidget)
+                               QStackedWidget, QTreeWidgetItem, QWidget)
 
 from ..db import transfer as T
 from ..i18n import t
 from . import icons, theme
 from .dialogs import BaseDialog
-from .widgets import button, hbox, label, line_edit, panel, vbox
+from .widgets import RowTree, button, hbox, label, line_edit, panel, vbox
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class _Side(QWidget):
         row.addWidget(self.all_btn)
         row.addWidget(self.none_btn)
         lay.addLayout(row)
-        self.tree = QTreeWidget()
+        self.tree = RowTree()
         self.tree.setHeaderHidden(True)
         self.tree.setSelectionMode(QAbstractItemView.NoSelection)
         self.tree.setMinimumHeight(theme.px(180))
@@ -426,7 +426,7 @@ class TransferPage(BaseDialog):
         self.choice.currentIndexChanged.connect(self._global_choice)
         row.addWidget(self.choice)
         lay.addWidget(self.choice_box)
-        self.table = QTreeWidget()
+        self.table = RowTree()
         self.table.setColumnCount(3)
         self.table.setHeaderLabels([t("transfer.col_playlist"), t("transfer.col_state"), t("transfer.col_action")])
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
