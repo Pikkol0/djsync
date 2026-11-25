@@ -2288,7 +2288,7 @@ STRINGS = {
     "dup.pause": "Pause",
     "dup.resume": "Resume",
     "dup.auto_verify": "Check automatically",
-    "dup.auto_verify_tip": "Checked: every group is compared by its sound, one after the other. Unchecked: only the groups you ask for (« Check now », or several groups selected).",
+    "dup.auto_verify_tip": "Checked: every group is compared by its sound, one after the other. Unchecked: only the groups you ask for (\"Check now\", or several groups selected).",
     "dup.verify_selected": "Check selection",
     "dup.verify_selected_n": "Check the {n} selected groups",
     "deleted.title": "Deleted tracks",
