@@ -95,7 +95,7 @@ def test_palettes():
     pytest.importorskip("PySide6")
     from djsync.ui import theme
 
-    assert len(theme.PALETTES) == 24 and theme.DEFAULT_THEME == "violet_light"     # 1.4.0 (C50), 1.4.2 (C144)
+    assert len(theme.PALETTES) == 48 and theme.DEFAULT_THEME == "violet_light"     # 1.4.0 (C50), 1.4.4 (C226)
     from djsync.ui.palettes import FAMILIES, MIN_CONTRAST, SURFACE
 
     assert sorted(n for names in FAMILIES.values() for n in names) == sorted(theme.PALETTES)

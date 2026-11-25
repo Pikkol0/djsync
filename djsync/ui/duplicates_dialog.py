@@ -12,7 +12,7 @@ from typing import Any, List, Optional, Tuple
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QProgressBar,
+    QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QFormLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QProgressBar,
     QFrame, QLabel, QRadioButton, QScrollArea, QWidget,
 )
 
@@ -132,6 +132,19 @@ class DuplicatesDialog(BaseDialog):
         self.count = label(t("dup.searching"), "dim")
         self.count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         head.addWidget(self.count)
+        # 1.4.4 (C236) : pause / reprise ici aussi (pas seulement dans le volet), vérification automatique ou
+        # seulement à la demande (choix gardé), groupes choisis vérifiés d'un coup
+        self.pause_btn = button(t("dup.pause"), self._toggle_pause, kind="flat", icon="pause")
+        self.pause_btn.hide()
+        head.addWidget(self.pause_btn)
+        self.verify_sel_btn = button(t("dup.verify_selected"), self.verify_selected, kind="flat", icon="search")
+        self.verify_sel_btn.hide()
+        head.addWidget(self.verify_sel_btn)
+        self.auto_box = QCheckBox(t("dup.auto_verify"))
+        self.auto_box.setToolTip(t("dup.auto_verify_tip"))
+        self.auto_box.setChecked(bool(getattr(controller.settings, "dup_auto_verify", True)))
+        self.auto_box.toggled.connect(self._auto_changed)
+        head.addWidget(self.auto_box)
         self.body.addLayout(head)
         # 1.3.2 (C84) : fine barre d'avancement (recherche par titre, puis vérification par le son)
         self.bar = QProgressBar()
@@ -154,6 +167,8 @@ class DuplicatesDialog(BaseDialog):
             f"QListWidget#dupGroups::item:selected, QListWidget#dupGroups::item:selected:!active {{"
             f" background: {theme.ACCENT_DIM}; color: {theme.TEXT}; border-left: {theme.px(3)}px solid {theme.ACCENT}; }}")
         self.list.currentRowChanged.connect(self._select)
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)      # 1.4.4 (C236) : plusieurs groupes
+        self.list.itemSelectionChanged.connect(self._refresh_head)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)       # C84 : « Vérifier ce groupe maintenant »
         self.list.customContextMenuRequested.connect(self._list_menu)
         main.addWidget(self.list)
@@ -239,7 +254,8 @@ class DuplicatesDialog(BaseDialog):
         # C84 : d'abord les groupes demandés (clic droit, « Vérifier maintenant »), puis celui affiché
         asked = [next((i for i in todo if self.groups[i] is g), -1) for g in self._priority]
         asked = [i for i in asked if i >= 0]
-        if (self._paused or self._stopped) and not asked:    # C145 : pas de groupe suivant (sauf demandé)
+        manual = not self.auto_box.isChecked()               # 1.4.4 (C236) : seulement à la demande
+        if (self._paused or self._stopped or manual) and not asked:    # C145 : pas de groupe suivant (sauf demandé)
             self._update_count()
             return
         i = asked[0] if asked else (self.index if self.index in todo else todo[0])
@@ -303,6 +319,7 @@ class DuplicatesDialog(BaseDialog):
             self.bar.hide()
         self.ignored_btn.setText(t("dup.ignored_btn", n=len(self.ctrl.duplicate_ignores.entries)))
         self._sync_task(todo, n)
+        self._refresh_head()
 
     # ------------------------------------------------------------------ 1.4.1 (C145) : tâche du volet
     def _sync_task(self, todo: int, n: int) -> None:
@@ -330,11 +347,60 @@ class DuplicatesDialog(BaseDialog):
 
     def _task_pause(self) -> None:
         self._paused = True
+        self._refresh_head()
 
     def _task_resume(self) -> None:
         self._paused = False
         if self.winfo_exists():
+            self._refresh_head()
             self._refine_next()
+
+    # ------------------------------------------------------------ 1.4.4 (C236) : commandes dans la page
+    def _toggle_pause(self) -> None:
+        tasks = getattr(self.ctrl, "tasks", None)
+        if self._paused:
+            self._task_resume()
+        else:
+            self._task_pause()
+        if tasks is not None:
+            tasks.mark_paused("dup", self._paused)
+
+    def _auto_changed(self, on: bool) -> None:
+        self.ctrl.settings.dup_auto_verify = bool(on)
+        self.ctrl.save_settings_quiet()
+        self._refresh_head()
+        if on:
+            self._refine_next()
+        else:
+            self._update_count()
+
+    def _selected_todo(self) -> List[int]:
+        rows = sorted({self.list.row(it) for it in self.list.selectedItems()})
+        return [r for r in rows if 0 <= r < len(self.verified) and not self.verified[r]]
+
+    def _refresh_head(self) -> None:
+        if not self.winfo_exists():
+            return
+        todo = any(not ok for ok in self.verified)
+        auto = self.auto_box.isChecked()
+        self.pause_btn.setVisible(todo and auto and not self._stopped)
+        self.pause_btn.setText(t("dup.resume") if self._paused else t("dup.pause"))
+        from .icons import qicon
+
+        self.pause_btn.setIcon(qicon("play" if self._paused else "pause", 16, theme.DIM))
+        n = len(self._selected_todo())
+        self.verify_sel_btn.setVisible(n > 1 or (n == 1 and not auto))
+        self.verify_sel_btn.setText(t("dup.verify_selected_n", n=n))
+
+    def verify_selected(self) -> None:
+        """Les groupes choisis (non vérifiés) passent en tête de file, dans l'ordre de la liste."""
+        rows = self._selected_todo()
+        if not rows:
+            return
+        chosen = [self.groups[r] for r in rows]
+        self._priority = chosen + [g for g in self._priority if all(g is not c for c in chosen)]
+        self._fill_list()
+        self._refine_next()
 
     def _task_stop(self) -> None:
         self._stopped = True
@@ -932,6 +998,8 @@ class DuplicatesDialog(BaseDialog):
             return
         menu = QMenu(self)
         menu.addAction(t("dup.verify_now"), lambda: self.verify_now(row))
+        if len(self._selected_todo()) > 1:                       # 1.4.4 (C236)
+            menu.addAction(t("dup.verify_selected_n", n=len(self._selected_todo())), self.verify_selected)
         menu.exec(self.list.viewport().mapToGlobal(pos))
 
     def verify_now(self, i: int) -> None:

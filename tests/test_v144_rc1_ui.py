@@ -106,3 +106,101 @@ def test_c233_c234_wave_height_and_style(demo):  # noqa: F811
     finally:
         ed.close()
         ed.deleteLater()
+
+
+# ------------------------------------------------------------------ C226 : couleurs, fonds teintés, thèmes
+def test_c226_palettes_backgrounds_and_themes(demo):  # noqa: F811
+    import colorsys
+
+    from djsync.i18n import t
+    from djsync.ui import theme
+    from djsync.ui.palettes import FAMILIES, FEATURED, PALETTES, THEMES
+
+    from .qt_util import pump
+
+    assert all(len(v) == 16 for v in FAMILIES.values()) and len(PALETTES) == 48
+    for names in FAMILIES.values():                        # rangées par teinte, pas deux couleurs identiques
+        assert len({PALETTES[n].upper() for n in names}) == 16
+    assert {"navy", "brown", "fir", "prune"} <= set(theme.BACKGROUNDS)
+    assert all(bg in theme.BACKGROUNDS and acc in PALETTES for bg, acc in THEMES.values())
+    assert set(FEATURED) <= set(PALETTES) and len(FEATURED) == 7
+    for k in list(PALETTES) + list(theme.BACKGROUNDS) + list(THEMES):
+        key = (f"theme.{k}" if k in PALETTES else f"settings.background_{k}" if k in theme.BACKGROUNDS
+               else f"themes.{k}")
+        assert t(key) != key
+    demo.show_view("settings")
+    view = demo.views["settings"]
+    assert set(view.theme_tiles) == set(THEMES) and len(view._featured) == 7
+    view.theme_tiles["night"].click()
+    pump(demo, 0.3)
+    s = demo.ctrl.settings
+    assert (s.background, s.theme) == ("navy", "sky") and theme.CURRENT_BACKGROUND == "navy"
+    s.background, s.theme = "default", "violet_light"
+    demo.ctrl._emit("restyle")
+    pump(demo, 0.2)
+
+
+# ------------------------------------------------------------------ C227 : accueil en un seul écran
+def test_c227_welcome_single_screen(demo, monkeypatch):  # noqa: F811
+    from djsync.ui.welcome import WelcomeDialog
+
+    monkeypatch.setattr(demo.ctrl.settings, "save", lambda *a, **k: None)
+    w = WelcomeDialog(demo, demo.ctrl)
+    assert w.lang_buttons and len(w.theme_tiles) == 6 and w.yt_buttons and w.zoom_lbl
+    assert w.skip_btn.property("kind") in (None, "") and w.skip_btn.width() == w.start_btn.width()
+    w._pick_yt("best")
+    w.theme_tiles["forest"].click()                         # thème appliqué, écran redessiné, choix gardé
+    assert demo.ctrl.settings.background == "fir" and w.yt_buttons["best"].isChecked()
+    z = demo.ctrl.settings.zoom
+    w._zoom(1)
+    assert demo.ctrl.settings.zoom > z
+    quality = demo.ctrl.settings.download_quality
+    w.skip_btn.click()                                      # Passer : rien d'autre n'est changé
+    assert demo.ctrl.settings.welcome_done and demo.ctrl.settings.download_quality == quality
+    s = demo.ctrl.settings
+    s.background, s.theme, s.zoom = "default", "violet_light", z
+    demo.ctrl._emit("restyle")
+
+
+# ------------------------------------------------------------------ C236 : Doublons, pause et groupes choisis
+def test_c236_duplicates_pause_manual_and_selection(demo):  # noqa: F811
+    from djsync.i18n import t
+    from djsync.ui.duplicates_dialog import DuplicatesDialog
+
+    from .qt_util import pump
+
+    dup = DuplicatesDialog(demo.views["home"], demo.ctrl)
+    try:
+        assert pump(demo, 4, lambda: len(dup.groups) >= 1)
+        g = dup.groups[0]
+        asked = []
+        demo.ctrl.refine_duplicate_group = lambda group, done: asked.append(group)
+        dup._refining = None
+        dup.groups = [list(g) for _ in range(5)]
+        dup.verified = [False] * 5
+        dup.apart = [[] for _ in range(5)]
+        dup._priority = []
+        dup._fill_list()
+        dup.auto_box.setChecked(False)                         # seulement à la demande : rien ne part
+        assert demo.ctrl.settings.dup_auto_verify is False and not asked
+        dup.list.clearSelection()
+        dup.list.item(1).setSelected(True)
+        dup.list.item(3).setSelected(True)
+        assert dup._selected_todo() == [1, 3] and dup.verify_sel_btn.isVisibleTo(dup)
+        dup.verify_selected()
+        assert asked and dup._refining is dup.groups[1]        # premier choisi vérifié d'abord
+        dup._refining = None
+        dup.auto_box.setChecked(True)
+        assert dup.pause_btn.isVisibleTo(dup)
+        dup._toggle_pause()
+        assert dup._paused and dup.pause_btn.text() == t("dup.resume")
+        n = len(asked)
+        dup._refining = None
+        dup._priority = []
+        dup._refine_next()
+        assert len(asked) == n                                 # en pause : pas de groupe suivant
+        dup._toggle_pause()
+        assert not dup._paused and len(asked) == n + 1         # reprise : le suivant part
+    finally:
+        demo.ctrl.settings.dup_auto_verify = True
+        dup.close()

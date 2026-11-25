@@ -193,7 +193,7 @@ def test_welcome_language_needs_confirm_and_star_is_primary(demo, monkeypatch): 
     assert demo.ctrl.settings.language == first
     # 1.4.2 (A2-11) : l'étoile n'est plus le bouton principal, c'est un lien discret du premier écran
     assert w.star_btn.property("kind") == "flat"
-    w.validate_btn.click()
+    w._to_quality()                                       # 1.4.4 (C227) : un seul écran
     assert w._step == 2
     assert w.width() >= w.minimumWidth() > 0
     w._finish()

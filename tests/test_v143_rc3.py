@@ -283,7 +283,7 @@ def test_c53_background_setting_rebuilds_the_window(import_demo):
         assert theme.CURRENT_BACKGROUND == "bright" and w._built_background == "bright" and not w.errors
         w.show_view("settings")
         page = w.views["settings"]
-        assert page.bg_menu.count() == 4
+        assert page.bg_menu.count() == len(theme.BACKGROUNDS) == 8          # 1.4.4 (C226) : 4 fonds teintés
     finally:
         w.ctrl.settings.background = "default"
         w.ctrl._emit("restyle")

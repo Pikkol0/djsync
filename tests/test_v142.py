@@ -236,7 +236,8 @@ def test_c113_mytags_history_and_grid_marks(demo, tmp_path):
 def test_c144_more_colours_grouped_by_family(demo):
     from djsync.ui.palettes import FAMILIES, PALETTES
 
-    assert len(PALETTES) == 24 and "green" in FAMILIES["deep"] and len(FAMILIES["soft"]) == 4
+    # 1.4.4 (C226) : 16 couleurs par famille
+    assert len(PALETTES) == 48 and "green" in FAMILIES["deep"] and all(len(v) == 16 for v in FAMILIES.values())
     settings = demo.views["settings"]
     assert set(settings._swatches) == set(PALETTES)
     # 1.4.2 (C205) : une colonne par famille, son titre en tête

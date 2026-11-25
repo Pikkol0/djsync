@@ -81,6 +81,31 @@ def quality_grid(rows_text: str) -> QWidget:
     return box
 
 
+
+def theme_tiles(layout: Any, on_pick: Any, keys: Any = None) -> Dict[str, Any]:
+    """1.4.4 (C226, C227) : une tuile par thème prêt (pastille de la couleur sur le fond du thème + nom) ; la
+    tuile du thème en cours est cochée. Renvoie {clé: bouton}."""
+    from ..palettes import THEMES
+
+    out = {}
+    cur = (getattr(theme, "CURRENT_BACKGROUND", "default"), theme.CURRENT_THEME)
+    for key in (keys or THEMES):
+        bg, accent = THEMES[key]
+        b = QToolButton()
+        b.setIcon(logo_pixmap(theme.px(22), PALETTES[accent], theme.BACKGROUNDS[bg][1]))
+        b.setIconSize(QSize(theme.px(22), theme.px(22)))
+        b.setText(t(f"themes.{key}"))
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        b.setCheckable(True)
+        b.setChecked((bg, accent) == cur)
+        b.setProperty("kind", "tile")
+        b.setCursor(Qt.PointingHandCursor)
+        b.setToolTip(t("themes.tip", bg=t(f"settings.background_{bg}"), color=t(f"theme.{accent}")))
+        b.clicked.connect(lambda _c=False, k=key: on_pick(k))
+        layout.addWidget(b)
+        out[key] = b
+    return out
+
 class _RowLabel(QLabel):
     """1.4.2 (A2-1) : libellé de début de ligne des Paramètres : colonne de 170 px, qui peut descendre à
     100 px (texte à la ligne) quand la page est étroite, au lieu d'imposer sa largeur à la page."""
@@ -248,8 +273,38 @@ class SettingsView(View):
         row.addStretch(1)
         card.addLayout(row)
 
+        # 1.4.4 (C226) : thèmes prêts à choisir (fond + couleur), en tuiles
+        row = hbox()
+        row.addWidget(self._fixed(label(t("settings.themes"))))
+        from ..widgets import FlowLayout
+
+        tiles = FlowLayout(spacing=theme.px(6))
+        self.theme_tiles = theme_tiles(tiles, self._apply_theme_preset)
+        row.addLayout(tiles, 1)
+        card.addLayout(row)
+
         row = hbox()
         row.addWidget(self._fixed(label(t("settings.theme"))))         # C165 : aligné comme les autres
+        # 1.4.4 (C226) : 7 couleurs à portée de clic ; la pastille de la couleur actuelle ouvre « Toutes… »
+        from ..palettes import FEATURED
+
+        self._featured = {}
+        from ..widgets import FlowLayout
+
+        colors = FlowLayout(spacing=theme.px(2))           # à la ligne si la fenêtre est étroite (A2-1)
+        for name in FEATURED:
+            b = QToolButton()
+            b.setIcon(logo_pixmap(theme.px(20), PALETTES[name]))
+            b.setIconSize(QSize(theme.px(20), theme.px(20)))
+            b.setAutoRaise(True)
+            b.setCheckable(True)
+            b.setChecked(name == theme.CURRENT_THEME)
+            b.setToolTip(t(f"theme.{name}"))
+            b.setAccessibleName(t(f"theme.{name}"))
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, n=name: self._theme_changed(n))
+            colors.addWidget(b)
+            self._featured[name] = b
         # 1.4.0 (C50) : une pastille (la couleur actuelle) ; un clic ouvre un petit menu avec les couleurs
         from PySide6.QtWidgets import QMenu
 
@@ -259,11 +314,12 @@ class SettingsView(View):
         self.theme_btn.setText(t(f"theme.{theme.CURRENT_THEME}"))
         self.theme_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.theme_btn.setPopupMode(QToolButton.InstantPopup)
+        self.theme_btn.setToolTip(t("settings.colors_all"))
         menu = QMenu(self.theme_btn)
         self.theme_btn.setMenu(menu)
         self._theme_families(menu)
-        row.addWidget(self.theme_btn)
-        row.addStretch(1)
+        colors.addWidget(self.theme_btn)
+        row.addLayout(colors, 1)
         card.addLayout(row)
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
@@ -1342,8 +1398,21 @@ class SettingsView(View):
         wa.setDefaultWidget(box)
         menu.addAction(wa)
 
+    def _apply_theme_preset(self, key: str) -> None:
+        """1.4.4 (C226) : thème prêt = fond + couleur, appliqués ensemble (un seul restyle)."""
+        from ..palettes import THEMES
+
+        bg, accent = THEMES[key]
+        s = self.ctrl.settings
+        if (s.background, s.theme) != (bg, accent):
+            s.background, s.theme = bg, accent
+            s.save()
+            self.ctrl._emit("restyle")
+
     def _theme_changed(self, name: str) -> None:
         for n, b in self._swatches.items():
+            b.setChecked(n == name)
+        for n, b in getattr(self, "_featured", {}).items():
             b.setChecked(n == name)
         self.theme_name.setText(t(f"theme.{name}"))
         if name != self.ctrl.settings.theme:
