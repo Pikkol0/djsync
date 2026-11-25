@@ -287,6 +287,9 @@ class GridCanvas(QWidget):
         return super().event(e)
 
 
+COVER_PX = 96                  # 1.4.4 (C215) : pochette de Grille et cues
+
+
 class WaveStyleBar(QWidget):
     """1.4.4 (C234) : trois petits boutons (3 bandes, Bleu, RGB) posés dans le coin haut droit de la forme d'onde."""
 
@@ -431,6 +434,14 @@ class GridEditor(QWidget):
 
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
+        # 1.4.4 (C215) : pochette du son, en grand, à côté du titre
+        from PySide6.QtWidgets import QLabel
+
+        self.cover = QLabel()
+        self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
+        self.cover.setScaledContents(True)
+        head.addWidget(self.cover)
+        self._load_cover(track)
         titles = vbox(spacing=0)
         titles.addWidget(label(track.display_name, "title"))
         self.info = label(t("grid.loading"), "dim")
@@ -725,6 +736,33 @@ class GridEditor(QWidget):
         self._wave_state = "loading"
         self.draw()
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
+
+    def _load_cover(self, track: LibraryTrack) -> None:
+        """1.4.4 (C215) : pochette de la bibliothèque (ou intégrée au fichier), lue en arrière-plan."""
+        from pathlib import Path
+
+        from ..audio.covers import placeholder
+        from .covers import CoverLoader, file_cover
+        from .icons import to_qpixmap
+
+        size = theme.px(COVER_PX) * 2
+        self.cover.setPixmap(to_qpixmap(placeholder(size)))
+        lib = self.ctrl.library
+        if lib is None:
+            return
+        try:
+            art = lib.artwork_file(track)
+            path = lib.absolute_path(track)
+        except Exception:  # noqa: BLE001 - pas de pochette : l'image par défaut reste
+            log.debug("No cover for grid editor", exc_info=True)
+            return
+
+        def show(img: Any) -> None:
+            if img is not None and self.winfo_exists():
+                self.cover.setPixmap(to_qpixmap(img))
+
+        CoverLoader(self.ctrl.dispatcher).load_pil(file_cover(Path(art) if art else None, Path(path),
+                                                              f"grid:{track.content_id}"), size, show)
 
     def set_wave_style(self, style: str) -> None:
         """1.4.4 (C234) : même réglage que Paramètres ▸ Analyse (lecteur et Paramètres suivent)."""

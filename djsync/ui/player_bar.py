@@ -24,7 +24,7 @@ from .widgets import CamelotPill, hbox, icon_button, label, panel, popup_menu, v
 
 log = logging.getLogger(__name__)
 
-COVER_PX = 52
+COVER_PX = 64                  # 1.4.4 (C215) : 52 → 64 (pochette plus grande)
 WAVE_H = 28
 
 

@@ -246,3 +246,21 @@ def test_c223_deleted_tracks_listed_and_redownloaded(demo):  # noqa: F811
     d.redownload()
     assert seen == [entry.url or entry.query]
     assert demo.current == "import"
+
+
+# ------------------------------------------------------------------ C215 : pochettes plus grandes
+def test_c215_bigger_covers(demo):  # noqa: F811
+    from djsync.ui import grid_editor, player_bar, theme
+    from djsync.ui.grid_editor import GridEditor
+
+    from .qt_util import pump
+
+    assert player_bar.COVER_PX > 52 and demo.player_bar.cover.width() == theme.px(player_bar.COVER_PX)
+    track = demo.ctrl.library.list_tracks()[0]
+    ed = GridEditor(demo, demo.ctrl, track)
+    try:
+        assert ed.cover.width() == theme.px(grid_editor.COVER_PX) >= theme.px(90)
+        assert pump(demo, 3, lambda: ed.cover.pixmap() is not None and not ed.cover.pixmap().isNull())
+    finally:
+        ed.close()
+        ed.deleteLater()
