@@ -2311,4 +2311,8 @@ STRINGS = {
     "settings.backup_prune": "Supprimer les anciennes",
     "settings.backup_prune_tip": "Applique tout de suite le niveau choisi aux sauvegardes de la bibliothèque ouverte (sinon fait à la prochaine modification). Le point d'origine et les points manuels sont gardés.",
     "settings.backup_pruned": "Anciennes sauvegardes supprimées : {size} libérés.",
+    "space.other_disks": "Autres disques",
+    "space.disk_usb": "clé USB",
+    "space.disk_computer": "ordinateur",
+    "space.disk_title": "{name} ({kind}) : {free} libres sur {total}",
 }

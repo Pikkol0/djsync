@@ -96,3 +96,28 @@ def test_c235_settings_level_from_old_copies():
             assert (out.backup_level, out.backup_keep) == (level, copies)
     finally:
         bl.set_level("normal")
+
+
+def test_c222_one_bar_per_disk(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from djsync.core import space
+
+    a, b = tmp_path / "A", tmp_path / "B"
+    (a / "backups").mkdir(parents=True)
+    (a / "backups" / "x.db").write_bytes(b"x" * 5000)
+    (b / "cache").mkdir(parents=True)
+    (b / "cache" / "y").write_bytes(b"y" * 3000)
+    monkeypatch.setattr(space, "drive_of", lambda p: "A:" if str(p).startswith(str(a)) else
+                        "B:" if str(p).startswith(str(b)) else str(p))
+    monkeypatch.setattr(space, "_disk", lambda root: (100_000, 40_000))
+    bars = space.computer_disks({"backups": a / "backups", "caches": b / "cache"}, {"C:": 7000}, skip=["A:"])
+    assert [x.title for x in bars] == ["B:", "C:"]
+    assert bars[0].usage.parts["caches"] == 3000 and bars[1].usage.parts["music"] == 7000
+    assert bars[0].usage.parts["free"] == 40_000 and bars[0].usage.parts["other"] == 60_000 - 3000
+    key = tmp_path / "KEY"
+    (key / "Contents").mkdir(parents=True)
+    (key / "Contents" / "s.mp3").write_bytes(b"z" * 2000)
+    usb = space.usb_disks([NS(root=key, label="DJ"), NS(root=tmp_path / "OPEN", label="OPEN")],
+                          skip=[str(tmp_path / "OPEN")])
+    assert [x.title for x in usb] == ["DJ"] and usb[0].kind == "usb" and usb[0].usage.parts["music"] == 2000

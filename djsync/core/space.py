@@ -36,6 +36,7 @@ class Usage:
     folders: Dict[str, Path] = field(default_factory=dict)   # poste -> dossier à ouvrir
     at: float = 0.0
     music_elsewhere: Dict[str, int] = field(default_factory=dict)   # 1.4.0 (C129) : disque -> musique ailleurs
+    disk: str = ""                          # 1.4.4 (C222) : disque de la barre (principal)
 
     @property
     def library(self) -> int:
@@ -187,7 +188,7 @@ def local_usage(music_dir: Path, backup_dir: Path, data_dir: Path, track_bytes: 
                "databases": Path(db_dir) if db_dir is not None else None, "backups": Path(backup_dir),
                "caches": cache}
     return Usage(parts, total, free, {k: v for k, v in folders.items() if v is not None and v.exists()}, time.time(),
-                 elsewhere)
+                 elsewhere, main_drive)
 
 
 # ------------------------------------------------- 1.4.3 (A7-5, repris de Sleeve) : place sur la clé
@@ -347,3 +348,58 @@ class UsageCache:
             self._items.clear()
         else:
             self._items.pop(key, None)
+
+
+# ------------------------------------------------- 1.4.4 (C222) : une barre par disque concerné
+@dataclass
+class DiskBar:
+    """Un disque (de l'ordinateur ou une clé) qui contient quelque chose de DJSync : titre et usage."""
+    title: str
+    kind: str                     # "computer" | "usb"
+    usage: Usage
+
+
+def _bar_usage(parts: Dict[str, int], root: Path) -> Usage:
+    total, free = _disk(Path(root))
+    parts = {k: int(v) for k, v in parts.items() if v}
+    parts["other"] = max(0, (total - free) - sum(parts.values())) if total else 0
+    parts["free"] = free
+    return Usage(parts, total, free, {}, time.time())
+
+
+def computer_disks(where: Dict[str, Any], music_by_disk: Optional[Dict[str, int]] = None,
+                   skip: Iterable[str] = (), sizes: Optional[Dict[str, int]] = None) -> List[DiskBar]:
+    """Disques de l'ordinateur qui contiennent musique, données ou sauvegardes de DJSync (sauf `skip`, déjà
+    montré par la barre principale). `where` : poste -> dossier ; `sizes` : tailles déjà mesurées par poste
+    (sinon mesurées ici) ; `music_by_disk` : musique de la collection par disque."""
+    per: Dict[str, Dict[str, int]] = {}
+    for d, n in (music_by_disk or {}).items():
+        if n:
+            per.setdefault(d, {})["music"] = per.get(d, {}).get("music", 0) + int(n)
+    for key, folder in where.items():
+        if folder is None or not Path(folder).exists():
+            continue
+        d = drive_of(folder)
+        size = (sizes or {}).get(key)
+        if size is None:
+            size = _sizes([Path(folder)])
+        if size:
+            per.setdefault(d, {})[key] = per.get(d, {}).get(key, 0) + int(size)
+    skip = set(skip)
+    return [DiskBar(d, "computer", _bar_usage(parts, Path(d))) for d, parts in sorted(per.items()) if d not in skip]
+
+
+def usb_disks(drives: Iterable[Any], contents_dir: str = "Contents", skip: Iterable[str] = ()) -> List[DiskBar]:
+    """Une barre par clé branchée (sauf celles de `skip`, chemins de racine)."""
+    skip = {str(s) for s in skip}
+    out = []
+    for d in drives:
+        root = Path(getattr(d, "root", d))
+        if str(root) in skip:
+            continue
+        try:
+            usage = usb_usage(root, contents_dir)
+        except OSError:
+            continue
+        out.append(DiskBar(getattr(d, "label", "") or str(root), "usb", usage))
+    return out

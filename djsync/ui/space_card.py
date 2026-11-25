@@ -122,6 +122,13 @@ class SpaceCard:
         self.result = label("", "accent", wrap=True)
         layout.addWidget(self.result)
         self._rows: List[Any] = []
+        # 1.4.4 (C222) : une barre par autre disque concerné (disques de l'ordinateur, clés branchées)
+        from .widgets import vbox
+
+        self.disks_box = vbox(spacing=theme.px(6))
+        layout.addLayout(self.disks_box)
+        self.disk_bars: List[Any] = []
+        self._disk_widgets: List[Any] = []
 
     # ------------------------------------------------------------------ calcul
     def _target(self) -> Optional[Dict[str, Any]]:
@@ -186,6 +193,7 @@ class SpaceCard:
             self._pending = None
             self.cache.put(target["key"], usage)
             self._show(usage, target)
+            self._compute_disks(target, usage, token)
             if done:
                 done(usage)
 
@@ -218,6 +226,65 @@ class SpaceCard:
             self.ctrl.dispatcher.submit(lambda: work(total), ok, failed, pool="tools")
 
         self.ctrl.dispatcher.submit(sizes, measured, failed, pool="db")
+
+    def _compute_disks(self, target: Dict[str, Any], usage: space.Usage, token: int) -> None:
+        """1.4.4 (C222) : autres disques de l'ordinateur et autres clés, mesurés en arrière-plan."""
+        local = getattr(self.ctrl, "local", None)
+        music_dir = getattr(local, "music_dir", None) if local is not None else None
+        drives = list(getattr(self.ctrl, "drives", []) or [])
+
+        def work() -> list:
+            if target["local"]:
+                where = {"analysis": target.get("share"), "databases": target.get("db"),
+                         "backups": target["backup"], "caches": Path(target["data"]) / "cache"}
+                sizes = {k: usage.parts.get(k, 0) for k in where}
+                main = usage.disk or space.drive_of(target["music"])          # déjà montré par la barre du haut
+                bars = space.computer_disks(where, usage.music_elsewhere, skip=[main], sizes=sizes)
+                skip_usb: list = []
+            else:
+                bars = space.computer_disks({"music": music_dir, "caches": Path(target["data"]) / "cache"})
+                skip_usb = [str(target["root"])]
+            return bars + space.usb_disks(drives, getattr(self.ctrl.settings, "contents_dir", "Contents"),
+                                          skip=skip_usb)
+
+        def ok(bars: list) -> None:
+            if token == self._token:
+                self._show_disks(bars)
+
+        self.ctrl.dispatcher.submit(work, ok, lambda exc: log.info("Other disks not measured: %s", exc),
+                                    pool="tools")
+
+    def _show_disks(self, bars: list) -> None:
+        for w in self._disk_widgets:
+            self.disks_box.removeWidget(w)
+            w.hide()
+            w.deleteLater()
+        self._disk_widgets = []
+        self.disk_bars = bars
+        try:
+            if bars:
+                head = label(t("space.other_disks"), "section")
+                self.disks_box.addWidget(head)
+                self._disk_widgets.append(head)
+            for b in bars:
+                u = b.usage
+                kind = t("space.disk_usb") if b.kind == "usb" else t("space.disk_computer")
+                text = t("space.disk_title", name=b.title, kind=kind, free=human_size(u.free),
+                         total=human_size(u.total))
+                title = label(text, "dim", wrap=True)
+                bar = SpaceBar()
+                bar.set_parts(u.parts)
+                bar.setToolTip(" · ".join(f"{t('space.' + k)} {human_size(v)}" for k, v in u.parts.items() if v))
+                self.disks_box.addWidget(title)
+                self.disks_box.addWidget(bar)
+                self._disk_widgets += [title, bar]
+                warns = [t(f"space.warn_{w}") for w in u.warnings()]
+                if warns:
+                    w = label("  ".join(warns), "warn", wrap=True)
+                    self.disks_box.addWidget(w)
+                    self._disk_widgets.append(w)
+        except RuntimeError:                       # carte détruite entre-temps
+            log.debug("Space card gone", exc_info=True)
 
     def _compute_footprint(self, force: bool = False) -> None:
         """1.4.3 (C200) : application, caches, sauvegardes, réglages et sons téléchargés sur l'ordinateur."""

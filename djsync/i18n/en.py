@@ -2311,4 +2311,8 @@ STRINGS = {
     "settings.backup_prune": "Delete old backups",
     "settings.backup_prune_tip": "Applies the chosen level now to the open library's backups (otherwise done at the next change). The origin point and manual points are kept.",
     "settings.backup_pruned": "Old backups deleted: {size} freed.",
+    "space.other_disks": "Other drives",
+    "space.disk_usb": "USB key",
+    "space.disk_computer": "computer",
+    "space.disk_title": "{name} ({kind}): {free} free of {total}",
 }

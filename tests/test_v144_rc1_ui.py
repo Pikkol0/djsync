@@ -264,3 +264,25 @@ def test_c215_bigger_covers(demo):  # noqa: F811
     finally:
         ed.close()
         ed.deleteLater()
+
+
+# ------------------------------------------------------------------ C222 : une barre par disque
+def test_c222_space_card_other_disks(demo):  # noqa: F811
+    from types import SimpleNamespace as NS
+
+    from djsync.core import space
+
+    from .qt_util import pump
+
+    view = demo.views["settings"]
+    card = view.space
+    bars = [space.DiskBar("D:\\", "computer", space.Usage({"music": 10, "free": 90}, 100, 90)),
+            space.DiskBar("DJ", "usb", space.Usage({"music": 95, "free": 5}, 100, 5))]
+    card._show_disks(bars)
+    assert len(card.disk_bars) == 2 and len(card._disk_widgets) >= 5        # titre, 2 × (libellé, barre), alerte
+    card._show_disks([])
+    assert not card._disk_widgets
+    done = []
+    card.compute(force=True, done=done.append)
+    assert pump(demo, 8, lambda: bool(done))
+    assert not demo.errors
