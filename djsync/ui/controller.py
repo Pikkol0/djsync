@@ -13,6 +13,7 @@ V0.2.0 : découpé par sujet (ce fichier : évènements, clé USB, recherche, im
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import shutil
 import tempfile
@@ -205,6 +206,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
 
         self.tempo_grids = TempoGridService(self)
+        # 1.4.4 (B128 C, A09 A) : relevé mémoire / processeur dans le journal (pas pendant les tests)
+        from ..core.memwatch import MemWatch
+
+        self.memwatch = MemWatch()
+        if not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("DJSYNC_NO_MEMWATCH"):
+            self.memwatch.start()
         self.player = player or AudioPlayer(
             post=dispatcher.post, on_event=lambda k, p: self._player_event(k, p),
             ffmpeg_location=settings.ffmpeg_location or None,

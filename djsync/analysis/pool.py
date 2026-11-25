@@ -39,14 +39,38 @@ def set_light(light: bool) -> None:
     _light = bool(light)
 
 
-def worker_count(cores: Optional[int] = None) -> int:
+WORKER_MB = 250            # 1.4.4 (A09 B) : mémoire d'un processus d'analyse (mesure du 20/11 : ≈ 200 Mo)
+KEEP_FREE_MB = 1024        # mémoire laissée libre pour l'app et le reste de l'ordinateur
+
+
+def free_memory_mb() -> Optional[int]:
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().available / 1e6)
+    except Exception:  # noqa: BLE001 - psutil absent ou refusé : on ne limite pas
+        log.debug("Free memory unknown", exc_info=True)
+        return None
+
+
+def worker_count(cores: Optional[int] = None, free_mb: Optional[int] = -1) -> int:
+    """cœurs − 1, 4 au plus ; 1.4.4 (A09 B) : et pas plus que la mémoire libre ne le permet (≈ 250 Mo par
+    processus, 1 Go laissé libre) ; au moins 1."""
     if _light or _broken or os.environ.get("DJSYNC_ANALYSIS_WORKERS") == "1":
         return 1
     env = os.environ.get("DJSYNC_ANALYSIS_WORKERS")
     if env and env.isdigit():
         return max(1, min(MAX_WORKERS, int(env)))
     cores = cores if cores is not None else (os.cpu_count() or 1)
-    return max(1, min(MAX_WORKERS, cores - 1))
+    n = max(1, min(MAX_WORKERS, cores - 1))
+    free_mb = free_memory_mb() if free_mb == -1 else free_mb
+    if free_mb is not None:
+        by_memory = max(1, (free_mb - KEEP_FREE_MB) // WORKER_MB)
+        if by_memory < n:
+            log.info("Analysis processes limited by free memory: %d instead of %d (%d MB free)", by_memory, n,
+                     free_mb)
+            n = int(by_memory)
+    return n
 
 
 def _work(path: str, ffmpeg: Optional[str], cutoff_known: bool, grid_mode: str = "auto") -> Any:

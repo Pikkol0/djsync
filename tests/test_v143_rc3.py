@@ -117,10 +117,11 @@ def test_a1_7_main_signal_unchanged_and_spectrum_identical(mp3_file):
 
 
 # --------------------------------------------------------------------------- A1-6 : plusieurs cœurs
-def test_a1_6_worker_count(monkeypatch):
+def test_a1_6_worker_count(monkeypatch):  # 1.4.4 : mémoire libre neutralisée (A09 B)
     from djsync.analysis import pool
 
     monkeypatch.delenv("DJSYNC_ANALYSIS_WORKERS", raising=False)
+    monkeypatch.setattr(pool, "free_memory_mb", lambda: None)
     pool.set_light(False)
     assert pool.worker_count(16) == 4 and pool.worker_count(3) == 2 and pool.worker_count(1) == 1
     pool.set_light(True)

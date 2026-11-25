@@ -121,3 +121,30 @@ def test_c222_one_bar_per_disk(tmp_path, monkeypatch):
     usb = space.usb_disks([NS(root=key, label="DJ"), NS(root=tmp_path / "OPEN", label="OPEN")],
                           skip=[str(tmp_path / "OPEN")])
     assert [x.title for x in usb] == ["DJ"] and usb[0].kind == "usb" and usb[0].usage.parts["music"] == 2000
+
+
+def test_b128_a09_memwatch_sample_and_growth(caplog):
+    import logging
+
+    from djsync.core.memwatch import MemWatch, top_growth
+
+    w = MemWatch()
+    with caplog.at_level(logging.INFO, logger="djsync.memory"):
+        first = w.sample(detail=True)
+        keep = [[i] for i in range(50_000)]                  # des listes en plus
+        second = w.sample(detail=True)
+    assert first.startswith("Memory: RSS") and "top:" in first and "peak" in first
+    assert "grown:" in second and "list +" in second
+    assert any("Memory: RSS" in r.message for r in caplog.records)
+    assert top_growth({"a": 1, "b": 5}, {"a": 4, "b": 5, "c": 2}) == [("a", 3), ("c", 2)]
+    del keep
+
+
+def test_a09_workers_limited_by_free_memory(monkeypatch):
+    from djsync.analysis import pool
+
+    monkeypatch.delenv("DJSYNC_ANALYSIS_WORKERS", raising=False)
+    pool.set_light(False)
+    assert pool.worker_count(16, free_mb=None) == 4
+    assert pool.worker_count(16, free_mb=1024 + 2 * 250) == 2              # 4 Go, peu de mémoire libre
+    assert pool.worker_count(16, free_mb=600) == 1
