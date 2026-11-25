@@ -649,7 +649,9 @@ class LocalRekordboxLibrary:
                 keep = self.backup_dir / f"session-{stamp}"
                 shutil.copytree(target, keep)
                 sessions = sorted(p for p in self.backup_dir.glob("session-*") if p.is_dir())
-                for old in sessions[: -SESSION_KEEP]:
+                from .backup_levels import limit                 # 1.4.4 (C235)
+
+                for old in sessions[: -limit("sessions")]:
                     shutil.rmtree(old, ignore_errors=True)
                 self._session_saved = True
         except OSError as exc:
@@ -1703,7 +1705,7 @@ class LocalRekordboxLibrary:
         from pyrekordbox.masterdb import models
 
         from ..analysis.cues import KIND_FOR_SLOT, save_to_files
-        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
+        from .library.metadata import anlz_keep, prune_folders
 
         self.ensure_writable()
         slots = [c.slot for c in cues if c.slot]
@@ -1715,7 +1717,7 @@ class LocalRekordboxLibrary:
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
             backup.mkdir(parents=True, exist_ok=True)
-            prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+            prune_folders(backup.parent, anlz_keep())
             try:
                 save_to_files(dat, cues, backup)
             except ValueError as exc:

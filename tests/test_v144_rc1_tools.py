@@ -57,3 +57,42 @@ def test_c223_deleted_log_add_search_remove_clear(tmp_path):
     assert len((tmp_path / "DJSync_Backups" / "deleted_tracks.json").read_bytes()) < 400   # ≈ 200 octets par son
     log.clear()
     assert log.entries() == []
+
+
+def test_c235_backup_levels_migrate_and_prune(tmp_path):
+    from djsync.db import backup_levels as bl
+    from djsync.settings import Settings
+
+    s = Settings(backup_keep=5)
+    s.normalize()
+    try:
+        assert bl.from_copies(5) == "light" and bl.from_copies(10) == "normal" and bl.from_copies(50) == "full"
+        root = tmp_path / "DJSync_Backups"
+        for i in range(8):
+            (root / f"master-2026112{i}-000000").mkdir(parents=True)
+            (root / f"master-2026112{i}-000000" / "master.db").write_bytes(b"x" * 1000)
+            (root / f"session-2026112{i}-000000").mkdir()
+        for i in range(40):
+            (root / "anlz" / f"2026112{i:02d}-1-cues").mkdir(parents=True)
+        bl.set_level("light")
+        freed = bl.prune_now(root)
+        assert freed >= 5000
+        assert len(list(root.glob("master-*"))) == 3 and len(list(root.glob("session-*"))) == 1
+        assert len(list((root / "anlz").iterdir())) == 30
+        bl.set_level("bogus")
+        assert bl.level() == "normal" and bl.limit("copies") == 10
+    finally:
+        bl.set_level("normal")
+
+
+def test_c235_settings_level_from_old_copies():
+    from djsync.db import backup_levels as bl
+    from djsync.settings import Settings
+
+    try:
+        for keep, level, copies in ((5, "light", 3), (20, "full", 50), (10, "normal", 10)):
+            s = Settings(backup_keep=keep)
+            out = s.normalize()
+            assert (out.backup_level, out.backup_keep) == (level, copies)
+    finally:
+        bl.set_level("normal")

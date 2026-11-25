@@ -32,7 +32,6 @@ from .common import View
 
 log = logging.getLogger(__name__)
 
-BACKUP_CHOICES = ["5", "10", "20", "50"]
 KEY_NOTATIONS = ("auto", "camelot", "musical")
 SIDEBAR_MODES = ("auto", "on", "off")
 # 1.3.1 (C28) : volet des sections (clé, icône)
@@ -764,11 +763,17 @@ class SettingsView(View):
         self._section = "libraries"
         card = self._card(t("settings.backups"), "folder", t("settings.backups_hint"), key="backups")
         row = hbox()
-        row.addWidget(self._fixed(label(t("settings.backups_keep"))))
+        # 1.4.4 (C235) : un seul réglage, Légères / Normales / Complètes (+ « Supprimer les anciennes »)
+        row.addWidget(self._fixed(label(t("settings.backup_level"))))
         self.keep = ShrinkCombo()
-        self.keep.addItems(BACKUP_CHOICES)
-        self.keep.setCurrentText(str(s.backup_keep) if str(s.backup_keep) in BACKUP_CHOICES else "10")
+        for lvl in ("light", "normal", "full"):
+            self.keep.addItem(t(f"settings.backup_level_{lvl}"), lvl)
+        self.keep.setCurrentIndex(max(0, self.keep.findData(s.backup_level or "normal")))
+        self.keep.setToolTip(t("settings.backup_level_tip"))
         row.addWidget(self.keep)
+        self.prune_btn = button(t("settings.backup_prune"), self._prune_backups, kind="flat", icon="trash",
+                                tooltip=t("settings.backup_prune_tip"))
+        row.addWidget(self.prune_btn)
         row.addStretch(1)
         card.addLayout(row)
         row = hbox()                                       # 1.3.2 (C82) : délai pour annuler une fusion
@@ -1474,6 +1479,30 @@ class SettingsView(View):
         self.ctrl._emit("restyle")
 
     # ------------------------------------------------------------------ clé
+    def _prune_backups(self) -> None:
+        """1.4.4 (C235) : sauvegardes en trop supprimées tout de suite (niveau choisi), place libérée annoncée."""
+        lib = self.ctrl.library
+        if lib is None:
+            self.ctrl.message("warn", t("msg.no_drive"))
+            return
+        from ...db import backup_levels
+        from .common import human_size
+
+        backup_levels.set_level(self.keep.currentData() or "normal")
+        self.prune_btn.setEnabled(False)
+
+        def done(freed: int) -> None:
+            self.prune_btn.setEnabled(True)
+            self.ctrl.message("ok", t("settings.backup_pruned", size=human_size(freed)))
+            self._space_done = False
+            self._space_if_shown()
+
+        def failed(exc: BaseException) -> None:
+            self.prune_btn.setEnabled(True)
+            self.ctrl._on_error(exc)
+
+        self.ctrl.dispatcher.submit(lambda: backup_levels.prune_now(lib.backup_dir), done, failed, pool="tools")
+
     def _wave_style_follow(self, *_a: Any) -> None:
         """1.4.4 (C234) : type de forme d'onde changé depuis Grille et cues : la liste suit, sans signal."""
         box = getattr(self, "wave_style", None)
@@ -1928,7 +1957,7 @@ class SettingsView(View):
                 "ffmpeg_location": self.ffmpeg.text().strip(),
                 "fetch_views": self.views_var.isChecked(),
                 "fetch_metadata": self.meta_var.isChecked(),
-                "backup_keep": int(self.keep.currentText()),
+                "backup_level": self.keep.currentData() or "normal",
                 "merge_undo_s": int(self.merge_undo.currentData() or 10),
                 "pdb_sync": "auto" if self.pdb_var.isChecked() else "off",
                 "pdb_allow_growth": self.pdb_growth_var.isChecked(),
@@ -2045,7 +2074,10 @@ class SettingsView(View):
         s.ffmpeg_location = self.ffmpeg.text().strip()
         s.fetch_views = self.views_var.isChecked()
         s.fetch_metadata = self.meta_var.isChecked()
-        s.backup_keep = int(self.keep.currentText())
+        from ...db import backup_levels                       # 1.4.4 (C235)
+
+        s.backup_level = backup_levels.set_level(self.keep.currentData() or "normal")
+        s.backup_keep = backup_levels.LEVELS[s.backup_level]["copies"]
         s.merge_undo_s = int(self.merge_undo.currentData() or 10)
         s.pdb_sync = "auto" if self.pdb_var.isChecked() else "off"
         s.pdb_allow_growth = self.pdb_growth_var.isChecked()

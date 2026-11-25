@@ -177,14 +177,14 @@ def prepare_grid(grid: Any, beats: Sequence[Tuple[int, int, int]], backup_dir: P
     """.DAT réécrit (PQTZ), grille étendue PQT2 retirée des .EXT/.2EX ; copie des originaux dans
     `backup_dir/anlz/<date>-<id>/` AVANT toute écriture (les plus anciennes copies sont élaguées)."""
     from ..analysis.anlz import drop_extended_grid, replace_beats
-    from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
+    from .library.metadata import anlz_keep, prune_folders
 
     beats = check_beats(beats)
     files = [f for f in [grid.dat_path] + [grid.dat_path.with_suffix(s) for s in (".EXT", ".2EX")] if f.is_file()]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup = backup_dir / "anlz" / f"{stamp}-{content_id}"
     backup.mkdir(parents=True, exist_ok=True)
-    prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+    prune_folders(backup.parent, anlz_keep())
     originals = {f: f.read_bytes() for f in files}
     for f, data in originals.items():
         (backup / f.name).write_bytes(data)

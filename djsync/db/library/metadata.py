@@ -11,6 +11,13 @@ from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 ANLZ_BACKUPS_KEEP = 200          # grilles d'origine conservées (les plus récentes) ; 1.4.3 (A6-11) : 30 → 200
 
 
+def anlz_keep() -> int:
+    """1.4.4 (C235) : selon le niveau de sauvegarde (Légères 30, Normales 200, Complètes 1000)."""
+    from ..backup_levels import limit
+
+    return limit("anlz")
+
+
 def prune_folders(folder: Path, keep: int) -> None:
     """Ne garde que les `keep` sous-dossiers les plus récents (noms horodatés)."""
     import shutil
@@ -396,7 +403,7 @@ class MetadataMixin:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
         backup.mkdir(parents=True, exist_ok=True)
-        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+        prune_folders(backup.parent, anlz_keep())
         try:
             save_to_files(dat, cues, backup)
         except ValueError as exc:

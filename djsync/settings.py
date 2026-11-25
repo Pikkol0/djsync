@@ -63,7 +63,8 @@ class Settings:
     fetch_views: bool = True        # charger les vues des Titres en arrière-plan
     fetch_metadata: bool = True     # V0.3.0 : album, année, genre, label… (Deezer) au téléchargement
     spotify_preference: str = "auto"
-    backup_keep: int = 10
+    backup_keep: int = 10           # 1.4.4 (C235) : déduit de backup_level
+    backup_level: str = ""          # 1.4.4 (C235) : light | normal | full ("" : repris de backup_keep)
     volume: float = 0.8
     geometry: str = ""
     # ---- V1.1
@@ -272,6 +273,12 @@ class Settings:
             self.waveform_style = "3band"
         if self.tempo_grid not in ("auto", "never"):                                               # 1.4.3 (C16)
             self.tempo_grid = "auto"
+        from .db import backup_levels                                                                # 1.4.4 (C235)
+
+        if self.backup_level not in backup_levels.LEVELS:
+            self.backup_level = backup_levels.from_copies(int(self.backup_keep or 10))
+        self.backup_keep = backup_levels.LEVELS[self.backup_level]["copies"]
+        backup_levels.set_level(self.backup_level)
         return self
 
     def native_parts(self) -> tuple:
