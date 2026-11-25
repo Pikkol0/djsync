@@ -37,3 +37,23 @@ def test_c230_dry_run_prints_json(tmp_path, capsys):
     (tmp_path / "DJSync-macOS.dmg").write_bytes(b"x" * 100)
     assert bmr.main(["v9", str(tmp_path), "--dry-run"]) == 0
     assert json.loads(capsys.readouterr().out)["dmg_mb"] == 0.0
+
+
+def test_c223_deleted_log_add_search_remove_clear(tmp_path):
+    from types import SimpleNamespace as NS
+
+    from djsync.core.deleted_log import DeletedLog, search
+
+    log = DeletedLog(tmp_path / "DJSync_Backups")
+    assert log.entries() == []
+    n = log.add([NS(title="Umbrella", artist="Rihanna", source_url="https://youtu.be/x"),
+                 NS(title="One More Time", artist="Daft Punk", source_url=None), NS(title="", artist="")])
+    items = log.entries()
+    assert n == 2 and [x.title for x in items] == ["Umbrella", "One More Time"]
+    assert items[0].url == "https://youtu.be/x" and items[1].query == "Daft Punk - One More Time"
+    assert [x.title for x in search(items, "daft")] == ["One More Time"]
+    log.remove([items[0]])
+    assert [x.title for x in log.entries()] == ["One More Time"]
+    assert len((tmp_path / "DJSync_Backups" / "deleted_tracks.json").read_bytes()) < 400   # ≈ 200 octets par son
+    log.clear()
+    assert log.entries() == []

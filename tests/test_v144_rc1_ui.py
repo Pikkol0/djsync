@@ -204,3 +204,45 @@ def test_c236_duplicates_pause_manual_and_selection(demo):  # noqa: F811
     finally:
         demo.ctrl.settings.dup_auto_verify = True
         dup.close()
+
+
+# ------------------------------------------------------------------ C220 : réglage visé mis en valeur
+def test_c220_settings_target_flashes(demo):  # noqa: F811
+    from .qt_util import pump
+
+    view = demo.views["settings"]
+    demo._open_settings_section("libraries")
+    pump(demo, 0.2)
+    head = view._heads["libraries"]
+    assert head.property("flashed") is True
+    assert pump(demo, 3, lambda: head.property("flashed") is False)       # s'efface seul
+    view.search.setText("export.pdb")
+    pump(demo, 1.0)
+    shown = [box for _s, box in view._cards if box.isVisibleTo(view)]
+    assert shown and all(box.property("flashed") for box in shown)
+    view.search.clear()
+
+
+# ------------------------------------------------------------------ C223 : sons supprimés, retélécharger
+def test_c223_deleted_tracks_listed_and_redownloaded(demo):  # noqa: F811
+    from djsync.core.deleted_log import DeletedLog
+    from djsync.ui.deleted_dialog import DeletedTracksDialog
+
+    from .qt_util import pump
+
+    lib = demo.ctrl.library
+    track = next(x for x in lib.list_tracks() if x.title == "Umbrella")
+    demo.ctrl.delete_tracks([track.content_id], delete_files=False)
+    assert pump(demo, 6, lambda: bool(DeletedLog(lib.backup_dir).entries()))
+    entry = DeletedLog(lib.backup_dir).entries()[0]
+    assert entry.title == "Umbrella"
+    d = DeletedTracksDialog(demo.views["library"], demo.ctrl)
+    assert d.list.count() == 1
+    seen = []
+    view = demo.views["import"]
+    view.analyse = lambda: seen.append(view.url.text())
+    view.open_url = lambda url: seen.append(url)
+    d.list.item(0).setSelected(True)
+    d.redownload()
+    assert seen == [entry.url or entry.query]
+    assert demo.current == "import"

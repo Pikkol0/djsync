@@ -215,7 +215,7 @@ class HomeView(View):
     def open_settings(self, section: str) -> None:
         app = self.window()
         app.show_view("settings")
-        app.views["settings"].show_section(section)
+        app.views["settings"].show_section(section, highlight=True)           # 1.4.4 (C220)
 
     # ------------------------------------------------------------------- clés
     def on_show(self) -> None:

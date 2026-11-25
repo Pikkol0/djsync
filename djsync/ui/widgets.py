@@ -791,3 +791,27 @@ class LinkOrListEdit(QPlainTextEdit):
         m = self.contentsMargins()
         pad = int(self.document().documentMargin() * 2) + m.top() + m.bottom() + theme.px(10)
         self.setFixedHeight(n * self._line_height() + pad)
+
+
+def flash(widget: Any, ms: int = 1600) -> None:
+    """1.4.4 (C220) : met en valeur un élément à l'arrivée (lien, recherche) : cadre et fond de la couleur
+    d'accent, qui s'effacent seuls. Sans effet sur un élément détruit entre-temps."""
+    from PySide6.QtCore import QTimer
+
+    if widget is None:
+        return
+    name = widget.objectName() or f"flash{id(widget)}"
+    widget.setObjectName(name)
+    old = widget.styleSheet()
+    widget.setProperty("flashed", True)
+    widget.setStyleSheet(old + f"\n#{name} {{ border: 2px solid {theme.ACCENT}; background: {theme.ACCENT_DIM};"
+                               f" border-radius: {theme.px(8)}px; }}")
+
+    def back() -> None:
+        try:
+            widget.setStyleSheet(old)
+            widget.setProperty("flashed", False)
+        except RuntimeError:                       # détruit
+            pass
+
+    QTimer.singleShot(ms, back)

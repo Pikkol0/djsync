@@ -1722,6 +1722,13 @@ class LibraryView(View):
             return
         self.window().open_diagnostic("dup")             # 1.3.1 (C41) : onglet Doublons du Diagnostic
 
+    def _deleted_tracks(self) -> None:
+        if not self.ctrl.has_library:
+            return
+        from ..deleted_dialog import DeletedTracksDialog
+
+        DeletedTracksDialog(self, self.ctrl)
+
     def _tools_menu(self) -> None:
         sel = self._selected_tracks()
         # 1.4.2 (C182, A06) : seulement les outils de liste ; ce qui touche un son est dans son menu (clic droit)
@@ -1732,6 +1739,7 @@ class LibraryView(View):
         entries.append((t("meta.complete_sel", n=len(sel)) if sel else t("meta.complete_all"),
                         lambda: self._complete_metadata(target), "tag"))
         entries.append((t("transfer.menu") + "…", lambda: self._transfer(), "copy"))       # 1.4.2 (C23)
+        entries.append((t("deleted.title") + "…", self._deleted_tracks, "trash"))           # 1.4.4 (C223)
         # 1.4.3-rc.2 (C224) : filtre harmonique (coché quand il est actif)
         entries.append((("✓ " if self._harmonic is not None else "") + t("lib.harmonic"), self._toggle_harmonic,
                         "key"))

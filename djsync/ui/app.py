@@ -1120,7 +1120,7 @@ class DJSyncApp(QMainWindow):
     # ------------------------------------------------- 1.3.1 (C41/C43) : Diagnostic en onglets
     def _open_settings_section(self, section: str) -> None:
         self.show_view("settings")
-        self.views["settings"].show_section(section)
+        self.views["settings"].show_section(section, highlight=True)          # 1.4.4 (C220)
 
     # ------------------------------------------------- 1.4.2 (C182) : carte « Bibliothèque active »
     def drive_menu_entries(self) -> list:

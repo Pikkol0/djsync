@@ -1190,11 +1190,18 @@ class SettingsView(View):
         self.format_warn.setVisible(q.startswith("mp3"))
         self.yt_best_warn.setVisible(q == "yt_best")
 
-    def show_section(self, key: str, remember: bool = True) -> None:
+    def show_section(self, key: str, remember: bool = True, highlight: Any = None) -> None:
         """Fait défiler jusqu'à une section (aussi appelé depuis l'app : lien « export.pdb pas à jour »).
-        1.3.2-rc.2 (C121) : toutes les sections restent affichées, l'une sous l'autre."""
+        1.3.2-rc.2 (C121) : toutes les sections restent affichées, l'une sous l'autre.
+        1.4.4 (C220) : `highlight` (carte ou réglage visé, sinon le titre de la section) est mis en valeur à
+        l'arrivée, pour les liens venus d'ailleurs dans l'app."""
         if key not in dict(SECTIONS):
             return
+        if highlight is not None:
+            from ..widgets import flash
+
+            target = highlight if highlight is not True else getattr(self, "_heads", {}).get(key)
+            QTimer.singleShot(0, lambda w=target: flash(w))
         self._set_nav(key)
         self._start_section = key                        # 1.4.0-rc.2 (B57) : défilement refait à l'affichage
         if self.search.text():
@@ -1277,6 +1284,22 @@ class SettingsView(View):
         self.sections.blockSignals(False)
         self.no_match.setText(t("settings.search_none", text=self.search.text()))
         self.no_match.setVisible(bool(words) and not shown)
+        # 1.4.4 (C220) : recherche : la ou les cartes trouvées mises en valeur (après une courte pause de frappe)
+        if words and shown:
+            if not hasattr(self, "_flash_timer"):
+                self._flash_timer = QTimer(self)
+                self._flash_timer.setSingleShot(True)
+                self._flash_timer.timeout.connect(self._flash_matches)
+            self._flash_timer.start(600)
+
+    def _flash_matches(self) -> None:
+        from ..widgets import flash
+
+        if not self.search.text().split():
+            return
+        for _sec, box in self._cards:
+            if box.isVisibleTo(self):
+                flash(box)
 
     def _space_if_shown(self) -> None:
         """C27 : mesure lancée seulement quand la carte « Espace » arrive à l'écran (C121 : en défilant)."""
@@ -1300,6 +1323,9 @@ class SettingsView(View):
             bar = self.area.verticalScrollBar()
             bar.setValue(min(bar.maximum(), self.space_box.y()))
             self._space_if_shown()
+            from ..widgets import flash
+
+            flash(self.space_box)                          # 1.4.4 (C220) : carte visée mise en valeur
 
         QTimer.singleShot(120, go)
 
