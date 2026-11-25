@@ -7,7 +7,7 @@ position) ; la base est sauvegardée avant la modification.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -363,37 +363,74 @@ class DuplicatesDialog(BaseDialog):
         self._select(start if groups else -1)
         self._refine_next()
 
-    def _fill_list(self) -> None:
-        self.list.blockSignals(True)
-        row, top = self.list.currentRow(), self.list.verticalScrollBar().value()     # 1.3.2 (C98)
-        self.list.clear()
+    def _list_entries(self) -> List[Tuple[str, bool, str, bool]]:
+        """(texte, grisé, info-bulle, sélectionnable) de chaque ligne de la liste des groupes."""
+        out: List[Tuple[str, bool, str, bool]] = []
         for i, g in enumerate(self.groups):
             k = best_keeper(g)
             title, artist = split_display(k.title, k.artist)
-            item = QListWidgetItem(f"{title}\n{artist or '—'}  ·  ×{len(g)}")
+            tip, dim = "", False
             if i < len(self.verified) and not self.verified[i]:
                 queued = any(g is p for p in self._priority) or g is self._refining
-                item.setToolTip(t("dup.unchecked_next") if queued else t("dup.unchecked"))
-                item.setForeground(QColor(theme.DIM))
-            self.list.addItem(item)
+                tip, dim = (t("dup.unchecked_next") if queued else t("dup.unchecked")), True
+            out.append((f"{title}\n{artist or '—'}  ·  ×{len(g)}", dim, tip, True))
         if self.same_titles:                                   # 1.3.2 (C80) : section repliée en bas
-            head = QListWidgetItem(t("dup.same_titles_head", n=len(self.same_titles)))
-            head.setFlags(Qt.NoItemFlags)
-            head.setForeground(QColor(theme.DIM))
-            self.list.addItem(head)
+            out.append((t("dup.same_titles_head", n=len(self.same_titles)), True, "", False))
             for g in self.same_titles:
                 k = g[0]
                 title, artist = split_display(k.title, k.artist)
-                item = QListWidgetItem(f"{title}\n{artist or '—'}  ·  ≠ {len(g)}")
-                item.setForeground(QColor(theme.DIM))
-                item.setToolTip(t("dup.same_titles_tip"))
+                out.append((f"{title}\n{artist or '—'}  ·  ≠ {len(g)}", True, t("dup.same_titles_tip"), True))
+        return out
+
+    def _fill_list(self) -> None:
+        """1.4.3 (B122) : lignes mises à jour sur place quand la liste garde sa forme (la vérification du son
+        ne change souvent qu'une couleur ou un compteur) : plus de liste vidée puis refaite, donc plus de ligne
+        sélectionnée qui clignote ni de défilement qui saute. Sinon reconstruite sans dessin intermédiaire."""
+        entries = self._list_entries()
+        self.list.blockSignals(True)
+        same_shape = self.list.count() == len(entries) and all(
+            bool(self.list.item(i).flags() & Qt.ItemIsSelectable) == sel for i, (_, _, _, sel) in enumerate(entries))
+        if same_shape:
+            for i, (text, dim, tip, _sel) in enumerate(entries):
+                item = self.list.item(i)
+                if item.text() != text:
+                    item.setText(text)
+                if item.toolTip() != tip:
+                    item.setToolTip(tip)
+                want = QColor(theme.DIM) if dim else None
+                if (item.data(Qt.ForegroundRole) is not None) != dim or (
+                        dim and item.foreground().color() != want):
+                    if dim:
+                        item.setForeground(want)
+                    else:
+                        item.setData(Qt.ForegroundRole, None)
+            self._update_count()
+            self.list.blockSignals(False)
+            return
+        row, top = self.list.currentRow(), self.list.verticalScrollBar().value()     # 1.3.2 (C98)
+        self.list.setUpdatesEnabled(False)                                           # 1.4.3 (B122)
+        auto = self.list.hasAutoScroll()
+        self.list.setAutoScroll(False)                # 1.4.3 (B122) : la sélection rendue ne fait pas défiler
+        try:
+            self.list.clear()
+            for text, dim, tip, sel in entries:
+                item = QListWidgetItem(text)
+                if not sel:
+                    item.setFlags(Qt.NoItemFlags)
+                if dim:
+                    item.setForeground(QColor(theme.DIM))
+                if tip:
+                    item.setToolTip(tip)
                 self.list.addItem(item)
-        self._update_count()
-        if 0 <= row < self.list.count():              # 1.3.2 (C98) : sélection et défilement gardés
-            self.list.setCurrentRow(row)
-            self.list.doItemsLayout()                 # 1.4.3-rc.2 (B122) : hauteur connue avant de redéfiler
-            self.list.verticalScrollBar().setValue(top)
-        self.list.blockSignals(False)
+            self._update_count()
+            if 0 <= row < self.list.count():          # 1.3.2 (C98) : sélection et défilement gardés
+                self.list.setCurrentRow(row)
+                self.list.doItemsLayout()             # 1.4.3-rc.2 (B122) : hauteur connue avant de redéfiler
+                self.list.verticalScrollBar().setValue(top)
+        finally:
+            self.list.setAutoScroll(auto)
+            self.list.setUpdatesEnabled(True)
+            self.list.blockSignals(False)
 
     def _clear_detail(self) -> None:
         for b in list(self._keep.buttons()):

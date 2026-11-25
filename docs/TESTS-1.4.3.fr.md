@@ -283,3 +283,14 @@ Tests automatiques : `tests/test_v143_rc4_b126.py`.
 |---|---|---|---|---|
 | GEL-3 | Auteur | Windows | (**B126**) Exe rc.4, colonne Doublon affichée : lancer DJSync (bibliothèque de l'ordinateur), passer la souris sur la liste ; supprimer 3 sons, repasser la souris. Envoyer le journal. | Le surlignage suit la souris. Journal : « Fuzzy matching (rapidfuzz): compiled » ; aucune ligne « Duplicate groups: … » (calcul sous 0,5 s), ou une ligne de moins d'une seconde. |
 | GEL-4 | Testeur Mac | macOS | (**B126**) Lancer la rc.4, envoyer le journal. | « Fuzzy matching (rapidfuzz): compiled ». |
+
+## 1.4.3 stable — Doublons : ligne sélectionnée stable
+
+Fiche : **B122** (FUS-3 KO en rc.4 : la ligne sélectionnée tremblait encore pendant la vérification du son). Correctif :
+les lignes de la liste des groupes sont mises à jour sur place quand la liste garde sa forme ; sinon reconstruite sans
+dessin intermédiaire ni défilement. Décision de l'auteur (25/11) : corrigé directement dans la stable, sans rc.5 ;
+tests Mac non bloquants. Tests automatiques : `tests/test_v143_b122_stable.py`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| FUS-5 | Auteur | Windows | (**B122**) 1.4.3 : Doublons pendant la vérification du son (beaucoup de groupes), un groupe choisi en bas de la liste. | Ni la liste ni la ligne sélectionnée ne bougent quand les compteurs et les couleurs changent. |
