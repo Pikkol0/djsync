@@ -320,6 +320,9 @@ jobs:
           # the release is created by the "release" job (Windows + Linux); wait for it (up to 1 h)
           for i in $(seq 1 120); do gh release view "$TAG" >/dev/null 2>&1 && break; sleep 30; done
           gh release upload "$TAG" out/* --clobber
+      - name: Dashboard figures (C230, .dmg size)
+        if: github.ref_type == 'tag'
+        run: python packaging/build_metrics_record.py "${{ github.ref_name }}" out
 
   linux:
     runs-on: ubuntu-22.04                   # oldest supported glibc: runs on most distributions
@@ -423,3 +426,9 @@ jobs:
           else
             gh release create "$TAG" out/* --title "DJSync ${TAG#v}" --notes-file notes.md $flags --verify-tag
           fi
+      - name: Dashboard figures (C230, build time and sizes, on branch metrics)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          started=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" --jq .run_started_at || true)
+          python3 packaging/build_metrics_record.py "${{ github.ref_name }}" out --started "$started" --result ok

@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QObject, QSize, Qt
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QRadioButton, QToolButton,
-    QTreeWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPlainTextEdit, QPushButton,
+    QRadioButton, QSizePolicy, QToolButton, QTreeWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -725,3 +725,69 @@ class ShrinkLabel(QLabel):
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         return QSize(min(theme.px(self.MIN), self.sizeHint().width()), super().minimumSizeHint().height())
+
+
+class LinkOrListEdit(QPlainTextEdit):
+    """1.4.4 (C216) : champ « Lien ou playlist » qui accepte aussi une liste de sons, un par ligne.
+
+    Un lien seul : Entrée lit le lien (comme un QLineEdit). Sinon Entrée passe à la ligne, le champ grandit
+    jusqu'à `max_lines` lignes puis défile ; Ctrl+Entrée lance la recherche. Garde l'interface utile d'un
+    QLineEdit (`text`, `setText`, `returnPressed`, `placeholderText`)."""
+
+    returnPressed = Signal()
+    contentChanged = Signal()
+
+    def __init__(self, placeholder: str = "", is_link: Optional[Callable[[str], bool]] = None,
+                 max_lines: int = 8, parent: Any = None) -> None:
+        super().__init__(parent)
+        self._is_link = is_link or (lambda s: s.lower().startswith(("http://", "https://")))
+        self._max_lines = max_lines
+        self.setPlaceholderText(placeholder)
+        self.setProperty("role", "big")
+        self.setTabChangesFocus(True)
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.document().setDocumentMargin(theme.px(4))
+        self.textChanged.connect(self._grow)
+        self.textChanged.connect(self.contentChanged)
+        self._grow()
+
+    # -- interface de QLineEdit
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, text: str) -> None:
+        self.setPlainText(text or "")
+        cur = self.textCursor()
+        cur.movePosition(cur.MoveOperation.End)
+        self.setTextCursor(cur)
+
+    # -- contenu
+    def lines(self) -> list:
+        """Lignes non vides (espaces retirés)."""
+        return [ln.strip() for ln in self.toPlainText().splitlines() if ln.strip()]
+
+    def is_link(self) -> bool:
+        """Un seul lien (une ligne) : lecture du lien ; sinon liste de sons."""
+        ls = self.lines()
+        return len(ls) == 1 and bool(self._is_link(ls[0]))
+
+    def keyPressEvent(self, event: Any) -> None:  # noqa: N802 (Qt)
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            ctrl = bool(event.modifiers() & Qt.ControlModifier)
+            shift = bool(event.modifiers() & Qt.ShiftModifier)
+            if ctrl or (not shift and (not self.lines() or self.is_link())):
+                self.returnPressed.emit()
+                return
+        super().keyPressEvent(event)
+
+    def _line_height(self) -> int:
+        return self.fontMetrics().lineSpacing()
+
+    def _grow(self) -> None:
+        n = max(1, min(self._max_lines, self.document().blockCount()))
+        m = self.contentsMargins()
+        pad = int(self.document().documentMargin() * 2) + m.top() + m.bottom() + theme.px(10)
+        self.setFixedHeight(n * self._line_height() + pad)

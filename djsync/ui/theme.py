@@ -282,7 +282,7 @@ QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {S
               border-radius: {r6}px; padding: {p(5)}px {p(8)}px; selection-background-color: {ACCENT_DIM}; }}
 QLineEdit:hover, QComboBox:hover {{ border-color: {mix(BORDER, TEXT, 0.15)}; }}
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
-QLineEdit[role="big"] {{ padding: {p(9)}px {p(10)}px; font-size: {font_pt(1.5):.1f}pt; border-radius: {r8}px; }}
+QLineEdit[role="big"], QPlainTextEdit[role="big"] {{ padding: {p(9)}px {p(10)}px; font-size: {font_pt(1.5):.1f}pt; border-radius: {r8}px; }}
 QComboBox::drop-down {{ border: 0; width: {p(20)}px; }}
 QComboBox QAbstractItemView {{ background: {ELEV}; border: 1px solid {BORDER}; selection-background-color: {ACCENT_DIM}; padding: {p(4)}px; }}
 QCheckBox, QRadioButton {{ background: transparent; spacing: {p(8)}px; }}
