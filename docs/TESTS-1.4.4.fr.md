@@ -3,7 +3,7 @@
 Numérotation : thème en 3 lettres + n° (voir `revues/numerotation-tests.md`) ; dans le suivi : « 144 · REC-1 ».
 Règle : un test OK sous Windows est validé ; Mac et Linux seulement pour un point qui leur est propre.
 
-## rc.1
+## rc.1, lot 1
 
 Fiches codées : C230, C216, C231, C232, C233, C234, C226, C227, C236, C220, C223, C235, C215, C222,
 A09 (A : relevé ; B : processus d'analyse selon la mémoire libre), B128 (C : relevé de ce qui gonfle).
@@ -54,7 +54,7 @@ Tests automatiques : `tests/test_v144_rc1_ui.py`, `tests/test_v144_rc1_tools.py`
 
 - **C230** : à la fin du build d'un tag, `metrics/<tag>.json` sur la branche `metrics` (durée, tailles exe / dmg / tar.gz). Vérifié au tag `v1.4.4-rc.1` : `git fetch origin metrics && git show origin/metrics:metrics/v1.4.4-rc.1.json`.
 
-## Non codées dans la rc.1
+## rc.1, lot 2 (à venir, même rc)
 
-- Bloquées : **C107** (clé passée sur platines), **B115**, **B118** (bibliothèque volumineuse d'un testeur), **C15** (essai sur la tour avec Rekordbox 7 ouvert).
-- À coder dans une rc suivante : **C219**, **C225**, **C138**, **A08**, **C221**, **B125**, **C108**, **A09** (reste de B : lecture au fil de l'eau A1-11).
+- À coder : **C219**, **C225**, **C138**, **A08**, **C221**, **B125**, **C108**, **A09** (reste de B : lecture au fil de l'eau A1-11).
+- Bloquées (sautées si toujours bloquées) : **C107** (clé passée sur platines), **B115**, **B118** (bibliothèque volumineuse d'un testeur), **C15** (essai sur la tour avec Rekordbox 7 ouvert).
