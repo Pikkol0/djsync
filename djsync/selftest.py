@@ -37,12 +37,34 @@ def _ytdlp() -> Dict[str, Any]:
     return info
 
 
+def _rapidfuzz_first() -> Dict[str, Any]:
+    """1.4.3-rc.4 (B126) : partie compilée de rapidfuzz, vérifiée AVANT tout autre import (numpy) et avant
+    l'ajout des dossiers `.libs` (portable.add_wheel_dll_dirs) : c'est l'état de l'app quand elle importe
+    rapidfuzz. En rc.3, l'autotest importait numpy d'abord, qui chargeait la DLL de rapidfuzz à sa place :
+    « compiled » ici, Python pur dans l'app."""
+    from .core.fuzzy import describe
+
+    loaded = sorted(m for m in ("numpy",) if m in sys.modules)          # numpy porte la même DLL
+    backend = describe()
+    if backend != "compiled":
+        raise RuntimeError(f"rapidfuzz runs its pure-Python fallback: {backend}")
+    if loaded:
+        raise RuntimeError(f"checked too late: {', '.join(loaded)} already imported")
+    return {"backend": backend}
+
+
 def run(target: str) -> int:
     from . import full_version, portable
 
+    first: Dict[str, Any]
+    try:
+        first = {"ok": True, "value": _rapidfuzz_first()}
+    except Exception as exc:  # noqa: BLE001 - consigné dans le rapport
+        first = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]}
     portable.prepare_environment(hide=False)      # l'autotest ne touche à rien (CI : zip fait ensuite)
     report: Dict[str, Any] = {"djsync": full_version(), "frozen": bool(getattr(sys, "frozen", False)), "checks": {}}
-    ok = True
+    report["checks"]["rapidfuzz_compiled"] = first
+    ok = bool(first["ok"])
 
     def check(name: str, fn: Callable[[], Any]) -> None:
         nonlocal ok
@@ -70,15 +92,16 @@ def run(target: str) -> int:
     check("tools", tools)
 
     def fuzzy() -> str:
-        """1.4.3-rc.3 (B126) : rapidfuzz avec sa partie compilée (en Python pur, les doublons gèlent l'app)."""
-        from .core.duplicates import fuzzy_backend
+        """1.4.3-rc.3 (B126) : rapidfuzz compilé aussi après les autres imports (1.4.3-rc.4 : le contrôle
+        décisif, « rapidfuzz_compiled », est fait en premier, voir _rapidfuzz_first)."""
+        from .core.fuzzy import describe
 
-        backend = fuzzy_backend()
+        backend = describe()
         if backend != "compiled":
-            raise RuntimeError(f"rapidfuzz runs its pure-Python fallback ({backend})")
+            raise RuntimeError(f"rapidfuzz runs its pure-Python fallback: {backend}")
         return backend
 
-    check("rapidfuzz_compiled", fuzzy)
+    check("rapidfuzz_after_imports", fuzzy)
 
     def icons() -> Dict[str, Any]:
         """1.4.0-rc.6 (C160) : toutes les icônes dessinées se dessinent dans le build (dont l'œil « watch »)."""

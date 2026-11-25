@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
 
@@ -234,7 +235,11 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
         cached = _GROUPS_CACHE.get("last")
     if cached is not None and cached[0] == sig:
         return [[items[i] for i in g] for g in cached[1]]
+    started = time.monotonic()
     out = _duplicate_groups(items, title_threshold, max_duration_gap, ignored)
+    took = time.monotonic() - started
+    if took >= SLOW_GROUPS_S:                  # 1.4.3-rc.4 (B126) : calcul lourd en arrière-plan, au journal
+        log.info("Duplicate groups: %d tracks, %.1f s, rapidfuzz %s", len(items), took, fuzzy_backend())
     index = {id(x): i for i, x in enumerate(items)}
     with _GROUPS_LOCK:
         _GROUPS_CACHE["last"] = (sig, [[index[id(x)] for x in g] for g in out])
@@ -243,15 +248,15 @@ def find_duplicate_groups(tracks: Iterable[Any], title_threshold: int = 90,
 
 def fuzzy_backend() -> str:
     """1.4.3-rc.3 (B126) : « compiled » si rapidfuzz utilise sa partie compilée, « python » s'il s'est rabattu
-    sur son code Python pur (50 à 100 fois plus lent : partie compilée absente de l'exe)."""
-    from rapidfuzz import fuzz as _fuzz, process as _process
+    sur son code Python pur (50 à 100 fois plus lent). 1.4.3-rc.4 : voir core/fuzzy.py."""
+    from .fuzzy import backend
 
-    mods = (getattr(_process.cdist, "__module__", "") or "", getattr(_fuzz.ratio, "__module__", "") or "")
-    return "python" if any(m.endswith("_py") for m in mods) else "compiled"
+    return backend()
 
 
 _GROUPS_CACHE: Dict[str, Any] = {}
 _GROUPS_LOCK = __import__("threading").Lock()
+SLOW_GROUPS_S = 0.5               # 1.4.3-rc.4 (B126) : durée à partir de laquelle le calcul est journalisé
 _BLOCK = 1000                     # 1.4.3 (A1-8, A) : lignes de la matrice calculées par bloc
 
 

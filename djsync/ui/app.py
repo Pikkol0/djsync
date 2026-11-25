@@ -315,9 +315,9 @@ class DJSyncApp(QMainWindow):
             log.info("Machine: %s, light mode %s (%s)", info.describe(),
                      "on" if light_active(self.ctrl.settings, info) else "off", self.ctrl.settings.light_mode)
             try:                                       # 1.4.3-rc.3 (B126) : partie compilée de rapidfuzz présente ?
-                from ..core.duplicates import fuzzy_backend
+                from ..core.fuzzy import describe     # 1.4.3-rc.4 : avec l'erreur d'import si Python pur
 
-                backend = fuzzy_backend()
+                backend = describe()
                 (log.info if backend == "compiled" else log.warning)("Fuzzy matching (rapidfuzz): %s", backend)
             except Exception:  # noqa: BLE001 - information seulement
                 log.debug("Fuzzy backend not checked", exc_info=True)
