@@ -229,7 +229,31 @@ def prepare_environment(start: Optional[Path] = None, hide: bool = True) -> list
     cache les fichiers d'accompagnement de l'exe."""
     if hide and getattr(sys, "frozen", False) and start is None:
         hide_support_files()
+    add_wheel_dll_dirs()
     added = [str(d) for d in tool_dirs(start)]
     if added:
         os.environ["PATH"] = os.pathsep.join(added + [os.environ.get("PATH", "")])
     return added
+
+
+_DLL_DIRS: list = []
+
+
+def add_wheel_dll_dirs(root: Optional[Path] = None) -> list:
+    """1.4.3-rc.4 (B126, B) : exe Windows : dossiers `<paquet>.libs` (DLL renommées par delvewheel, dont le
+    msvcp140-… de rapidfuzz) ajoutés aux dossiers de recherche des DLL, quel que soit l'ordre des imports.
+    Le build ne gardait cette DLL que dans `numpy.libs` : rapidfuzz importé avant numpy ne la trouvait pas
+    et se rabattait sans rien dire sur son code Python pur (doublons 100 fois plus lents)."""
+    base = root if root is not None else (Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "frozen", False) else None)
+    add = getattr(os, "add_dll_directory", None)
+    if base is None or add is None or not base.is_dir():
+        return []
+    done = []
+    for d in sorted(base.glob("*.libs")):
+        if d.is_dir():
+            try:
+                _DLL_DIRS.append(add(str(d)))          # gardé : fermé, le dossier serait retiré
+                done.append(d.name)
+            except OSError:
+                pass
+    return done

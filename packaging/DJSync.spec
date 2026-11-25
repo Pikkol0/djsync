@@ -26,6 +26,21 @@ for pkg in ("ytmusicapi", "mutagen", "pyrekordbox", "miniaudio", "sqlcipher3", "
     datas += collect_data_files(pkg)               # .py excluded by default
     binaries += collect_dynamic_libs(pkg)
     hidden += collect_submodules(pkg)
+# 1.4.3-rc.4 (B126, A) : DLL renommées par delvewheel, rangées à côté du paquet (site-packages/<paquet>.libs),
+# copiées à leur place. collect_dynamic_libs ne les voit pas, et l'analyse des dépendances ne gardait le
+# msvcp140-… de rapidfuzz que dans numpy.libs (numpy embarque le même fichier) : rapidfuzz importé avant numpy
+# ne le trouvait pas et tournait en Python pur (doublons 100 fois plus lents). L'autotest le vérifie en premier.
+import importlib.util as _ilu
+import os as _os_libs
+
+for pkg in ("rapidfuzz", "numpy"):
+    _spec = _ilu.find_spec(pkg)
+    _libs = _os_libs.path.join(_os_libs.path.dirname(_os_libs.path.dirname(_spec.origin)), pkg + ".libs") \
+        if _spec and _spec.origin else ""
+    if _libs and _os_libs.path.isdir(_libs):
+        _found = [_os_libs.path.join(_libs, f) for f in sorted(_os_libs.listdir(_libs))]
+        binaries += [(f, pkg + ".libs") for f in _found if _os_libs.path.isfile(f)]
+        print(f"B126: {len(_found)} file(s) from {pkg}.libs")
 if sys.platform == "darwin":
     hidden += ["MediaPlayer"]             # 1.2.3 : touches multimédia / « À l'écoute » (pyobjc)
 hidden += ["_cffi_backend"]               # native part of cffi, used by miniaudio (player): not auto-detected

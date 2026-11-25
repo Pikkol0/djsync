@@ -266,3 +266,20 @@ Tests automatiques : `tests/test_v143_rc3_b126.py`.
 |---|---|---|---|---|
 | GEL-1 | Auteur | Windows | (**B126**) Exe rc.3 : lancer DJSync, ouvrir la bibliothèque de l'ordinateur, passer tout de suite la souris sur la liste ; puis supprimer 3 sons et repasser la souris. Envoyer le journal. | Le surlignage suit la souris dès l'ouverture et après la suppression (plus de vingtaine de secondes de lenteur). Journal : « Fuzzy matching (rapidfuzz): compiled » au démarrage ; plus de « Slow drive check » de plusieurs secondes. |
 | GEL-2 | Tous | Windows | (**B126**) Bibliothèque ▸ Colonnes ▸ cocher « Doublon ». | La colonne se remplit en une ou deux secondes (⧉ sur les sons qui ont un doublon) ; un clic sur ⧉ ouvre Doublons. |
+
+## rc.4 — rapidfuzz toujours en Python pur dans l'exe Windows
+
+Fiche : **B126** (rc.3 testée KO ; B127 fusionnée). Cause (mesure du 25/11 sur la tour, py-spy + modules chargés) :
+les fichiers compilés de rapidfuzz ont besoin d'une DLL (`msvcp140-…`, rangée par rapidfuzz dans `rapidfuzz.libs`) que
+le build ne gardait que dans `numpy.libs` (numpy embarque la même). L'app importe rapidfuzz avant numpy : DLL
+introuvable, Python pur (doublons ~19 s à l'ouverture et après chaque suppression sur 1 743 sons, avec la colonne
+Doublon affichée). L'autotest importait numpy d'abord et réussissait. Même défaut en 1.4.2.
+Correctifs : A (le build copie `rapidfuzz.libs` ; l'autotest vérifie rapidfuzz avant tout autre import ; le journal
+donne l'erreur d'import), B (au démarrage de l'exe, les dossiers `*.libs` sont ajoutés aux dossiers de DLL), et la
+durée de la recherche des doublons au journal quand elle dépasse 0,5 s.
+Tests automatiques : `tests/test_v143_rc4_b126.py`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GEL-3 | Auteur | Windows | (**B126**) Exe rc.4, colonne Doublon affichée : lancer DJSync (bibliothèque de l'ordinateur), passer la souris sur la liste ; supprimer 3 sons, repasser la souris. Envoyer le journal. | Le surlignage suit la souris. Journal : « Fuzzy matching (rapidfuzz): compiled » ; aucune ligne « Duplicate groups: … » (calcul sous 0,5 s), ou une ligne de moins d'une seconde. |
+| GEL-4 | Testeur Mac | macOS | (**B126**) Lancer la rc.4, envoyer le journal. | « Fuzzy matching (rapidfuzz): compiled ». |
