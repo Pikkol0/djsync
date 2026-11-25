@@ -287,6 +287,99 @@ class GridCanvas(QWidget):
         return super().event(e)
 
 
+class WaveStyleBar(QWidget):
+    """1.4.4 (C234) : trois petits boutons (3 bandes, Bleu, RGB) posés dans le coin haut droit de la forme d'onde."""
+
+    STYLES = ("3band", "blue", "rgb")
+
+    def __init__(self, canvas: QWidget, current: str, on_pick: Any) -> None:
+        super().__init__(canvas)
+        self._on_pick = on_pick
+        lay = hbox(self, margins=0, spacing=theme.px(2))
+        self.buttons = {}
+        for st in self.STYLES:
+            b = QPushButton(t(f"settings.waveform_{st}"))
+            b.setCheckable(True)
+            b.setProperty("kind", "flat")
+            b.setToolTip(t("grid.wave_style_tip", name=t(f"settings.waveform_{st}")))
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            f = b.font()
+            f.setPointSizeF(max(6.0, f.pointSizeF() * 0.8))
+            b.setFont(f)
+            b.clicked.connect(lambda _c=False, x=st: self._pick(x))
+            lay.addWidget(b)
+            self.buttons[st] = b
+        self.setStyleSheet("QPushButton { padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,110); }"
+                           f"QPushButton:checked {{ color: {theme.ON_ACCENT}; background: {theme.ACCENT}; }}")
+        self.set_style(current)
+        canvas.installEventFilter(self)
+        self._place()
+
+    def set_style(self, style: str) -> None:
+        for st, b in self.buttons.items():
+            b.setChecked(st == style)
+
+    def _pick(self, style: str) -> None:
+        self.set_style(style)
+        self._on_pick(style)
+
+    def _place(self) -> None:
+        self.adjustSize()
+        p = self.parentWidget()
+        if p is not None:
+            self.move(max(0, p.width() - self.width() - theme.px(6)), theme.px(4))
+            self.raise_()
+
+    def eventFilter(self, obj: Any, ev: Any) -> bool:  # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        if ev.type() in (QEvent.Resize, QEvent.Show):
+            self._place()
+        return False
+
+
+class HeightGrip(QWidget):
+    """1.4.4 (C233) : poignée horizontale sous la forme d'onde ; glisser change sa hauteur, double-clic la remet
+    en automatique (place restante)."""
+
+    def __init__(self, editor: "GridEditor") -> None:
+        super().__init__()
+        self.ed = editor
+        self.setFixedHeight(theme.px(8))
+        self.setCursor(Qt.SizeVerCursor)
+        self.setToolTip(t("grid.height_tip"))
+        self._y0: Optional[float] = None
+        self._h0 = 0
+
+    def paintEvent(self, _e: Any) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = theme.px(36)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.FAINT))
+        p.drawRoundedRect((self.width() - w) // 2, (self.height() - theme.px(3)) // 2, w, theme.px(3), 2, 2)
+        p.end()
+
+    def mousePressEvent(self, e: Any) -> None:  # noqa: N802
+        self._y0 = e.globalPosition().y()
+        self._h0 = self.ed.canvas.height()
+
+    def mouseMoveEvent(self, e: Any) -> None:  # noqa: N802
+        if self._y0 is None:
+            return
+        h = self._h0 + (e.globalPosition().y() - self._y0)
+        self.ed.set_wave_height(int(round(h / theme.zoom())), save=False)
+
+    def mouseReleaseEvent(self, _e: Any) -> None:  # noqa: N802
+        if self._y0 is not None:
+            self._y0 = None
+            self.ed.set_wave_height(self.ed._wave_height)
+
+    def mouseDoubleClickEvent(self, _e: Any) -> None:  # noqa: N802
+        self.ed.set_wave_height(0)
+
+
 class GridEditor(QWidget):
     """Page « Grille de temps » (dans la zone de contenu de la fenêtre principale)."""
 
@@ -366,6 +459,12 @@ class GridEditor(QWidget):
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setToolTip(t("grid.hint"))
         self.body.addWidget(self.canvas, 1)
+        # 1.4.4 (C234) : type de forme d'onde changé d'ici (3 bandes, bleu, RGB), discret, coin haut droit
+        self.style_bar = WaveStyleBar(self.canvas, self.wave_style, self.set_wave_style)
+        # 1.4.4 (C233) : barre à faire glisser sous la forme d'onde (hauteur gardée ; double-clic : automatique)
+        self.height_grip = HeightGrip(self)
+        self.body.addWidget(self.height_grip)
+        self._apply_wave_height(int(getattr(controller.settings, "grid_wave_height", 0) or 0))
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
         self.scroll.valueChanged.connect(self._scrolled)
@@ -627,8 +726,37 @@ class GridEditor(QWidget):
         self.draw()
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
 
+    def set_wave_style(self, style: str) -> None:
+        """1.4.4 (C234) : même réglage que Paramètres ▸ Analyse (lecteur et Paramètres suivent)."""
+        if style == self.wave_style or style not in ("3band", "blue", "rgb"):
+            return
+        self.ctrl.settings.waveform_style = style
+        self.ctrl.save_settings_quiet()
+        self.ctrl._emit("waveform_style")
+
+    # ------------------------------------------------------------ 1.4.4 (C233) : hauteur de la forme d'onde
+    WAVE_MIN, WAVE_MAX = 80, 600
+
+    def _apply_wave_height(self, h: int) -> None:
+        """0 : automatique (la forme d'onde prend la place restante) ; sinon hauteur fixe (px à 100 %)."""
+        if h <= 0:
+            self.canvas.setMinimumHeight(theme.px(110))
+            self.canvas.setMaximumHeight(16777215)
+        else:
+            h = max(self.WAVE_MIN, min(self.WAVE_MAX, h))
+            self.canvas.setFixedHeight(theme.px(h))
+        self._wave_height = h
+
+    def set_wave_height(self, h: int, save: bool = True) -> None:
+        self._apply_wave_height(h)
+        if save:
+            self.ctrl.settings.grid_wave_height = self._wave_height
+            self.ctrl.save_settings_quiet()
+
     def _style_changed(self, *_a: Any) -> None:
         """Type de forme d'onde changé dans les Paramètres : relu tout de suite, sans toucher aux modifications."""
+        if hasattr(self, "style_bar"):
+            self.style_bar.set_style(self.wave_style)
         if not self.winfo_exists() or not self.beats:
             return
 

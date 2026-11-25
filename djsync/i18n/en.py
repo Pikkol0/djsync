@@ -2244,4 +2244,6 @@ STRINGS = {
     "import.placeholder_list": "{names} link, or tracks one per line (Artist - Title)",
     "import.search_one": "Search {n} track",
     "import.search_many": "Search {n} tracks",
+    "grid.wave_style_tip": "Waveform: {name} (same setting as Settings ▸ Analysis)",
+    "grid.height_tip": "Drag to change the waveform height. Double-click: automatic height.",
 }

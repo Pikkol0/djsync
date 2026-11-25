@@ -224,6 +224,7 @@ class SettingsView(View):
         controller.on("drive", lambda: (setattr(self, "_space_done", False),
                                         QTimer.singleShot(400, self._space_if_shown)))   # 1.3.1 (C27), B71
         controller.on("drives", self._refresh_drives)
+        controller.on("waveform_style", self._wave_style_follow)                     # 1.4.4 (C234)
         controller.on("diag_counts", self._check_counts)                              # 1.3.1 (C89)
         controller.on("drive", self._refresh_drives)
         self._refresh_drives()
@@ -1378,6 +1379,14 @@ class SettingsView(View):
         self.ctrl._emit("restyle")
 
     # ------------------------------------------------------------------ clé
+    def _wave_style_follow(self, *_a: Any) -> None:
+        """1.4.4 (C234) : type de forme d'onde changé depuis Grille et cues : la liste suit, sans signal."""
+        box = getattr(self, "wave_style", None)
+        if box is not None:
+            box.blockSignals(True)
+            box.setCurrentIndex(max(0, box.findData(self.ctrl.settings.waveform_style)))
+            box.blockSignals(False)
+
     def _refresh_drives(self) -> None:
         if not self.winfo_exists():
             return

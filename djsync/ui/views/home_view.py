@@ -374,8 +374,10 @@ class HomeView(View):
         mid = vbox(spacing=theme.px(6))
         top = hbox(spacing=theme.px(8))
         top.addWidget(label(s.drive.label or str(s.drive.root), "h2"))
-        top.addWidget(chip(t("home.connected") if s.connected else t("home.detected"),
-                           "chip_ok" if s.connected else "chip"))
+        state = chip(t("home.connected") if s.connected else t("home.detected"), "chip_ok" if s.connected else "chip")
+        if s.connected and not s.is_local and s.has_pdb and s.pdb_state != "stale":
+            state.setToolTip(t("home.pdb_yes"))        # 1.4.4 (C232) : « export.pdb à jour » dans la bulle
+        top.addWidget(state)
         if s.busy:
             busy = chip(t("local.rekordbox_open"), "chip_warn")
             busy.setToolTip(t("local.rekordbox_open_tip"))
@@ -392,6 +394,7 @@ class HomeView(View):
         if s.is_local:
             chips.addWidget(chip(t("local.collection")))
         else:
+            pdb = None
             if not s.has_pdb:                       # 1.3.0 (T01) : anciennes platines sans playlists
                 pdb = chip(t("home.pdb_short_no"), "chip_warn")
                 pdb.setToolTip(t("home.pdb_no_tip"))
@@ -399,12 +402,11 @@ class HomeView(View):
                 pdb = chip(t("home.pdb_stale"), "chip_warn")
                 pdb.setToolTip(t("home.pdb_stale_tip", detail=s.pdb_problem or "?"))
                 stale_detail = s.pdb_problem
-            else:
-                pdb = chip(t("home.pdb_short_yes"), "chip_good")          # C29
-                pdb.setToolTip(t("home.pdb_yes"))
-            pdb.setCursor(Qt.PointingHandCursor)              # 1.3.1 (C28) : ouvre la section des réglages
-            pdb.mousePressEvent = lambda _e: self.open_settings("libraries")      # 1.3.1 (C90)
-            chips.addWidget(pdb)
+            # 1.4.4 (C232) : export.pdb à jour -> plus de pastille (seulement dans la bulle de « Connectée »)
+            if pdb is not None:
+                pdb.setCursor(Qt.PointingHandCursor)          # 1.3.1 (C28) : ouvre la section des réglages
+                pdb.mousePressEvent = lambda _e: self.open_settings("libraries")      # 1.3.1 (C90)
+                chips.addWidget(pdb)
             if s.filesystem:
                 from ...db.usb import filesystem_compat
 
@@ -438,9 +440,10 @@ class HomeView(View):
                                      icon=icon))
         # 1.4.3-rc.2 (C217) : plus de bouton « Transférer et synchroniser » sur les cartes (la tuile reste ;
         # aussi dans la Bibliothèque : menu ☰ et clic droit sur une playlist)
-        diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
-        diag.setToolTip(t("diag.button_tip"))
-        actions.addWidget(diag)
+        if s.connected:                 # 1.4.4 (C231) : bibliothèque pas ouverte -> seulement « Connecter »
+            diag = button(t("diag.button"), lambda d=s.drive, c=s.connected: self.diagnose(d, c), icon="diagnostic")
+            diag.setToolTip(t("diag.button_tip"))
+            actions.addWidget(diag)
         mid.addLayout(actions)
         lay.addLayout(mid, 1)
 

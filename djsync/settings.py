@@ -132,6 +132,7 @@ class Settings:
     scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
     audio_latency_ms: int = 0          # 1.3.0-rc.3 (C39) : retard de sortie en plus (Bluetooth…), pour les curseurs
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
+    grid_wave_height: int = 0          # 1.4.4 (C233) : hauteur de la forme d'onde de Grille et cues (0 = automatique)
     grid_magnet: int = 0               # 1.4.1 (C92) : aimant de Grille et cues (0 = coupé, 1 = au temps, 4 = au quart)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0

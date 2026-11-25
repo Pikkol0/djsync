@@ -2244,4 +2244,6 @@ STRINGS = {
     "import.placeholder_list": "Lien {names}, ou des sons, un par ligne (Artiste - Titre)",
     "import.search_one": "Chercher {n} son",
     "import.search_many": "Chercher {n} sons",
+    "grid.wave_style_tip": "Forme d'onde : {name} (même réglage que Paramètres ▸ Analyse)",
+    "grid.height_tip": "Glissez pour changer la hauteur de la forme d'onde. Double-clic : hauteur automatique.",
 }
