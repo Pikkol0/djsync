@@ -422,8 +422,9 @@ class LibraryView(View):
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
         # 1.4.3-rc.2 (C218) : par défaut, les colonnes de la vue « Essentiel »
         self.remember_layout(self.table, "library",
-                             default_hidden=("album", "format", "source", "cues") + EXTRA_COLUMNS + C113_COLUMNS,
-                             new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
+                             default_hidden=("album", "format", "source", "cues") + EXTRA_COLUMNS + C113_COLUMNS
+                             + ("energy",),                                           # 1.4.4 (C108)
+                             new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS + ("energy",))
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
