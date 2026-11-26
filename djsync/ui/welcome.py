@@ -7,6 +7,10 @@ raccourci dans le menu Démarrer / Applications (C70), étoile GitHub en lien di
 Écran 2 : qualité des téléchargements YouTube (C146, C187) et la visite guidée proposée par une case (plus
 de fenêtre à part), « Commencer ». « Passer » sur le premier écran ; rien n'est bloquant. La fenêtre prend
 la hauteur de son contenu. Revu depuis Paramètres ▸ DJSync.
+
+1.4.4 (C227) : un seul écran « Bienvenue dans DJSync » : langue, thème (tuiles de C226), zoom, qualité YouTube
+(2 choix recommandés, le reste replié) ; « Passer » bordé, de la taille de « Commencer », en bas à gauche.
+`_step` et `_to_quality` restent pour la compatibilité (tout est sur le même écran).
 """
 from __future__ import annotations
 
@@ -83,11 +87,8 @@ class WelcomeDialog(BaseDialog):
 
     def _build(self) -> None:
         self._clear()
-        self.body.setSpacing(theme.px(12))
-        if self._step >= 2:
-            self._build_quality()
-        else:
-            self._build_welcome()
+        self.body.setSpacing(theme.px(10))
+        self._build_welcome()                      # 1.4.4 (C227) : un seul écran
         self._fit()
 
     def _fit(self) -> None:
@@ -130,6 +131,30 @@ class WelcomeDialog(BaseDialog):
             line.addWidget(icon_label(icon, 18, theme.ACCENT), 0, Qt.AlignTop)
             line.addWidget(label(t(key), wrap=True), 1)
             self.body.addLayout(line)
+        # 1.4.4 (C227) : tout ce qui se personnalise, sur le même écran
+        self.body.addWidget(label(t("welcome.custom_title").upper(), "section"))
+        from .views.settings_view import theme_tiles
+        from .widgets import FlowLayout
+
+        row = hbox(spacing=theme.px(8))
+        row.addWidget(label(t("settings.themes"), "dim"))
+        tiles = FlowLayout(spacing=theme.px(6))
+        from .palettes import THEMES
+
+        self.theme_tiles = theme_tiles(tiles, self._pick_theme, list(THEMES)[:6])
+        row.addLayout(tiles, 1)
+        self.body.addLayout(row)
+        from .widgets import icon_button
+
+        row = hbox(spacing=theme.px(8))
+        row.addWidget(label(t("settings.zoom"), "dim"))
+        row.addWidget(icon_button("minus", lambda: self._zoom(-1), t("settings.zoom_out")))
+        self.zoom_lbl = label(f"{self.ctrl.settings.zoom} %", "accent")
+        row.addWidget(self.zoom_lbl)
+        row.addWidget(icon_button("plus", lambda: self._zoom(1), t("settings.zoom_in")))
+        row.addStretch(1)
+        self.body.addLayout(row)
+        self._build_quality()
         self.shortcut = WrapCheckBox(t("welcome.shortcut"))        # A2-3 : texte à la ligne, plus coupé
         from ..core import shortcut
 
@@ -138,6 +163,14 @@ class WelcomeDialog(BaseDialog):
                                  else self._shortcut_pref)
         self.shortcut.toggled.connect(lambda v: setattr(self, "_shortcut_pref", v))
         self.body.addWidget(self.shortcut)
+        # 1.4.2 (A2-11) : la visite guidée proposée ici, au lieu d'une quatrième fenêtre
+        from . import tour
+
+        self.tour_box = None
+        if tour.should_offer(self.ctrl.settings):
+            self.tour_box = WrapCheckBox(t("welcome.tour"))
+            self.tour_box.setChecked(True)
+            self.body.addWidget(self.tour_box)
         # A2-11 : l'étoile devient un lien discret, avec sa raison en bulle
         star = button("⭐  " + t("welcome.star"), lambda: self.ctrl._emit("open_url", REPO), kind="flat",
                       tooltip=t("welcome.star_why"))
@@ -148,29 +181,70 @@ class WelcomeDialog(BaseDialog):
         self.body.addWidget(thanks)
         self.body.addWidget(star, 0, Qt.AlignHCenter)
         foot = hbox(spacing=theme.px(8))
-        foot.addWidget(button(t("welcome.skip"), self._finish, kind="flat"))
+        # 1.4.4 (C227) : « Passer » bien visible : bordé, de la taille de « Commencer », en bas à gauche
+        self.skip_btn = button(t("welcome.skip"), self._skip, icon="next")
+        foot.addWidget(self.skip_btn)
         foot.addWidget(button(t("welcome.first_steps"), self._first_steps, kind="flat", icon="help"))
         foot.addStretch(1)
-        self.validate_btn = button(t("welcome.next"), lambda: self._choose(self._lang), kind="primary", icon="go")
-        self.validate_btn.setDefault(True)
-        foot.addWidget(self.validate_btn)
+        self.start_btn = button(t("welcome.start"), self._finish, kind="primary", icon="go")
+        self.start_btn.setDefault(True)
+        self.validate_btn = self.start_btn            # compatibilité (ancien « Suivant »)
+        foot.addWidget(self.start_btn)
+        h = max(self.skip_btn.sizeHint().height(), self.start_btn.sizeHint().height())
+        w = max(self.skip_btn.sizeHint().width(), self.start_btn.sizeHint().width())
+        for b in (self.skip_btn, self.start_btn):
+            b.setMinimumSize(w, h)
         self.body.addLayout(foot)
 
-    def _to_quality(self) -> None:
-        if self._step < 2:
-            box = getattr(self, "shortcut", None)
-            try:
-                self._shortcut_wanted = bool(box is not None and box.isChecked() and box.isEnabled())
-            except RuntimeError:                              # case déjà détruite
-                pass
-        self._step = 2
+    def _pick_theme(self, key: str) -> None:
+        """1.4.4 (C227) : thème appliqué tout de suite, écran redessiné dans ses couleurs (choix gardés)."""
+        from .palettes import THEMES
+
+        bg, accent = THEMES[key]
+        s = self.ctrl.settings
+        s.background, s.theme = bg, accent
+        s.save()
+        self._remember()
+        self.ctrl._emit("restyle")
         self._build()
+
+    def _zoom(self, delta: int) -> None:
+        from ..settings import ZOOM_STEP
+        from .zoom import clamp
+
+        s = self.ctrl.settings
+        z = clamp(s.zoom + delta * ZOOM_STEP)
+        if z != s.zoom:
+            s.zoom = z
+            s.save()
+            self._remember()
+            self.ctrl._emit("restyle")
+            self._build()
+
+    def _remember(self) -> None:
+        """Choix de l'écran gardés quand il est redessiné (thème, zoom)."""
+        box = getattr(self, "shortcut", None)
+        try:
+            if box is not None:
+                self._shortcut_pref = box.isChecked()
+        except RuntimeError:
+            pass
+
+    def _skip(self) -> None:
+        """« Passer » : ferme l'accueil d'un coup, réglages par défaut (qualité, pas de visite guidée)."""
+        self._yt = None
+        if self.tour_box is not None:
+            self.tour_box.setChecked(False)
+        self._finish()
+
+    def _to_quality(self) -> None:
+        """Compatibilité : la qualité est sur le même écran depuis la 1.4.4 (C227)."""
+        self._step = 2
 
     def _build_quality(self) -> None:
         """1.4.0-rc.4 (C146) : qualité des téléchargements YouTube, M4A recommandé ; le meilleur flux
         affiche son compromis (poids, conversion)."""
-        self._logo_row(t("welcome.yt_title"))
-        self.body.addWidget(label(t("welcome.yt_sub"), "dim", wrap=True))
+        self.body.addWidget(label(t("welcome.yt_title"), "dim"))
         self.yt_buttons = {}
         for key, title, sub in (("m4a", t("welcome.yt_m4a"), t("welcome.yt_m4a_sub")),
                                 ("best", t("welcome.yt_best"), t("welcome.yt_best_sub"))):
@@ -209,25 +283,11 @@ class WelcomeDialog(BaseDialog):
         self.mp3_warn = label(t("quality.mp3_warning"), "dim", wrap=True)
         self.mp3_warn.setStyleSheet(f"color: {theme.WARN};")
         self.body.addWidget(self.mp3_warn)
-        self.body.addWidget(label(t("welcome.yt_later"), "faint", wrap=True))
-        current = {v: k for k, v in QUALITY_OF.items()}.get(self.ctrl.settings.download_quality, "m4a")
+        current = getattr(self, "_yt", None) or {v: k for k, v in QUALITY_OF.items()}.get(
+            self.ctrl.settings.download_quality, "m4a")
         self.more_toggle.setChecked(current in MP3_KEYS)
         self._fold_more(current in MP3_KEYS)
         self._pick_yt(current)
-        # 1.4.2 (A2-11) : la visite guidée proposée ici, au lieu d'une quatrième fenêtre
-        from . import tour
-
-        self.tour_box = None
-        if tour.should_offer(self.ctrl.settings):
-            self.tour_box = WrapCheckBox(t("welcome.tour"))
-            self.tour_box.setChecked(True)
-            self.body.addWidget(self.tour_box)
-        foot = hbox(spacing=theme.px(8))
-        foot.addStretch(1)
-        self.start_btn = button(t("welcome.start"), self._finish, kind="primary", icon="go")
-        self.start_btn.setDefault(True)
-        foot.addWidget(self.start_btn)
-        self.body.addLayout(foot)
 
     def _fold_more(self, shown: bool) -> None:
         self.more_toggle.setArrowType(Qt.DownArrow if shown else Qt.RightArrow)

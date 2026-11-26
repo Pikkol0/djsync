@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from ...core.matcher import apply_preference
 from ...i18n import LazyLabels, plural, t
@@ -21,7 +21,7 @@ from ...models import (
 )
 from ..dialogs import BaseDialog
 from .. import theme
-from ..widgets import Column, Row, TrackTable, button, chip, hbox, icon_label, label, line_edit, panel
+from ..widgets import Column, LinkOrListEdit, Row, TrackTable, button, chip, hbox, icon_label, label, panel
 from .common import CHECKED, UNCHECKED, View, ask_and_download, result_columns, result_row
 
 log = logging.getLogger(__name__)
@@ -34,27 +34,6 @@ STATUS_TAG = {"ok": (), "review": ("dim",), "missing": ("err",), "duplicate": ("
 DUP_ADD, DUP_REDL, DUP_SKIP = "add", "redl", "skip"
 DUP_NEXT = {DUP_ADD: DUP_REDL, DUP_REDL: DUP_SKIP, DUP_SKIP: DUP_ADD}
 DUP_TEXT = LazyLabels(lambda: {DUP_ADD: "import.dup_add", DUP_REDL: "import.dup_redl", DUP_SKIP: "import.dup_skip"})
-
-
-class PasteListDialog(BaseDialog):
-    """Repli quand Spotify refuse la lecture : une ligne par morceau « Artiste - Titre »."""
-
-    def __init__(self, parent: Any, on_ok: Any) -> None:
-        super().__init__(parent, t("import.paste_list_title"), 500, 420)
-        self._on_ok = on_ok
-        self.heading(t("import.paste_list_title"))
-        self.box = QPlainTextEdit()
-        self.box.setPlaceholderText(t("import.paste_list_hint"))
-        self.body.addWidget(self.box, 1)
-        self.footer(t("import.analyse_list"), self._ok)
-        self.show_dialog()
-        self.box.setFocus()
-
-    def _ok(self) -> None:
-        text = self.box.toPlainText().strip()
-        if text:
-            self.close()
-            self._on_ok(text)
 
 
 class ImportView(View):
@@ -79,14 +58,18 @@ class ImportView(View):
         bar = hbox(spacing=theme.px(8))
         from ...core.urlimport import source_names
 
-        self.url = line_edit(t("import.placeholder", names=source_names()), "import", big=True)
+        # 1.4.4 (C216) : un lien, ou des sons tapés / collés un par ligne (cherchés comme une playlist)
+        self.url = LinkOrListEdit(t("import.placeholder_list", names=source_names()),
+                                  is_link=controller.is_url)
         self.url.returnPressed.connect(self.analyse)
+        self.url.contentChanged.connect(self._refresh_go)
         bar.addWidget(self.url, 1)
-        paste = button(t("action.paste"), self._paste_clipboard, icon="clipboard")
+        paste = button("", self._paste_clipboard, icon="clipboard", tooltip=t("action.paste"))   # C216 : icône seule
+        paste.setAccessibleName(t("action.paste"))
         self.go = button(t("import.read_link"), self.analyse, kind="primary", icon="go")
         for b in (paste, self.go):
-            b.setMinimumHeight(self.url.sizeHint().height())
-            bar.addWidget(b)
+            b.setMinimumHeight(self.url.height())
+            bar.addWidget(b, 0, Qt.AlignTop)
         self.root.addLayout(bar)
         self.root.addLayout(self._sources_row())
 
@@ -104,8 +87,6 @@ class ImportView(View):
         self.pref_menu.setCurrentText(PREFERENCE_LABELS[self.preference])
         self.pref_menu.currentTextChanged.connect(self._pref_changed)
         opts.addWidget(self.pref_menu)
-        self.paste_list = button(t("import.paste_list"), self._paste_list, kind="flat", icon="playlist")
-        opts.addWidget(self.paste_list)
         self.root.addLayout(opts)
         # 1.4.2 (C172) : longue playlist : « 200 premiers titres sur 534 » et « Charger les 200 suivants »
         self.more_box = panel(role="banner")
@@ -212,13 +193,26 @@ class ImportView(View):
         self.url.setText(url)
         self.analyse()
 
+    def _go_text(self) -> str:
+        """« Lire le lien » pour un lien, « Chercher n sons » pour une liste (C216)."""
+        if not self.url.lines() or self.url.is_link():
+            return t("import.read_link")
+        return plural("import.search_one", "import.search_many", len(self.url.lines()))
+
+    def _refresh_go(self) -> None:
+        if self.go.isEnabled():
+            self.go.setText(self._go_text())
+
     def _set_go(self, enabled: bool) -> None:
         self.go.setEnabled(enabled)
-        self.go.setText(t("import.read_link") if enabled else t("import.reading"))
+        self.go.setText(self._go_text() if enabled else t("import.reading"))
 
     def analyse(self) -> None:
         url = self.url.text().strip()
         if not url:
+            return
+        if not self.url.is_link():                 # 1.4.4 (C216) : liste de sons, un par ligne
+            self._search_list(url)
             return
         self._cancel_matching()
         self._token += 1
@@ -274,17 +268,18 @@ class ImportView(View):
         box.addWidget(tail)
         return box
 
-    def _paste_list(self) -> None:
-        def run(text: str) -> None:
-            try:
-                playlist = self.ctrl.parse_pasted_list(text)
-            except Exception as exc:  # noqa: BLE001
-                self.ctrl._on_error(exc)
-                return
-            self._cancel_matching()
-            self._load_spotify(playlist)
-
-        PasteListDialog(self, run)
+    def _search_list(self, text: str) -> None:
+        """1.4.4 (C216) : sons tapés ou collés, un par ligne (« Artiste - Titre » ou titre seul), cherchés
+        comme une playlist importée (cases, Correspondance, téléchargement). Remplace « Coller une liste… »."""
+        try:
+            playlist = self.ctrl.parse_pasted_list(text)
+        except Exception as exc:  # noqa: BLE001
+            self.ctrl._on_error(exc)
+            return
+        self._cancel_matching()
+        self._token += 1
+        self.note_lbl.hide()
+        self._load_spotify(playlist)
 
     # ----------------------------------------------------------- mode Spotify
     def _cancel_matching(self) -> None:

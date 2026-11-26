@@ -227,6 +227,21 @@ def extract_video_id(url_or_id: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def source_of(comment: Optional[str]) -> Optional[str]:
+    """Adresse d'origine gardée dans le commentaire ; 1.4.4 (C108) : sans le préfixe d'énergie « E7 »."""
+    if not comment:
+        return None
+    from ...analysis.energy import strip_prefix
+
+    text = strip_prefix(comment)
+    return text if text and (extract_video_id(text) or text.startswith("http")) else None
+
+
+def energy_variants(url: str) -> List[str]:
+    """1.4.4 (C108) : l'adresse telle quelle et précédée de « E1 » … « E10 » (option énergie dans le commentaire)."""
+    return [url] + [f"E{n} {url}" for n in range(1, 11)]
+
+
 def _source_keys(urls: Sequence[str]) -> Dict[str, Tuple[str, bool]]:
     """1.4.3 (B98) : {url: (identifiant YouTube ou adresse sans paramètres, est-ce un identifiant ?)}."""
     out: Dict[str, Tuple[str, bool]] = {}
@@ -247,6 +262,10 @@ def _match_sources(wanted: Dict[str, Tuple[str, bool]], rows: Sequence[Tuple[Any
     for url, (key, is_vid) in wanted.items():
         for cid, comment in rows:
             comment = comment or ""
+            if not is_vid:                                  # 1.4.4 (C108) : préfixe d'énergie ignoré
+                from ...analysis.energy import strip_prefix
+
+                comment = strip_prefix(comment)
             if (key in comment) if is_vid else (comment == key):
                 hits[url] = cid
                 break

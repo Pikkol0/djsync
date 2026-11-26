@@ -44,6 +44,11 @@ BACKGROUNDS = {
     "high_contrast": ("#000000", "#0A0A0A", "#161616", "#8A8A8A", "#FFFFFF", "#DADADA", "#ABABAB"),
     "bright": ("#EEEEF2", "#FFFFFF", "#E4E4EA", "#C9C9D2", "#16161B", "#4E4E5A", "#7C7C88"),
     "oled": ("#000000", "#08080A", "#111114", "#202026", "#E6E6EA", "#9A9AA5", "#62626C"),
+    # 1.4.4 (C226) : fonds foncés teintés (toute couleur d'accent reste lisible)
+    "navy": ("#0B0F1A", "#111727", "#182036", "#283353", "#E6E9F2", "#97A0B8", "#5F6884"),
+    "brown": ("#14100D", "#1C1713", "#251E19", "#3A3028", "#EEE8E2", "#A89C90", "#6E6358"),
+    "fir": ("#0B1410", "#111C17", "#17251F", "#253A31", "#E4EEE9", "#93A89E", "#5C7066"),
+    "prune": ("#140D14", "#1C131C", "#251A26", "#3A2A3B", "#EEE4EE", "#A898A8", "#6E5E6E"),
 }
 CURRENT_BACKGROUND = "default"
 
@@ -282,7 +287,7 @@ QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {S
               border-radius: {r6}px; padding: {p(5)}px {p(8)}px; selection-background-color: {ACCENT_DIM}; }}
 QLineEdit:hover, QComboBox:hover {{ border-color: {mix(BORDER, TEXT, 0.15)}; }}
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
-QLineEdit[role="big"] {{ padding: {p(9)}px {p(10)}px; font-size: {font_pt(1.5):.1f}pt; border-radius: {r8}px; }}
+QLineEdit[role="big"], QPlainTextEdit[role="big"] {{ padding: {p(9)}px {p(10)}px; font-size: {font_pt(1.5):.1f}pt; border-radius: {r8}px; }}
 QComboBox::drop-down {{ border: 0; width: {p(20)}px; }}
 QComboBox QAbstractItemView {{ background: {ELEV}; border: 1px solid {BORDER}; selection-background-color: {ACCENT_DIM}; padding: {p(4)}px; }}
 QCheckBox, QRadioButton {{ background: transparent; spacing: {p(8)}px; }}

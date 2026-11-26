@@ -193,7 +193,7 @@ def test_welcome_language_needs_confirm_and_star_is_primary(demo, monkeypatch): 
     assert demo.ctrl.settings.language == first
     # 1.4.2 (A2-11) : l'étoile n'est plus le bouton principal, c'est un lien discret du premier écran
     assert w.star_btn.property("kind") == "flat"
-    w.validate_btn.click()
+    w._to_quality()                                       # 1.4.4 (C227) : un seul écran
     assert w._step == 2
     assert w.width() >= w.minimumWidth() > 0
     w._finish()
@@ -217,16 +217,17 @@ def test_settings_one_page_with_anchors(demo):  # noqa: F811
     demo.show_view("settings")
     view = demo.views["settings"]
     pump(demo, 0.3)
-    assert all(not box.isHidden() for _s, box in view._cards)            # tout sur une page
+    # 1.4.4 (C225) : une page par section (avant, C121 : tout sur une seule page qui défile)
     bar = view.area.verticalScrollBar()
     for key, _icon in SECTIONS:
         view.show_section(key)
         pump(demo, 0.05)
         assert bar.value() == min(bar.maximum(), view._heads[key].y()), key
+        assert all(not box.isHidden() for box in view.section_cards(key)), key
     view.show_section("general")
-    bar.setValue(view._heads["download"].y() + 5)                         # défilement à la main
+    bar.setValue(bar.maximum())                                           # défilement à la main
     pump(demo, 0.05)
-    assert view._current_section == "download"
+    assert view._current_section == "general"                             # le volet ne bouge plus
     djsync_cards = view.section_cards("djsync")
     assert any(view.shortcut_var in box.findChildren(type(view.shortcut_var)) for box in djsync_cards)
     assert not any(view.shortcut_var in box.findChildren(type(view.shortcut_var))

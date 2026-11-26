@@ -223,6 +223,8 @@ class GridCanvas(QWidget):
         self.setFocus()
         x = e.position().x()
         if e.button() == Qt.LeftButton:
+            if self.ed.seg_tools.grab(x, e.position().y(), self.height()):    # 1.4.4 (C221) : poignée d'un repère
+                return
             if not self.ed.grab_cue(x, e.position().y()):
                 if self.ed.fixed_cursor:              # 1.3.0-rc.3 (B17) : on fait glisser le son sous le curseur
                     self.ed.begin_scrub(x)
@@ -235,7 +237,11 @@ class GridCanvas(QWidget):
 
     def mouseMoveEvent(self, e: Any) -> None:       # noqa: N802
         x = e.position().x()
-        if e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
+        if not e.buttons():                           # 1.4.4 (C221) : BPM sous la souris
+            self.ed.seg_tools.hover(self.ed._ms(x))
+        elif e.buttons() & Qt.LeftButton and self.ed.seg_tools.dragging():
+            self.ed.seg_tools.drag(x)
+        elif e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
             self.ed.drag_cue(x, bool(e.modifiers() & Qt.ShiftModifier))
         elif self.ed.scrubbing_fixed():
             self.ed.scrub_to(x)
@@ -246,7 +252,9 @@ class GridCanvas(QWidget):
             self.ed.draw()
 
     def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
-        if self.ed.scrubbing_fixed():
+        if self.ed.seg_tools.dragging():              # 1.4.4 (C221)
+            self.ed.seg_tools.drop()
+        elif self.ed.scrubbing_fixed():
             self.ed.end_scrub(e.position().x())
         elif e.button() == Qt.LeftButton:
             if self.ed.dragging_cue():
@@ -257,6 +265,9 @@ class GridCanvas(QWidget):
 
     def contextMenuEvent(self, e: Any) -> None:     # noqa: N802
         e.accept()                                  # clic droit = défilement, pas de menu
+
+    def leaveEvent(self, _e: Any) -> None:          # noqa: N802
+        self.ed.seg_tools.hover(None)               # 1.4.4 (C221)
 
     def wheelEvent(self, e: Any) -> None:           # noqa: N802
         """1.3.2 (B53) : molette ou glissement vertical du pavé tactile = zoomer (Ctrl / ⌘ + molette aussi) ;
@@ -285,6 +296,102 @@ class GridCanvas(QWidget):
                 self.ed.zoom(-1 if e.value() > 0 else 1)
                 return True
         return super().event(e)
+
+
+COVER_PX = 96                  # 1.4.4 (C215) : pochette de Grille et cues
+
+
+class WaveStyleBar(QWidget):
+    """1.4.4 (C234) : trois petits boutons (3 bandes, Bleu, RGB) posés dans le coin haut droit de la forme d'onde."""
+
+    STYLES = ("3band", "blue", "rgb")
+
+    def __init__(self, canvas: QWidget, current: str, on_pick: Any) -> None:
+        super().__init__(canvas)
+        self._on_pick = on_pick
+        lay = hbox(self, margins=0, spacing=theme.px(2))
+        self.buttons = {}
+        for st in self.STYLES:
+            b = QPushButton(t(f"settings.waveform_{st}"))
+            b.setCheckable(True)
+            b.setProperty("kind", "flat")
+            b.setToolTip(t("grid.wave_style_tip", name=t(f"settings.waveform_{st}")))
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            f = b.font()
+            f.setPointSizeF(max(6.0, f.pointSizeF() * 0.8))
+            b.setFont(f)
+            b.clicked.connect(lambda _c=False, x=st: self._pick(x))
+            lay.addWidget(b)
+            self.buttons[st] = b
+        self.setStyleSheet("QPushButton { padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,110); }"
+                           f"QPushButton:checked {{ color: {theme.ON_ACCENT}; background: {theme.ACCENT}; }}")
+        self.set_style(current)
+        canvas.installEventFilter(self)
+        self._place()
+
+    def set_style(self, style: str) -> None:
+        for st, b in self.buttons.items():
+            b.setChecked(st == style)
+
+    def _pick(self, style: str) -> None:
+        self.set_style(style)
+        self._on_pick(style)
+
+    def _place(self) -> None:
+        self.adjustSize()
+        p = self.parentWidget()
+        if p is not None:
+            self.move(max(0, p.width() - self.width() - theme.px(6)), theme.px(4))
+            self.raise_()
+
+    def eventFilter(self, obj: Any, ev: Any) -> bool:  # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        if ev.type() in (QEvent.Resize, QEvent.Show):
+            self._place()
+        return False
+
+
+class HeightGrip(QWidget):
+    """1.4.4 (C233) : poignée horizontale sous la forme d'onde ; glisser change sa hauteur, double-clic la remet
+    en automatique (place restante)."""
+
+    def __init__(self, editor: "GridEditor") -> None:
+        super().__init__()
+        self.ed = editor
+        self.setFixedHeight(theme.px(8))
+        self.setCursor(Qt.SizeVerCursor)
+        self.setToolTip(t("grid.height_tip"))
+        self._y0: Optional[float] = None
+        self._h0 = 0
+
+    def paintEvent(self, _e: Any) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = theme.px(36)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.FAINT))
+        p.drawRoundedRect((self.width() - w) // 2, (self.height() - theme.px(3)) // 2, w, theme.px(3), 2, 2)
+        p.end()
+
+    def mousePressEvent(self, e: Any) -> None:  # noqa: N802
+        self._y0 = e.globalPosition().y()
+        self._h0 = self.ed.canvas.height()
+
+    def mouseMoveEvent(self, e: Any) -> None:  # noqa: N802
+        if self._y0 is None:
+            return
+        h = self._h0 + (e.globalPosition().y() - self._y0)
+        self.ed.set_wave_height(int(round(h / theme.zoom())), save=False)
+
+    def mouseReleaseEvent(self, _e: Any) -> None:  # noqa: N802
+        if self._y0 is not None:
+            self._y0 = None
+            self.ed.set_wave_height(self.ed._wave_height)
+
+    def mouseDoubleClickEvent(self, _e: Any) -> None:  # noqa: N802
+        self.ed.set_wave_height(0)
 
 
 class GridEditor(QWidget):
@@ -338,6 +445,14 @@ class GridEditor(QWidget):
 
         head = hbox()
         head.addWidget(button(t("grid.back"), self.close, kind="flat", icon="back"))
+        # 1.4.4 (C215) : pochette du son, en grand, à côté du titre
+        from PySide6.QtWidgets import QLabel
+
+        self.cover = QLabel()
+        self.cover.setFixedSize(theme.px(COVER_PX), theme.px(COVER_PX))
+        self.cover.setScaledContents(True)
+        head.addWidget(self.cover)
+        self._load_cover(track)
         titles = vbox(spacing=0)
         titles.addWidget(label(track.display_name, "title"))
         self.info = label(t("grid.loading"), "dim")
@@ -362,10 +477,33 @@ class GridEditor(QWidget):
         self.tempo_banner = label("", "chip_warn", wrap=True)
         self.tempo_banner.hide()
         self.body.addWidget(self.tempo_banner)
+        # 1.4.4 (B125) : 1er temps de la mesure à vérifier : choix entre les 4 temps d'une mesure, d'un clic, avec
+        # écoute depuis chaque temps (lecteur de la page) ; seul le numéro des temps change, jamais leur position
+        self._db_pending = self._downbeat_service_call("downbeat_pending", False)
+        self._db_picked = False
+        self._db_base = 0
+        self._build_downbeat_box()
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
-        self.canvas.setToolTip(t("grid.hint"))
+        self.canvas.setMouseTracking(True)                       # 1.4.4 (C221) : BPM sous la souris
         self.body.addWidget(self.canvas, 1)
+        # 1.4.4 (C221) : passages et repères (bande sous la forme d'onde, carte « Changements de tempo »)
+        from .tempo_segments import SegmentTools
+
+        self.seg_tools = SegmentTools(self)
+        self.body.addWidget(self.seg_tools.band)
+        # 1.4.4 (C234) : type de forme d'onde changé d'ici (3 bandes, bleu, RGB), discret, coin haut droit
+        self.style_bar = WaveStyleBar(self.canvas, self.wave_style, self.set_wave_style)
+        # 1.4.4 (C219) : l'aide de la forme d'onde derrière un ⓘ (plus de bulle à chaque survol de la forme d'onde)
+        from .widgets import InfoDot
+
+        self.canvas_help = InfoDot(t("grid.hint"))
+        self.style_bar.layout().insertWidget(0, self.canvas_help)
+        self.style_bar._place()
+        # 1.4.4 (C233) : barre à faire glisser sous la forme d'onde (hauteur gardée ; double-clic : automatique)
+        self.height_grip = HeightGrip(self)
+        self.body.addWidget(self.height_grip)
+        self._apply_wave_height(int(getattr(controller.settings, "grid_wave_height", 0) or 0))
         self.scroll = QScrollBar(Qt.Horizontal)
         self.scroll.setRange(0, SCROLL_STEPS)
         self.scroll.valueChanged.connect(self._scrolled)
@@ -398,6 +536,7 @@ class GridEditor(QWidget):
         self.time_lbl = label("0:00.000", "dim")
         self.time_lbl.setMinimumWidth(theme.px(64))
         play.addWidget(self.time_lbl)
+        play.addWidget(self.seg_tools.live_lbl)                  # 1.4.4 (C221) : BPM au curseur et sous la souris
         play.addStretch(1)
         # 1.4.1 (C92) : aimant (comme le Quantize de Rekordbox) : curseur et cues calés sur la grille
         self.magnet_box = QCheckBox(t("grid.magnet"))
@@ -506,7 +645,7 @@ class GridEditor(QWidget):
         self.fixed_grid_btn.hide()
         self.split_grid_btn.hide()
 
-        self.zones = Zones([grid_card, tempo_card], spacing=theme.px(8))
+        self.zones = Zones([grid_card, tempo_card, self.seg_tools.card], spacing=theme.px(8))   # 1.4.4 (C221)
         self.body.addWidget(self.zones)
 
         # barre d'enregistrement : à gauche l'état et « Annuler les modifications », à droite Retour et Enregistrer
@@ -542,6 +681,108 @@ class GridEditor(QWidget):
         controller.on("waveform_style", self._style_changed)               # 1.4.1 (C77)
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
+
+    # ---------------------------------------------------------- 1er temps à vérifier (1.4.4, B125)
+    def _downbeat_service_call(self, name: str, default: Any, *args: Any) -> Any:
+        svc = getattr(self.ctrl, "tempo_grids", None)
+        fn = getattr(svc, name, None) if svc is not None else None
+        if fn is None:
+            return default
+        try:
+            return fn(self.track, *args)
+        except Exception:  # noqa: BLE001 - simple aide au réglage
+            log.debug("Handled error in %s", name, exc_info=True)
+            return default
+
+    def _build_downbeat_box(self) -> None:
+        from .widgets import FlowLayout
+
+        self.downbeat_box = QWidget()
+        dv = vbox(self.downbeat_box, spacing=theme.px(4))
+        self.downbeat_banner = label(t("grid.downbeat_check"), "chip_warn", wrap=True)
+        dv.addWidget(self.downbeat_banner)
+        row = QWidget()
+        flow = FlowLayout(row, spacing=theme.px(8))
+        self.downbeat_picks: List[QPushButton] = []
+        self.downbeat_listens: List[Any] = []
+        for k in range(4):
+            cell = QWidget()
+            h = hbox(cell, spacing=theme.px(2))
+            lis = icon_button("play", lambda q=k: self._downbeat_listen(q), t("grid.downbeat_listen_tip", n=k + 1))
+            pick = button(t("grid.downbeat_pick", n=k + 1), lambda q=k: self._downbeat_pick(q),
+                          tooltip=t("grid.downbeat_pick_tip"))
+            h.addWidget(lis)
+            h.addWidget(pick)
+            self.downbeat_listens.append(lis)
+            self.downbeat_picks.append(pick)
+            flow.addWidget(cell)
+        dv.addWidget(row)
+        self.downbeat_box.hide()
+        self.body.addWidget(self.downbeat_box)
+
+    def _downbeat_setup(self) -> None:
+        """Les 4 temps proposés : la mesure (selon l'analyse) où entrent les basses le plus nettement."""
+        if not self.beats:
+            return
+        at = float(self._downbeat_service_call("downbeat_at", -1.0))
+        if at >= 0:
+            i = G.nearest(self.beats, at * 1000.0)
+        else:
+            i = next((k for k, b in enumerate(self.beats) if b[0] == 1), 0)
+        i -= (self.beats[i][0] - 1) % 4                       # 1er temps de cette mesure
+        self._db_base = max(0, min(i, len(self.beats) - 4))
+
+    def _downbeat_index(self, k: int) -> int:
+        return max(0, min(self._db_base + k, len(self.beats) - 1))
+
+    def _downbeat_listen(self, k: int) -> None:
+        if not self.beats:
+            return
+        self.selected = self._downbeat_index(k)
+        self.play_from(self.beats[self.selected][2])
+
+    def _downbeat_pick(self, k: int) -> None:
+        """Ce temps devient le 1er de la mesure ; la grille ne bouge pas. Choix fait : plus « à vérifier »."""
+        if not self.beats:
+            return
+        i = self._downbeat_index(k)
+        self.beats = G.set_downbeat(self.beats, i)
+        self.selected = i
+        self._db_picked = True
+        if self.beats == self.original:                     # le choix de l'analyse : rien à enregistrer
+            self._downbeat_resolved()
+        self._refresh_info()
+        self.draw()
+
+    def _downbeat_resolved(self) -> None:
+        if self._db_pending:
+            self._downbeat_service_call("downbeat_done", False)
+        self._db_pending = False
+
+    def _refresh_downbeat(self) -> None:
+        box = getattr(self, "downbeat_box", None)
+        if box is None:
+            return
+        shown = bool(self.beats) and (self._db_pending or self._db_picked)
+        box.setVisible(shown)
+        if not shown:
+            return
+        unsaved = self._db_picked and self.beats != self.original
+        if self._db_pending and not self._db_picked:
+            text, role = t("grid.downbeat_check"), "chip_warn"
+        elif unsaved:
+            text, role = t("grid.downbeat_chosen"), "chip_ok"
+        else:
+            text, role = t("grid.downbeat_checked"), "chip_ok"
+        self.downbeat_banner.setText(text)
+        if self.downbeat_banner.property("role") != role:
+            self.downbeat_banner.setProperty("role", role)
+            restyle(self.downbeat_banner)
+        for k, b in enumerate(self.downbeat_picks):
+            kind = "primary" if self.beats[self._downbeat_index(k)][0] == 1 else ""
+            if (b.property("kind") or "") != kind:
+                b.setProperty("kind", kind)
+                restyle(b)
 
     def _timeline_lead(self, track: LibraryTrack) -> float:
         """La grille est dans la base de temps de Rekordbox (silence d'amorçage MP3, décalage m4a), le
@@ -602,6 +843,7 @@ class GridEditor(QWidget):
         self.selected = next((i for i, b in enumerate(self.beats) if b[0] == 1), 0)
         self.cursor_ms = self.beats[self.selected][2]
         self.start_ms = max(0.0, self.cursor_ms - 1000)
+        self._downbeat_setup()                       # 1.4.4 (B125)
         self._center()
         self._refresh_info()
         self._show_style()
@@ -627,8 +869,64 @@ class GridEditor(QWidget):
         self.draw()
         self.ctrl.load_grid_wave(self.track, self._wave_loaded)
 
+    def _load_cover(self, track: LibraryTrack) -> None:
+        """1.4.4 (C215) : pochette de la bibliothèque (ou intégrée au fichier), lue en arrière-plan."""
+        from pathlib import Path
+
+        from ..audio.covers import placeholder
+        from .covers import CoverLoader, file_cover
+        from .icons import to_qpixmap
+
+        size = theme.px(COVER_PX) * 2
+        self.cover.setPixmap(to_qpixmap(placeholder(size)))
+        lib = self.ctrl.library
+        if lib is None:
+            return
+        try:
+            art = lib.artwork_file(track)
+            path = lib.absolute_path(track)
+        except Exception:  # noqa: BLE001 - pas de pochette : l'image par défaut reste
+            log.debug("No cover for grid editor", exc_info=True)
+            return
+
+        def show(img: Any) -> None:
+            if img is not None and self.winfo_exists():
+                self.cover.setPixmap(to_qpixmap(img))
+
+        CoverLoader(self.ctrl.dispatcher).load_pil(file_cover(Path(art) if art else None, Path(path),
+                                                              f"grid:{track.content_id}"), size, show)
+
+    def set_wave_style(self, style: str) -> None:
+        """1.4.4 (C234) : même réglage que Paramètres ▸ Analyse (lecteur et Paramètres suivent)."""
+        if style == self.wave_style or style not in ("3band", "blue", "rgb"):
+            return
+        self.ctrl.settings.waveform_style = style
+        self.ctrl.save_settings_quiet()
+        self.ctrl._emit("waveform_style")
+
+    # ------------------------------------------------------------ 1.4.4 (C233) : hauteur de la forme d'onde
+    WAVE_MIN, WAVE_MAX = 80, 600
+
+    def _apply_wave_height(self, h: int) -> None:
+        """0 : automatique (la forme d'onde prend la place restante) ; sinon hauteur fixe (px à 100 %)."""
+        if h <= 0:
+            self.canvas.setMinimumHeight(theme.px(110))
+            self.canvas.setMaximumHeight(16777215)
+        else:
+            h = max(self.WAVE_MIN, min(self.WAVE_MAX, h))
+            self.canvas.setFixedHeight(theme.px(h))
+        self._wave_height = h
+
+    def set_wave_height(self, h: int, save: bool = True) -> None:
+        self._apply_wave_height(h)
+        if save:
+            self.ctrl.settings.grid_wave_height = self._wave_height
+            self.ctrl.save_settings_quiet()
+
     def _style_changed(self, *_a: Any) -> None:
         """Type de forme d'onde changé dans les Paramètres : relu tout de suite, sans toucher aux modifications."""
+        if hasattr(self, "style_bar"):
+            self.style_bar.set_style(self.wave_style)
         if not self.winfo_exists() or not self.beats:
             return
 
@@ -811,6 +1109,7 @@ class GridEditor(QWidget):
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
         self._paint_tempo_changes(p, w, h, lo, hi)
+        self.seg_tools.paint(p, w, h, self._label_bottom)       # 1.4.4 (C221) : repères et poignées
         self._paint_cues(p, w, h)
         if self._kick1 is not None:                               # 1.4.2 (C194) : 1er kick posé
             xk = self._x(self._kick1)
@@ -1070,19 +1369,26 @@ class GridEditor(QWidget):
         from .views.library_view import tempo_profile_of          # 1.4.3 (C69) : live, beatswitch… détecté
         p = tempo_profile_of(self.track)
         if p is not None and p.kind:
-            parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
+            from .tempo_grids import kind_text
+
+            parts.insert(2, kind_text(p))                         # 1.4.4 (C221) : type corrigé à la main
         self._refresh_tempo(p)
+        self._refresh_downbeat()                                  # 1.4.4 (B125)
         if self._native:
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))
         self.bpm_entry.setText(f"{bpm:.2f}")
         grid_changed = self.beats != self.original
         cues_changed = self.cues_dirty()
-        self.save_btn.setEnabled(grid_changed or cues_changed)
-        self._refresh_checked(grid_changed or cues_changed)
+        self.seg_tools.refresh()                                  # 1.4.4 (C221)
+        marks_changed = self.seg_tools.dirty()
+        self.save_btn.setEnabled(grid_changed or cues_changed or marks_changed)
+        self._refresh_checked(grid_changed or cues_changed or marks_changed)
         parts = [t("grid.modified", ms=f"{delta:+d}")] if grid_changed else []
         if cues_changed:
             parts.append(t("cue.modified"))
+        if marks_changed and not grid_changed:
+            parts.append(t("grid.seg_modified"))
         self.state_lbl.setText("  ·  ".join(parts))
         self.state_lbl.setVisible(bool(parts))                  # 1.4.1 (C59) : pastille seulement s'il y a à enregistrer
         self.reset_btn.setEnabled(bool(parts))
@@ -1096,7 +1402,9 @@ class GridEditor(QWidget):
             return
         changing = p is not None and bool(p.kind)
         if changing:
-            what = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+            from .tempo_grids import kind_text
+
+            what = kind_text(p)                                   # 1.4.4 (C221)
             banner.setText(t("grid.tempo_banner_ok", kind=what) if self._grid_marked
                            else t("grid.tempo_banner", kind=what))
             role = "chip_ok" if self._grid_marked else "chip_warn"
@@ -1164,6 +1472,7 @@ class GridEditor(QWidget):
     def _downbeat(self) -> None:
         if self.beats:
             self.beats = G.set_downbeat(self.beats, self.selected)
+            self._db_picked = self._db_picked or self._db_pending       # 1.4.4 (B125) : choix fait à la main
             self._refresh_info()
             self.draw()
 
@@ -1238,6 +1547,7 @@ class GridEditor(QWidget):
         self.kick_hint.setText("")
         self.beats = list(self.original)
         self.cues = copy.deepcopy(self.original_cues)
+        self.seg_tools.reset()                                    # 1.4.4 (C221) : repères d'origine
         self.active_loop = None
         self.cue_panel.refresh()
         self.selected = min(self.selected, len(self.beats) - 1)
@@ -1397,6 +1707,7 @@ class GridEditor(QWidget):
                 length = max(1.0, self.active_loop[1] - self.active_loop[0])
                 self._player_seek(self.active_loop[0] + over % length, flush=False)
             self._show_time()
+            self.seg_tools.live(tick=True)                    # 1.4.4 (C221) : BPM à la position de lecture
             span = self.view_s * 1000.0
             if self.fixed_cursor:
                 self._center()
@@ -1424,6 +1735,7 @@ class GridEditor(QWidget):
     def _grid_ok(self) -> None:
         def done(_r: Any) -> None:
             self._grid_marked = True
+            self._downbeat_resolved()                         # 1.4.4 (B125) : grille validée, 1er temps compris
             if self.winfo_exists():
                 self._refresh_checked()
                 self._refresh_info()                          # 1.4.3 (C16) : bandeau « grille vérifiée »
@@ -1437,6 +1749,8 @@ class GridEditor(QWidget):
             self.save_btn.setText(t("grid.saving"))
 
             def done(_r: Any) -> None:
+                if self._db_picked:                           # 1.4.4 (B125) : 1er temps choisi, enregistré
+                    self._downbeat_resolved()
                 if self.winfo_exists():
                     self._leaving = True
                     self.close()
@@ -1451,6 +1765,7 @@ class GridEditor(QWidget):
             svc = getattr(self.ctrl, "tempo_grids", None)         # 1.4.3 (C16) : grille fixe gardée à la réanalyse
             if svc is not None and beats is not None:
                 svc.remember_choice(self.track, beats)
+            self.seg_tools.remember()                             # 1.4.4 (C221) : repères gardés à la réanalyse
             self.ctrl.save_grid_and_cues(self.track.content_id, beats, cues, ok=done, err=failed)
 
         if self._native and self.beats != self.original:
@@ -1460,7 +1775,7 @@ class GridEditor(QWidget):
             go()
 
     def is_dirty(self) -> bool:
-        return bool(self.beats) and (self.beats != self.original or self.cues_dirty())
+        return bool(self.beats) and (self.beats != self.original or self.cues_dirty() or self.seg_tools.dirty())
 
     def close(self) -> bool:                 # noqa: D401
         """Quitte la page (sans enregistrer) ; la lecture du son continue. 1.3.0 : grille ou cues

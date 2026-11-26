@@ -51,7 +51,7 @@ from .errors import (
     DatabaseLockedError, DatabaseOpenError, LibraryError, PlaylistNotFoundError, ReadOnlyError, TrackNotFoundError,
 )
 from .base import KEEP
-from .library.common import FILE_TYPES, PdbStatus, _Extras, _safe_name, extract_video_id
+from .library.common import FILE_TYPES, PdbStatus, _Extras, _safe_name, extract_video_id, source_of
 from .library.metadata import (
     NATIVE_PARTS, REKORDBOX_ORIGINALS, BeatGrid, PlaylistStats, anlz_set, keep_rekordbox_original,
     read_rekordbox_original, restored_files, write_or_roll_back,
@@ -649,7 +649,9 @@ class LocalRekordboxLibrary:
                 keep = self.backup_dir / f"session-{stamp}"
                 shutil.copytree(target, keep)
                 sessions = sorted(p for p in self.backup_dir.glob("session-*") if p.is_dir())
-                for old in sessions[: -SESSION_KEEP]:
+                from .backup_levels import limit                 # 1.4.4 (C235)
+
+                for old in sessions[: -limit("sessions")]:
                     shutil.rmtree(old, ignore_errors=True)
                 self._session_saved = True
         except OSError as exc:
@@ -662,6 +664,8 @@ class LocalRekordboxLibrary:
     def ensure_writable(self) -> None:
         if self.read_only:
             raise ReadOnlyError("Library opened read-only.")
+        if getattr(self, "kept_background", False):      # 1.4.4 (A08) : seule la bibliothèque active écrit
+            raise LibraryError("Library kept open in the background: only the active library is written.")
         if rekordbox_running():
             raise DatabaseLockedError("Close Rekordbox first: DJSync cannot change its library while it is open.")
 
@@ -730,7 +734,7 @@ class LocalRekordboxLibrary:
         return LibraryTrack(
             content_id=int(cid), title=title or "", artist=artist, album=album or None,
             duration_seconds=int(length or 0), path=path or "", bpm=(bpm or 0) / 100.0, file_type=int(ftype or 0),
-            source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
+            source_url=source_of(comment),                                       # 1.4.4 (C108) : sans « E7 »
             date_added=str(added or "")[:10], is_analysed=bool(anlz), artwork_path=art or None,
             sequence=sequence, key=key or None, analysis_path=anlz or None,
             **_extras(row[14:24], comment),
@@ -1146,6 +1150,37 @@ class LocalRekordboxLibrary:
                 ex.problems.append(f"artwork: {exc}")
         return ex
 
+    @staticmethod
+    def _energy_comment(content: Any, energy: int) -> bool:
+        """1.4.4 (C108) : énergie choisie à la main (sinon `energy`) devant le commentaire ; reste gardé."""
+        from ..analysis import energy as E
+
+        v = E.lookup(Path(content.FolderPath or "").name, int(content.FileSize or 0)) if content.FolderPath else None
+        value = (v[1] if v else 0) or int(energy or 0)
+        new = E.with_prefix(content.Commnt or "", value) if value else (content.Commnt or "")
+        if new == (content.Commnt or ""):
+            return False
+        content.Commnt = new or None
+        return True
+
+    def set_energy_comments(self, energies: Dict[int, int]) -> int:
+        """1.4.4 (C108) : « E7 » devant le commentaire de chaque son {id: énergie} (reste du commentaire gardé)."""
+        n = 0
+        with self._write():
+            for cid, value in energies.items():
+                try:
+                    c = self._content(int(cid))
+                except TrackNotFoundError:
+                    continue
+                from ..analysis.energy import with_prefix
+
+                new = with_prefix(c.Commnt or "", int(value))
+                if new != (c.Commnt or ""):
+                    c.Commnt = new or None
+                    c.updated_at = datetime.now()
+                    n += 1
+        return n
+
     def _apply_extras(self, db: Any, content: Any, ex: _Extras) -> None:
         now = datetime.now()
         if ex.analysis is not None and ex.anlz_path:
@@ -1165,6 +1200,8 @@ class LocalRekordboxLibrary:
                     log.info("Auto gain not written for %s", content.ID, exc_info=True)
             if self.auto_cue:
                 self._memory_cue(db, content, ex.analysis.first_downbeat_ms)
+            if getattr(self, "energy_comment", False):                   # 1.4.4 (C108) : « E7 » devant le commentaire
+                self._energy_comment(content, getattr(ex.analysis, "energy", None) or 0)
             for ext in (".DAT", ".EXT", ".2EX"):
                 rel = ex.anlz_path[:-4] + ext
                 if (self.share_dir / rel.lstrip("/")).is_file():
@@ -1703,7 +1740,7 @@ class LocalRekordboxLibrary:
         from pyrekordbox.masterdb import models
 
         from ..analysis.cues import KIND_FOR_SLOT, save_to_files
-        from .library.metadata import ANLZ_BACKUPS_KEEP, prune_folders
+        from .library.metadata import anlz_keep, prune_folders
 
         self.ensure_writable()
         slots = [c.slot for c in cues if c.slot]
@@ -1715,7 +1752,7 @@ class LocalRekordboxLibrary:
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
             backup.mkdir(parents=True, exist_ok=True)
-            prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+            prune_folders(backup.parent, anlz_keep())
             try:
                 save_to_files(dat, cues, backup)
             except ValueError as exc:

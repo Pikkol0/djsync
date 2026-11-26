@@ -306,7 +306,8 @@ def test_c206_spotify_note_on_its_own_line(demo):  # noqa: F811
     demo.ctrl.match_spotify = lambda tracks, on_item, on_done: None
     view._load_spotify(pl)
     assert view.note_lbl.isVisibleTo(view) and "534" in view.note_lbl.text()
-    assert t("import.paste_list").rstrip("…") in view.note_lbl.text() and "534" not in view.info.text()
+    # 1.4.4 (C216) : « Coller une liste… » retiré ; le message renvoie au champ du lien
+    assert "534" not in view.info.text() and view.note_lbl.text().endswith(t("import.spotify_rest"))
     assert view.note_lbl.wordWrap()
 
 

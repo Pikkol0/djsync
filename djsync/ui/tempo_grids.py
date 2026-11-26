@@ -5,7 +5,10 @@
   « Grille par passage » de Grille et cues ;
 * grille fixe (un seul tempo) calée sur un temps, pour le bouton « Grille fixe » ; le choix est gardé pour la
   réanalyse (tempo_profile.set_choice) ;
-* sons à valider : tempo qui change et grille pas encore marquée vérifiée (« Grille juste », C204).
+* sons à valider : tempo qui change et grille pas encore marquée vérifiée (« Grille juste », C204) ;
+* 1.4.4 (B125) : 1er temps de la mesure à vérifier (entrées des basses en désaccord à l'analyse) ;
+* 1.4.4 (C221) : type corrigé à la main et passages posés dans Grille et cues (tempo_segments.py), gardés à la
+  réanalyse.
 """
 from __future__ import annotations
 
@@ -26,6 +29,17 @@ def profile_of(track: Any) -> Optional[tempo_profile.TempoProfile]:
         return tempo_profile.lookup(Path(track.path).name, track.file_size)
     except Exception:  # noqa: BLE001
         return None
+
+
+def kind_text(p: Any) -> str:
+    """1.4.4 (C221) : « Beatswitch détecté (122 → 140 BPM) », ou « Beatswitch (corrigé) » si choisi à la main."""
+    from ..i18n import t
+
+    if p is None or not getattr(p, "kind", ""):
+        return ""
+    if getattr(p, "user_kind", ""):
+        return t("tempo.user_kind", kind=t(f"grid.seg_kind_{p.kind}"))
+    return t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
 
 
 def split_beats(sections: Sequence[Tuple[float, float, float]], duration_ms: int) -> List[Beat]:
@@ -79,7 +93,7 @@ class TempoGridService:
         self.apply_settings()
 
     def apply_settings(self) -> None:
-        tempo_profile.set_policy(getattr(self.ctrl.settings, "tempo_grid", "auto") or "auto")
+        tempo_profile.set_policy(getattr(self.ctrl.settings, "tempo_grid", "dynamic") or "dynamic")
 
     # ------------------------------------------------------------------ Grille et cues
     def split_grid(self, track: Any, duration_ms: int) -> Optional[List[Beat]]:
@@ -111,3 +125,44 @@ class TempoGridService:
         """Son au tempo qui change dont la grille n'a pas encore été marquée vérifiée."""
         p = profile_of(track) if getattr(track, "is_analysed", True) else None
         return p is not None and p.changes and checked is False
+
+    # ------------------------------------------------------------------ 1er temps à vérifier (1.4.4, B125)
+    @staticmethod
+    def downbeat_pending(track: Any) -> bool:
+        """Son dont l'analyse n'est pas sûre du 1er temps de la mesure (choix pas encore fait)."""
+        p = profile_of(track) if getattr(track, "is_analysed", True) else None
+        return p is not None and bool(getattr(p, "downbeat_check", False))
+
+    @staticmethod
+    def downbeat_at(track: Any) -> float:
+        """Instant (s) de l'entrée des basses la plus nette, pour l'écoute ; -1 si inconnu."""
+        p = profile_of(track)
+        return float(getattr(p, "downbeat_at", -1.0)) if p is not None else -1.0
+
+    @staticmethod
+    def downbeat_done(track: Any) -> bool:
+        """Choix fait (ou grille validée) : le son n'est plus « à vérifier »."""
+        try:
+            return tempo_profile.set_downbeat_checked(Path(track.path).name, track.file_size)
+        except Exception:  # noqa: BLE001 - simple marque
+            log.debug("Handled error in downbeat_done", exc_info=True)
+            return False
+
+    # ------------------------------------------------------------------ corrections (1.4.4, C221)
+    @staticmethod
+    def set_kind(track: Any, kind: str) -> bool:
+        """Type corrigé à la main ("" : celui de l'analyse), gardé à la réanalyse."""
+        try:
+            return tempo_profile.set_kind(Path(track.path).name, track.file_size, kind)
+        except Exception:  # noqa: BLE001
+            log.debug("Handled error in set_kind", exc_info=True)
+            return False
+
+    @staticmethod
+    def remember_marks(track: Any, marks: Sequence[Tuple[float, float, float, str]]) -> bool:
+        """Passages posés à la main (début s, BPM, 1er temps fort s, genre), gardés à la réanalyse."""
+        try:
+            return tempo_profile.set_marks(Path(track.path).name, track.file_size, list(marks))
+        except Exception:  # noqa: BLE001
+            log.debug("Handled error in remember_marks", exc_info=True)
+            return False

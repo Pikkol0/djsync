@@ -34,8 +34,10 @@ class CurationMixin:
             return
         self.dispatcher.submit(lambda: lib.track_details(content_id), ok, self._on_error, pool="db")
 
-    def edit_track(self, content_id: int, values: Dict[str, Any], ok: Optional[Callback] = None) -> None:
-        """values : title, artist, album, year, genre, artwork (KEEP / None / octets / URL)."""
+    def edit_track(self, content_id: int, values: Dict[str, Any], ok: Optional[Callback] = None,
+                   err: Optional[Callback] = None) -> None:
+        """values : title, artist, album, year, genre, artwork (KEEP / None / octets / URL).
+        1.4.4 (C138) : `err` (volet Infos : bouton Enregistrer rendu après un échec)."""
         def fn(lib: Any) -> Any:
             vals = dict(values)
             art = vals.get("artwork")
@@ -47,7 +49,7 @@ class CurationMixin:
             self._genre_after_change(lib)
             return result
 
-        self._write(fn, ok, t("msg.metadata_saved"))
+        self._write(fn, ok, t("msg.metadata_saved"), err=err)
 
     def cover_candidates(self, track: LibraryTrack, ok: Callback) -> None:
         from ...core.metadata import cover_candidates

@@ -147,10 +147,9 @@ def test_a2_11_welcome_two_screens_and_tour_box(demo, monkeypatch):  # noqa: F81
     demo.ctrl.settings.tour_state = ""
     w = WelcomeDialog(demo, demo.ctrl)
     assert w._step == 1 and w.lang_buttons and w.star_btn.property("kind") == "flat"
-    w.validate_btn.click()
-    assert w._step == 2 and w.tour_box is not None and w.tour_box.isChecked()
-    assert w.height() < 520                                                  # hauteur du contenu
-    w._finish()
+    # 1.4.4 (C227) : un seul écran ; la case de la visite guidée est dessus, « Commencer » la lance
+    assert w.tour_box is not None and w.tour_box.isChecked() and w.yt_buttons
+    w.start_btn.click()
     assert demo.ctrl.settings.tour_state == "done" and demo._tour_asked
     assert pump(demo, 1, lambda: started == [demo])
 

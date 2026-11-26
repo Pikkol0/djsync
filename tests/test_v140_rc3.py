@@ -29,6 +29,7 @@ def test_b69_quality_grid_has_cells_and_fixed_height(demo):  # noqa: F811
 def test_b71_space_card_not_rebuilt_while_scrolling(demo, monkeypatch):  # noqa: F811
     v = demo.views["settings"]
     demo.show_view("settings")
+    v.show_section("storage")                                 # 1.4.4 (C225) : page Sauvegardes et espace
     pump(demo, 0.5)
     calls = []
     monkeypatch.setattr(v.space, "compute", lambda *a, **k: calls.append(1))

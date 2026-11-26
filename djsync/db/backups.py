@@ -246,12 +246,14 @@ def prune(backup_dir: Path) -> List[str]:
     points = list_points(backup_dir)          # du plus récent au plus ancien
     keep = set()
     autos = [p for p in points if p.kind == "auto"]
-    keep.update(p.id for p in autos[:KEEP_RECENT])
+    from .backup_levels import limit                 # 1.4.4 (C235) : selon le niveau choisi
+
+    keep.update(p.id for p in autos[:limit("key_recent")])
     for tag in ("year", "month", "week"):
         newest = next((p for p in autos if tag in p.tags), None)
         if newest is not None:
             keep.add(newest.id)
-    keep.update(p.id for p in [p for p in points if p.kind == "restore"][:KEEP_RESTORE])
+    keep.update(p.id for p in [p for p in points if p.kind == "restore"][:limit("key_restore")])
     keep.update(p.id for p in points if p.kind in ("origin", "manual"))
     removed = []
     for p in points:

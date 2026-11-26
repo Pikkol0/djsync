@@ -13,6 +13,7 @@ V0.2.0 : découpé par sujet (ce fichier : évènements, clé USB, recherche, im
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import shutil
 import tempfile
@@ -205,6 +206,21 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
 
         self.tempo_grids = TempoGridService(self)
+        from .energy_service import EnergyService                # 1.4.4 (C108) : service à part (A3-10)
+
+        self.energy = EnergyService(self)
+        from .track_info_panel import TrackInfoService           # 1.4.4 (C138) : volet Infos (A3-10)
+
+        self.track_info = TrackInfoService(self)
+        from .kept_libraries import KeptLibraries               # 1.4.4 (A08 A) : bascule rapide (service, A3-10)
+
+        self.libraries = KeptLibraries(self)
+        # 1.4.4 (B128 C, A09 A) : relevé mémoire / processeur dans le journal (pas pendant les tests)
+        from ..core.memwatch import MemWatch
+
+        self.memwatch = MemWatch()
+        if not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("DJSYNC_NO_MEMWATCH"):
+            self.memwatch.start()
         self.player = player or AudioPlayer(
             post=dispatcher.post, on_event=lambda k, p: self._player_event(k, p),
             ffmpeg_location=settings.ffmpeg_location or None,
@@ -714,11 +730,25 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self._connecting = True
         self._user_disconnected = False
         self.flush_merges()                         # 1.3.2 (C82) : fusions en attente écrites avant de changer
-        old = self.library
+        old, old_drive = self.library, self.drive
         if old is not None and self.analysis.running:
             self.analysis.cancel()
 
+        def leave(key: str) -> None:
+            # 1.4.4 (A08 A) : la bibliothèque qu'on quitte reste ouverte en arrière-plan si c'est sûr, sinon fermée
+            if old is not None:
+                self.libraries.park(old_drive, old, active_key=key)
+
         def work() -> Any:
+            from .kept_libraries import configure, library_key
+
+            target_kept = drive if isinstance(drive, (UsbDrive, LocalRekordbox)) else drive_from_letter(str(drive))
+            kept = self.libraries.take(target_kept)       # 1.4.4 (A08 A) : reprise sans réouverture
+            if kept is not None:
+                configure(kept[1], self.settings)
+                self.service.set_library(kept[1])
+                leave(library_key(kept[0]))
+                return kept[0], kept[1]
             if isinstance(drive, LocalRekordbox):
                 lib: Any = LocalRekordboxLibrary(
                     drive, backup_keep=self.settings.backup_keep, analyze=False, artwork=True,
@@ -727,12 +757,12 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 lib.auto_cue = self.settings.auto_cue
                 lib.native_parts = self.settings.native_parts()
                 lib.write_tags = self.settings.write_tags          # 1.4.3 (S05)
+                lib.energy_comment = self.settings.energy_comment  # 1.4.4 (C108)
                 lib.protect_foreign = self.settings.protect_foreign  # 1.4.3 (A07, C156)
                 self.service.set_library(lib)
-                if old is not None:
-                    old.close()
+                leave(library_key(drive))
                 return drive, lib
-            target = drive if isinstance(drive, UsbDrive) else drive_from_letter(str(drive))
+            target = target_kept
             lib = RekordboxUsbLibrary(
                 target, contents_dir=self.settings.contents_dir, backup_keep=self.settings.backup_keep,
                 pdb_sync=self.settings.pdb_sync, pdb_allow_growth=self.settings.pdb_allow_growth,
@@ -742,6 +772,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             lib.auto_cue = self.settings.auto_cue
             lib.native_parts = self.settings.native_parts()
             lib.write_tags = self.settings.write_tags              # 1.4.3 (S05)
+            lib.energy_comment = self.settings.energy_comment      # 1.4.4 (C108)
             lib.pdb_delay = 3.0                       # 1.4.3 (A1-2) : export.pdb réécrit une fois par rafale
             rec = getattr(lib, "recovery", None)      # 1.4.3 (A6-1) : remplacement interrompu repris à l'ouverture
             if rec is not None and rec.restored:
@@ -757,8 +788,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             except OSError:
                 log.debug("Ignored error in work", exc_info=True)  # 1.4.3 (A3-4)
             self.service.set_library(lib)
-            if old is not None:
-                old.close()
+            leave(library_key(target))
             return target, lib
 
         def ok(result: Any) -> None:
@@ -773,6 +803,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._rekordbox_warned = False
             self._repair_pdb(self.library)
             self.refresh_rekordbox_originals()
+            self.libraries.note()                     # 1.4.4 (A08) : mémoire notée au journal
 
         def err(exc: BaseException) -> None:
             self._connecting = False
@@ -795,7 +826,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         self.playlists = []
         self.service.set_library(None)
         if lib is not None:
-            self.dispatcher.submit(lib.close, pool="db")
+            self.dispatcher.submit(lib.close, lambda _r: self.libraries.note(), pool="db")   # 1.4.4 (A08) : journal
         self._emit("drive")
 
     # ------------------------------------------- clé USB : export.pdb et Rekordbox (V1.0.0)
@@ -888,6 +919,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             return True if same else eject_volume(drive.root)
 
         def ok(ejected: bool) -> None:
+            self.libraries.note()                     # 1.4.4 (A08) : mémoire notée au journal
             if pdb_left:
                 self.message("warn", t("eject.pdb_stale", detail=pdb_left[0]))
             if same:
@@ -940,6 +972,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._polling = False
             drives, still_there, rb_open, unprepared, alive = result
             self._warn_rekordbox(rb_open)
+            self.libraries.watch(bool(rb_open))   # 1.4.4 (A08) : bibliothèques gardées (Rekordbox, clé retirée)
             changed = [str(d.root) for d in drives] != [str(d.root) for d in self.drives]
             blank_changed = [(str(u.drive.root), u.kind) for u in unprepared] != \
                 [(str(u.drive.root), u.kind) for u in self.unprepared]
@@ -1211,6 +1244,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.auto_cue = s.auto_cue
             self.library.native_parts = s.native_parts()
             self.library.write_tags = s.write_tags                 # 1.4.3 (S05)
+            self.library.energy_comment = s.energy_comment         # 1.4.4 (C108)
             if hasattr(self.library, "protect_foreign"):           # 1.4.3 (A07, C156)
                 self.library.protect_foreign = s.protect_foreign
             if s.pdb_sync != "off" and not self.is_local:
@@ -1277,6 +1311,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             except Exception:  # noqa: BLE001
                 log.info("Soulseek stop failed", exc_info=True)
         lib, self.library = self.library, None
+        self.libraries.close_all()                  # 1.4.4 (A08) : bibliothèques gardées refermées aussi
         if lib is not None:
             try:
                 lib.close()

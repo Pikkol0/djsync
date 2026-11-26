@@ -203,7 +203,7 @@ class SetCheckDialog(BaseDialog):
                 win.open_diagnostic("missing")
         elif c.action == "convert":
             if hasattr(win, "_open_settings_section"):
-                win._open_settings_section("libraries")
+                win._open_settings_section("pdb")             # 1.4.4 (C225) : carte FLAC / export.pdb
             self.ctrl.message("info", t("set.convert_hint", n=len(c.ids)))
         elif c.action == "space" and hasattr(win, "open_space"):
             win.open_space()

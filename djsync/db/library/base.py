@@ -456,6 +456,8 @@ class LibraryBase:
             conn = self._db()
             if self.read_only:
                 raise ReadOnlyError("Library opened read-only.")
+            if getattr(self, "kept_background", False):  # 1.4.4 (A08) : seule la bibliothèque active écrit
+                raise LibraryError("Library kept open in the background: only the active library is written.")
             self._backup_before_write()
             self._txn_ops = []
             self._txn_marks = []

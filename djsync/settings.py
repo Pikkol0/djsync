@@ -63,7 +63,8 @@ class Settings:
     fetch_views: bool = True        # charger les vues des Titres en arrière-plan
     fetch_metadata: bool = True     # V0.3.0 : album, année, genre, label… (Deezer) au téléchargement
     spotify_preference: str = "auto"
-    backup_keep: int = 10
+    backup_keep: int = 10           # 1.4.4 (C235) : déduit de backup_level
+    backup_level: str = ""          # 1.4.4 (C235) : light | normal | full ("" : repris de backup_keep)
     volume: float = 0.8
     geometry: str = ""
     # ---- V1.1
@@ -71,6 +72,7 @@ class Settings:
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
     background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
     write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
+    energy_comment: bool = False       # 1.4.4 (C108) : énergie (« E7 ») devant le commentaire du son
     auto_gain: bool = True             # 1.4.3 (C109) : volume égalisé entre les sons (lecteur de DJSync)
     zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
@@ -105,8 +107,9 @@ class Settings:
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
     waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
-    # 1.4.3 (C16) : grille des sons dont le tempo change : « auto » (variable ou par passage) | « never » (fixe)
-    tempo_grid: str = "auto"
+    # 1.4.3 (C16) : grille des sons dont le tempo change ; 1.4.4 (C221) : mode d'analyse « dynamic » (tempo qui
+    # change détecté, grille variable ou par passage) | « classic » (un BPM, grille fixe) ; même clé
+    tempo_grid: str = "dynamic"
     # 1.4.3 (A07, C156) : sur l'ordinateur, « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas
     # téléchargés ; coché, ces sons sont seulement retirés de Rekordbox (comme avant la 1.4.3)
     protect_foreign: bool = False
@@ -132,6 +135,8 @@ class Settings:
     scrolling_wave: bool = True        # forme d'onde défilante (tête de lecture au centre) dans le lecteur
     audio_latency_ms: int = 0          # 1.3.0-rc.3 (C39) : retard de sortie en plus (Bluetooth…), pour les curseurs
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
+    dup_auto_verify: bool = True       # 1.4.4 (C236) : Doublons, groupes vérifiés par le son sans attendre
+    grid_wave_height: int = 0          # 1.4.4 (C233) : hauteur de la forme d'onde de Grille et cues (0 = automatique)
     grid_magnet: int = 0               # 1.4.1 (C92) : aimant de Grille et cues (0 = coupé, 1 = au temps, 4 = au quart)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
@@ -180,6 +185,10 @@ class Settings:
     welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
     diag_tab: str = "one"              # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic ; 1.4.1 (C140) : « Un son »
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
+    # ---- 1.4.4
+    show_tooltips: bool = True         # C219 : infobulles au survol (les ⓘ restent toujours disponibles)
+    track_info_open: bool = False      # C138 : volet « Infos » d'un son ouvert dans la Bibliothèque
+    track_info_width: int = 0          # C138 : largeur choisie du volet (0 : par défaut)
 
     @classmethod
     def path(cls) -> Path:
@@ -225,6 +234,7 @@ class Settings:
         if self.search_tab not in ("search", "hq", "import"):
             self.search_tab = "search"
         self.zoom = clamp_zoom(self.zoom)
+        self.show_tooltips = bool(self.show_tooltips)                                              # 1.4.4 (C219)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"
@@ -268,8 +278,16 @@ class Settings:
         self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
         if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
             self.waveform_style = "3band"
-        if self.tempo_grid not in ("auto", "never"):                                               # 1.4.3 (C16)
-            self.tempo_grid = "auto"
+        # 1.4.3 (C16) ; 1.4.4 (C221) : « Analyse : Dynamique / Classique » (« auto » -> dynamic, « never » -> classic)
+        from .analysis.tempo_profile import normalize_mode
+
+        self.tempo_grid = normalize_mode(str(self.tempo_grid or ""))
+        from .db import backup_levels                                                                # 1.4.4 (C235)
+
+        if self.backup_level not in backup_levels.LEVELS:
+            self.backup_level = backup_levels.from_copies(int(self.backup_keep or 10))
+        self.backup_keep = backup_levels.LEVELS[self.backup_level]["copies"]
+        backup_levels.set_level(self.backup_level)
         return self
 
     def native_parts(self) -> tuple:

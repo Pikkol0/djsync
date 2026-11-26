@@ -11,6 +11,13 @@ from .common import *  # noqa: F401,F403 (imports et utilitaires partagés)
 ANLZ_BACKUPS_KEEP = 200          # grilles d'origine conservées (les plus récentes) ; 1.4.3 (A6-11) : 30 → 200
 
 
+def anlz_keep() -> int:
+    """1.4.4 (C235) : selon le niveau de sauvegarde (Légères 30, Normales 200, Complètes 1000)."""
+    from ..backup_levels import limit
+
+    return limit("anlz")
+
+
 def prune_folders(folder: Path, keep: int) -> None:
     """Ne garde que les `keep` sous-dossiers les plus récents (noms horodatés)."""
     import shutil
@@ -176,6 +183,30 @@ class MetadataMixin:
             conn.execute(f"UPDATE content SET {', '.join(f'{k} = ?' for k in cols)} WHERE content_id = ?",
                          (*cols.values(), content_id))
         return True
+
+    def set_energy_comments(self, energies: Dict[int, int]) -> int:
+        """1.4.4 (C108) : « E7 » devant le commentaire (djComment) de chaque son {id: énergie} ; le reste du
+        commentaire est gardé, un ancien préfixe remplacé. export.pdb suit (réconciliation habituelle)."""
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        from ...analysis.energy import with_prefix
+
+        n = 0
+        with self._write() as conn:
+            for cid, value in energies.items():
+                row = conn.execute("SELECT path, djComment, COALESCE(informationUpdateCount,0) FROM content "
+                                   "WHERE content_id = ?", (int(cid),)).fetchone()
+                if row is None:
+                    continue
+                new = with_prefix(row[1] or "", int(value))
+                if new == (row[1] or ""):
+                    continue
+                conn.execute("UPDATE content SET djComment = ?, informationUpdateCount = ? WHERE content_id = ?",
+                             (new, int(row[2]) + 1, int(cid)))
+                if row[0]:
+                    self._pdb_mark(TRACK_FIELDS, row[0])
+                n += 1
+        return n
 
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
@@ -396,7 +427,7 @@ class MetadataMixin:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = self.backup_dir / "anlz" / f"{stamp}-{content_id}-cues"
         backup.mkdir(parents=True, exist_ok=True)
-        prune_folders(backup.parent, ANLZ_BACKUPS_KEEP)
+        prune_folders(backup.parent, anlz_keep())
         try:
             save_to_files(dat, cues, backup)
         except ValueError as exc:

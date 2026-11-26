@@ -412,6 +412,12 @@ class IngestMixin:
         try:
             with self._write() as conn:
                 extra = self._extra_columns(conn, ex, album_id)
+                if getattr(self, "energy_comment", False) and ex.analysis is not None:     # 1.4.4 (C108)
+                    comment = _energy_comment(conn.execute("SELECT path, djComment, fileSize FROM content "
+                                                           "WHERE content_id = ?", (content_id,)).fetchone(),
+                                              ex.analysis)
+                    if comment is not None:
+                        extra["djComment"] = comment
                 if ex.anlz_path:
                     extra["analysisDataUpdateCount"] = (conn.execute(
                         "SELECT COALESCE(analysisDataUpdateCount,0) FROM content WHERE content_id = ?",
@@ -550,3 +556,16 @@ class IngestMixin:
                     on_progress(i, len(todo), track)
         return done, failed
 
+
+def _energy_comment(row: Any, analysis: Any) -> Optional[str]:
+    """1.4.4 (C108) : commentaire avec « E7 » devant (énergie choisie à la main, sinon celle de l'analyse) ;
+    None s'il ne change pas ou si l'énergie est inconnue. `row` : (chemin, commentaire, taille)."""
+    if not row:
+        return None
+    from ...analysis import energy as E
+
+    path, old = row[0] or "", row[1] or ""
+    v = E.lookup(Path(path).name, int(row[2] or 0)) if path else None
+    value = (v[1] if v else 0) or getattr(analysis, "energy", None) or 0
+    new = E.with_prefix(old, value) if value else old
+    return new if new != old else None

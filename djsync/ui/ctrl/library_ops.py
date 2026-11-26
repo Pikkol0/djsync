@@ -543,14 +543,34 @@ class LibraryOpsMixin:
 
             self.dispatcher.submit(lib.full_return_point, found, lambda _e: self.key_full(full), pool="db")
 
+        def logged(fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+            """1.4.4 (C223) : sons notés dans la liste « Sons supprimés » une fois la suppression faite."""
+            def run(lib: Any) -> Any:
+                before = []
+                for cid in ids:
+                    try:
+                        before.append(lib.get_track(cid))
+                    except Exception:  # noqa: BLE001 - son introuvable : rien à noter
+                        log.debug("Deleted track %s not read before deletion", cid, exc_info=True)
+                result = fn(lib)
+                try:
+                    from ...core.deleted_log import DeletedLog
+
+                    DeletedLog(lib.backup_dir).add(before)
+                except Exception as exc:  # noqa: BLE001 - la suppression est faite, la liste est un confort
+                    log.warning("Deleted tracks list not updated: %s", exc)
+                return result
+            return run
+
         if without_copy:
-            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files, without_copy=without_copy), done,
-                        err=failed, removed=(0, ids))
+            self._write(logged(lambda lib: lib.delete_tracks(content_ids, delete_files, without_copy=without_copy)),
+                        done, err=failed, removed=(0, ids))
         elif later:
-            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files, files_later=True), done,
+            self._write(logged(lambda lib: lib.delete_tracks(content_ids, delete_files, files_later=True)), done,
                         err=failed, removed=(0, ids))
         else:
-            self._write(lambda lib: lib.delete_tracks(content_ids, delete_files), done, err=failed, removed=(0, ids))
+            self._write(logged(lambda lib: lib.delete_tracks(content_ids, delete_files)), done, err=failed,
+                        removed=(0, ids))
 
     # ------------------------------------------------------------ export.pdb (anciennes platines)
     def pdb_status(self, ok: Callback) -> None:
