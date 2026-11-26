@@ -815,3 +815,229 @@ def flash(widget: Any, ms: int = 1600) -> None:
             pass
 
     QTimer.singleShot(ms, back)
+
+
+# ------------------------------------------------------------ 1.4.4 (C225) : interrupteur oui / non
+class Switch(QCheckBox):
+    """1.4.4 (C225) : interrupteur (oui / non) des Paramètres, dessiné comme un curseur à bascule. Même API que
+    QCheckBox (isChecked, setChecked, toggled…) ; pas de texte visible : le libellé est à gauche de la ligne,
+    et sert de nom accessible."""
+
+    def __init__(self, accessible: str = "", parent: Any = None) -> None:
+        super().__init__(parent)
+        if accessible:
+            self.setAccessibleName(accessible)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(theme.px(40), theme.px(24))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return self.sizeHint()
+
+    def hitButton(self, pos: Any) -> bool:  # noqa: N802
+        return self.rect().contains(pos)
+
+    def paintEvent(self, _e: Any) -> None:  # noqa: N802
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QColor, QPainter, QPen
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = theme.px(38), theme.px(22)
+        x, y = (self.width() - w) / 2, (self.height() - h) / 2
+        on = self.isChecked()
+        track = QColor(theme.ACCENT if on else theme.ELEV)
+        if not self.isEnabled():
+            track.setAlpha(90)
+        p.setPen(QPen(QColor(theme.ACCENT if self.hasFocus() else theme.BORDER), 1))
+        p.setBrush(track)
+        p.drawRoundedRect(QRectF(x, y, w, h), h / 2, h / 2)
+        d = h - theme.px(6)
+        kx = x + w - d - theme.px(3) if on else x + theme.px(3)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.ON_ACCENT if on else theme.DIM))
+        p.drawEllipse(QRectF(kx, y + theme.px(3), d, d))
+        p.end()
+
+
+# ------------------------------------------------------------ 1.4.4 (C219) : aide ⓘ et infobulles
+class InfoBubble(QFrame):
+    """1.4.4 (C219) : bulle d'aide ouverte au clic sur un ⓘ ; reste affichée jusqu'au clic suivant (sur le ⓘ,
+    dans la bulle ou ailleurs : voir `TooltipFilter`)."""
+
+    def __init__(self, text: str, parent: Any = None) -> None:
+        super().__init__(parent, Qt.ToolTip | Qt.FramelessWindowHint)
+        self.setObjectName("infoBubble")
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setStyleSheet(f"#infoBubble {{ background: {theme.ELEV}; border: 1px solid {theme.ACCENT};"
+                           f" border-radius: {theme.px(8)}px; }} #infoBubble QLabel {{ color: {theme.TEXT}; }}")
+        lay = vbox(self, margins=theme.px(10))
+        self.text = label(text, wrap=True)
+        self.text.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.text.setMaximumWidth(theme.px(360))
+        lay.addWidget(self.text)
+
+    def mousePressEvent(self, e: Any) -> None:  # noqa: N802
+        self.close()
+
+
+class InfoDot(QToolButton):
+    """1.4.4 (C219) : petit ⓘ à côté d'un réglage ou d'une notion peu évidente. L'explication s'affiche au
+    survol (toujours, même si les infobulles sont masquées) ; un clic ouvre une bulle qui reste affichée,
+    refermée au clic suivant ou en cliquant ailleurs."""
+
+    open_bubble: Optional["InfoBubble"] = None       # une seule bulle ouverte à la fois, dans toute l'app
+
+    def __init__(self, text: str, parent: Any = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("infoDot")
+        self.help_text = text
+        self.bubble: Optional[InfoBubble] = None
+        self.setText("i")
+        self.setToolTip(text)
+        self.setAccessibleName(text)
+        self.setCursor(Qt.WhatsThisCursor)
+        self.setFocusPolicy(Qt.TabFocus)
+        size = theme.px(18)
+        self.setFixedSize(size, size)
+        self.setStyleSheet(f"#infoDot {{ border: 1.5px solid {theme.FAINT}; border-radius: {size // 2}px;"
+                           f" color: {theme.DIM}; font-weight: 700; font-size: {theme.px(10)}px; padding: 0;"
+                           f" background: transparent; }}"
+                           f" #infoDot:hover, #infoDot:checked {{ border-color: {theme.ACCENT}; color: {theme.ACCENT}; }}")
+        self.setCheckable(True)
+        self.clicked.connect(self._toggle)
+        tooltip_filter()                                  # fermeture au clic ailleurs
+
+    def set_text(self, text: str) -> None:
+        self.help_text = text
+        self.setToolTip(text)
+        self.setAccessibleName(text)
+
+    def is_open(self) -> bool:
+        try:
+            return self.bubble is not None and self.bubble.isVisible()
+        except RuntimeError:                             # bulle fermée (détruite)
+            self.bubble = None
+            return False
+
+    def _toggle(self) -> None:
+        if self.is_open():
+            self.close_bubble()
+        else:
+            self.open()
+
+    def open(self) -> None:
+        from PySide6.QtWidgets import QToolTip
+
+        InfoDot.close_any()
+        QToolTip.hideText()
+        self.bubble = InfoBubble(self.help_text, self.window())
+        self.bubble.adjustSize()
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        screen = self.screen()
+        if screen is not None:                           # gardée dans l'écran
+            geo = screen.availableGeometry()
+            pos.setX(max(geo.left(), min(pos.x(), geo.right() - self.bubble.width())))
+            if pos.y() + self.bubble.height() > geo.bottom():
+                pos.setY(self.mapToGlobal(self.rect().topLeft()).y() - self.bubble.height())
+        self.bubble.move(pos)
+        self.bubble.show()
+        self.setChecked(True)
+        InfoDot.open_bubble = self.bubble
+        self.bubble.installEventFilter(self)
+
+    def eventFilter(self, obj: Any, e: Any) -> bool:  # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        if obj is self.bubble and e.type() in (QEvent.Close, QEvent.Hide):
+            self.setChecked(False)
+            if InfoDot.open_bubble is obj:
+                InfoDot.open_bubble = None
+        return False
+
+    def close_bubble(self) -> None:
+        b, self.bubble = self.bubble, None
+        self.setChecked(False)
+        if InfoDot.open_bubble is b:
+            InfoDot.open_bubble = None
+        if b is not None:
+            try:
+                b.close()
+            except RuntimeError:                         # déjà détruite
+                pass
+
+    @classmethod
+    def close_any(cls) -> None:
+        b, cls.open_bubble = cls.open_bubble, None
+        if b is not None:
+            try:
+                b.close()
+            except RuntimeError:
+                pass
+
+    def hideEvent(self, e: Any) -> None:  # noqa: N802
+        super().hideEvent(e)
+        if self.is_open():                               # page quittée : la bulle part avec
+            self.close_bubble()
+
+
+class TooltipFilter(QObject):
+    """1.4.4 (C219) : filtre posé une fois sur toute l'application. Réglage « Afficher les infobulles » à non :
+    les infobulles ordinaires (QEvent.ToolTip) ne s'affichent plus, sauf celles des ⓘ (InfoDot). Ferme aussi
+    la bulle d'un ⓘ au clic suivant, où qu'il soit."""
+
+    def __init__(self, parent: Any = None) -> None:
+        super().__init__(parent)
+        self.enabled = True
+
+    def eventFilter(self, obj: Any, e: Any) -> bool:  # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        kind = e.type()
+        if kind == QEvent.ToolTip:
+            return not self.enabled and not isinstance(obj, InfoDot)
+        if kind == QEvent.MouseButtonPress and InfoDot.open_bubble is not None and isinstance(obj, QWidget) \
+                and not isinstance(obj, InfoDot):
+            bubble = InfoDot.open_bubble
+            try:
+                inside = bubble is obj or bubble.isAncestorOf(obj)
+            except RuntimeError:
+                inside = False
+            if not inside:
+                InfoDot.close_any()
+        return False
+
+
+_TIP_FILTER: Optional[TooltipFilter] = None
+
+
+def tooltip_filter() -> Optional[TooltipFilter]:
+    """1.4.4 (C219) : le filtre des infobulles, installé sur l'application au premier appel."""
+    global _TIP_FILTER
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return None
+    if _TIP_FILTER is None:
+        _TIP_FILTER = TooltipFilter(app)
+        app.installEventFilter(_TIP_FILTER)
+    return _TIP_FILTER
+
+
+def set_tooltips_enabled(on: bool) -> None:
+    """1.4.4 (C219) : infobulles ordinaires affichées ou non (appliqué tout de suite, sans redémarrer)."""
+    f = tooltip_filter()
+    if f is not None:
+        f.enabled = bool(on)
+    if not on:
+        from PySide6.QtWidgets import QToolTip
+
+        QToolTip.hideText()
+
+
+def tooltips_enabled() -> bool:
+    return _TIP_FILTER is None or _TIP_FILTER.enabled

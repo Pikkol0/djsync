@@ -1828,7 +1828,7 @@ class LibraryView(View):
             folder = self.ctrl.settings.watch_folder
             if folder:
                 entries.append((t("watch.open_folder"), lambda f=folder: self.ctrl._emit("open_url", Path(f).as_uri()), "folder"))
-            entries.append((t("watch.open_settings"), lambda: self.ctrl._emit("open_settings_section", "libraries"),
+            entries.append((t("watch.open_settings"), lambda: self.ctrl._emit("open_settings_section", "watch"),
                             "settings"))
             entries.append(None)
         if p.is_editable:

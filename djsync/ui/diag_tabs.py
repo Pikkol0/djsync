@@ -157,7 +157,7 @@ def idle_panel(page: Any, controller: Any, tab: str, start: Any) -> QWidget:
     def open_setting() -> None:
         win = page.window()
         if hasattr(win, "_open_settings_section"):
-            win._open_settings_section("analysis")
+            win._open_settings_section("diag_auto")           # 1.4.4 (C225) : réglage dans Avancé
 
     lay.addWidget(button(t("diag.idle_setting"), open_setting, kind="flat", icon="settings"), 0, Qt.AlignLeft)
     page.analyse_now_btn = go
