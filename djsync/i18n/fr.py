@@ -2351,4 +2351,12 @@ STRINGS = {
     "checkall.tip_short": "Vérifier d'un coup versions, clés et export.pdb",
     "import_files.tip_short": "Ajouter des fichiers audio de cet ordinateur (ou les glisser ici)",
     "lib.auto_lists_tip_short": "Listes tenues à jour par DJSync",
+    # ---- 1.4.4 lot 2 : B125
+    "grid.downbeat_check": "1er temps de la mesure à vérifier : l'analyse n'est pas sûre du début de la mesure. Écoutez depuis chaque temps (▶) et choisissez celui qui commence la mesure. Seuls les numéros des temps changent, la grille ne bouge pas.",
+    "grid.downbeat_chosen": "1er temps de la mesure choisi : enregistrez pour le garder.",
+    "grid.downbeat_checked": "1er temps de la mesure vérifié.",
+    "grid.downbeat_pick": "Temps {n}",
+    "grid.downbeat_pick_tip": "Ce temps devient le 1er temps de la mesure (la grille ne bouge pas)",
+    "grid.downbeat_listen_tip": "Écouter depuis le temps {n}",
+    "lib.an_downbeat": "1er temps : à vérifier",
 }
