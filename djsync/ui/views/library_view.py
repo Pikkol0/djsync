@@ -576,6 +576,23 @@ class LibraryView(View):
         w = panel_width(int(getattr(self.ctrl.settings, "track_info_width", 0) or 0), total)
         self.info_split.setSizes([max(1, total - w), w])
 
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802 (API Qt)
+        super().resizeEvent(e)
+        if self.info_panel.isVisible():                 # fenêtre rétrécie : la table garde sa place
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(0, self._info_cap)
+
+    def _info_cap(self) -> None:
+        from ..track_info_panel import panel_width
+
+        if not self.winfo_exists() or not self.info_panel.isVisible():
+            return
+        total, w = self.info_split.width(), self.info_panel.width()
+        want = panel_width(int(getattr(self.ctrl.settings, "track_info_width", 0) or 0), total)
+        if total > 0 and w != want:
+            self.info_split.setSizes([max(1, total - want), want])
+
     def _info_keep_width(self) -> None:
         if not self.info_panel.isVisible():
             return

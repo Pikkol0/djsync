@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIntValidator, QPixmap
-from PySide6.QtWidgets import QFormLayout, QFrame, QGridLayout, QLineEdit, QScrollArea, QWidget
+from PySide6.QtWidgets import QFormLayout, QFrame, QLineEdit, QScrollArea, QWidget
 
 from ..i18n import date_text, num, plural, t
 from ..models import LibraryTrack, format_duration, source_from_url
@@ -31,7 +31,7 @@ from .widgets import CamelotPill, FlowLayout, button, hbox, icon_button, label, 
 log = logging.getLogger(__name__)
 
 COVER = 168                 # pochette de l'en-tête (px avant zoom)
-MIN_WIDTH = 230             # largeur minimale du volet
+MIN_WIDTH = 220             # largeur minimale du volet
 DEFAULT_WIDTH = 300
 MAX_SHARE = 0.42            # part maximale de la largeur (tableau | volet) : la table reste lisible à 860 px
 EDITABLE = ("title", "artist", "album", "year", "genre")
@@ -222,6 +222,7 @@ class TrackInfoPanel(QFrame):
         self.track: Optional[LibraryTrack] = None
         self.info: Optional[Dict[str, Any]] = None
         self.fields: Dict[str, ClickEdit] = {}
+        self._keys: List[Any] = []
         self.loads = 0                       # chargements lancés (tests : un seul par son)
         self._asking: Optional[UnsavedInfoDialog] = None
         self._saving = False
@@ -364,15 +365,27 @@ class TrackInfoPanel(QFrame):
         self.card_lay.addLayout(form)
         return form
 
-    @staticmethod
-    def _row(form: QFormLayout, key: str, value: Any, role: str = "") -> Any:
+    def _key(self, key: str) -> Any:
+        k = label(t(key), "dim", wrap=True)
+        self._keys.append(k)
+        return k
+
+    def _row(self, form: QFormLayout, key: str, value: Any, role: str = "") -> Any:
         if isinstance(value, str):
             w = label(value or "—", role, wrap=True)
             w.setTextInteractionFlags(Qt.TextSelectableByMouse)
         else:
             w = value
-        form.addRow(label(t(key), "dim"), w)
+        form.addRow(self._key(key), w)
         return w
+
+    def _align_keys(self) -> None:
+        """Une seule colonne de libellés pour toutes les rubriques (largeur du plus long, bornée)."""
+        if not self._keys:
+            return
+        w = min(theme.px(104), max(k.fontMetrics().horizontalAdvance(k.text()) for k in self._keys) + theme.px(2))
+        for k in self._keys:
+            k.setFixedWidth(w)
 
     def _field(self, form: Optional[QFormLayout], key: str, name: str, value: str, digits: bool = False,
                color: str = "") -> ClickEdit:
@@ -381,7 +394,7 @@ class TrackInfoPanel(QFrame):
         e.setAccessibleName(t(key))
         self.fields[name] = e
         if form is not None:
-            form.addRow(label(t(key), "dim"), e)
+            form.addRow(self._key(key), e)
         return e
 
     def _build(self) -> None:
@@ -391,6 +404,7 @@ class TrackInfoPanel(QFrame):
         if x is None:
             return
         self._clear()
+        self._keys: List[Any] = []
         ex = extra_values(x)
         lay = self.card_lay
 
@@ -433,7 +447,7 @@ class TrackInfoPanel(QFrame):
             bl.addWidget(CamelotPill(x.camelot))
             bl.addWidget(label(x.key or "", "dim"))
             bl.addStretch(1)
-            form.addRow(label(t("track.key"), "dim"), box)
+            form.addRow(self._key("track.key"), box)
         else:
             self._row(form, "track.key", t("one.not_analysed") if not x.is_analysed else "")
         self.grid_lbl = self._row(form, "info.grid", t("lib.an_none") if not x.is_analysed else "…")
@@ -471,7 +485,7 @@ class TrackInfoPanel(QFrame):
         reveal_key = "reveal.finder" if sys.platform == "darwin" else "reveal.explorer"
         self.reveal_btn = button(t(reveal_key), self._reveal, kind="flat", icon="folder")
         pb.addWidget(self.reveal_btn, 0, Qt.AlignLeft)
-        form.addRow(label(t("track.path"), "dim"), path_box)
+        form.addRow(self._key("track.path"), path_box)
         self._row(form, "track.added", date_text(x.date_added) if x.date_added else "")
 
         # ---- Origine
@@ -484,7 +498,7 @@ class TrackInfoPanel(QFrame):
             link.setTextFormat(Qt.RichText)
             link.setOpenExternalLinks(True)
             link.setToolTip(url)
-            form.addRow(label(t("info.link"), "dim"), link)
+            form.addRow(self._key("info.link"), link)
         self._row(form, "info.downloaded", when)
 
         # ---- Rekordbox
@@ -513,29 +527,28 @@ class TrackInfoPanel(QFrame):
             box = QWidget()
             fl = FlowLayout(box, spacing=theme.px(4))
             for d in dups:
-                b = button(d.display_name, lambda cid=d.content_id: self._goto_track(cid), kind="flat",
+                b = button(_elide(d.display_name), lambda cid=d.content_id: self._goto_track(cid), kind="flat",
                            icon="duplicates")
-                b.setToolTip(d.path)
+                b.setToolTip(f"{d.display_name}\n{d.path}")
                 fl.addWidget(b)
                 self.dup_buttons.append(b)
             self.card_lay.addWidget(box)
 
         # ---- actions
         self.card_lay.addSpacing(theme.px(6))
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(theme.px(6))
-        grid.setVerticalSpacing(theme.px(6))
+        acts = QWidget()
+        grid = FlowLayout(acts, spacing=theme.px(6))          # passent à la ligne quand le volet est étroit
         self.play_btn = button(t("action.listen"), self._play, icon="play")
         self.grid_btn = button(t("lib.edit_grid").rstrip("…"), self._grid, icon="grid")
         self.grid_btn.setEnabled(x.is_analysed)
         self.spectrum_btn = button(t("spectrum.open"), self._spectrum, icon="wave")
         self.folder_btn = button(t("info.open_folder"), self._open_folder, icon="folder")
         self.cover_btn = button(t("info.panel_cover"), self._cover, kind="flat", icon="edit")
-        for i, b in enumerate((self.play_btn, self.grid_btn, self.spectrum_btn, self.folder_btn)):
-            grid.addWidget(b, i // 2, i % 2)
-        grid.addWidget(self.cover_btn, 2, 0, 1, 2)
-        self.card_lay.addLayout(grid)
+        for b in (self.play_btn, self.grid_btn, self.spectrum_btn, self.folder_btn, self.cover_btn):
+            grid.addWidget(b)
+        self.card_lay.addWidget(acts)
         self.card_lay.addStretch(1)
+        self._align_keys()
         self.scroll.verticalScrollBar().setValue(0)
 
     def _loaded(self, x: LibraryTrack, info: Dict[str, Any], token: int = -1) -> None:
@@ -600,7 +613,7 @@ class TrackInfoPanel(QFrame):
             self.pl_lay.addWidget(label(t("one.no_playlist"), "faint"))
             return
         for pid, path in pls:
-            b = button(path, lambda pid=pid: self._goto_playlist(pid), kind="flat", icon="playlist")
+            b = button(_elide(path), lambda pid=pid: self._goto_playlist(pid), kind="flat", icon="playlist")
             b.setToolTip(t("lib.open_playlist", name=path))
             self.pl_lay.addWidget(b)
             self.pl_buttons.append(b)
@@ -779,6 +792,11 @@ def _same(a: LibraryTrack, b: Optional[LibraryTrack]) -> bool:
     import dataclasses
 
     return b is not None and dataclasses.replace(a, sequence=0) == dataclasses.replace(b, sequence=0)
+
+
+def _elide(text: str, n: int = 34) -> str:
+    """Nom de playlist ou de son assez court pour un bouton du volet (texte entier dans la bulle)."""
+    return text if len(text) <= n else text[:n - 1] + "…"
 
 
 def _html(text: str) -> str:
