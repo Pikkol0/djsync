@@ -489,7 +489,8 @@ class TrackInfoPanel(QFrame):
         self.path_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         pb.addWidget(self.path_lbl)
         reveal_key = "reveal.finder" if sys.platform == "darwin" else "reveal.explorer"
-        self.reveal_btn = button(t(reveal_key), self._reveal, kind="flat", icon="folder")
+        # 1.4.4 (C138, A2-1) : icône seule, texte en bulle (le volet étroit ne coupe rien, Windows)
+        self.reveal_btn = button("", self._reveal, kind="flat", icon="folder", tooltip=t(reveal_key))
         pb.addWidget(self.reveal_btn, 0, Qt.AlignLeft)
         form.addRow(self._key("track.path"), path_box)
         self._row(form, "track.added", date_text(x.date_added) if x.date_added else "")
@@ -544,12 +545,13 @@ class TrackInfoPanel(QFrame):
         self.card_lay.addSpacing(theme.px(6))
         acts = QWidget()
         grid = FlowLayout(acts, spacing=theme.px(6))          # passent à la ligne quand le volet est étroit
-        self.play_btn = button(t("action.listen"), self._play, icon="play")
-        self.grid_btn = button(t("lib.edit_grid").rstrip("…"), self._grid, icon="grid")
+        # 1.4.4 (C138, A2-1) : actions en icônes, libellé en bulle (C219) : rien de coupé dans un volet étroit
+        self.play_btn = button("", self._play, icon="play", tooltip=t("action.listen"))
+        self.grid_btn = button("", self._grid, icon="grid", tooltip=t("lib.edit_grid").rstrip("…"))
         self.grid_btn.setEnabled(x.is_analysed)
-        self.spectrum_btn = button(t("spectrum.open"), self._spectrum, icon="wave")
-        self.folder_btn = button(t("info.open_folder"), self._open_folder, icon="folder")
-        self.cover_btn = button(t("info.panel_cover"), self._cover, kind="flat", icon="edit")
+        self.spectrum_btn = button("", self._spectrum, icon="wave", tooltip=t("spectrum.open"))
+        self.folder_btn = button("", self._open_folder, icon="folder", tooltip=t("info.open_folder"))
+        self.cover_btn = button("", self._cover, kind="flat", icon="edit", tooltip=t("info.panel_cover"))
         for b in (self.play_btn, self.grid_btn, self.spectrum_btn, self.folder_btn, self.cover_btn):
             grid.addWidget(b)
         self.card_lay.addWidget(acts)
