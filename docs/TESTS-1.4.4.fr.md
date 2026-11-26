@@ -100,3 +100,44 @@ Tests automatiques : `tests/test_v144_rc1_lot2_c225.py` (C225, C219), `…_b125.
 |---|---|---|---|---|
 | LEC-1 | Tous | Windows | (**A09 B**) Lire un son de 5 min, sauter, hot cue ; puis un mix de plus de 12 min : pause, saut, boucle, fin. | Tout marche ; mémoire +≈ 55 Mo pour 5 min (au lieu de ≈ 110) ; mix : « Playback streamed: … » au journal, mémoire stable. |
 | MEM-3 | Auteur (tour) | Windows | (**A08**, **A09 A**) Vraie master.db + vraie clé : 1, 2, 3 bibliothèques ouvertes. | Mémoire notée au journal (« Open libraries… Memory: RSS … ») ; reportée dans le suivi. |
+
+## rc.2
+
+Fiches codées : C15 (mode live, voie XML), B131 + C237 (Grille et cues en onglets, passages éditables), B130, C238,
+C239, B118, B132, B133, C240, B134.
+Tests automatiques : `tests/test_v144_rc2.py`, `tests/test_v144_rc2_c15.py`.
+
+### Mode live (C15)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| LIV-1 | Auteur (tour ou portable) | Windows | Accueil ▸ Mode live (ou Rechercher ▸ Live) la première fois. Suivre les 3 écrans, « Copier le chemin », régler Rekordbox comme indiqué, cocher « Ne plus afficher ». | Pas à pas en 3 écrans ; chemin de `djsync-live.xml` copié ; l'arbre « rekordbox xml » de Rekordbox montre la playlist « DJSync Live – date ». |
+| LIV-2 | Auteur | Windows | Rekordbox ouvert : chercher un son, « Ajouter au live » ; à « Prêt », Actualiser dans Rekordbox, glisser le son sur un deck. Chronométrer. | Moins d'une minute de la demande au son jouable ; BPM, grille et cues identiques à DJSync ; master.db et clé non modifiées ; Rekordbox jamais fermé. |
+| LIV-3 | Auteur | Windows | Live de 3 sons à la suite (dont un lien YouTube collé et un son déjà dans la bibliothèque), une analyse de la bibliothèque en cours. | Les 3 sons passent l'un après l'autre devant la file, chacun publié dès qu'il est prêt ; l'analyse de fond se met en pause puis reprend ; le son déjà là n'est pas retéléchargé. |
+| LIV-4 | Auteur | Windows | Couper Internet, demander un son ; rétablir, « Réessayer ». | Erreur immédiate dans le panneau, le son n'entre pas dans le XML ; Réessayer le rend prêt. |
+| LIV-5 | Auteur | Windows | « Terminer le live » Rekordbox ouvert, puis Rekordbox fermé. | Ouvert : message « Fermez Rekordbox », rien d'écrit. Fermé : playlist Live ▸ DJSync Live – date dans Rekordbox, aucun doublon (les sons glissés sur un deck gardent leur tonalité et leurs formes d'onde), XML vidé. |
+| LIV-6 | Auteur | Windows | Fermer DJSync pendant un live, le relancer le lendemain. | Le live est retrouvé (même date de début) ; « Terminer le live » est proposé au lancement. |
+| LIV-7 | Testeur Mac | macOS | Pas à pas, puis un son « Prêt » dans Rekordbox. | Chemin du XML juste, Location lue par Rekordbox (son jouable). |
+
+### Grille et cues : onglets et passages (B131, C237)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GRI-1 | Tous | Windows | (**C237**) Ouvrir Grille et cues sur un son au tempo fixe ; passer par Grille, Tempo, Cues ; fermer et rouvrir. | Un seul onglet visible ; Grille : 1er temps (kicks, début de mesure) puis Ajustement ; un seul Retour (en haut) ; le dernier onglet est rouvert ; pas de bande des passages. |
+| GRI-2 | Tous | Windows | (**B131**) Son beatswitch : curseur dans le 2e passage, 1er kick / 2e kick ; puis BPM ÷ 2 ; puis « Tout le son » et décalage +10. | Seul le passage sous le curseur change (le beatswitch reste) ; avec « Tout le son », toute la grille bouge et les bornes suivent. |
+| GRI-3 | Tous | Windows | (**B131**) Bande des passages (fine, sous la vue d'ensemble) : cliquer au milieu d'un passage, survoler. | Le curseur va à l'endroit cliqué ; la bulle donne le passage et son BPM. |
+| GRI-4 | Tous | Windows | (**B131**) Son qui accélère : Tempo ▸ « Analyser ce passage », Appliquer ; puis Annuler les modifications. Type ▸ Accélération sur un autre son. | Rampe proposée (début → fin) ; appliquée en un clic, annulable ; le type change vraiment la grille. |
+| GRI-5 | Tous | Windows | (**B131**) Passage de moins de 8 mesures, puis un passage lu au double du voisin : Analyser. | Message « trop court » (BPM du voisin proposé) ; ×2 refusé (« erreur probable ») ; saisie à la main acceptée. |
+| TEM-4 | Testeur platines | Windows | (**B131**) Son avec une rampe enregistrée, sur clé, lu sur platine. | Grille qui suit la rampe ; BPM affiché = celui du passage le plus long. |
+
+### Apparence, Bibliothèque, Espace, clé (C238, B130, C239, B118, B132, B133, C240, B134)
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| COU-3 | Tous | Windows | (**C238**) Paramètres ▸ Apparence : Fond (16 teintes) × Luminosité (Sombre, OLED, Clair) ; thèmes prêts (14). Parcourir toutes les vues en Clair. | Choix séparés ; aucun texte illisible ni couleur sombre oubliée en Clair (formes d'onde, pastilles, états). Ancien fond OLED ou Lumineux repris. |
+| REC-3 | Tous | Windows | (**B130**) Rechercher ▸ Lien ou playlist à 100, 125, 150 et 200 %. | Champ de 2 lignes au départ, texte d'aide entier, pas de barre de défilement à vide ; ligne « Ou Coller une liste… » entière ; 6 lignes au plus puis défilement. |
+| BIB-4 | Tous | Windows | (**C239**) Bibliothèque : bouton « Transférer / synchroniser » de la barre. | Ouvre l'outil de transfert ; replié dans ☰ si la place manque. |
+| BIB-5 | Auteur (tour) | Windows | (**B118**) Bibliothèque, vue toutes colonnes : défilement vertical et en largeur, rc.1 puis rc.2 (même bibliothèque). | Défilement nettement plus fluide en rc.2 ; mesure avant / après notée dans le suivi. |
+| PAR-2 | Tous | Windows | (**B132**) Paramètres : taper vite « export », effacer, retaper. | Les cartes sont filtrées, plus de surlignage pendant la recherche ; aucun cadre qui reste. |
+| ESP-1 | Tous | Windows | (**B133**, **C240**) Paramètres ▸ Espace, clé ouverte, avec des sons de la collection sur un disque débranché. | « sauvegardes de l'ordinateur » dans la ligne DJSync, « Sauvegardes de la clé » dans la liste (bulle avec le dossier) ; mêmes tailles que la fenêtre Sauvegardes ; disque absent : ligne « G:\ absent : N sons (x Go) » qui ouvre les fichiers introuvables. |
+| CLE-13 | Auteur (tour) | Windows | (**B134**) Rekordbox ouvert avec la clé D: affichée ; ouvrir la clé dans DJSync ; Continuer, ajouter un son ; fermer Rekordbox. | Question « Rekordbox a ouvert cette clé » ; exportLibrary.db écrite ; export.pdb réécrit tout seul dans les 30 s après la fermeture (journal « export.pdb caught up »). Annuler : clé en lecture seule. |

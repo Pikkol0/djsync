@@ -37,6 +37,9 @@
 - **Gérer la bibliothèque** : playlists et dossiers, glisser-déposer, ordre des sons, filtre harmonique,
   lecteur intégré, doublons, qualité supposée des fichiers, dossier surveillé pour vos achats.
 - **Sauvegarder et restaurer** en un clic : l'état d'origine de la clé (avant DJSync) est gardé pour toujours.
+- **Mode live** (1.4.4) : un son demandé pendant un set, Rekordbox ouvert, prêt dans Rekordbox en moins d'une
+  minute par sa bibliothèque *rekordbox xml* (téléchargé, analysé, grille et cues) ; rangé dans la bibliothèque de
+  l'ordinateur après le set, Rekordbox fermé.
 
 Interface en anglais par défaut, traduction française complète (Paramètres ▸ Général).
 
