@@ -6,8 +6,10 @@ générateur Python (thread audio de miniaudio). Ces trames sortent d'un tampon 
   * MP3 / WAV / FLAC / OGG : décodés par miniaudio lui-même (stream_file, seek natif) ;
   * m4a/AAC, AIFF… : FFmpeg décode en PCM vers un tube (`-ss` pour le seek), sans fichier temporaire.
 
-Rien n'est jamais décodé en entier en mémoire (un mix d'1 h ne coûte que le tampon) et le thread
-audio ne bloque jamais : si le tampon est vide (disque USB lent), il joue du silence sans avancer.
+1.4.4 (A09, A1-11) : un son de 12 min au plus est aussi gardé décodé en mémoire (sauts immédiats, C39),
+dans un tampon réservé d'un coup à sa taille ; au-delà (mix, set d'1 h), ou quand la mémoire libre manque, il
+est lu au fil de l'eau : seul le tampon d'avance (≈ 2 s) est en mémoire, un saut repositionne le décodeur.
+Le thread audio ne bloque jamais : si le tampon est vide (disque USB lent), il joue du silence sans avancer.
 `post` renvoie un appel dans le thread de l'interface (UiDispatcher.post) ; tous les événements
 (`on_event`) y sont émis.
 """
@@ -50,6 +52,11 @@ STOPPED, LOADING, PLAYING, PAUSED = "stopped", "loading", "playing", "paused"
 # en cours est maintenant gardé décodé en mémoire (jusqu'à 12 min, ~10 Mo par minute) : un saut y est
 # immédiat ; et hors macOS la réserve de la carte son (~80 ms) est assez courte pour ne plus l'arrêter.
 MEMORY_MAX_S = 12 * 60
+# 1.4.4 (A09, A1-11) : seuil gardé à 12 min (≈ 127 Mo décodés, 10,6 Mo par minute) : les sons courants
+# (3 à 10 min) gardent leurs sauts immédiats ; un mix ou un set plus long reste lu au fil de l'eau (déjà le
+# cas depuis rc.7 : ≈ 2 s en mémoire, pas 1,3 Go pour 1 h ; maintenant noté au journal). Un son court est aussi lu en flux si la mémoire libre ne laisse pas
+# STREAM_KEEP_FREE_MB après lui (PC de 4 Go chargé) : seule la vitesse d'un saut change, pas le son.
+STREAM_KEEP_FREE_MB = 512
 SEEK_KEEPS_DEVICE = BUFFER_MS * max(PERIODS, 3) <= 120
 
 
@@ -78,22 +85,72 @@ def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
-class _PcmCache:
-    """Son entier décodé en mémoire, en arrière-plan (même décodeur que la lecture)."""
+memlog = logging.getLogger("djsync.memory")    # 1.4.4 (A09) : même journal que les relevés de memwatch
 
-    def __init__(self, path: Path, ffmpeg: Optional[str]) -> None:
+
+def decoded_mb(duration: float) -> float:
+    """1.4.4 (A09, A1-11) : mémoire (Mo) du son décodé entier (s16 stéréo à 44,1 kHz)."""
+    return max(0.0, duration) * RATE * FRAME_BYTES / 1e6
+
+
+def stream_reason(duration: float, free_mb: Optional[int] = -1) -> Optional[str]:
+    """1.4.4 (A09, A1-11) : None si le son est gardé décodé en mémoire, sinon pourquoi il est lu en flux."""
+    if duration <= 0:
+        return "unknown length"
+    if duration > MEMORY_MAX_S:
+        return "long track"
+    if free_mb == -1:
+        try:
+            from ..analysis.pool import free_memory_mb
+
+            free_mb = free_memory_mb()
+        except Exception:  # noqa: BLE001 - mémoire libre inconnue : on garde le son
+            log.debug("Free memory unknown", exc_info=True)
+            free_mb = None
+    if free_mb is not None and free_mb < decoded_mb(duration) + STREAM_KEEP_FREE_MB:
+        return "low free memory"
+    return None
+
+
+class _PcmCache:
+    """Son entier décodé en mémoire, en arrière-plan (même décodeur que la lecture).
+
+    1.4.4 (A09, A1-11) : tampon réservé d'un coup à la taille annoncée (durée + 1 s), rempli sur place. Avant,
+    il grossissait par ajouts : ses copies successives coûtaient le double de la taille utile (+108 Mo pour
+    5 min mesurés). Plus long que prévu (durée des tags fausse) : il grossit encore jusqu'à MEMORY_MAX_S, puis
+    la mémoire est rendue et le son reste lu en flux (`too_long`)."""
+
+    def __init__(self, path: Path, ffmpeg: Optional[str], duration: float = 0.0) -> None:
         self.path, self.ffmpeg = path, ffmpeg
-        self.data = bytearray()
+        limit = MEMORY_MAX_S * RATE * FRAME_BYTES
+        self.data = bytearray(min(int(max(0.0, duration) + 1.0) * RATE * FRAME_BYTES, limit) if duration > 0 else 0)
+        self.filled = 0                    # octets décodés (le reste de `data` est la réserve)
         self.lock = threading.Lock()
         self.complete = False              # tout le son est là
+        self.too_long = False              # dépassait MEMORY_MAX_S : mémoire rendue, lecture en flux
         self._stop = False
         threading.Thread(target=self._run, daemon=True, name="djsync-audio-cache").start()
 
-    def _add(self, chunk: bytes) -> bool:
+    def _add(self, chunk) -> bool:
+        view = memoryview(chunk).cast("B")
+        n = len(view)
         with self.lock:
-            self.data += chunk
-            too_long = len(self.data) > MEMORY_MAX_S * RATE * FRAME_BYTES
-        return not (self._stop or too_long)
+            end = self.filled + n
+            if end > MEMORY_MAX_S * RATE * FRAME_BYTES:
+                self.data, self.filled, self.too_long = bytearray(), 0, True
+            else:
+                if end > len(self.data):
+                    self.data += bytes(end - len(self.data))
+                self.data[self.filled:end] = view
+                self.filled = end
+        if self.too_long:
+            memlog.info("Playback streamed: %s is longer than its tags say, decoded copy dropped", self.path.name)
+        return not (self._stop or self.too_long)
+
+    def _done(self) -> None:
+        with self.lock:
+            del self.data[self.filled:]    # réserve inutilisée rendue (≤ 1 s : sans recopie)
+            self.complete = True
 
     def _run(self) -> None:
         try:
@@ -102,7 +159,7 @@ class _PcmCache:
 
                 for chunk in miniaudio.stream_file(str(self.path), miniaudio.SampleFormat.SIGNED16, CHANNELS, RATE,
                                                    frames_to_read=16384):
-                    if not self._add(chunk.tobytes()):
+                    if not self._add(chunk):
                         return
             else:
                 if not self.ffmpeg:
@@ -123,7 +180,7 @@ class _PcmCache:
                 finally:
                     if proc.poll() is None:
                         proc.kill()
-            self.complete = True
+            self._done()
         except Exception as exc:  # noqa: BLE001 - simple accélération : la lecture normale reste
             log.info("Track not kept in memory (%s): %s", self.path.name, exc)
 
@@ -442,7 +499,8 @@ class AudioPlayer:
             self._post(lambda: self._failed(gen, message))
             return
         duration = self.probe_duration(str(path))
-        self._post(lambda: self._start(gen, stream, meta, duration))
+        reason = stream_reason(duration)             # 1.4.4 (A09) : hors du fil de l'interface
+        self._post(lambda: self._start(gen, stream, meta, duration, reason))
 
     def _failed(self, gen: int, message: str) -> None:
         if gen != self._gen:
@@ -477,7 +535,7 @@ class AudioPlayer:
         self.meta = meta
         self._set_state(LOADING)
 
-    def _start(self, gen: int, stream: _Stream, meta: NowPlaying, duration: float) -> None:
+    def _start(self, gen: int, stream: _Stream, meta: NowPlaying, duration: float, reason: object = "?") -> None:
         if gen != self._gen or not self._ensure_device():
             stream.close()
             if gen == self._gen:
@@ -486,14 +544,22 @@ class AudioPlayer:
         self._paused = False
         self._swap(stream)
         self.duration = duration
+        if reason == "?":
+            reason = stream_reason(duration)
         if self._cache is not None and self._cache.path == self._path and not self._cache._stop:
             pass                                       # même son rejoué : déjà en mémoire (ou en cours)
-        elif 0 < duration <= MEMORY_MAX_S and self._path is not None:
+        elif reason is None and self._path is not None:
             if self._cache is not None:
                 self._cache.stop()
-            self._cache = _PcmCache(self._path, self._ffmpeg())
+            self._cache = _PcmCache(self._path, self._ffmpeg(), duration)
         else:
+            if self._cache is not None:                # 1.4.4 (A09) : mémoire du son précédent rendue
+                self._cache.stop()
             self._cache = None
+            # 1.4.4 (A09, A1-11) : son lu au fil de l'eau, noté au journal avec la mémoire évitée
+            memlog.info("Playback streamed: %s (%s, %.1f min), about %s MB not kept in memory",
+                        self._path.name if self._path else "?", reason, duration / 60.0,
+                        f"{decoded_mb(duration):.0f}" if duration > 0 else "?")
         self._emit("loaded", (meta, duration))
         self._set_state(PLAYING)
 
@@ -633,6 +699,9 @@ class AudioPlayer:
     def close(self) -> None:
         self._gen += 1
         self._swap(None)
+        if self._cache is not None:                    # 1.4.4 (A09) : son décodé rendu
+            self._cache.stop()
+            self._cache = None
         if self._device is not None:
             try:
                 self._device.close()
