@@ -224,7 +224,8 @@ def test_c138_width_is_bounded_at_860(demo):  # noqa: F811
     pump(demo, 3, lambda: lib.info_panel.width() <= max(floor, int(lib.info_split.width() * MAX_SHARE)) + 2)
     total = lib.info_split.width() - lib.info_split.handleWidth()     # poignée du séparateur comprise
     panel = lib.info_panel
-    assert panel.width() <= max(floor, int(total * MAX_SHARE)) + 2
+    assert panel.width() <= max(floor, int(total * MAX_SHARE)) + 2, (
+        total, lib.info_split.sizes(), floor, lib.table.minimumSizeHint().width(), demo.width())
     # la table garde 300 px, ou tout ce qui reste quand le volet est à sa largeur minimale (Windows)
     assert lib.table.width() >= min(theme.px(300), total - floor) - 2
     _c138_select(demo, lib, "Mon Survet")

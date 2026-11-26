@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHeaderView, QProgressBar, QSplitter, QTreeWidgetItem, QWidget,
 )
@@ -240,6 +240,19 @@ class NavTree(RowTree):
         self.view._drop_on(target, ids)
 
 
+class _SplitWatch(QObject):
+    """1.4.4 (C138) : séparateur table | volet Infos redimensionné -> largeur du volet revue (une fois)."""
+
+    def __init__(self, view: Any) -> None:
+        super().__init__(view)
+        self._view = view
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:  # noqa: N802 (API Qt)
+        if event.type() == QEvent.Resize and self._view.info_panel.isVisible():
+            QTimer.singleShot(0, self._view._info_cap)
+        return False
+
+
 class LibraryView(View):
     def __init__(self, parent: Any, controller: Any, loader: Any) -> None:
         super().__init__(parent, controller, loader)
@@ -462,6 +475,9 @@ class LibraryView(View):
         self.info_split.setStretchFactor(0, 1)
         self.info_split.setStretchFactor(1, 0)
         self.info_split.splitterMoved.connect(lambda *_a: self._info_width_timer.start())
+        # 1.4.4 (C138) : le séparateur change de largeur (fenêtre, volet de gauche, zoom) : la table garde sa
+        # place, même quand la vue n'a pas reçu le redimensionnement (Windows : volet ouvert avant la mise en page)
+        self.info_split.installEventFilter(_SplitWatch(self))
         from PySide6.QtCore import QTimer
         from PySide6.QtGui import QKeySequence, QShortcut
 
