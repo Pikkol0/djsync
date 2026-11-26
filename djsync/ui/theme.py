@@ -39,28 +39,76 @@ CURRENT_THEME = DEFAULT_THEME
 INK = "#0E0E10"           # 1.4.3 (C53) : texte sombre posé sur une couleur claire (quel que soit le fond)
 
 # 1.4.3 (C53) : fonds au choix (Paramètres ▸ Apparence) : (BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT)
-BACKGROUNDS = {
+# 1.4.4 (C238) : teinte du fond × luminosité (Sombre, OLED noir pur, Clair), choisies à part. Le tableau donne la
+# version Sombre de chaque teinte ; OLED et Clair en sont tirées (`background_colors`), sauf exceptions écrites.
+TINTS = {
     "default": ("#0E0E10", "#151518", "#1C1C21", "#2A2A31", "#E6E6EA", "#9A9AA5", "#62626C"),
     "high_contrast": ("#000000", "#0A0A0A", "#161616", "#8A8A8A", "#FFFFFF", "#DADADA", "#ABABAB"),
-    "bright": ("#EEEEF2", "#FFFFFF", "#E4E4EA", "#C9C9D2", "#16161B", "#4E4E5A", "#7C7C88"),
-    "oled": ("#000000", "#08080A", "#111114", "#202026", "#E6E6EA", "#9A9AA5", "#62626C"),
     # 1.4.4 (C226) : fonds foncés teintés (toute couleur d'accent reste lisible)
     "navy": ("#0B0F1A", "#111727", "#182036", "#283353", "#E6E9F2", "#97A0B8", "#5F6884"),
     "brown": ("#14100D", "#1C1713", "#251E19", "#3A3028", "#EEE8E2", "#A89C90", "#6E6358"),
     "fir": ("#0B1410", "#111C17", "#17251F", "#253A31", "#E4EEE9", "#93A89E", "#5C7066"),
     "prune": ("#140D14", "#1C131C", "#251A26", "#3A2A3B", "#EEE4EE", "#A898A8", "#6E5E6E"),
+    # 1.4.4 (C238) : plus de teintes
+    "graphite": ("#101112", "#17191B", "#1F2124", "#33363B", "#E8EAEC", "#9DA1A7", "#64686E"),
+    "slate": ("#0E1215", "#151B20", "#1C242B", "#2E3A45", "#E4EAEF", "#97A3AE", "#5E6A75"),
+    "lagoon": ("#0A1415", "#101D1F", "#16272A", "#243E42", "#E2EFEF", "#91AAAC", "#5A7173"),
+    "wine": ("#150C0F", "#1E1216", "#28191E", "#402830", "#F0E4E7", "#AB959B", "#715C62"),
+    "olive": ("#11120B", "#191A11", "#212318", "#363927", "#ECEDE2", "#A2A48F", "#6A6C58"),
+    "indigo": ("#0F0D1A", "#161327", "#1E1A35", "#302A52", "#E8E6F4", "#9C97B9", "#646084"),
+    "rust": ("#150F0B", "#1E1610", "#281D16", "#412F23", "#F0E8E1", "#AD9E91", "#736356"),
+    "ocean": ("#0A111A", "#0F1926", "#152234", "#223752", "#E2EBF5", "#91A3BA", "#5A6C84"),
+    "moss": ("#0E120C", "#151B12", "#1C2419", "#2E3A28", "#E7EEE4", "#9BA894", "#62705B"),
+    "rose": ("#160F12", "#1F161A", "#2A1D23", "#432F38", "#F2E6EB", "#AE9AA3", "#74626A"),
 }
+BRIGHTNESSES = ("dark", "oled", "light")
+# exceptions (teinte, luminosité) -> couleurs écrites à la main
+_FIXED = {
+    ("default", "oled"): ("#000000", "#08080A", "#111114", "#202026", "#E6E6EA", "#9A9AA5", "#62626C"),
+    ("default", "light"): ("#EEEEF2", "#FFFFFF", "#E4E4EA", "#C9C9D2", "#16161B", "#4E4E5A", "#7C7C88"),
+    ("high_contrast", "oled"): ("#000000", "#000000", "#101010", "#8A8A8A", "#FFFFFF", "#DADADA", "#ABABAB"),
+    ("high_contrast", "light"): ("#FFFFFF", "#FFFFFF", "#F0F0F0", "#3A3A3A", "#000000", "#1E1E1E", "#4A4A4A"),
+}
+# fonds d'avant (réglages 1.4.3) : nom -> (teinte, luminosité)
+LEGACY_BACKGROUNDS = {"oled": ("default", "oled"), "bright": ("default", "light")}
+
+
+def background_colors(tint: str, brightness: str = "dark") -> Tuple[str, ...]:
+    """1.4.4 (C238) : (BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT) d'une teinte à une luminosité."""
+    dark = TINTS.get(tint) or TINTS["default"]
+    fixed = _FIXED.get((tint, brightness))
+    if fixed is not None:
+        return fixed
+    bg, surface, elev, border, text, dim, faint = dark
+    if brightness == "oled":
+        return ("#000000", mix("#000000", surface, 0.55), mix("#000000", elev, 0.75), mix("#000000", border, 0.85),
+                text, dim, faint)
+    if brightness == "light":
+        return (mix("#EEEEF2", border, 0.12), mix("#FFFFFF", border, 0.03), mix("#E4E4EA", border, 0.14),
+                mix("#C9C9D2", border, 0.22), mix("#16161B", bg, 0.4), mix("#4E4E5A", border, 0.3),
+                mix("#7C7C88", border, 0.25))
+    return dark
+
+
+BACKGROUNDS = TINTS                                   # nom d'avant (tests, tuiles de thème)
 CURRENT_BACKGROUND = "default"
+CURRENT_BRIGHTNESS = "dark"
 
 
-def apply_background(name: str) -> str:
+def apply_background(name: str, brightness: Optional[str] = None) -> str:
     """1.4.3 (C53) : couleurs neutres du fond choisi (inconnu -> sombre par défaut). La couleur d'accent est
-    ensuite réappliquée (apply_palette) : sur le fond Lumineux, elle est assombrie jusqu'à rester lisible."""
-    global BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT, CURRENT_BACKGROUND
-    if name not in BACKGROUNDS:
+    ensuite réappliquée (apply_palette) : sur un fond clair, elle est assombrie jusqu'à rester lisible.
+    1.4.4 (C238) : `name` = teinte, `brightness` = dark | oled | light (anciens « oled » / « bright » repris)."""
+    global BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT, CURRENT_BACKGROUND, CURRENT_BRIGHTNESS
+    if name in LEGACY_BACKGROUNDS:
+        name, legacy = LEGACY_BACKGROUNDS[name]
+        brightness = brightness if brightness in ("oled", "light") else legacy
+    if name not in TINTS:
         name = "default"
-    BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT = BACKGROUNDS[name]
-    CURRENT_BACKGROUND = name
+    if brightness not in BRIGHTNESSES:
+        brightness = "dark"
+    BG, SURFACE, ELEV, BORDER, TEXT, DIM, FAINT = background_colors(name, brightness)
+    CURRENT_BACKGROUND, CURRENT_BRIGHTNESS = name, brightness
     return name
 
 
@@ -301,9 +349,9 @@ QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {AC
 QTableView, QTreeWidget, QListWidget {{ background: {SURFACE}; alternate-background-color: {mix(SURFACE, BG, 0.35)};
               border: 1px solid {BORDER}; border-radius: {r8}px; gridline-color: transparent;
               selection-background-color: {ACCENT_DIM}; selection-color: {TEXT}; }}
-QTableView::item {{ padding: 0 {p(6)}px; border: 0; }}
-QTableView::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {{ background: {row_hover}; }}
-QTableView::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{ background: {ACCENT_DIM}; color: {TEXT}; }}
+/* 1.4.4 (B118): no item rule for the track table (it paints its cells itself: smooth scrolling) */
+QTreeWidget::item:hover, QListWidget::item:hover {{ background: {row_hover}; }}
+QTreeWidget::item:selected, QListWidget::item:selected {{ background: {ACCENT_DIM}; color: {TEXT}; }}
 /* 1.4.3-rc.2 (B114): one continuous, square highlight per row (each column and the arrow area were rounded apart);
    rounded "pills" only for lone items (Settings sections, menus) */
 QTreeWidget::item, QListWidget::item {{ padding: {p(4)}px {p(4)}px; border-radius: 0; }}

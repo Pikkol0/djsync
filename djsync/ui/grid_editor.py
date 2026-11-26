@@ -22,7 +22,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QShortcut, QKeySequence
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLineEdit, QPushButton, QScrollBar, QWidget
+from PySide6.QtWidgets import (
+    QApplication, QCheckBox, QComboBox, QLineEdit, QPushButton, QScrollBar, QSizePolicy, QWidget,
+)
 
 from ..analysis import grid as G
 from ..analysis.cues import Cue, nearest_grid_ms
@@ -491,7 +493,6 @@ class GridEditor(QWidget):
         from .tempo_segments import SegmentTools
 
         self.seg_tools = SegmentTools(self)
-        self.body.addWidget(self.seg_tools.band)
         # 1.4.4 (C234) : type de forme d'onde changé d'ici (3 bandes, bleu, RGB), discret, coin haut droit
         self.style_bar = WaveStyleBar(self.canvas, self.wave_style, self.set_wave_style)
         # 1.4.4 (C219) : l'aide de la forme d'onde derrière un ⓘ (plus de bulle à chaque survol de la forme d'onde)
@@ -520,6 +521,7 @@ class GridEditor(QWidget):
         self.overview = GridOverview()
         self.overview.set_editor(self)
         self.body.addWidget(self.overview)
+        self.body.addWidget(self.seg_tools.band)        # 1.4.4 (B131) : bande fine sous la vue d'ensemble
 
         # 1.4.1 (C59) : bas de page en zones : barre de lecture (sous la forme d'onde), hot cues, puis deux cartes
         # « Grille » et « Tempo » côte à côte (l'une sous l'autre si la fenêtre est étroite), barre d'enregistrement
@@ -563,14 +565,32 @@ class GridEditor(QWidget):
         from .cue_pads import CuePanel
 
         self.cue_panel = CuePanel(self)
-        self.body.addWidget(self.cue_panel)
 
         # carte « Grille » : décaler (contrôle segmenté), demi-temps, premier temps
         grid_card = panel()
         gv = vbox(grid_card, margins=theme.px(10), spacing=theme.px(6))
-        gv.addWidget(label(t("grid.zone_grid"), "section"))
+        # 1.4.4 (C237) : dans l'ordre du travail : 1er temps (kicks, début de mesure), puis ajustement
+        gv.addWidget(label(t("grid.first_beat_title"), "section"))
         # 1.4.2 (B111) : la rangée passe sur deux lignes quand la largeur manque (les boutons se chevauchaient)
         from .widgets import FlowLayout
+
+        bar_row = hbox(spacing=theme.px(6))
+        bar_row.addWidget(button(t("grid.bar_here"), self._bar_here, icon="grid", tooltip=t("grid.bar_here_tip")))
+        bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
+        bar_row.addStretch(1)
+        gv.addLayout(bar_row)
+        # 1.4.2 (C194) : deux kicks : 1er temps de deux mesures qui se suivent, ou temps 1 et 2 d'une mesure ;
+        # BPM calculé, grille réécrite (« Annuler les modifications » pour revenir)
+        kick_row = hbox(spacing=theme.px(6))
+        self.kick_btn = button(t("grid.kick1"), self._kick, icon="grid", tooltip=t("grid.kicks_tip"))
+        kick_row.addWidget(self.kick_btn)
+        self.kick_cancel = button(t("action.cancel"), self._kick_cancel, kind="flat")
+        self.kick_cancel.hide()
+        kick_row.addWidget(self.kick_cancel)
+        self.kick_hint = label("", "dim", wrap=True)
+        kick_row.addWidget(self.kick_hint, 1)
+        gv.addLayout(kick_row)
+        gv.addWidget(label(t("grid.adjust_title"), "section"))
 
         self.shift_box = QWidget()
         shift = FlowLayout(self.shift_box, spacing=theme.px(8))
@@ -593,23 +613,6 @@ class GridEditor(QWidget):
         self.half_btn = button(t("grid.half_beat"), self._shift_half, tooltip=t("grid.half_beat_tip"))
         shift.addWidget(self.half_btn)
         gv.addWidget(self.shift_box)
-        bar_row = hbox(spacing=theme.px(6))
-        bar_row.addWidget(button(t("grid.bar_here"), self._bar_here, icon="grid", tooltip=t("grid.bar_here_tip")))
-        bar_row.addWidget(button(t("grid.downbeat"), self._downbeat, tooltip=t("grid.downbeat_tip")))
-        bar_row.addStretch(1)
-        gv.addLayout(bar_row)
-        # 1.4.2 (C194) : deux kicks : 1er temps de deux mesures qui se suivent, ou temps 1 et 2 d'une mesure ;
-        # BPM calculé, grille réécrite (« Annuler les modifications » pour revenir)
-        kick_row = hbox(spacing=theme.px(6))
-        self.kick_btn = button(t("grid.kick1"), self._kick, icon="grid", tooltip=t("grid.kicks_tip"))
-        kick_row.addWidget(self.kick_btn)
-        self.kick_cancel = button(t("action.cancel"), self._kick_cancel, kind="flat")
-        self.kick_cancel.hide()
-        kick_row.addWidget(self.kick_cancel)
-        self.kick_hint = label("", "dim", wrap=True)
-        kick_row.addWidget(self.kick_hint, 1)
-        gv.addLayout(kick_row)
-
         # carte « Tempo » : ÷ 2 [BPM] × 2, Appliquer ; × 2/3, × 3/2
         tempo_card = panel()
         tv = vbox(tempo_card, margins=theme.px(10), spacing=theme.px(6))
@@ -645,8 +648,9 @@ class GridEditor(QWidget):
         self.fixed_grid_btn.hide()
         self.split_grid_btn.hide()
 
-        self.zones = Zones([grid_card, tempo_card, self.seg_tools.card], spacing=theme.px(8))   # 1.4.4 (C221)
-        self.body.addWidget(self.zones)
+        # 1.4.4 (C237) : onglets Grille | Tempo | Cues sous la forme d'onde, un seul visible (le dernier ouvert est
+        # gardé) ; « Appliquer à » (B131) au-dessus quand le son a plusieurs passages
+        self._build_tabs(grid_card, tempo_card)
 
         # barre d'enregistrement : à gauche l'état et « Annuler les modifications », à droite Retour et Enregistrer
         bar = hbox(spacing=theme.px(8))
@@ -655,8 +659,7 @@ class GridEditor(QWidget):
         bar.addWidget(self.state_lbl)
         self.reset_btn = button(t("grid.reset"), self._reset, kind="flat", icon="refresh")
         bar.addWidget(self.reset_btn)
-        bar.addStretch(1)
-        bar.addWidget(button(t("grid.back"), self.close, icon="back"))
+        bar.addStretch(1)                       # 1.4.4 (C237) : un seul Retour (en haut)
         # 1.4.2 (C204) : marquer la grille « vérifiée » sans rien y changer
         self.checked_btn = button(t("grid.checked_btn"), self._grid_ok, icon="check", tooltip=t("grid.checked_tip"))
         self._grid_marked = bool(getattr(self.ctrl, "grid_checked", lambda _i: False)(self.track.content_id))
@@ -681,6 +684,75 @@ class GridEditor(QWidget):
         controller.on("waveform_style", self._style_changed)               # 1.4.1 (C77)
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
+
+    # ---------------------------------------------------------- 1.4.4 (C237) : onglets Grille | Tempo | Cues
+    TABS = ("grid", "tempo", "cues")
+
+    def _build_tabs(self, grid_card: QWidget, tempo_card: QWidget) -> None:
+        from PySide6.QtWidgets import QStackedWidget
+
+        bar = QWidget()
+        bar.setObjectName("grid_tabs")
+        row = hbox(bar, spacing=theme.px(4))
+        self.tab_btns: Dict[str, Any] = {}
+        for key, icon in zip(self.TABS, ("grid", "wave", "key")):
+            b = button(t(f"grid.tab_{key}"), lambda _c=False, k=key: self.show_tab(k), icon=icon)
+            b.setCheckable(True)
+            b.setProperty("kind", "tab")
+            row.addWidget(b)
+            self.tab_btns[key] = b
+        row.addSpacing(theme.px(12))
+        row.addWidget(self.seg_tools.scope_box, 1)
+        self.tabs_bar = bar
+        self.body.addWidget(bar)
+        self.zones = QStackedWidget()
+        self.zones.setObjectName("grid_pages")
+        tempo_page = QWidget()
+        tv = vbox(tempo_page, spacing=theme.px(8))
+        tv.addWidget(tempo_card)
+        tv.addWidget(self.seg_tools.table)
+        tv.addWidget(self.seg_tools.card)
+        tv.addStretch(1)
+        grid_page = QWidget()
+        gv = vbox(grid_page, spacing=theme.px(8))
+        gv.addWidget(grid_card)
+        gv.addStretch(1)
+        cues_page = QWidget()
+        cv = vbox(cues_page, spacing=0)
+        cv.addWidget(self.cue_panel)
+        cv.addStretch(1)
+        self._tab_pages = {"grid": grid_page, "tempo": tempo_page, "cues": cues_page}
+        for key in self.TABS:
+            self.zones.addWidget(self._tab_pages[key])
+        self.body.addWidget(self.zones)
+        self.show_tab(str(getattr(self.ctrl.settings, "grid_tab", "grid") or "grid"), remember=False)
+
+    def show_tab(self, key: str, remember: bool = True) -> None:
+        if key not in self.TABS:
+            key = "grid"
+        self.current_tab = key
+        for k, b in self.tab_btns.items():
+            b.setChecked(k == key)
+        self.zones.setCurrentWidget(self._tab_pages[key])
+        # la page prend la hauteur de son contenu (un onglet court ne garde pas la hauteur du plus long)
+        for k, w in self._tab_pages.items():
+            w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred if k == key else QSizePolicy.Ignored)
+        self.zones.adjustSize()
+        self.seg_tools.scope_box.setVisible(key != "cues" and self.seg_tools.multi())
+        if remember and getattr(self.ctrl.settings, "grid_tab", "") != key:
+            self.ctrl.settings.grid_tab = key
+            save = getattr(self.ctrl, "save_settings_quiet", None)
+            if save is not None:
+                save()
+
+    def _set_beats(self, new: Optional[List[Any]], at_ms: Optional[float] = None) -> bool:
+        """1.4.4 (B131) : grille d'un outil, appliquée au passage sous le curseur (ou à tout le son)."""
+        if not new:
+            return False
+        kept = self.seg_tools.apply_scoped(list(new), at_ms)
+        if kept:
+            self.beats = kept
+        return bool(kept)
 
     # ---------------------------------------------------------- 1er temps à vérifier (1.4.4, B125)
     def _downbeat_service_call(self, name: str, default: Any, *args: Any) -> Any:
@@ -1455,7 +1527,7 @@ class GridEditor(QWidget):
         if not self.beats:
             return
         anchor = self.beats[self.selected][2]
-        self.beats = G.shift(self.beats, ms, self.duration_ms)
+        self._set_beats(G.shift(self.beats, ms, self.duration_ms))        # 1.4.4 (B131) : ce passage / tout
         self.selected = G.nearest(self.beats, anchor + ms)
         self._refresh_info()
         self.draw()
@@ -1464,14 +1536,14 @@ class GridEditor(QWidget):
         if not self.beats:
             return
         anchor = self.beats[self.selected][2]
-        self.beats = G.shift_half_beat(self.beats, self.selected, self.duration_ms)
+        self._set_beats(G.shift_half_beat(self.beats, self.selected, self.duration_ms))
         self.selected = G.nearest(self.beats, anchor)
         self._refresh_info()
         self.draw()
 
     def _downbeat(self) -> None:
         if self.beats:
-            self.beats = G.set_downbeat(self.beats, self.selected)
+            self._set_beats(G.set_downbeat(self.beats, self.selected))
             self._db_picked = self._db_picked or self._db_pending       # 1.4.4 (B125) : choix fait à la main
             self._refresh_info()
             self.draw()
@@ -1479,7 +1551,10 @@ class GridEditor(QWidget):
     def _bar_here(self) -> None:
         """Un temps exactement sur le curseur, qui devient le 1er temps d'une mesure."""
         if self.beats:
-            self.beats, self.selected = G.bar_at(self.beats, self.cursor_ms, self.duration_ms)
+            beats, sel = G.bar_at(self.beats, self.cursor_ms, self.duration_ms)
+            at = beats[sel][2] if beats else 0
+            self._set_beats(beats)
+            self.selected = G.nearest(self.beats, at)
             self._refresh_info()
             self.draw()
 
@@ -1500,7 +1575,7 @@ class GridEditor(QWidget):
             self.ctrl.message("warn", t("grid.kicks_bad"))
             return
         beats, bpm, n = found
-        self.beats = beats
+        self._set_beats(beats, self._kick1)                     # 1.4.4 (B131) : le passage du 1er kick
         self.selected = G.nearest(self.beats, min(self._kick1, self.cursor_ms))
         self._kick_cancel()
         self.kick_hint.setText(t("grid.kicks_done", bpm=f"{bpm:.2f}",
@@ -1522,7 +1597,7 @@ class GridEditor(QWidget):
             self.ctrl.message("warn", t("grid.bpm_range"))
             return
         anchor = self.beats[self.selected][2]
-        self.beats = G.scale_tempo(self.beats, factor, self.selected, self.duration_ms)
+        self._set_beats(G.scale_tempo(self.beats, factor, self.selected, self.duration_ms))
         self.selected = G.nearest(self.beats, anchor)
         self._refresh_info()
         self.draw()
@@ -1536,7 +1611,7 @@ class GridEditor(QWidget):
             self.ctrl.message("warn", t("grid.bpm_range"))
             return
         anchor = self.beats[self.selected][2]
-        self.beats = G.set_bpm(self.beats, bpm, self.selected, self.duration_ms)
+        self._set_beats(G.set_bpm(self.beats, bpm, self.selected, self.duration_ms))
         self.selected = G.nearest(self.beats, anchor)
         self._refresh_info()
         self.draw()

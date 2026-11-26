@@ -290,7 +290,8 @@ def test_c221_new_track_marker_is_a_named_memory_cue_and_saved(demo, tmp_path, m
         mem = [c for c in ed.cues if c.slot == 0]
         assert [(c.ms, c.name) for c in mem] == [(at, t("grid.seg_sound_cue"))]
         assert ed.beats == ed.original and ed.cues_dirty() and ed.save_btn.isEnabled()
-        # un autre outil change la grille (décalage) : le repère suit, sa mémoire aussi
+        # un autre outil change la grille (décalage, sur tout le son : B131) : le repère suit, sa mémoire aussi
+        tools.set_scope("all")
         ed._shift(10)
         assert tools.segs[1][3] == "sound" and [c.ms for c in ed.cues if c.slot == 0] == [at + 10]
         saved = []

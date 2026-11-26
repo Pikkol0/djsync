@@ -738,16 +738,17 @@ class LinkOrListEdit(QPlainTextEdit):
     contentChanged = Signal()
 
     def __init__(self, placeholder: str = "", is_link: Optional[Callable[[str], bool]] = None,
-                 max_lines: int = 8, parent: Any = None) -> None:
+                 max_lines: int = 6, parent: Any = None, min_lines: int = 2) -> None:
         super().__init__(parent)
         self._is_link = is_link or (lambda s: s.lower().startswith(("http://", "https://")))
         self._max_lines = max_lines
+        self._min_lines = max(1, min(min_lines, max_lines))     # 1.4.4 (B130) : 2 lignes au départ
         self.setPlaceholderText(placeholder)
         self.setProperty("role", "big")
         self.setTabChangesFocus(True)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)    # 1.4.4 (B130) : seulement au-delà du max
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.document().setDocumentMargin(theme.px(4))
         self.textChanged.connect(self._grow)
@@ -784,32 +785,67 @@ class LinkOrListEdit(QPlainTextEdit):
         super().keyPressEvent(event)
 
     def _line_height(self) -> int:
-        return self.fontMetrics().lineSpacing()
+        from PySide6.QtGui import QFontMetrics
+        # 1.4.4 (B130) : police réelle du document (la feuille de style « big » peut la changer après coup)
+        return QFontMetrics(self.document().defaultFont()).lineSpacing()
+
+    def wanted_lines(self) -> int:
+        """1.4.4 (B130) : lignes à montrer : contenu (ou texte d'aide si vide), entre min et max."""
+        if self.toPlainText():
+            n = self.document().blockCount()
+        else:
+            n = (self.placeholderText() or "").count("\n") + 1
+        return max(self._min_lines, min(self._max_lines, n))
 
     def _grow(self) -> None:
-        n = max(1, min(self._max_lines, self.document().blockCount()))
+        n = self.wanted_lines()
         m = self.contentsMargins()
-        pad = int(self.document().documentMargin() * 2) + m.top() + m.bottom() + theme.px(10)
+        pad = int(self.document().documentMargin() * 2) + m.top() + m.bottom() + 2 * self.frameWidth() \
+            + theme.px(6)
         self.setFixedHeight(n * self._line_height() + pad)
+        over = bool(self.toPlainText()) and self.document().blockCount() > self._max_lines
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if over else Qt.ScrollBarAlwaysOff)
+
+    def changeEvent(self, event: Any) -> None:  # noqa: N802 (Qt)
+        """1.4.4 (B130) : hauteur recalculée quand la police ou le style changent (échelle, thème)."""
+        from PySide6.QtCore import QEvent
+        super().changeEvent(event)
+        if event.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._grow()
+
+    def showEvent(self, event: Any) -> None:  # noqa: N802 (Qt)
+        super().showEvent(event)
+        self._grow()
 
 
 def flash(widget: Any, ms: int = 1600) -> None:
-    """1.4.4 (C220) : met en valeur un élément à l'arrivée (lien, recherche) : cadre et fond de la couleur
-    d'accent, qui s'effacent seuls. Sans effet sur un élément détruit entre-temps."""
+    """1.4.4 (C220) : met en valeur un élément à l'arrivée (lien) : cadre et fond de la couleur d'accent, qui
+    s'effacent seuls. Sans effet sur un élément détruit entre-temps.
+
+    1.4.4 (B132) : un élément déjà surligné n'est pas resurligné (seul son délai repart) et sa feuille de style
+    d'origine n'est gardée qu'une fois : le surlignage s'efface toujours."""
     from PySide6.QtCore import QTimer
 
     if widget is None:
         return
-    name = widget.objectName() or f"flash{id(widget)}"
-    widget.setObjectName(name)
-    old = widget.styleSheet()
-    widget.setProperty("flashed", True)
-    widget.setStyleSheet(old + f"\n#{name} {{ border: 2px solid {theme.ACCENT}; background: {theme.ACCENT_DIM};"
-                               f" border-radius: {theme.px(8)}px; }}")
+    try:
+        name = widget.objectName() or f"flash{id(widget)}"
+        widget.setObjectName(name)
+        if widget.property("flashed") is not True:
+            widget.setProperty("_flash_old", widget.styleSheet())
+            widget.setProperty("flashed", True)
+            widget.setStyleSheet(widget.styleSheet() + f"\n#{name} {{ border: 2px solid {theme.ACCENT};"
+                                 f" background: {theme.ACCENT_DIM}; border-radius: {theme.px(8)}px; }}")
+        token = (widget.property("_flash_token") or 0) + 1
+        widget.setProperty("_flash_token", token)
+    except RuntimeError:
+        return
 
     def back() -> None:
         try:
-            widget.setStyleSheet(old)
+            if widget.property("_flash_token") != token:      # un surlignage plus récent s'en charge
+                return
+            widget.setStyleSheet(widget.property("_flash_old") or "")
             widget.setProperty("flashed", False)
         except RuntimeError:                       # détruit
             pass

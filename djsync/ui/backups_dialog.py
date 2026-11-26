@@ -23,9 +23,10 @@ log = logging.getLogger(__name__)
 
 
 def _size(n: int) -> str:
-    if n >= 100_000:
-        return t("backups.size_mb", n=f"{n / 1_000_000:.1f}")
-    return t("backups.size_kb", n=max(1, n // 1000))
+    """1.4.4 (B133) : même fonction de taille (1 024) que le reste de l'app."""
+    from .views.common import human_size
+
+    return human_size(max(0, n))
 
 
 def point_title(p: Any) -> str:

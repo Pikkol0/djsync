@@ -209,6 +209,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .energy_service import EnergyService                # 1.4.4 (C108) : service à part (A3-10)
 
         self.energy = EnergyService(self)
+        from .pdb_lock_service import PdbLockService             # 1.4.4 (B134) : service à part (A3-10)
+
+        self.pdb_lock = PdbLockService(self)
         from .track_info_panel import TrackInfoService           # 1.4.4 (C138) : volet Infos (A3-10)
 
         self.track_info = TrackInfoService(self)
@@ -876,7 +879,8 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self._rekordbox_warned = False
         elif self.library is not None and not self.is_local and not self._rekordbox_warned:
             self._rekordbox_warned = True
-            self.message("warn", t("msg.rekordbox_open_usb"))
+            self.pdb_lock.ask(self.library)              # 1.4.4 (B134)
+
 
     # ---------------------------------------------------------------- éjection (V0.5.0)
     def eject(self) -> None:

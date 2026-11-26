@@ -23,7 +23,10 @@ def human_rate(bps: float) -> str:
 
 
 def human_bytes(n: int) -> str:
-    return t("unit.mb", n=num(n / 1e6, ".1f")) if n >= 1e5 else t("unit.kb", n=f"{n / 1e3:.0f}")
+    """1.4.4 (B133) : même fonction de taille (1 024) que le reste de l'app."""
+    from .views.common import human_size
+
+    return human_size(max(0, n))
 
 
 class SpeedGraph(QWidget):

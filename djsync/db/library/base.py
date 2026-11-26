@@ -78,6 +78,11 @@ class LibraryBase:
         self._pdb_timer: Optional[threading.Timer] = None
         self.recovery: Any = None                   # 1.4.3 (A6-1) : reprise faite à l'ouverture (recover.Recovery)
         self._pdb_pending_since = 0.0
+        # 1.4.4 (B134) : export.pdb en retard (gardé ouvert par Rekordbox) : réessayé à chaque écriture et
+        # toutes les `pdb_retry_s` secondes tant que la clé est ouverte, sans action de l'utilisateur.
+        self.pdb_late = False
+        self.pdb_retry_s = 30.0
+        self._pdb_retry_timer: Optional[threading.Timer] = None
         # ---- analyse / pochettes (V1.1-A4)
         self.analyze = analyze                      # BPM, tonalité, ANLZ à l'ajout
         self.auto_cue = False                       # V0.5.0 : mémoire cue sur le premier temps fort
@@ -255,6 +260,7 @@ class LibraryBase:
         self._closing = True
         self._close_reader()
         self._pdb_cancel_timer()
+        self._pdb_retry_cancel()
         with self._lock:
             if self._conn is None:
                 return
@@ -529,6 +535,34 @@ class LibraryBase:
             self._pdb_timer = None
             if self._conn is None or self._batch_depth > 0:
                 return                              # fermée (déjà faite) ou lot en cours (fait à la fin du lot)
+            self._pdb_flush()
+
+    # ------------------------------------------------- 1.4.4 (B134) : export.pdb gardé ouvert par Rekordbox
+    def _pdb_retry_later(self) -> None:
+        """Réessai d'export.pdb dans `pdb_retry_s` s (une seule minuterie)."""
+        if self._pdb_retry_timer is not None or getattr(self, "_closing", False) or self.pdb_retry_s <= 0:
+            return
+        timer = threading.Timer(self.pdb_retry_s, self._pdb_retry_fired)
+        timer.daemon = True
+        timer.name = "djsync-pdb-retry"
+        self._pdb_retry_timer = timer
+        timer.start()
+
+    def _pdb_retry_cancel(self) -> None:
+        timer, self._pdb_retry_timer = self._pdb_retry_timer, None
+        if timer is not None:
+            timer.cancel()
+
+    def _pdb_retry_fired(self) -> None:
+        with self._lock:
+            if self._pdb_retry_timer is not threading.current_thread():
+                return
+            self._pdb_retry_timer = None
+            if self._conn is None or getattr(self, "_closing", False) or not self.pdb_late:
+                return
+            if self._batch_depth > 0:               # lot en cours : refait à la fin du lot
+                self._pdb_retry_later()
+                return
             self._pdb_flush()
 
     def pdb_flush_now(self) -> None:

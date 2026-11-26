@@ -30,7 +30,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -39,6 +39,10 @@ log = logging.getLogger(__name__)
 KINDS = ("switch", "ramp", "set", "live")
 USER_KINDS = ("none",) + KINDS          # 1.4.4 (C221) : type corrigé à la main ("none" : tempo stable)
 MARK_KINDS = ("", "tempo", "sound")     # 1.4.4 (C221) : repère « changement de tempo » ou « nouveau son »
+# 1.4.4 (B131) : forme d'un passage : palier (BPM fixe), rampe (tempo linéaire d'un bout à l'autre), libre (pas de
+# temps nets : la grille du passage précédent continue à son tempo de fin) ; origine : analyse ou main
+SHAPES = ("step", "ramp", "free")
+ORIGINS = ("auto", "main")
 
 SET_SECONDS = 600.0          # au-delà : un mix ou un set
 SWITCH_RATIO = 0.04          # écart entre deux paliers pour un beatswitch
@@ -90,7 +94,7 @@ class TempoProfile:
                 int(self.split), [[round(a, 3), round(b, 3), round(c, 3)] for a, b, c in self.sections], self.choice,
                 int(self.downbeat_check), round(self.downbeat_at, 3),
                 self.user_kind, self.detected,                                                  # 1.4.4 (C221)
-                [[round(a, 3), round(b, 3), round(c, 3), str(k)] for a, b, c, k in self.marks]]
+                [_mark_list(m) for m in self.marks]]
 
     @classmethod
     def from_list(cls, v: Optional[list]) -> Optional["TempoProfile"]:
@@ -98,8 +102,7 @@ class TempoProfile:
             return None
         try:
             secs = [(float(a), float(b), float(c)) for a, b, c in (v[6] if len(v) > 6 and v[6] else [])]
-            marks = [(float(a), float(b), float(c), str(k) if k in MARK_KINDS else "")
-                     for a, b, c, k in (v[12] if len(v) > 12 and v[12] else [])]            # 1.4.4 (C221)
+            marks = [m for m in (_mark_of(x) for x in (v[12] if len(v) > 12 and v[12] else [])) if m]  # C221, B131
             user = str(v[10]) if len(v) > 10 and v[10] in USER_KINDS else ""
             return cls(str(v[0]), float(v[1]), float(v[2]), float(v[3]) if len(v) > 3 else 0.0,
                        bool(v[4]) if len(v) > 4 else False, bool(v[5]) if len(v) > 5 else False, secs,
@@ -108,6 +111,113 @@ class TempoProfile:
                        user, str(v[11]) if len(v) > 11 and v[11] else (str(v[0]) if not user else ""), marks)
         except (TypeError, ValueError, IndexError):
             return None
+
+
+# ------------------------------------------------------------------------------- passages (1.4.4, B131)
+def _mark_of(x: Any) -> Optional[tuple]:
+    """Repère de tempo.json : 4 valeurs (format 1.4.4-rc.1 : palier ; origine « main » pour un repère posé,
+    « auto » pour le 1er passage) ou 7 (forme, BPM de fin, origine)."""
+    try:
+        a, b, c, k = float(x[0]), float(x[1]), float(x[2]), str(x[3]) if x[3] in MARK_KINDS else ""
+    except (TypeError, ValueError, IndexError):
+        return None
+    if len(x) >= 7:
+        shape = x[4] if x[4] in SHAPES else "step"
+        end = float(x[5]) if x[5] else b
+        origin = x[6] if x[6] in ORIGINS else "auto"
+        if shape == "step" and origin == "auto":
+            return (a, b, c, k)
+        return (a, b, c, k, shape, end, origin)
+    return (a, b, c, k)
+
+
+def _mark_list(m: Sequence[Any]) -> list:
+    out = [round(float(m[0]), 3), round(float(m[1]), 3), round(float(m[2]), 3), str(m[3])]
+    if len(m) >= 7 and (m[4] != "step" or m[6] != "auto"):
+        out += [str(m[4]), round(float(m[5]), 3), str(m[6])]
+    return out
+
+
+def mark_shape(m: Sequence[Any]) -> str:
+    return m[4] if len(m) >= 7 else "step"
+
+
+def mark_end(m: Sequence[Any]) -> float:
+    return float(m[5]) if len(m) >= 7 else float(m[1])
+
+
+def mark_origin(m: Sequence[Any]) -> str:
+    """Format 1.4.4-rc.1 (4 valeurs) : un repère posé (genre non vide) est « main »."""
+    if len(m) >= 7:
+        return m[6]
+    return "main" if m[3] else "auto"
+
+
+def ramp_times(start: float, end: float, bpm0: float, bpm1: float) -> List[float]:
+    """Temps (s) d'une rampe : tempo linéaire de `bpm0` (à `start`) à `bpm1` (à `end`), posés par intégration
+    (pas pris au milieu de chaque intervalle). Le 1er temps est `start`."""
+    out: List[float] = []
+    span = max(1e-6, end - start)
+    lo, hi = max(1.0, min(bpm0, bpm1) * 0.5), max(bpm0, bpm1) * 2.0
+    t = start
+    while t < end - 1e-6 and len(out) < 20000:
+        out.append(t)
+        tempo = bpm0 + (bpm1 - bpm0) * (t - start) / span
+        half = 30.0 / max(lo, min(hi, tempo))
+        mid = bpm0 + (bpm1 - bpm0) * min(1.0, (t + half - start) / span)
+        t += 60.0 / max(lo, min(hi, mid))
+    return out
+
+
+def marks_beats(marks: Sequence[Sequence[Any]], duration: float) -> List[Tuple[int, float, float]]:
+    """1.4.4 (B131) : grille (numéro 1-4, s, BPM du temps) de passages palier / rampe / libre. Que des paliers :
+    exactement `section_beats` (grille de C16 / C221)."""
+    ms = sorted((m for m in marks if float(m[1]) > 0), key=lambda m: float(m[0]))
+    if not ms:
+        return []
+    if all(mark_shape(m) == "step" for m in ms):
+        secs = [(float(m[0]), float(m[1]), float(m[2])) for m in ms]
+        return [(n, tt, secs[section_at(secs, tt)][1]) for n, tt in section_beats(secs, duration)]
+    out: List[Tuple[int, float, float]] = []
+    prev_end = float(ms[0][1])
+    for i, m in enumerate(ms):
+        start, bpm, down = float(m[0]), float(m[1]), float(m[2])
+        end = float(ms[i + 1][0]) if i + 1 < len(ms) else duration
+        shape = mark_shape(m)
+        if shape == "free":                     # la grille d'avant continue, à son tempo de fin
+            bpm = prev_end
+            first = (out[-1][0] % 4) + 1 if out else 1
+        else:
+            first = (int(round((start - down) * bpm / 60.0)) % 4) + 1
+        if shape == "ramp":
+            b1 = mark_end(m)
+            times = ramp_times(start, end, bpm, b1)
+            prev_end = b1
+        else:
+            times = [float(x) for x in np.arange(start, end - 1e-6, 60.0 / bpm)]
+            prev_end = bpm
+        nxt = float(ms[i + 1][1]) if i + 1 < len(ms) else prev_end
+        if i + 1 < len(ms) and times and end - times[-1] < 0.5 * 60.0 / max(prev_end, nxt):
+            times = times[:-1]
+        for j, tt in enumerate(times):
+            if shape == "ramp":
+                if j + 1 < len(times):
+                    tempo = 60.0 / max(1e-3, times[j + 1] - tt)
+                else:
+                    tempo = prev_end
+            else:
+                tempo = bpm
+            out.append((((first - 1 + j) % 4) + 1, float(tt), float(tempo)))
+    return out
+
+
+def has_manual(p: Optional["TempoProfile"]) -> bool:
+    """Passages posés à la main qui changent la grille : tempo différent d'un passage à l'autre, rampe ou libre."""
+    if p is None or not p.marks:
+        return False
+    if any(mark_shape(m) != "step" for m in p.marks):
+        return True
+    return len(p.marks) >= 2 and len({round(m[1], 2) for m in p.marks}) >= 2
 
 
 def _autocorr(x: np.ndarray) -> np.ndarray:
@@ -480,7 +590,8 @@ def _keep_user(profile: TempoProfile, old: Optional[TempoProfile]) -> None:
     if old is not None:
         if old.user_kind and not profile.user_kind:
             profile.user_kind = old.user_kind
-        if old.marks and not profile.marks:
+        # 1.4.4 (B131) : passages gardés seulement si l'un d'eux a été retouché à la main (les autres sont refaits)
+        if old.marks and not profile.marks and any(mark_origin(m) == "main" for m in old.marks):
             profile.marks = list(old.marks)
     _apply_kind(profile)
 
@@ -525,20 +636,22 @@ def set_kind(name: str, size: int, kind: str) -> bool:
     return _edit(name, size, fn)
 
 
-def set_marks(name: str, size: int, marks: List[Tuple[float, float, float, str]]) -> bool:
-    """Passages posés à la main (vide : plus de repères à garder)."""
-    clean = [(float(a), float(b), float(c), k if k in MARK_KINDS else "") for a, b, c, k in marks if b > 0]
+def set_marks(name: str, size: int, marks: List[tuple]) -> bool:
+    """Passages posés à la main (vide : plus de repères à garder). 1.4.4 (B131) : 4 valeurs (palier) ou 7 (forme,
+    BPM de fin, origine) ; un seul passage est gardé s'il est une rampe ou libre."""
+    clean = [m for m in (_mark_of(list(x)) for x in marks) if m and m[1] > 0]
 
     def fn(p: TempoProfile) -> None:
-        p.marks = sorted(clean, key=lambda m: m[0]) if len(clean) > 1 else []
+        keep = len(clean) > 1 or any(mark_shape(m) != "step" for m in clean)
+        p.marks = sorted(clean, key=lambda m: m[0]) if keep else []
     return _edit(name, size, fn)
 
 
 def manual_sections(p: Optional[TempoProfile]) -> List[Tuple[float, float, float]]:
     """Passages posés à la main qui changent de tempo (une grille à reconstruire), sinon []."""
-    if p is None or len(p.marks) < 2 or len({round(m[1], 2) for m in p.marks}) < 2:
+    if not has_manual(p):
         return []
-    return [(a, b, c) for a, b, c, _k in sorted(p.marks, key=lambda m: m[0])]
+    return [(float(m[0]), float(m[1]), float(m[2])) for m in sorted(p.marks, key=lambda m: m[0])]
 
 
 def apply_manual(path: Union[str, Path], grid: Any, duration: float) -> bool:
@@ -551,7 +664,7 @@ def apply_manual(path: Union[str, Path], grid: Any, duration: float) -> bool:
     secs = manual_sections(old)
     if not secs or grid is None:
         return False
-    beats = section_beats(secs, duration)
+    beats = [(n, tt) for n, tt, _b in marks_beats(old.marks, duration)]      # 1.4.4 (B131) : rampes comprises
     if not beats:
         return False
     span: Dict[float, float] = {}
