@@ -206,6 +206,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
 
         self.tempo_grids = TempoGridService(self)
+        from .track_info_panel import TrackInfoService           # 1.4.4 (C138) : volet Infos (A3-10)
+
+        self.track_info = TrackInfoService(self)
         # 1.4.4 (B128 C, A09 A) : relevé mémoire / processeur dans le journal (pas pendant les tests)
         from ..core.memwatch import MemWatch
 

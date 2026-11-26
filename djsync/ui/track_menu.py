@@ -103,10 +103,11 @@ def restore_rekordbox(host: Any, ctrl: Any, track: Any) -> None:
 
 
 def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
-                  harmonic: Any = None) -> List[Any]:
+                  harmonic: Any = None, info: Any = None) -> List[Any]:
     """Bloc commun du menu d'un son (ou d'une sélection) de la bibliothèque. `where` : « library » (pas
     d'« Afficher dans la bibliothèque »), « player », « downloads », « diagnostic ». `harmonic` : action de la
-    Bibliothèque pour « Sons compatibles » (filtre sur place) ; ailleurs, la Bibliothèque est ouverte."""
+    Bibliothèque pour « Sons compatibles » (filtre sur place) ; ailleurs, la Bibliothèque est ouverte.
+    1.4.4 (C138) : `info(son)` : volet « Infos » de la vue, à la place de « Modifier les infos… »."""
     tracks = [x for x in tracks if x is not None]
     if not tracks:
         return []
@@ -118,7 +119,10 @@ def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
             entries.append((t("menu.track_diagnostic"), lambda: open_track_diagnostic(host, one), "diagnostic"))
         if one.is_analysed:
             entries.append((t("lib.edit_grid"), lambda: open_grid(ctrl, one), "grid"))
-        entries.append((t("action.edit_metadata"), lambda: edit_metadata(host, ctrl, one), "edit"))
+        if info is not None:                                                    # 1.4.4 (C138)
+            entries.append((t("info.panel_menu"), lambda: info(one), "info"))
+        else:
+            entries.append((t("action.edit_metadata"), lambda: edit_metadata(host, ctrl, one), "edit"))
         entries.append(None)
     if one is not None and one.is_analysed:
         entries.append((t("player.analyse_again"), lambda: analyse_tracks(host, ctrl, [one]), "wave"))
