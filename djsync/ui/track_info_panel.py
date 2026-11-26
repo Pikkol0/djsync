@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 COVER = 168                 # pochette de l'en-tête (px avant zoom)
 MIN_WIDTH = 220             # largeur minimale du volet
 DEFAULT_WIDTH = 300
+TABLE_MIN = 300             # largeur gardée à la table quand la place le permet
 MAX_SHARE = 0.42            # part maximale de la largeur (tableau | volet) : la table reste lisible à 860 px
 EDITABLE = ("title", "artist", "album", "year", "genre")
 
@@ -848,5 +849,6 @@ def _origin(x: LibraryTrack) -> Tuple[str, str]:
 def panel_width(saved: int, total: int) -> int:
     """Largeur du volet : la dernière choisie (ou celle par défaut), sans dépasser MAX_SHARE de `total`."""
     want = saved if saved and saved > 0 else theme.px(DEFAULT_WIDTH)
-    cap = int(total * MAX_SHARE) if total > 0 else want
+    # 1.4.4 (C138) : la table garde 300 px quand c'est possible (Windows : volet de gauche plus large)
+    cap = min(int(total * MAX_SHARE), total - theme.px(TABLE_MIN)) if total > 0 else want
     return max(theme.px(MIN_WIDTH), min(want, cap))

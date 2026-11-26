@@ -358,7 +358,7 @@ class SpaceCard:
         for row, (key, value) in enumerate(usage.parts.items()):
             dot = label("●", "")
             dot.setStyleSheet(f"color: {PART_COLORS.get(key) or theme.FAINT};")
-            name = label(t(f"space.{key}"), "")
+            name = label(t(f"space.{key}"), "", wrap=True)   # 1.4.4 (C225, A2-1) : à la ligne si étroit (Windows)
             name.setToolTip(t(f"space.{key}_tip"))
             size = label(human_size(value), "dim")
             size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -369,7 +369,8 @@ class SpaceCard:
             col = 3
             folder = usage.folders.get(key)
             if folder is not None:
-                b = button(t("space.open"), lambda _c=False, f=folder: self._open(f), kind="flat", icon="folder")
+                b = button("", lambda _c=False, f=folder: self._open(f), kind="flat", icon="folder",
+                           tooltip=t("space.open"))                # 1.4.4 (C219, A2-1) : icône seule
                 self.grid.addWidget(b, row, col)
                 cells.append(b)
             col += 1

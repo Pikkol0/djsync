@@ -222,9 +222,12 @@ def test_c138_width_is_bounded_at_860(demo):  # noqa: F811
     total = lib.info_split.width()
     panel = lib.info_panel
     assert panel.width() <= max(theme.px(MIN_WIDTH), int(total * MAX_SHARE)) + 2
-    assert lib.table.width() >= theme.px(300)
+    # la table garde 300 px, ou tout ce qui reste quand le volet est à sa largeur minimale (Windows)
+    assert lib.table.width() >= min(theme.px(300), total - theme.px(MIN_WIDTH)) - 2
     _c138_select(demo, lib, "Mon Survet")
     pump(demo, 0.3)
     assert panel.card.minimumSizeHint().width() <= panel.scroll.viewport().width()   # rien de coupé (A2-1)
     assert panel_width(5000, 1000) == int(1000 * MAX_SHARE)
+    assert panel_width(5000, 600) == max(theme.px(MIN_WIDTH), min(int(600 * MAX_SHARE), 600 - theme.px(300)))
+    assert panel_width(5000, 450) == theme.px(MIN_WIDTH)
     assert not demo.errors

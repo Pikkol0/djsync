@@ -70,6 +70,15 @@ def _a08_names(window):
     return {p.name for p in view.playlists}
 
 
+def _a08_has(window, name, present=True):
+    """La vue se relit en tâche de fond (lente sous macOS) : attendre le résultat voulu."""
+    from tests.qt_util import pump
+
+    view = window.views["library"]
+    pump(window, 8, lambda: (name in {p.name for p in view.playlists}) == present)
+    return (name in _a08_names(window)) == present
+
+
 def test_a08_switch_back_without_reopening(demo, tmp_path, monkeypatch):  # noqa: F811
     from djsync.db import UsbDrive
 
@@ -104,13 +113,13 @@ def test_a08_views_follow_the_active_library(demo, tmp_path, monkeypatch):  # no
     second = _a08_switch(demo, second_drive)
     second.create_playlist("Only on B")
     ctrl._emit("library")
-    assert "Only on B" in _a08_names(demo)
+    assert _a08_has(demo, "Only on B")
 
     _a08_switch(demo, first_drive)
-    assert "Only on B" not in _a08_names(demo)                          # vues relues depuis A gardée
+    assert _a08_has(demo, "Only on B", present=False)                  # vues relues depuis A gardée
 
     _a08_switch(demo, second_drive)
-    assert "Only on B" in _a08_names(demo)
+    assert _a08_has(demo, "Only on B")
     assert not demo.errors
 
 
