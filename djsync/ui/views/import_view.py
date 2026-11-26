@@ -265,6 +265,9 @@ class ImportView(View):
             self.source_chips.append(c)
         box.addLayout(row)
         tail = label(t("import.src_list"), "faint", wrap=True)     # 1.4.2 (A2-3) : sur sa ligne, plus coupé
+        from PySide6.QtWidgets import QSizePolicy
+        tail.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)      # 1.4.4 (B130) : jamais écrasée
+        tail.setMinimumHeight(tail.fontMetrics().lineSpacing() + theme.px(4))
         box.addWidget(tail)
         return box
 

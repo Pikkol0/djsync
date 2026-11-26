@@ -16,12 +16,13 @@ from PySide6.QtCore import QAbstractTableModel, QItemSelectionModel, QByteArray,
 from PySide6.QtCore import QRectF, QSize, QTimer
 from PySide6.QtGui import QColor, QDrag, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QTableView, QToolTip,
-    QWidget,
+    QAbstractItemView, QApplication, QHeaderView, QLabel, QMenu, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
+    QTableView, QToolTip, QWidget,
 )
 
 from ..i18n import t
 from . import theme
+from .shine import ShineDelegate
 
 MIME_IDS = "application/x-djsync-ids"
 MenuEntry = Optional[Tuple[Any, ...]]      # (texte, action[, icône]) ; None = séparateur
@@ -114,6 +115,78 @@ def camelot_sort(row: Row) -> Any:
         return None
 
 
+# ------------------------------------------------------------ 1.4.4 (B118) : cellules peintes sans feuille de style
+# Avant : règles QTableView::item (marge, survol, sélection) dans la feuille de style : chaque cellule passait par le
+# style à feuille à chaque image (défilement saccadé, surtout toutes colonnes). Maintenant : fond (survol, sélection,
+# lignes alternées, fond d'album) et marge peints par un délégué commun ; couleurs gardées en cache.
+_CELL_COLORS: Dict[Tuple[str, ...], Tuple[QColor, QColor, QColor]] = {}
+_QCOLORS: Dict[str, QColor] = {}
+_STATE_OFF = None
+
+
+def _qcolor(hexa: str) -> QColor:
+    """QColor gardée en cache (data() est appelée pour chaque cellule peinte)."""
+    c = _QCOLORS.get(hexa)
+    if c is None:
+        if len(_QCOLORS) > 512:
+            _QCOLORS.clear()
+        c = _QCOLORS[hexa] = QColor(hexa)
+    return c
+
+
+def _cell_colors() -> Tuple[QColor, QColor, QColor]:
+    """(survol, sélection, ligne alternée) du thème courant."""
+    key = (theme.SURFACE, theme.TEXT, theme.ACCENT_DIM, theme.BG)
+    c = _CELL_COLORS.get(key)
+    if c is None:
+        _CELL_COLORS.clear()
+        c = _CELL_COLORS[key] = (QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.045)), QColor(theme.ACCENT_DIM),
+                                 QColor(theme.mix(theme.SURFACE, theme.BG, 0.35)))
+    return c
+
+
+def cell_option(painter: QPainter, option: Any, index: QModelIndex) -> Any:
+    """Peint le fond de la cellule (sélection, survol de la ligne, fond de la ligne, ligne alternée) et rend
+    une copie de l'option sans ces états, réduite de la marge (6 px) : le style ne peint plus que le contenu."""
+    global _STATE_OFF
+    if _STATE_OFF is None:
+        _STATE_OFF = ~(QStyle.State_Selected | QStyle.State_MouseOver | QStyle.State_HasFocus)
+    hover_c, sel_c, alt_c = _cell_colors()
+    st = option.state
+    r = option.rect
+    if st & QStyle.State_Selected:
+        painter.fillRect(r, sel_c)
+    elif st & QStyle.State_MouseOver:
+        painter.fillRect(r, hover_c)
+    else:
+        bg = index.data(Qt.BackgroundRole)
+        if bg is not None:
+            painter.fillRect(r, bg)
+        elif option.features & QStyleOptionViewItem.Alternate:
+            painter.fillRect(r, alt_c)
+    opt = QStyleOptionViewItem(option)
+    opt.state = st & _STATE_OFF
+    opt.features = opt.features & ~QStyleOptionViewItem.Alternate
+    pad = theme.px(6)
+    opt.rect = r.adjusted(pad, 0, -pad, 0)
+    return opt
+
+
+class _CellMixin:
+    """Délégués du tableau : le fond est déjà peint par `cell_option` (jamais repeint par le style)."""
+
+    def initStyleOption(self, option: Any, index: QModelIndex) -> None:  # noqa: N802 (API Qt)
+        super().initStyleOption(option, index)          # type: ignore[misc]
+        option.backgroundBrush = Qt.NoBrush
+
+
+class _RowDelegate(_CellMixin, ShineDelegate):
+    """Délégué par défaut (1.4.4, B118) : fond commun, puis texte (or / argent, C141)."""
+
+    def paint(self, painter: Any, option: Any, index: Any) -> None:
+        ShineDelegate.paint(self, painter, cell_option(painter, option, index), index)
+
+
 class _Model(QAbstractTableModel):
     def __init__(self, table: "TrackTable") -> None:
         super().__init__()
@@ -178,18 +251,19 @@ class _Model(QAbstractTableModel):
                 return self.table._cover_for(row)
             return None
         if role == Qt.BackgroundRole and "album" in row.tags:     # 1.4.1 (C147) : un album se repère d'un coup d'œil
-            return QColor(theme.ELEV)
+            return _qcolor(theme.ELEV)
         if role == Qt.ForegroundRole:
             hexa = row.values.get(col.key + "__color")        # 1.3.1 (C37) : couleur imposée (couleur du son)
             if hexa:
-                return QColor(hexa)
+                return _qcolor(hexa)
             level = row.values.get(col.key + "__level")       # 1.3.1 (C29) : couleur d'une cellule
             if level:
-                return QColor(theme.LEVELS.get(level, theme.DIM))
-            for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
-                               ("ok", theme.ACCENT), ("dim", theme.DIM), ("missing", theme.DIM)):
-                if tag in row.tags:
-                    return QColor(color)
+                return _qcolor(theme.LEVELS.get(level, theme.DIM))
+            if row.tags:
+                for tag, color in (("err", theme.ERR), ("dup", theme.WARN), ("playing", theme.ACCENT),
+                                   ("ok", theme.ACCENT), ("dim", theme.DIM), ("missing", theme.DIM)):
+                    if tag in row.tags:
+                        return _qcolor(color)
         if role == Qt.ToolTipRole and col.key in ICON_COLUMNS and row.values.get(col.key):
             return t(ICON_COLUMNS[col.key][1])
         if role == Qt.ToolTipRole and row.values.get(col.key + "__tip"):    # 1.4.0 (C103) : bulle d'une cellule
@@ -209,7 +283,7 @@ class _Model(QAbstractTableModel):
         self.endResetModel()
 
 
-class _CoverDelegate(QStyledItemDelegate):
+class _CoverDelegate(_RowDelegate):
     """Colonne « title » avec pochette : icône à la taille de la vignette (les autres colonnes gardent
     des icônes de 16 px)."""
 
@@ -219,7 +293,7 @@ class _CoverDelegate(QStyledItemDelegate):
         option.decorationSize = QSize(size, size)
 
 
-class _ProgressDelegate(QStyledItemDelegate):
+class _ProgressDelegate(_CellMixin, QStyledItemDelegate):
     """1.2.1 (C21) : colonne « state » avec une barre d'avancement sous le texte quand la ligne a une
     valeur `_progress` (0 à 1) ; texte seul sinon."""
 
@@ -230,6 +304,7 @@ class _ProgressDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
         row = self.table._rows.get(self.table._shown[index.row()]) if 0 <= index.row() < len(self.table._shown) else None
         value = row.values.get("_progress") if row is not None else None
+        option = cell_option(painter, option, index)       # 1.4.4 (B118)
         if value is None:
             super().paint(painter, option, index)
             return
@@ -254,7 +329,7 @@ class _ProgressDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class _ButtonDelegate(QStyledItemDelegate):
+class _ButtonDelegate(_CellMixin, QStyledItemDelegate):
     """1.3.2 (C58) : colonnes d'action (Télécharger, Grille et cues…) dessinées comme de vrais petits
     boutons : fond léger, bordure, survol visible. Un clic agit sans sélectionner la ligne."""
 
@@ -263,7 +338,8 @@ class _ButtonDelegate(QStyledItemDelegate):
         self.table, self.key = table, key
 
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
-        opt = option
+        hovered = bool(option.state & QStyle.State_MouseOver)
+        opt = cell_option(painter, option, index)          # 1.4.4 (B118)
         self.initStyleOption(opt, index)
         # 1.3.2-rc.2 (C58) : copie ! Avec PySide, `opt.icon` désigne le champ lui-même : le vider juste
         # après vidait aussi l'icône lue, et le bouton n'était jamais dessiné (seule la bulle restait).
@@ -276,7 +352,7 @@ class _ButtonDelegate(QStyledItemDelegate):
         size = theme.px(26)
         r = opt.rect
         box = QRectF(r.center().x() - size / 2 + 0.5, r.center().y() - size / 2 + 0.5, size, size)
-        hover = bool(opt.state & QStyle.State_MouseOver) and self.table._hover_cell == (index.row(), index.column())
+        hover = hovered and self.table._hover_cell == (index.row(), index.column())
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QColor(theme.ACCENT if hover else theme.mix(theme.SURFACE, theme.DIM, 0.6)))
@@ -351,7 +427,7 @@ class _Header(QHeaderView):
                                         painter.device().devicePixelRatioF()))
 
 
-class _CheckDelegate(QStyledItemDelegate):
+class _CheckDelegate(_CellMixin, QStyledItemDelegate):
     """1.4.0-rc.4 (C148) : la colonne « chk » montre une vraie case, comme le reste de l'app."""
 
     def __init__(self, table: "TrackTable") -> None:
@@ -359,7 +435,8 @@ class _CheckDelegate(QStyledItemDelegate):
         self.table = table
 
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
-        opt = type(option)(option)
+        hover = bool(option.state & QStyle.State_MouseOver)
+        opt = cell_option(painter, option, index)          # 1.4.4 (B118)
         self.initStyleOption(opt, index)
         opt.text = ""
         style = opt.widget.style() if opt.widget else QApplication.style()
@@ -368,13 +445,12 @@ class _CheckDelegate(QStyledItemDelegate):
         if value not in (CHECK_ON, CHECK_OFF, CHECK_MIXED):
             return
         size = theme.px(16)
-        hover = bool(option.state & QStyle.State_MouseOver)
         r = option.rect
         painter.drawPixmap(r.x() + (r.width() - size) // 2, r.y() + (r.height() - size) // 2,
                            check_pixmap(value, size, hover, painter.device().devicePixelRatioF()))
 
 
-class _CuesDelegate(QStyledItemDelegate):
+class _CuesDelegate(_CellMixin, QStyledItemDelegate):
     """1.4.1 (C60) : colonne « cues » : une pastille par hot cue posé, à sa couleur ; sinon le texte (« — »)."""
 
     def __init__(self, table: "TrackTable") -> None:
@@ -388,7 +464,7 @@ class _CuesDelegate(QStyledItemDelegate):
         except IndexError:
             row = None
         dots = list((row.values.get("cues__dots") if row is not None else None) or [])
-        opt = option
+        opt = cell_option(painter, option, index)          # 1.4.4 (B118)
         self.initStyleOption(opt, index)
         if dots:
             opt.text = ""
@@ -406,18 +482,18 @@ class _CuesDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor(theme.mix(theme.SURFACE, theme.TEXT, 0.25)), 1))
         for hexa in dots[:n]:
-            painter.setBrush(QColor(hexa))
+            painter.setBrush(_qcolor(hexa))
             painter.drawEllipse(QRectF(x, y, d, d))
             x += d + gap
         painter.restore()
 
 
-class _KeyDelegate(QStyledItemDelegate):
+class _KeyDelegate(_CellMixin, QStyledItemDelegate):
     """Colonne « key » : pastille arrondie à la couleur Camelot (comme sur les platines)."""
 
     def paint(self, painter: QPainter, option: Any, index: QModelIndex) -> None:
         code = index.data(Qt.DisplayRole) or ""
-        opt = option
+        opt = cell_option(painter, option, index)          # 1.4.4 (B118)
         self.initStyleOption(opt, index)
         opt.text = ""
         style = opt.widget.style() if opt.widget else QApplication.style()
@@ -554,9 +630,9 @@ class TrackTable(QTableView):
         lay.addWidget(self._empty_text)
         self._empty_icon_name = ""
         self._empty.hide()
-        from .shine import Clock, ShineDelegate
+        from .shine import Clock
 
-        self.setItemDelegate(ShineDelegate(self))                    # 1.4.1 (C141) : or et argent allumés
+        self.setItemDelegate(_RowDelegate(self))                     # 1.4.1 (C141) ; 1.4.4 (B118) : fond commun
         Clock.get().watch(self)
         for i, col in enumerate(self.columns):
             if col.key == "key":

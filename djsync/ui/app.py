@@ -9,6 +9,7 @@ Paramètres.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -171,7 +172,8 @@ class DJSyncApp(QMainWindow):
         self.qapp = qt_app()
         settings = settings or Settings.load()
         i18n.set_language(settings.language)
-        theme.apply_background(getattr(settings, "background", "default"))      # 1.4.3 (C53)
+        theme.apply_background(getattr(settings, "background", "default"),
+                               getattr(settings, "brightness", "dark"))      # 1.4.3 (C53), 1.4.4 (C238)
         theme.apply_palette(settings.theme)
         theme.apply(self.qapp, settings.zoom)
         reset_icons()
@@ -228,12 +230,13 @@ class DJSyncApp(QMainWindow):
         self.ctrl.on("open_space", self.open_space)                               # 1.4.2 (A6-6)
         self.ctrl.on("key_full_delete", self._key_full_delete)
         self.ctrl.on("key_full_open", self._key_full_open)
+        self.ctrl.on("pdb_locked_ask", self._pdb_locked_ask)            # 1.4.4 (B134)
         self.ctrl.on("quit", self.close)
         self._listener_mark = self.ctrl.listener_mark()
         self._build()
         QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
-        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
+        self._built_background = (theme.CURRENT_BACKGROUND, theme.CURRENT_BRIGHTNESS)      # 1.4.3 (C53), C238
         self._bind_shortcuts()
         self._place_window(settings)
 
@@ -307,6 +310,10 @@ class DJSyncApp(QMainWindow):
             self._compact = None
             self._update_compact()
         QTimer.singleShot(0, relayout)
+        if not getattr(self, "_live_checked", False):           # 1.4.4 (C15) : live pas rangé
+            self._live_checked = True
+            if not os.environ.get("PYTEST_CURRENT_TEST"):
+                self.queue_startup("live", self._live_pending)
         if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
             self._light_checked = True
             from ..core.machine import light_active, machine_info, should_offer
@@ -590,7 +597,8 @@ class DJSyncApp(QMainWindow):
         La clé, la file de téléchargements et la lecture en cours sont conservées (contrôleur)."""
         current = self._current or "home"
         i18n.set_language(self.ctrl.settings.language)
-        theme.apply_background(getattr(self.ctrl.settings, "background", "default"))
+        theme.apply_background(getattr(self.ctrl.settings, "background", "default"),
+                               getattr(self.ctrl.settings, "brightness", "dark"))
         theme.apply_palette(self.ctrl.settings.theme)
         theme.apply(self.qapp, self.ctrl.settings.zoom)
         from .widgets import InfoDot, set_tooltips_enabled
@@ -603,7 +611,7 @@ class DJSyncApp(QMainWindow):
         self._build()
         QTimer.singleShot(0, self._name_buttons)                 # 1.4.3 (A2-20)
         self._built_accent = theme.ACCENT          # 1.3.0-rc.4 (B23)
-        self._built_background = theme.CURRENT_BACKGROUND      # 1.4.3 (C53)
+        self._built_background = (theme.CURRENT_BACKGROUND, theme.CURRENT_BRIGHTNESS)      # 1.4.3 (C53), C238
         if old is not None:
             old.deleteLater()
         self.show_view(current)
@@ -615,10 +623,11 @@ class DJSyncApp(QMainWindow):
         """Couleur d'accent, zoom ou barre latérale changés : nouvelle feuille de style, sans
         reconstruire les vues."""
         s = self.ctrl.settings
-        theme.apply_background(getattr(s, "background", "default"))
+        theme.apply_background(getattr(s, "background", "default"), getattr(s, "brightness", "dark"))
         theme.apply_palette(s.theme)
         if theme.ACCENT != getattr(self, "_built_accent", theme.ACCENT) or \
-                theme.CURRENT_BACKGROUND != getattr(self, "_built_background", theme.CURRENT_BACKGROUND):
+                (theme.CURRENT_BACKGROUND, theme.CURRENT_BRIGHTNESS) != getattr(self, "_built_background",
+                                                                     (theme.CURRENT_BACKGROUND, theme.CURRENT_BRIGHTNESS)):
             # 1.3.0-rc.4 (B23) : nouvelle couleur -> toutes les vues sont reconstruites, comme pour un
             # changement de langue. Icônes, pastilles, formes d'onde, logo… sont dessinés à leur création
             # dans la couleur du moment : les reprendre une à une en oubliait (Outils de l'Accueil).
@@ -1161,6 +1170,14 @@ class DJSyncApp(QMainWindow):
         ConfirmDialog(self, t("full.title"), plural("full.delete_one", "full.delete_many", n, date=when), go,
                       confirm_text=t("action.delete"), danger=True)
 
+    def _pdb_locked_ask(self, lib: Any) -> None:
+        """1.4.4 (B134) : clé ouverte dans Rekordbox : continuer (export.pdb rattrapé seul) ou annuler."""
+        from .dialogs import ConfirmDialog
+
+        ConfirmDialog(self, t("pdb_lock.title"), t("pdb_lock.message"),
+                      lambda: self.ctrl.pdb_lock.answer(lib, True), confirm_text=t("pdb_lock.continue"),
+                      detail=t("pdb_lock.detail"), on_cancel=lambda: self.ctrl.pdb_lock.answer(lib, False))
+
     def _key_full_open(self, drive: Any) -> None:
         """Règle 4 : la clé est pleine et ne s'ouvre plus : « Libérer de la place »."""
         from .dialogs import ConfirmDialog
@@ -1185,6 +1202,24 @@ class DJSyncApp(QMainWindow):
             except RuntimeError:
                 pass
         QTimer.singleShot(0, scroll)
+
+    def open_live(self) -> None:
+        """1.4.4 (C15) : mode live (pas à pas la première fois)."""
+        from .live_page import open_live
+
+        open_live(self, self.ctrl)
+
+    def _live_pending(self) -> None:
+        """1.4.4 (C15) : live d'un jour précédent pas encore rangé : « Terminer le live » proposé au lancement."""
+        live = getattr(self.ctrl, "live", None)
+        s = live.pending() if live is not None else None
+        if s is None:
+            return
+        from .dialogs import ConfirmDialog
+
+        live.session = s
+        ConfirmDialog(self, t("live.finish"), t("live.pending", date=s.date), lambda: live.finish(),
+                      confirm_text=t("live.finish"), detail=t("live.finish_detail"))
 
     def open_transfer(self, precheck: tuple = (), sync_from: Optional[str] = None) -> None:
         """1.4.2 (C23) : page « Transférer et synchroniser des playlists » (nom : 1.4.3, C203)."""

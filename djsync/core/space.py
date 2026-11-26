@@ -357,6 +357,8 @@ class DiskBar:
     title: str
     kind: str                     # "computer" | "usb"
     usage: Usage
+    absent: bool = False          # 1.4.4 (C240) : disque de la collection débranché ou introuvable
+    tracks: int = 0               # 1.4.4 (C240) : sons de la collection sur ce disque
 
 
 def _bar_usage(parts: Dict[str, int], root: Path) -> Usage:
@@ -368,7 +370,8 @@ def _bar_usage(parts: Dict[str, int], root: Path) -> Usage:
 
 
 def computer_disks(where: Dict[str, Any], music_by_disk: Optional[Dict[str, int]] = None,
-                   skip: Iterable[str] = (), sizes: Optional[Dict[str, int]] = None) -> List[DiskBar]:
+                   skip: Iterable[str] = (), sizes: Optional[Dict[str, int]] = None,
+                   tracks_by_disk: Optional[Dict[str, int]] = None) -> List[DiskBar]:
     """Disques de l'ordinateur qui contiennent musique, données ou sauvegardes de DJSync (sauf `skip`, déjà
     montré par la barre principale). `where` : poste -> dossier ; `sizes` : tailles déjà mesurées par poste
     (sinon mesurées ici) ; `music_by_disk` : musique de la collection par disque."""
@@ -386,7 +389,21 @@ def computer_disks(where: Dict[str, Any], music_by_disk: Optional[Dict[str, int]
         if size:
             per.setdefault(d, {})[key] = per.get(d, {}).get(key, 0) + int(size)
     skip = set(skip)
-    return [DiskBar(d, "computer", _bar_usage(parts, Path(d))) for d, parts in sorted(per.items()) if d not in skip]
+    out = []
+    for d, parts in sorted(per.items()):
+        if d in skip:
+            continue
+        n = int((tracks_by_disk or {}).get(d, 0))
+        if not _present(d):            # 1.4.4 (C240) : pas de barre pleine pour un disque absent
+            out.append(DiskBar(d, "computer", Usage(dict(parts), 0, 0), absent=True, tracks=n))
+            continue
+        out.append(DiskBar(d, "computer", _bar_usage(parts, Path(d)), tracks=n))
+    return out
+
+
+def _present(disk: str) -> bool:
+    """1.4.4 (C240) : disque branché et lisible (taille non nulle ; un disque absent donne 0 / 0)."""
+    return _disk(Path(disk))[0] > 0
 
 
 def usb_disks(drives: Iterable[Any], contents_dir: str = "Contents", skip: Iterable[str] = ()) -> List[DiskBar]:

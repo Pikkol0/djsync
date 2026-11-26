@@ -74,16 +74,23 @@ FAMILIES = {
 }
 # 1.4.4 (C226) : couleurs montrées directement dans Paramètres (« Toutes… » ouvre la grille des familles)
 FEATURED = ("violet_light", "electric_blue", "turquoise", "neon_green", "amber", "red", "hot_pink")
-# 1.4.4 (C226) : thèmes prêts à choisir (fond + couleur) ; les 6 premiers sont proposés à l'accueil
+# 1.4.4 (C226) : thèmes prêts à choisir ; 1.4.4 (C238) : (teinte du fond, luminosité, couleur). Les 6 premiers sont
+# proposés à l'accueil.
 THEMES = {
-    "club": ("default", "violet_light"),
-    "night": ("navy", "sky"),
-    "forest": ("fir", "sage"),
-    "coffee": ("brown", "amber"),
-    "prune": ("prune", "rose"),
-    "neon": ("oled", "neon_green"),
-    "daylight": ("bright", "royal_blue"),
-    "contrast": ("high_contrast", "yellow"),
+    "club": ("default", "dark", "violet_light"),
+    "night": ("navy", "dark", "sky"),
+    "forest": ("fir", "dark", "sage"),
+    "coffee": ("brown", "dark", "amber"),
+    "neon": ("default", "oled", "neon_green"),
+    "daylight": ("default", "light", "royal_blue"),
+    "prune": ("prune", "dark", "rose"),
+    "ocean": ("ocean", "oled", "aqua"),
+    "lagoon": ("lagoon", "dark", "turquoise"),
+    "wine": ("wine", "dark", "bordeaux"),
+    "paper": ("graphite", "light", "brick"),
+    "mint": ("moss", "light", "forest"),
+    "midnight": ("indigo", "oled", "lilac"),
+    "contrast": ("high_contrast", "dark", "yellow"),
 }
 MIN_CONTRAST = 3.0            # accent lisible sur le fond des cartes (vérifié par les tests, C144)
 # couleurs retirées -> la plus proche gardée (réglages des versions précédentes)

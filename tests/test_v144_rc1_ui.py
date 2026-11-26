@@ -122,7 +122,8 @@ def test_c226_palettes_backgrounds_and_themes(demo):  # noqa: F811
     for names in FAMILIES.values():                        # rangées par teinte, pas deux couleurs identiques
         assert len({PALETTES[n].upper() for n in names}) == 16
     assert {"navy", "brown", "fir", "prune"} <= set(theme.BACKGROUNDS)
-    assert all(bg in theme.BACKGROUNDS and acc in PALETTES for bg, acc in THEMES.values())
+    assert all(bg in theme.BACKGROUNDS and light in theme.BRIGHTNESSES and acc in PALETTES
+               for bg, light, acc in THEMES.values())                       # 1.4.4 (C238)
     assert set(FEATURED) <= set(PALETTES) and len(FEATURED) == 7
     for k in list(PALETTES) + list(theme.BACKGROUNDS) + list(THEMES):
         key = (f"theme.{k}" if k in PALETTES else f"settings.background_{k}" if k in theme.BACKGROUNDS
@@ -134,8 +135,8 @@ def test_c226_palettes_backgrounds_and_themes(demo):  # noqa: F811
     view.theme_tiles["night"].click()
     pump(demo, 0.3)
     s = demo.ctrl.settings
-    assert (s.background, s.theme) == ("navy", "sky") and theme.CURRENT_BACKGROUND == "navy"
-    s.background, s.theme = "default", "violet_light"
+    assert (s.background, s.brightness, s.theme) == ("navy", "dark", "sky") and theme.CURRENT_BACKGROUND == "navy"
+    s.background, s.brightness, s.theme = "default", "dark", "violet_light"
     demo.ctrl._emit("restyle")
     pump(demo, 0.2)
 
@@ -219,7 +220,7 @@ def test_c220_settings_target_flashes(demo):  # noqa: F811
     view.search.setText("export.pdb")
     pump(demo, 1.0)
     shown = [box for _s, box in view._cards if box.isVisibleTo(view)]
-    assert shown and all(box.property("flashed") for box in shown)
+    assert shown and not any(box.property("flashed") for box in shown)     # 1.4.4 (B132) : plus en recherche
     view.search.clear()
 
 

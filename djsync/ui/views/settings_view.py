@@ -100,19 +100,21 @@ def theme_tiles(layout: Any, on_pick: Any, keys: Any = None) -> Dict[str, Any]:
     from ..palettes import THEMES
 
     out = {}
-    cur = (getattr(theme, "CURRENT_BACKGROUND", "default"), theme.CURRENT_THEME)
+    cur = (getattr(theme, "CURRENT_BACKGROUND", "default"), getattr(theme, "CURRENT_BRIGHTNESS", "dark"),
+           theme.CURRENT_THEME)
     for key in (keys or THEMES):
-        bg, accent = THEMES[key]
+        bg, light, accent = THEMES[key]                    # 1.4.4 (C238) : teinte, luminosité, couleur
         b = QToolButton()
-        b.setIcon(logo_pixmap(theme.px(22), PALETTES[accent], theme.BACKGROUNDS[bg][1]))
+        b.setIcon(logo_pixmap(theme.px(22), PALETTES[accent], theme.background_colors(bg, light)[1]))
         b.setIconSize(QSize(theme.px(22), theme.px(22)))
         b.setText(t(f"themes.{key}"))
         b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         b.setCheckable(True)
-        b.setChecked((bg, accent) == cur)
+        b.setChecked((bg, light, accent) == cur)
         b.setProperty("kind", "tile")
         b.setCursor(Qt.PointingHandCursor)
-        b.setToolTip(t("themes.tip", bg=t(f"settings.background_{bg}"), color=t(f"theme.{accent}")))
+        b.setToolTip(t("themes.tip", bg=t(f"settings.background_{bg}"), light=t(f"settings.brightness_{light}"),
+                       color=t(f"theme.{accent}")))
         b.clicked.connect(lambda _c=False, k=key: on_pick(k))
         layout.addWidget(b)
         out[key] = b
@@ -387,12 +389,20 @@ class SettingsView(View):
         self._row(card, t("settings.theme"), colors, grow=True)
         self.theme_name = label(t(f"theme.{theme.CURRENT_THEME}"), "dim")
         self.theme_name.hide()
-        self._bg_labels = {k: t(f"settings.background_{k}") for k in theme.BACKGROUNDS}     # 1.4.3 (C53) : fond
+        self._bg_labels = {k: t(f"settings.background_{k}") for k in theme.TINTS}     # 1.4.3 (C53) : fond
         self.bg_menu = ShrinkCombo()
         self.bg_menu.addItems(list(self._bg_labels.values()))
         self.bg_menu.setCurrentText(self._bg_labels.get(getattr(s, "background", "default"), self._bg_labels["default"]))
         self.bg_menu.currentTextChanged.connect(self._background_changed)
         self._row(card, t("settings.background"), self.bg_menu)
+        # 1.4.4 (C238) : luminosité à part (Sombre, OLED noir pur, Clair), pour toutes les teintes
+        self._light_labels = {k: t(f"settings.brightness_{k}") for k in theme.BRIGHTNESSES}
+        self.light_menu = ShrinkCombo()
+        self.light_menu.addItems(list(self._light_labels.values()))
+        self.light_menu.setCurrentText(self._light_labels.get(getattr(s, "brightness", "dark"),
+                                                              self._light_labels["dark"]))
+        self.light_menu.currentTextChanged.connect(self._brightness_changed)
+        self._row(card, t("settings.brightness"), self.light_menu)
 
         # 1.4.0 (C102) : plus de curseur : − / + / 100 % et les raccourcis (Ctrl/Cmd +, −, 0, molette)
         card = self._card(t("settings.card_size"), "plus", key="size")
@@ -1216,22 +1226,7 @@ class SettingsView(View):
         self.no_match.setVisible(bool(words) and not shown)
         if not words:
             InfoDot.close_any()
-        # 1.4.4 (C220) : recherche : la ou les cartes trouvées mises en valeur (après une courte pause de frappe)
-        if words and shown:
-            if not hasattr(self, "_flash_timer"):
-                self._flash_timer = QTimer(self)
-                self._flash_timer.setSingleShot(True)
-                self._flash_timer.timeout.connect(self._flash_matches)
-            self._flash_timer.start(600)
-
-    def _flash_matches(self) -> None:
-        from ..widgets import flash
-
-        if not self.search.text().split():
-            return
-        for _sec, box in self._cards:
-            if box.isVisibleTo(self):
-                flash(box)
+        # 1.4.4 (B132) : plus de surlignage pendant la recherche, le filtrage suffit
 
     def _space_if_shown(self) -> None:
         """C27 : mesure lancée seulement quand la carte « Espace » arrive à l'écran (C121 : en défilant)."""
@@ -1358,10 +1353,10 @@ class SettingsView(View):
         """1.4.4 (C226) : thème prêt = fond + couleur, appliqués ensemble (un seul restyle)."""
         from ..palettes import THEMES
 
-        bg, accent = THEMES[key]
+        bg, light, accent = THEMES[key]                    # 1.4.4 (C238) : avec la luminosité
         s = self.ctrl.settings
-        if (s.background, s.theme) != (bg, accent):
-            s.background, s.theme = bg, accent
+        if (s.background, s.brightness, s.theme) != (bg, light, accent):
+            s.background, s.brightness, s.theme = bg, light, accent
             s.save()
             self.ctrl._emit("restyle")
 
@@ -1380,6 +1375,14 @@ class SettingsView(View):
         name = next((k for k, v in self._bg_labels.items() if v == text), "default")
         if name != getattr(self.ctrl.settings, "background", "default"):
             self.ctrl.settings.background = name
+            self.ctrl.settings.save()
+            self.ctrl._emit("restyle")
+
+    def _brightness_changed(self, text: str) -> None:
+        """1.4.4 (C238) : luminosité (Sombre, OLED, Clair), séparée de la teinte du fond."""
+        name = next((k for k, v in self._light_labels.items() if v == text), "dark")
+        if name != getattr(self.ctrl.settings, "brightness", "dark"):
+            self.ctrl.settings.brightness = name
             self.ctrl.settings.save()
             self.ctrl._emit("restyle")
 

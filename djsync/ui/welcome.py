@@ -200,9 +200,9 @@ class WelcomeDialog(BaseDialog):
         """1.4.4 (C227) : thème appliqué tout de suite, écran redessiné dans ses couleurs (choix gardés)."""
         from .palettes import THEMES
 
-        bg, accent = THEMES[key]
+        bg, light, accent = THEMES[key]                    # 1.4.4 (C238) : avec la luminosité
         s = self.ctrl.settings
-        s.background, s.theme = bg, accent
+        s.background, s.brightness, s.theme = bg, light, accent
         s.save()
         self._remember()
         self.ctrl._emit("restyle")

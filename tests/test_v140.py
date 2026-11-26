@@ -525,7 +525,7 @@ def test_overview_in_the_grid_page_and_red_cursor(demo_grid):  # noqa: F811
     # C51 : vue d'ensemble dans la page, sous la forme d'onde zoomée et au-dessus des hot cues
     lay = ed.body
     idx = {w: i for i in range(lay.count()) for w in [lay.itemAt(i).widget()] if w is not None}
-    assert idx[ed.canvas] < idx[ed.overview] < idx[ed.cue_panel]
+    assert idx[ed.canvas] < idx[ed.overview] < idx[ed.zones]          # 1.4.4 (C237) : cues dans un onglet
     assert not hasattr(app.player_bar, "grid_overview")
     # C52 : curseur rouge vif, centré sur sa position (le halo ne la décale pas)
     ed.canvas.resize(800, 200)

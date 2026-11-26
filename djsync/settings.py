@@ -70,7 +70,8 @@ class Settings:
     # ---- V1.1
     language: str = DEFAULT_LANGUAGE   # "en" (défaut) | "fr"
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
-    background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
+    background: str = "default"        # 1.4.3 (C53) ; 1.4.4 (C238) : teinte du fond (ui/theme.TINTS)
+    brightness: str = "dark"           # 1.4.4 (C238) : dark | oled | light (séparé de la teinte)
     write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
     energy_comment: bool = False       # 1.4.4 (C108) : énergie (« E7 ») devant le commentaire du son
     auto_gain: bool = True             # 1.4.3 (C109) : volume égalisé entre les sons (lecteur de DJSync)
@@ -137,6 +138,8 @@ class Settings:
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     dup_auto_verify: bool = True       # 1.4.4 (C236) : Doublons, groupes vérifiés par le son sans attendre
     grid_wave_height: int = 0          # 1.4.4 (C233) : hauteur de la forme d'onde de Grille et cues (0 = automatique)
+    live_guide_done: bool = False      # 1.4.4 (C15) : pas à pas du mode live déjà vu (« ne plus afficher »)
+    grid_tab: str = "grid"             # 1.4.4 (C237) : dernier onglet ouvert de Grille et cues (grid | tempo | cues)
     grid_magnet: int = 0               # 1.4.1 (C92) : aimant de Grille et cues (0 = coupé, 1 = au temps, 4 = au quart)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never
     # ---- V1.0.0
@@ -234,6 +237,13 @@ class Settings:
         if self.search_tab not in ("search", "hq", "import"):
             self.search_tab = "search"
         self.zoom = clamp_zoom(self.zoom)
+        # 1.4.4 (C238) : « OLED » et « Lumineux » étaient des fonds : ce sont maintenant des luminosités
+        if self.background == "oled":
+            self.background, self.brightness = "default", "oled"
+        elif self.background == "bright":
+            self.background, self.brightness = "default", "light"
+        if self.brightness not in ("dark", "oled", "light"):
+            self.brightness = "dark"
         self.show_tooltips = bool(self.show_tooltips)                                              # 1.4.4 (C219)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"

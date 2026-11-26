@@ -680,7 +680,7 @@ def test_c212_grid_editor_scrolls_instead_of_overlapping(demo):  # noqa: F811
                 top = w.mapTo(inner, w.rect().topLeft()).y()
                 return top, top + w.height()
 
-            blocks = [box(ed.cue_panel), box(ed.zones), box(ed.save_btn)]
+            blocks = [box(ed.tabs_bar), box(ed.zones), box(ed.save_btn)]          # 1.4.4 (C237) : onglets
             for (_a_top, a_bottom), (b_top, _b_bottom) in zip(blocks, blocks[1:]):
                 assert a_bottom <= b_top, (height, blocks)                  # jamais l'un sur l'autre
             bar = ed.page_area.verticalScrollBar()

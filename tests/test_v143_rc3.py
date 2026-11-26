@@ -260,11 +260,13 @@ def test_c53_backgrounds_keep_accent_readable():
 
     try:
         for bg in theme.BACKGROUNDS:
-            theme.apply_background(bg)
-            for name in PALETTES:
-                theme.apply_palette(name)
-                assert theme.contrast(theme.ACCENT, theme.SURFACE) >= MIN_CONTRAST - 0.05, (bg, name)
-                assert theme.contrast(theme.TEXT, theme.SURFACE) >= 7.0, bg
+            for light in theme.BRIGHTNESSES:                  # 1.4.4 (C238) : teinte × luminosité
+                theme.apply_background(bg, light)
+                for name in PALETTES:
+                    theme.apply_palette(name)
+                    assert theme.contrast(theme.ACCENT, theme.SURFACE) >= MIN_CONTRAST - 0.05, (bg, light, name)
+                    assert theme.contrast(theme.TEXT, theme.SURFACE) >= 7.0, (bg, light)
+                    assert theme.contrast(theme.DIM, theme.SURFACE) >= 3.0, (bg, light)
         theme.apply_background("bright")
         assert theme.is_bright() and theme.SURFACE == "#FFFFFF"
         theme.apply_background("oled")
@@ -281,14 +283,17 @@ def test_c53_background_setting_rebuilds_the_window(import_demo):
     try:
         w.ctrl.settings.background = "bright"
         w.ctrl._emit("restyle")
-        assert theme.CURRENT_BACKGROUND == "bright" and w._built_background == "bright" and not w.errors
+        # 1.4.4 (C238) : l'ancien fond « bright » devient la luminosité Claire de la teinte neutre
+        assert theme.CURRENT_BACKGROUND == "default" and theme.CURRENT_BRIGHTNESS == "light"
+        assert w._built_background == ("default", "light") and not w.errors
         w.show_view("settings")
         page = w.views["settings"]
-        assert page.bg_menu.count() == len(theme.BACKGROUNDS) == 8          # 1.4.4 (C226) : 4 fonds teintés
+        assert page.bg_menu.count() == len(theme.TINTS) == 16             # 1.4.4 (C238) : 16 teintes
+        assert page.light_menu.count() == 3
     finally:
-        w.ctrl.settings.background = "default"
+        w.ctrl.settings.background, w.ctrl.settings.brightness = "default", "dark"
         w.ctrl._emit("restyle")
-    assert theme.CURRENT_BACKGROUND == "default"
+    assert theme.CURRENT_BACKGROUND == "default" and theme.CURRENT_BRIGHTNESS == "dark"
 
 
 # ---------------------------------------------------------------------------- S05 : tags du fichier

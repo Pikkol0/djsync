@@ -41,13 +41,22 @@ class PdbMirrorMixin:
     def _pdb_flush(self) -> None:
         """Réconcilie export.pdb après une écriture. Ne lève jamais : la base OneLibrary est déjà validée.
         En cas d'échec, rien n'est perdu : le journal reste sur la clé et la prochaine écriture (ou
-        l'ouverture de la clé) recommence la réconciliation complète."""
+        l'ouverture de la clé) recommence la réconciliation complète.
+
+        1.4.4 (B134) : export.pdb gardé ouvert (Rekordbox a monté la clé) : rien n'est tenté, export.pdb est
+        marqué en retard et réécrit tout seul dès qu'il est libre (prochaine écriture ou toutes les 30 s)."""
+        from ..pdb.lock import is_lock_error, pdb_locked
+
         self._pdb_queue = []
         journal = self._pdb_journal() if self._pdb_enabled() else None
-        if not self._pdb_dirty and not (journal and journal.marks):
+        if not self._pdb_dirty and not self.pdb_late and not (journal and journal.marks):
             return
         self._pdb_dirty = False
         if journal is None:
+            self.pdb_late = False
+            return
+        if pdb_locked(self.db_path.parent / "export.pdb"):
+            self._pdb_mark_late("export.pdb is open in another program (Rekordbox?)")
             return
         try:
             self.pdb_last_summary, left = self._pdb_reconcile(journal)
@@ -55,12 +64,29 @@ class PdbMirrorMixin:
             self.pdb_state = "ok" if left.empty else "stale"
             if not left.empty:
                 self.pdb_problem = left.describe()
+            if self.pdb_late:
+                log.info("export.pdb caught up after being locked")
+            self.pdb_late = False
         except PdbError as exc:
             self.pdb_state, self.pdb_problem = "stale", str(exc)
             log.warning("export.pdb not updated (exportLibrary.db is, export.pdb will be caught up later): %s", exc)
+            if is_lock_error(exc):
+                self._pdb_mark_late(str(exc))
         except Exception as exc:  # noqa: BLE001 - jamais d'exception vers l'appelant
             self.pdb_state, self.pdb_problem = "stale", f"{type(exc).__name__}: {exc}"
-            log.exception("export.pdb not updated")
+            if is_lock_error(exc):
+                log.warning("export.pdb locked, will be written again later: %s", exc)
+                self._pdb_mark_late(str(exc))
+            else:
+                log.exception("export.pdb not updated")
+
+    def _pdb_mark_late(self, why: str) -> None:
+        """1.4.4 (B134) : export.pdb en retard, réessayé plus tard."""
+        if not self.pdb_late:
+            log.info("export.pdb late (%s): written again as soon as it is free", why)
+        self.pdb_late = True
+        self.pdb_state, self.pdb_problem = "stale", why
+        self._pdb_retry_later()
 
     def _pdb_reconcile(self, journal: "pdb_sync_mod.Journal") -> Tuple[PdbSummary, "pdb_sync_mod.Plan"]:
         """Calcule et applique le plan en UNE écriture d'export.pdb ; renvoie le résumé et ce qui reste

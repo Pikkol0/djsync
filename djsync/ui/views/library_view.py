@@ -390,6 +390,11 @@ class LibraryView(View):
         # 1.4.3-rc.2 (C218) : la vue juste à côté de « Colonnes », son nom seul (« Préparer un set ▾ »)
         self.view_btn = button("", self._views_menu, icon="columns", tooltip=t("views.tip"))
         bar.add(self.view_btn, secondary=True, keep_text=True)
+        # 1.4.4 (C239) : l'outil de transfert / synchronisation visible dans la barre, à côté du menu ☰
+        self.transfer_btn = button(t("transfer.short"), lambda: self._transfer(), icon="copy",
+                                   tooltip=t("transfer.menu"))
+        self.transfer_btn.setObjectName("lib_transfer")
+        bar.add(self.transfer_btn, secondary=True)
         self.tools_btn = icon_button("menu", self._tools_menu, t("lib.tools"))
         bar.add(self.tools_btn)
         self.delete_btn = button("", self._delete, kind="danger", icon="trash", tooltip=t("lib.delete"))

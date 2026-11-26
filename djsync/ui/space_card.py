@@ -215,11 +215,14 @@ class SpaceCard:
         def sizes() -> Dict[str, int]:
             """1.4.0 (C129) : taille des sons de la collection, par disque."""
             out: Dict[str, int] = {}
+            counts: Dict[str, int] = {}
             for x in target["lib"].list_tracks():
                 n = int(getattr(x, "file_size", 0) or 0)
                 if n:
                     d = space.drive_of(x.path or "")
                     out[d] = out.get(d, 0) + n
+                    counts[d] = counts.get(d, 0) + 1
+            self._tracks_by_disk = counts               # 1.4.4 (C240) : sons par disque (disque absent)
             return out
 
         def measured(total: Any) -> None:
@@ -239,7 +242,8 @@ class SpaceCard:
                          "backups": target["backup"], "caches": Path(target["data"]) / "cache"}
                 sizes = {k: usage.parts.get(k, 0) for k in where}
                 main = usage.disk or space.drive_of(target["music"])          # déjà montré par la barre du haut
-                bars = space.computer_disks(where, usage.music_elsewhere, skip=[main], sizes=sizes)
+                bars = space.computer_disks(where, usage.music_elsewhere, skip=[main], sizes=sizes,
+                                            tracks_by_disk=getattr(self, "_tracks_by_disk", None))
                 skip_usb: list = []
             else:
                 bars = space.computer_disks({"music": music_dir, "caches": Path(target["data"]) / "cache"})
@@ -268,6 +272,16 @@ class SpaceCard:
                 self._disk_widgets.append(head)
             for b in bars:
                 u = b.usage
+                if getattr(b, "absent", False):        # 1.4.4 (C240) : une ligne, pas de barre
+                    size = human_size(sum(v for k, v in u.parts.items() if k == "music"))
+                    line = button(plural("space.disk_absent_one", "space.disk_absent_many", b.tracks or 0,
+                                         name=b.title, size=size),
+                                  lambda _c=False: self._open_missing(), kind="flat", icon="warn",
+                                  tooltip=t("space.disk_absent_tip"))
+                    line.setObjectName("disk_absent")
+                    self.disks_box.addWidget(line)
+                    self._disk_widgets.append(line)
+                    continue
                 kind = t("space.disk_usb") if b.kind == "usb" else t("space.disk_computer")
                 text = t("space.disk_title", name=b.title, kind=kind, free=human_size(u.free),
                          total=human_size(u.total))
@@ -285,6 +299,12 @@ class SpaceCard:
                     self._disk_widgets.append(w)
         except RuntimeError:                       # carte détruite entre-temps
             log.debug("Space card gone", exc_info=True)
+
+    def _open_missing(self) -> None:
+        """1.4.4 (C240) : disque absent : fichiers introuvables du Diagnostic."""
+        win = self.window()
+        if hasattr(win, "open_diagnostic"):
+            win.open_diagnostic("missing")
 
     def _compute_footprint(self, force: bool = False) -> None:
         """1.4.3 (C200) : application, caches, sauvegardes, réglages et sons téléchargés sur l'ordinateur."""
@@ -344,9 +364,9 @@ class SpaceCard:
             actions["caches"] = (t("space.clear_caches"), lambda: self._clear(target))
         if not target["local"] and usage.parts.get("backups"):
             actions["backups"] = (t("space.trim_points", n=TRIM_KEEP), lambda: self._trim(target))
-        self._fill(usage, actions)
+        self._fill(usage, actions, local=bool(target.get("local")))
 
-    def _fill(self, usage: Any, actions: Dict[str, Any]) -> None:
+    def _fill(self, usage: Any, actions: Dict[str, Any], local: bool = False) -> None:
         for w in self._rows:            # 1.3.1 : sans setParent(None), qui en faisait des fenêtres visibles
             self.grid.removeWidget(w)
             self.actions_flow.removeWidget(w)
@@ -358,8 +378,14 @@ class SpaceCard:
         for row, (key, value) in enumerate(usage.parts.items()):
             dot = label("●", "")
             dot.setStyleSheet(f"color: {PART_COLORS.get(key) or theme.FAINT};")
-            name = label(t(f"space.{key}"), "", wrap=True)   # 1.4.4 (C225, A2-1) : à la ligne si étroit (Windows)
-            name.setToolTip(t(f"space.{key}_tip"))
+            text_key = key
+            if key == "backups":                            # 1.4.4 (B133) : dire de quelles sauvegardes il s'agit
+                text_key = "backups_pc" if local else "backups_usb"
+            name = label(t(f"space.{text_key}"), "", wrap=True)   # 1.4.4 (C225, A2-1) : à la ligne si étroit
+            tip = t(f"space.{text_key}_tip")
+            if usage.folders.get(key) is not None:
+                tip += "\n" + str(usage.folders.get(key))
+            name.setToolTip(tip)
             size = label(human_size(value), "dim")
             size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             cells = [dot, name, size]
