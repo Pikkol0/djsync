@@ -848,7 +848,7 @@ class Switch(QCheckBox):
         w, h = theme.px(38), theme.px(22)
         x, y = (self.width() - w) / 2, (self.height() - h) / 2
         on = self.isChecked()
-        track = QColor(theme.ACCENT if on else theme.ELEV)
+        track = QColor(theme.ACCENT if on else theme.BORDER)
         if not self.isEnabled():
             track.setAlpha(90)
         p.setPen(QPen(QColor(theme.ACCENT if self.hasFocus() else theme.BORDER), 1))
@@ -909,7 +909,6 @@ class InfoDot(QToolButton):
                            f" #infoDot:hover, #infoDot:checked {{ border-color: {theme.ACCENT}; color: {theme.ACCENT}; }}")
         self.setCheckable(True)
         self.clicked.connect(self._toggle)
-        tooltip_filter()                                  # fermeture au clic ailleurs
 
     def set_text(self, text: str) -> None:
         self.help_text = text
@@ -948,6 +947,7 @@ class InfoDot(QToolButton):
         self.setChecked(True)
         InfoDot.open_bubble = self.bubble
         self.bubble.installEventFilter(self)
+        _sync_filter()                                   # fermeture au clic ailleurs
 
     def eventFilter(self, obj: Any, e: Any) -> bool:  # noqa: N802
         from PySide6.QtCore import QEvent
@@ -956,6 +956,7 @@ class InfoDot(QToolButton):
             self.setChecked(False)
             if InfoDot.open_bubble is obj:
                 InfoDot.open_bubble = None
+                _sync_filter()
         return False
 
     def close_bubble(self) -> None:
@@ -968,6 +969,7 @@ class InfoDot(QToolButton):
                 b.close()
             except RuntimeError:                         # déjà détruite
                 pass
+        _sync_filter()
 
     @classmethod
     def close_any(cls) -> None:
@@ -977,6 +979,7 @@ class InfoDot(QToolButton):
                 b.close()
             except RuntimeError:
                 pass
+        _sync_filter()
 
     def hideEvent(self, e: Any) -> None:  # noqa: N802
         super().hideEvent(e)
@@ -985,13 +988,28 @@ class InfoDot(QToolButton):
 
 
 class TooltipFilter(QObject):
-    """1.4.4 (C219) : filtre posé une fois sur toute l'application. Réglage « Afficher les infobulles » à non :
-    les infobulles ordinaires (QEvent.ToolTip) ne s'affichent plus, sauf celles des ⓘ (InfoDot). Ferme aussi
-    la bulle d'un ⓘ au clic suivant, où qu'il soit."""
+    """1.4.4 (C219) : filtre posé sur toute l'application. Réglage « Afficher les infobulles » à non : les
+    infobulles ordinaires (QEvent.ToolTip) ne s'affichent plus, sauf celles des ⓘ (InfoDot). Ferme aussi la
+    bulle d'un ⓘ au clic suivant, où qu'il soit. Posé seulement quand il sert (infobulles masquées ou bulle
+    ouverte) : sinon aucun coût par évènement."""
 
     def __init__(self, parent: Any = None) -> None:
         super().__init__(parent)
         self.enabled = True
+        self.installed = False
+
+    def sync(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        need = not self.enabled or InfoDot.open_bubble is not None
+        if app is None or need == self.installed:
+            return
+        if need:
+            app.installEventFilter(self)
+        else:
+            app.removeEventFilter(self)
+        self.installed = need
 
     def eventFilter(self, obj: Any, e: Any) -> bool:  # noqa: N802
         from PySide6.QtCore import QEvent
@@ -1015,7 +1033,7 @@ _TIP_FILTER: Optional[TooltipFilter] = None
 
 
 def tooltip_filter() -> Optional[TooltipFilter]:
-    """1.4.4 (C219) : le filtre des infobulles, installé sur l'application au premier appel."""
+    """1.4.4 (C219) : le filtre des infobulles de l'application (créé au premier appel)."""
     global _TIP_FILTER
     from PySide6.QtWidgets import QApplication
 
@@ -1024,8 +1042,13 @@ def tooltip_filter() -> Optional[TooltipFilter]:
         return None
     if _TIP_FILTER is None:
         _TIP_FILTER = TooltipFilter(app)
-        app.installEventFilter(_TIP_FILTER)
     return _TIP_FILTER
+
+
+def _sync_filter() -> None:
+    f = tooltip_filter()
+    if f is not None:
+        f.sync()
 
 
 def set_tooltips_enabled(on: bool) -> None:
@@ -1033,6 +1056,7 @@ def set_tooltips_enabled(on: bool) -> None:
     f = tooltip_filter()
     if f is not None:
         f.enabled = bool(on)
+        f.sync()
     if not on:
         from PySide6.QtWidgets import QToolTip
 

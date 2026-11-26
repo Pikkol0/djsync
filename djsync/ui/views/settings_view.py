@@ -979,6 +979,7 @@ class SettingsView(View):
             self.update_state.setText(t("update.msg", version=upd.version))
         else:
             self.update_state.setText("")
+        self.update_state.setVisible(bool(self.update_state.text()))      # 1.4.4 (C225) : pas de ligne vide
 
     def _show_text(self, name: str, title: str) -> None:
         """Licence ou composants tiers : fichiers livrés avec DJSync (ou à la racine du dépôt)."""

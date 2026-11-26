@@ -145,7 +145,7 @@ def test_c219_info_dot_hover_and_click_keeps_the_bubble(demo):  # noqa: F811
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QApplication, QPushButton
 
-    from djsync.ui.widgets import InfoDot
+    from djsync.ui.widgets import InfoDot, tooltip_filter
 
     view = demo.views["settings"]
     demo.show_view("settings")
@@ -160,12 +160,12 @@ def test_c219_info_dot_hover_and_click_keeps_the_bubble(demo):  # noqa: F811
     dot.click()                                                                           # clic suivant : fermée
     assert not dot.is_open()
     dot.click()
-    assert dot.is_open()
+    assert dot.is_open() and tooltip_filter().installed                                   # posé le temps de la bulle
     other = next(b for b in view.findChildren(QPushButton) if b.isVisibleTo(view))
     press = QMouseEvent(QEvent.MouseButtonPress, QPoint(2, 2), other.mapToGlobal(QPoint(2, 2)), Qt.LeftButton,
                         Qt.LeftButton, Qt.NoModifier)
     QApplication.sendEvent(other, press)                                                  # clic ailleurs : fermée
-    assert not dot.is_open()
+    assert not dot.is_open() and not tooltip_filter().installed
     dot.click()
     view.show_section("general")                                                          # page quittée : fermée
     pump(demo, 0.1)
@@ -190,8 +190,9 @@ def test_c219_tooltips_off_blocks_ordinary_tooltips_not_info_dots(demo):  # noqa
         return QHelpEvent(QEvent.ToolTip, QPoint(1, 1), w.mapToGlobal(QPoint(1, 1)))
 
     assert not f.eventFilter(plain, tip(plain))
+    assert not f.installed                                     # rien posé sur l'app tant qu'il ne sert pas
     view.tooltips_var.click()                                                             # non : tout de suite
-    assert s.show_tooltips is False and not tooltips_enabled()
+    assert s.show_tooltips is False and not tooltips_enabled() and f.installed
     assert f.eventFilter(plain, tip(plain))                                               # infobulle bloquée
     assert not f.eventFilter(dot, tip(dot))                                               # ⓘ toujours actif
     assert Settings.load().show_tooltips is False                                         # réglage enregistré
@@ -199,6 +200,7 @@ def test_c219_tooltips_off_blocks_ordinary_tooltips_not_info_dots(demo):  # noqa
     assert not tooltips_enabled() and demo.views["settings"].tooltips_var.isChecked() is False
     demo.views["settings"].tooltips_var.click()
     assert s.show_tooltips is True and tooltips_enabled() and not f.eventFilter(plain, tip(plain))
+    assert not f.installed
     plain.deleteLater()
     dot.deleteLater()
 
@@ -221,3 +223,20 @@ def test_c219_strings_translated():
     for key in ("settings.show_tooltips", "settings.show_tooltips_tip", "settings.page_accessibility",
                 "settings.card_help", "settings.page_storage"):
         assert key in en.STRINGS and key in fr.STRINGS and en.STRINGS[key] != fr.STRINGS[key]
+
+
+def test_c219_grid_waveform_help_behind_an_info_dot(demo):  # noqa: F811
+    from djsync.ui.grid_editor import GridEditor
+
+    track = demo.ctrl.library.list_tracks()[0]
+    ed = GridEditor(demo, demo.ctrl, track)
+    try:
+        ed.setGeometry(0, 0, 1200, 900)
+        ed.show()
+        pump(demo, 0.3)
+        assert not ed.canvas.toolTip()                         # plus de bulle à chaque survol de la forme d'onde
+        assert ed.canvas_help.help_text == t("grid.hint") and ed.canvas_help.isVisibleTo(ed)
+        assert ed.canvas_help.parentWidget() is ed.style_bar
+    finally:
+        ed.close()
+        ed.deleteLater()
