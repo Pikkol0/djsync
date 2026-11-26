@@ -466,6 +466,12 @@ class GridEditor(QWidget):
         self.tempo_banner = label("", "chip_warn", wrap=True)
         self.tempo_banner.hide()
         self.body.addWidget(self.tempo_banner)
+        # 1.4.4 (B125) : 1er temps de la mesure à vérifier : choix entre les 4 temps d'une mesure, d'un clic, avec
+        # écoute depuis chaque temps (lecteur de la page) ; seul le numéro des temps change, jamais leur position
+        self._db_pending = self._downbeat_service_call("downbeat_pending", False)
+        self._db_picked = False
+        self._db_base = 0
+        self._build_downbeat_box()
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
         self.canvas.setToolTip(t("grid.hint"))
@@ -653,6 +659,108 @@ class GridEditor(QWidget):
         controller.grid_editor = self                # 1.3.0-rc.4 (B20) : le bouton Lecture du bas joue CE son
         controller._emit("grid_page", self)          # 1.3.0-rc.3 (B17) : le lecteur passe en forme d'onde 3 bandes
 
+    # ---------------------------------------------------------- 1er temps à vérifier (1.4.4, B125)
+    def _downbeat_service_call(self, name: str, default: Any, *args: Any) -> Any:
+        svc = getattr(self.ctrl, "tempo_grids", None)
+        fn = getattr(svc, name, None) if svc is not None else None
+        if fn is None:
+            return default
+        try:
+            return fn(self.track, *args)
+        except Exception:  # noqa: BLE001 - simple aide au réglage
+            log.debug("Handled error in %s", name, exc_info=True)
+            return default
+
+    def _build_downbeat_box(self) -> None:
+        from .widgets import FlowLayout
+
+        self.downbeat_box = QWidget()
+        dv = vbox(self.downbeat_box, spacing=theme.px(4))
+        self.downbeat_banner = label(t("grid.downbeat_check"), "chip_warn", wrap=True)
+        dv.addWidget(self.downbeat_banner)
+        row = QWidget()
+        flow = FlowLayout(row, spacing=theme.px(8))
+        self.downbeat_picks: List[QPushButton] = []
+        self.downbeat_listens: List[Any] = []
+        for k in range(4):
+            cell = QWidget()
+            h = hbox(cell, spacing=theme.px(2))
+            lis = icon_button("play", lambda q=k: self._downbeat_listen(q), t("grid.downbeat_listen_tip", n=k + 1))
+            pick = button(t("grid.downbeat_pick", n=k + 1), lambda q=k: self._downbeat_pick(q),
+                          tooltip=t("grid.downbeat_pick_tip"))
+            h.addWidget(lis)
+            h.addWidget(pick)
+            self.downbeat_listens.append(lis)
+            self.downbeat_picks.append(pick)
+            flow.addWidget(cell)
+        dv.addWidget(row)
+        self.downbeat_box.hide()
+        self.body.addWidget(self.downbeat_box)
+
+    def _downbeat_setup(self) -> None:
+        """Les 4 temps proposés : la mesure (selon l'analyse) où entrent les basses le plus nettement."""
+        if not self.beats:
+            return
+        at = float(self._downbeat_service_call("downbeat_at", -1.0))
+        if at >= 0:
+            i = G.nearest(self.beats, at * 1000.0)
+        else:
+            i = next((k for k, b in enumerate(self.beats) if b[0] == 1), 0)
+        i -= (self.beats[i][0] - 1) % 4                       # 1er temps de cette mesure
+        self._db_base = max(0, min(i, len(self.beats) - 4))
+
+    def _downbeat_index(self, k: int) -> int:
+        return max(0, min(self._db_base + k, len(self.beats) - 1))
+
+    def _downbeat_listen(self, k: int) -> None:
+        if not self.beats:
+            return
+        self.selected = self._downbeat_index(k)
+        self.play_from(self.beats[self.selected][2])
+
+    def _downbeat_pick(self, k: int) -> None:
+        """Ce temps devient le 1er de la mesure ; la grille ne bouge pas. Choix fait : plus « à vérifier »."""
+        if not self.beats:
+            return
+        i = self._downbeat_index(k)
+        self.beats = G.set_downbeat(self.beats, i)
+        self.selected = i
+        self._db_picked = True
+        if self.beats == self.original:                     # le choix de l'analyse : rien à enregistrer
+            self._downbeat_resolved()
+        self._refresh_info()
+        self.draw()
+
+    def _downbeat_resolved(self) -> None:
+        if self._db_pending:
+            self._downbeat_service_call("downbeat_done", False)
+        self._db_pending = False
+
+    def _refresh_downbeat(self) -> None:
+        box = getattr(self, "downbeat_box", None)
+        if box is None:
+            return
+        shown = bool(self.beats) and (self._db_pending or self._db_picked)
+        box.setVisible(shown)
+        if not shown:
+            return
+        unsaved = self._db_picked and self.beats != self.original
+        if self._db_pending and not self._db_picked:
+            text, role = t("grid.downbeat_check"), "chip_warn"
+        elif unsaved:
+            text, role = t("grid.downbeat_chosen"), "chip_ok"
+        else:
+            text, role = t("grid.downbeat_checked"), "chip_ok"
+        self.downbeat_banner.setText(text)
+        if self.downbeat_banner.property("role") != role:
+            self.downbeat_banner.setProperty("role", role)
+            restyle(self.downbeat_banner)
+        for k, b in enumerate(self.downbeat_picks):
+            kind = "primary" if self.beats[self._downbeat_index(k)][0] == 1 else ""
+            if (b.property("kind") or "") != kind:
+                b.setProperty("kind", kind)
+                restyle(b)
+
     def _timeline_lead(self, track: LibraryTrack) -> float:
         """La grille est dans la base de temps de Rekordbox (silence d'amorçage MP3, décalage m4a), le
         lecteur joue le fichier sans ce silence : on en tient compte pour le curseur et la lecture."""
@@ -712,6 +820,7 @@ class GridEditor(QWidget):
         self.selected = next((i for i, b in enumerate(self.beats) if b[0] == 1), 0)
         self.cursor_ms = self.beats[self.selected][2]
         self.start_ms = max(0.0, self.cursor_ms - 1000)
+        self._downbeat_setup()                       # 1.4.4 (B125)
         self._center()
         self._refresh_info()
         self._show_style()
@@ -1238,6 +1347,7 @@ class GridEditor(QWidget):
         if p is not None and p.kind:
             parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
         self._refresh_tempo(p)
+        self._refresh_downbeat()                                  # 1.4.4 (B125)
         if self._native:
             parts.append(t("grid.native"))
         self.info.setText("  ·  ".join(parts))
@@ -1330,6 +1440,7 @@ class GridEditor(QWidget):
     def _downbeat(self) -> None:
         if self.beats:
             self.beats = G.set_downbeat(self.beats, self.selected)
+            self._db_picked = self._db_picked or self._db_pending       # 1.4.4 (B125) : choix fait à la main
             self._refresh_info()
             self.draw()
 
@@ -1590,6 +1701,7 @@ class GridEditor(QWidget):
     def _grid_ok(self) -> None:
         def done(_r: Any) -> None:
             self._grid_marked = True
+            self._downbeat_resolved()                         # 1.4.4 (B125) : grille validée, 1er temps compris
             if self.winfo_exists():
                 self._refresh_checked()
                 self._refresh_info()                          # 1.4.3 (C16) : bandeau « grille vérifiée »
@@ -1603,6 +1715,8 @@ class GridEditor(QWidget):
             self.save_btn.setText(t("grid.saving"))
 
             def done(_r: Any) -> None:
+                if self._db_picked:                           # 1.4.4 (B125) : 1er temps choisi, enregistré
+                    self._downbeat_resolved()
                 if self.winfo_exists():
                     self._leaving = True
                     self.close()

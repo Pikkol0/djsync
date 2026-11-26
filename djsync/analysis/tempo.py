@@ -16,6 +16,8 @@ Méthode (V1.1-A4.1, recalibrée sur 213 sons réels analysés par Rekordbox) :
      la bibliothèque de référence : il garde le plus souvent le tempo rapide sous 168 (31 sons sur
      44), et le lent au-dessus (8 sur 9). Aucune mesure du signal n'a mieux prédit son choix ;
   6. premier temps de la mesure : le décalage (0-3) qui concentre le plus d'énergie de basses.
+     1.4.4 (B125) : les entrées des basses (fin d'intro, drop) l'emportent ; en désaccord, le son est marqué
+     « 1er temps à vérifier » (choix dans Grille et cues).
 
 Comme Rekordbox en mode « grille constante », on renvoie une grille à tempo unique.
 """
@@ -459,9 +461,79 @@ def _time_of(f: float, sr: int) -> float:
 def _downbeat(x: np.ndarray, sr: int, benv: np.ndarray, times: np.ndarray,
               debug: Optional[Dict] = None) -> int:
     """Décalage (0..3) du 1er temps de mesure : celui qui concentre changements harmoniques, attaques et énergie
-    des basses (B12). Moins de 8 temps : 0."""
+    des basses (B12), sauf si des entrées des basses disent autre chose (B125). Moins de 8 temps : 0."""
+    return _downbeat_vote(x, sr, benv, times, debug)[0]
+
+
+# 1.4.4 (B125) : entrées des basses (fin d'intro, drop après un break) : indice prépondérant du 1er temps.
+# Seuils posés sur des sons synthétiques, à caler avec la mesure de la tour (python -m djsync.analysis).
+ENTRY_RISE = float(np.log(4.0))      # 2 mesures après / 2 mesures avant (médianes, énergie 40-120 Hz) : x4 (6 dB)
+ENTRY_JUMP = float(np.log(2.0))      # saut d'un temps au suivant qui marque l'attaque de l'entrée
+ENTRY_STEADY = float(np.log(2.5))    # temps plus fort que le régime établi : roulement, pas l'entrée
+ENTRY_AGREE = 0.75                   # part des votes de la position gagnante en dessous de laquelle les entrées se contredisent
+AVG_MARGIN = 1.0                     # avance du score moyen (B12) au-delà de laquelle il contredit les entrées
+PHRASE_BEATS = 64                    # 16 mesures : entrées espacées d'un multiple de 16 mesures (phrases) renforcées
+
+
+def _beat_means(cs: np.ndarray, n: int, efps: float, t0: np.ndarray, t1: np.ndarray) -> np.ndarray:
+    """Énergie moyenne entre t0 et t1 (secondes), par sommes cumulées (aucun calcul de plus sur l'audio)."""
+    a = np.clip((t0 * efps).astype(int), 0, n - 1)
+    b = np.clip((t1 * efps).astype(int), a + 1, n)
+    return (cs[b] - cs[a]) / (b - a)
+
+
+def _entries(energy: np.ndarray, efps: float, times: np.ndarray, benv: np.ndarray,
+             frames: np.ndarray) -> List[Tuple[int, float]]:
+    """1.4.4 (B125) : entrées des basses : (indice du temps, force). Montée franche et durable de l'énergie
+    40-120 Hz (déjà calculée pour B12) : les 2 mesures après nettement au-dessus des 2 mesures avant, chacune.
+    Écartés : ce qui ne tient pas 2 mesures (kicks isolés avant le départ), l'entrée sur un demi-temps (pas de vote),
+    le roulement de kicks collé au départ (temps hors du régime établi, ou trop d'attaques) ; kick étiré : seule son
+    attaque est vue (l'énergie reste haute ensuite, pas de nouveau saut)."""
+    n = times.size
+    if n < 24 or energy.size < 16:
+        return []
+    beat = float(np.median(np.diff(times)))
+    cs = np.concatenate([[0.0], np.cumsum(energy, dtype=np.float64)])
+    m = lambda a, b: _beat_means(cs, energy.size, efps, a, b)          # noqa: E731
+    lin = m(times, times + beat)
+    floor = max(1e-12, 1e-4 * float(np.percentile(lin, 95)))           # silence : 40 dB sous le plus fort
+    lg = lambda v: np.log(np.maximum(v, floor))                         # noqa: E731
+    e, h1, h2 = lg(lin), lg(m(times, times + beat / 2)), lg(m(times + beat / 2, times + beat))
+    fr = np.clip(np.round(frames).astype(int), 0, max(0, benv.size - 1))
+
+    def attacks(j: int) -> int:
+        a, b = fr[j], fr[j + 1] if j + 1 < n else fr[j] + int(round(beat * efps))
+        seg = benv[a:max(a + 1, b)]
+        if seg.size < 3:
+            return 0
+        peak = (seg[1:-1] > 2.0) & (seg[1:-1] >= seg[:-2]) & (seg[1:-1] > seg[2:])
+        return int(peak.sum())
+
+    out: List[Tuple[int, float]] = []
+    for j in range(8, n - 8):
+        if e[j] - e[j - 1] < ENTRY_JUMP:
+            continue
+        before = float(np.median(e[j - 8:j]))
+        rise = min(float(np.median(e[j:j + 4])), float(np.median(e[j + 4:j + 8]))) - before
+        if rise < ENTRY_RISE:
+            continue                                         # ne tient pas 2 mesures
+        if h2[j] - h1[j] > ENTRY_RISE:
+            continue                                         # entrée sur un demi-temps : pas de vote
+        c, steady = j, float(np.median(e[j + 4:min(n, j + 12)]))
+        att = int(np.median([attacks(k) for k in range(j + 4, min(n - 1, j + 12))] or [1]))
+        while c < min(j + 4, n - 8) and (e[c] - steady > ENTRY_STEADY or attacks(c) >= att + 2):
+            c += 1                                           # roulement de kicks collé au départ
+        if out and c - out[-1][0] < 8:
+            continue                                         # même entrée (la basse après le kick) : la 1re attaque compte
+        out.append((c, rise))
+    return out
+
+
+def _downbeat_vote(x: np.ndarray, sr: int, benv: np.ndarray, times: np.ndarray,
+                   debug: Optional[Dict] = None) -> Tuple[int, bool, float]:
+    """(décalage 0..3 du 1er temps, « 1er temps à vérifier », instant de l'entrée la plus nette en s ou -1)."""
     if times.size < 8:
-        return 0
+        return 0, False, -1.0
     frames = _frame_of(times, sr)
 
     def sample(e: np.ndarray) -> np.ndarray:
@@ -481,16 +553,37 @@ def _downbeat(x: np.ndarray, sr: int, benv: np.ndarray, times: np.ndarray,
     # appuient le 1er temps. Mesuré sur 62 grilles justes de l'échantillon : 1er temps de Rekordbox
     # retrouvé 41 fois -> 47 (validation croisée par moitiés : 65 % -> 70 %).
     low = np.zeros(times.size)
+    entries: List[Tuple[int, float]] = []
     if x.size >= 512 * 8:
         energy, efps = _band_energy(x, sr, 40, 120)
         k = max(1, int(0.08 * efps))
         starts = (times * efps).astype(int)
         low = np.array([np.log(float(energy[a:a + k].mean()) + 1e-9) if 0 <= a and a + k < energy.size else 0.0
                         for a in starts])
+        entries = _entries(energy, efps, times, benv, frames)       # 1.4.4 (B125) : mêmes énergies, rien de décodé
     scores = list(z(harm) + 0.5 * z(bass) + z(low))
+    avg = int(np.argmax(scores))
+    down, check, ref = avg, False, -1.0
+    if entries:
+        # 1.4.4 (B125) : vote des entrées ; phrases de 16 / 32 mesures : entrées espacées d'un multiple de 16 mesures
+        # renforcées (indice secondaire)
+        votes = np.zeros(4)
+        for i, (j, w) in enumerate(entries):
+            partners = sum(1 for q, (jj, _w) in enumerate(entries) if q != i and abs(jj - j) % PHRASE_BEATS == 0)
+            votes[j % 4] += w * (1.0 + 0.5 * min(2, partners))
+        down = int(np.argmax(votes))
+        split = votes[down] < ENTRY_AGREE * votes.sum()
+        if split:                                   # entrées contradictoires : la moyenne départage (son à vérifier)
+            down = max((q for q in range(4) if votes[q] >= 0.5 * votes[down]), key=lambda q: scores[q])
+        against = down != avg and scores[avg] - scores[down] > AVG_MARGIN
+        check = bool(split or against)
+        ref = float(times[max(entries, key=lambda e: e[1])[0]])
+        if debug is not None:
+            debug["downbeat_entries"] = " ".join(f"{times[j]:.1f}s:{j % 4}:{w:.2f}" for j, w in entries)
+            debug["downbeat_check"] = int(check)
     if debug is not None:
         debug["downbeat_scores"] = " ".join(f"{v:.2f}" for v in scores)
-    return int(np.argmax(scores))
+    return down, check, ref
 
 
 SPLIT_MIN_S = 16.0        # un passage plus court n'a pas sa propre grille (fusionné avec son voisin)
@@ -690,7 +783,9 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None, grid_mod
         first = float(times[0])
         bpm = round(float(np.median(60.0 / np.diff(times))), 2)        # tempo affiché : tempo médian
     # temps fort : décalage (0..3) qui concentre le plus d'attaques de basses (+ un peu de global)
-    down = _downbeat(x, sr, benv, times, debug)
+    down, check, ref = _downbeat_vote(x, sr, benv, times, debug)
+    # 1.4.4 (B125) : « 1er temps à vérifier » gardé avec le profil (registre tempo.json, comme les sons à valider de C16)
+    profile.downbeat_check, profile.downbeat_at = check, (ref if check else -1.0)
     beats = [(((k - down) % 4) + 1, float(t)) for k, t in enumerate(times)]
     return BeatGrid(bpm=bpm, first_beat=float(first), downbeat_offset=down,
                     confidence=float(min(1.0, coherence * 4)), beats=beats, variable=variable, profile=profile)

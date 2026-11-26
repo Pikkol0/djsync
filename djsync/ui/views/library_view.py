@@ -124,6 +124,16 @@ def tempo_profile_of(x: LibraryTrack) -> Any:
         return None
 
 
+def downbeat_pending(x: LibraryTrack) -> bool:
+    """1.4.4 (B125) : 1er temps de la mesure à vérifier dans Grille et cues."""
+    from ..tempo_grids import TempoGridService
+
+    try:
+        return TempoGridService.downbeat_pending(x)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def tempo_text(p: Any) -> str:
     """« Version live détectée · grille variable » : jamais affirmé, la grille dit ce qui a été écrit."""
     if p is None or not p.kind:
@@ -1123,6 +1133,8 @@ class LibraryView(View):
             an, n, color = t("lib.an_checked"), 2, theme.ACCENT
         elif pending:
             an, n, color = t("lib.an_tempo"), 1, theme.WARN
+        elif d is not None and downbeat_pending(x):                  # 1.4.4 (B125) : même colonne, même couleur
+            an, n, color = t("lib.an_downbeat"), 1, theme.WARN
         else:
             an, n, color = t("lib.an_auto"), 1, ""
         out: Dict[str, Any] = {"analysis": an, "analysis__n": n}

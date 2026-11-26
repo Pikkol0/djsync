@@ -2315,4 +2315,12 @@ STRINGS = {
     "space.disk_usb": "USB key",
     "space.disk_computer": "computer",
     "space.disk_title": "{name} ({kind}): {free} free of {total}",
+    # ---- 1.4.4 lot 2 : B125
+    "grid.downbeat_check": "First beat of the bar to check: the analysis is not sure where the bar starts. Listen from each beat (▶) and pick the one that starts the bar. Only the beat numbers change, the grid stays in place.",
+    "grid.downbeat_chosen": "First beat of the bar chosen: save to keep it.",
+    "grid.downbeat_checked": "First beat of the bar checked.",
+    "grid.downbeat_pick": "Beat {n}",
+    "grid.downbeat_pick_tip": "This beat becomes the first beat of the bar (the grid does not move)",
+    "grid.downbeat_listen_tip": "Play from beat {n}",
+    "lib.an_downbeat": "First beat: to check",
 }

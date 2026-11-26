@@ -63,6 +63,10 @@ class TempoProfile:
     split: bool = False       # la grille écrite change de tempo à chaque passage
     sections: List[Tuple[float, float, float]] = field(default_factory=list)   # (début s, BPM, 1er temps fort s)
     choice: str = ""          # choix de l'utilisateur gardé à la réanalyse : "" (auto) | "fixed"
+    # 1.4.4 (B125) : entrées des basses en désaccord (entre elles ou avec la moyenne) : 1er temps de la mesure à
+    # vérifier dans Grille et cues ; instant (s) de l'entrée la plus nette, pour l'écoute (-1 : aucune)
+    downbeat_check: bool = False
+    downbeat_at: float = -1.0
     # mesures de classify() pour la grille par passage (jamais enregistrées) : paliers (début s, fin s, BPM),
     # et indices des paliers suivis d'un vrai changement
     plateaus: List[Tuple[float, float, float]] = field(default_factory=list, repr=False, compare=False)
@@ -74,7 +78,8 @@ class TempoProfile:
 
     def to_list(self) -> list:
         return [self.kind, round(self.lo, 1), round(self.hi, 1), round(self.drift_ms), int(self.variable),
-                int(self.split), [[round(a, 3), round(b, 3), round(c, 3)] for a, b, c in self.sections], self.choice]
+                int(self.split), [[round(a, 3), round(b, 3), round(c, 3)] for a, b, c in self.sections], self.choice,
+                int(self.downbeat_check), round(self.downbeat_at, 3)]
 
     @classmethod
     def from_list(cls, v: Optional[list]) -> Optional["TempoProfile"]:
@@ -84,7 +89,8 @@ class TempoProfile:
             secs = [(float(a), float(b), float(c)) for a, b, c in (v[6] if len(v) > 6 and v[6] else [])]
             return cls(str(v[0]), float(v[1]), float(v[2]), float(v[3]) if len(v) > 3 else 0.0,
                        bool(v[4]) if len(v) > 4 else False, bool(v[5]) if len(v) > 5 else False, secs,
-                       str(v[7]) if len(v) > 7 and v[7] else "")
+                       str(v[7]) if len(v) > 7 and v[7] else "",
+                       bool(v[8]) if len(v) > 8 else False, float(v[9]) if len(v) > 9 else -1.0)   # B125
         except (TypeError, ValueError, IndexError):
             return None
 
@@ -392,6 +398,23 @@ def set_choice(name: str, size: int, choice: str) -> bool:
         p.choice = "fixed" if choice == "fixed" else ""
         data[key] = p.to_list()
         _save(data)
+    return True
+
+
+def set_downbeat_checked(name: str, size: int) -> bool:
+    """1.4.4 (B125) : 1er temps de la mesure choisi (ou grille validée) : plus « à vérifier ». False si inconnu."""
+    if not name or not size:
+        return False
+    key = f"{name.casefold()}|{int(size)}"
+    with _lock:
+        data = _load()
+        p = TempoProfile.from_list(data.get(key))
+        if p is None:
+            return False
+        if p.downbeat_check:
+            p.downbeat_check = False
+            data[key] = p.to_list()
+            _save(data)
     return True
 
 
