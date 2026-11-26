@@ -26,7 +26,7 @@ from ..i18n import date_text, num, plural, t
 from ..models import LibraryTrack, format_duration, source_from_url
 from . import theme
 from .dialogs import BaseDialog
-from .widgets import CamelotPill, FlowLayout, button, hbox, icon_button, label, panel, restyle, vbox
+from .widgets import CamelotPill, FlowLayout, button, hbox, icon_button, label, restyle, vbox
 
 log = logging.getLogger(__name__)
 
@@ -158,6 +158,11 @@ class ClickEdit(QLineEdit):
             self._set_editing(True)
             self.setFocus(Qt.MouseFocusReason)
             self.selectAll()
+
+    def focusInEvent(self, e: Any) -> None:  # noqa: N802 (API Qt)
+        super().focusInEvent(e)
+        if e.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason):     # au clavier aussi (A2-19)
+            self.start_edit()
 
     def mousePressEvent(self, e: Any) -> None:  # noqa: N802 (API Qt)
         if not self.editing and e.button() == Qt.LeftButton:
