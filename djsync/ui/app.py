@@ -175,6 +175,9 @@ class DJSyncApp(QMainWindow):
         theme.apply_palette(settings.theme)
         theme.apply(self.qapp, settings.zoom)
         reset_icons()
+        from .widgets import set_tooltips_enabled
+
+        set_tooltips_enabled(getattr(settings, "show_tooltips", True))            # 1.4.4 (C219)
         super().__init__()
         self.setWindowTitle("DJSync")
         self.setWindowIcon(QIcon(logo_pixmap(64, theme.ACCENT)))
@@ -590,6 +593,10 @@ class DJSyncApp(QMainWindow):
         theme.apply_background(getattr(self.ctrl.settings, "background", "default"))
         theme.apply_palette(self.ctrl.settings.theme)
         theme.apply(self.qapp, self.ctrl.settings.zoom)
+        from .widgets import InfoDot, set_tooltips_enabled
+
+        InfoDot.close_any()
+        set_tooltips_enabled(getattr(self.ctrl.settings, "show_tooltips", True))   # 1.4.4 (C219) : réglages remis à zéro
         self.ctrl.reset_listeners(self._listener_mark)
         old = self.centralWidget()
         self._nav = {}
@@ -1164,8 +1171,9 @@ class DJSyncApp(QMainWindow):
                       detail=t("full.free_detail"))
 
     def open_space(self) -> None:
-        """Paramètres ▸ Bibliothèques, carte « Espace » à l'écran (la mesure part quand elle est visible)."""
-        self._open_settings_section("libraries")
+        """Paramètres ▸ Sauvegardes et espace (1.4.4, C225), carte « Espace » à l'écran (la mesure part quand elle
+        est visible)."""
+        self._open_settings_section("space")
         view = self.views["settings"]
         box = getattr(view, "space_box", None)
 

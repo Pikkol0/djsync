@@ -345,7 +345,7 @@ class LibraryView(View):
         bar.add_stretch()
         # 1.4.3-rc.2 (C224) : « Importer » (texte court) ; « Harmonique » passe dans le menu ☰
         self.import_btn = button(t("import_files.short"), self._import_files, icon="folder",
-                                 tooltip=t("import_files.tip"))              # 1.4.0 (C26)
+                                 tooltip=t("import_files.tip_short"))        # 1.4.0 (C26) ; 1.4.4 (C219)
         bar.add(self.import_btn, secondary=True)
         self.harm_btn = button(t("lib.harmonic"), self._toggle_harmonic, icon="key", tooltip=t("lib.harmonic_pick"))
         self.harm_btn.setCheckable(True)
@@ -644,7 +644,7 @@ class LibraryView(View):
         group = item(None, AUTO, t("lib.auto_lists"), theme.ERR if miss else theme.WARN if todo else "",
                      icon="folder")
         group.setFlags(Qt.ItemIsEnabled)                     # pas une liste : jamais sélectionné ni ouvert
-        group.setToolTip(0, t("lib.auto_lists_tip"))
+        group.setToolTip(0, t("lib.auto_lists_tip_short"))          # 1.4.4 (C219) : bulle courte
         item(group, TODO, t("lib.unanalysed"), theme.WARN if todo else "", icon="wave", count=todo)
         orph = getattr(self, "_orphans", None)
         item(group, ORPH, t("lib.orphans"), theme.SKY if orph else "", icon="unlisted",                  # C56
@@ -1828,7 +1828,7 @@ class LibraryView(View):
             folder = self.ctrl.settings.watch_folder
             if folder:
                 entries.append((t("watch.open_folder"), lambda f=folder: self.ctrl._emit("open_url", Path(f).as_uri()), "folder"))
-            entries.append((t("watch.open_settings"), lambda: self.ctrl._emit("open_settings_section", "libraries"),
+            entries.append((t("watch.open_settings"), lambda: self.ctrl._emit("open_settings_section", "watch"),
                             "settings"))
             entries.append(None)
         if p.is_editable:

@@ -468,10 +468,15 @@ class GridEditor(QWidget):
         self.body.addWidget(self.tempo_banner)
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
-        self.canvas.setToolTip(t("grid.hint"))
         self.body.addWidget(self.canvas, 1)
         # 1.4.4 (C234) : type de forme d'onde changé d'ici (3 bandes, bleu, RGB), discret, coin haut droit
         self.style_bar = WaveStyleBar(self.canvas, self.wave_style, self.set_wave_style)
+        # 1.4.4 (C219) : l'aide de la forme d'onde derrière un ⓘ (plus de bulle à chaque survol de la forme d'onde)
+        from .widgets import InfoDot
+
+        self.canvas_help = InfoDot(t("grid.hint"))
+        self.style_bar.layout().insertWidget(0, self.canvas_help)
+        self.style_bar._place()
         # 1.4.4 (C233) : barre à faire glisser sous la forme d'onde (hauteur gardée ; double-clic : automatique)
         self.height_grip = HeightGrip(self)
         self.body.addWidget(self.height_grip)

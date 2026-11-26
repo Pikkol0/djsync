@@ -405,7 +405,7 @@ class HomeView(View):
             # 1.4.4 (C232) : export.pdb à jour -> plus de pastille (seulement dans la bulle de « Connectée »)
             if pdb is not None:
                 pdb.setCursor(Qt.PointingHandCursor)          # 1.3.1 (C28) : ouvre la section des réglages
-                pdb.mousePressEvent = lambda _e: self.open_settings("libraries")      # 1.3.1 (C90)
+                pdb.mousePressEvent = lambda _e: self.open_settings("pdb")      # 1.3.1 (C90) ; 1.4.4 (C225) : carte visée
                 chips.addWidget(pdb)
             if s.filesystem:
                 from ...db.usb import filesystem_compat

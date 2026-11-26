@@ -183,6 +183,8 @@ class Settings:
     welcome_done: bool = False         # C54 : accueil du premier lancement vu (ou passé)
     diag_tab: str = "one"              # 1.3.2-rc.3 (C127) : dernier onglet du Diagnostic ; 1.4.1 (C140) : « Un son »
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
+    # ---- 1.4.4
+    show_tooltips: bool = True         # C219 : infobulles au survol (les ⓘ restent toujours disponibles)
 
     @classmethod
     def path(cls) -> Path:
@@ -228,6 +230,7 @@ class Settings:
         if self.search_tab not in ("search", "hq", "import"):
             self.search_tab = "search"
         self.zoom = clamp_zoom(self.zoom)
+        self.show_tooltips = bool(self.show_tooltips)                                              # 1.4.4 (C219)
         self.language = self.language if self.language in LANGUAGE_CODES else DEFAULT_LANGUAGE
         self.pdb_sync = self.pdb_sync if self.pdb_sync in ("auto", "off") else "auto"
         self.sidebar_compact = self.sidebar_compact if self.sidebar_compact in ("auto", "on", "off") else "auto"

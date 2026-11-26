@@ -241,14 +241,15 @@ def test_c162_estimated_quality_wording():
 def test_c165_settings_reorganised(demo):  # noqa: F811
     view = demo.views["settings"]
     names = {key: [b.objectName() for b in view.section_cards(key)] for key in
-             ("libraries", "download", "djsync")}
+             ("libraries", "download", "djsync", "storage")}
     lib = names["libraries"]
-    assert lib.index("card_watch") < lib.index("card_pdb") < lib.index("card_backups")
-    assert names["download"][:3] == ["card_search", "card_format", "card_youtube"]
-    assert names["djsync"] == ["card_updates", "card_about", "card_install"]
-    assert any(view.latency_box in b.findChildren(type(view.latency_box)) for b in view.section_cards("analysis"))
+    # 1.4.4 (C225) : répartition de l'écran « Plan » (sauvegardes dans leur section, format en premier…)
+    assert lib.index("card_watch") < lib.index("card_pdb") and names["storage"][0] == "card_backups"
+    assert names["download"][:3] == ["card_format", "card_search", "card_youtube"]
+    assert names["djsync"] == ["card_updates", "card_install", "card_about"]
+    assert any(view.latency_box in b.findChildren(type(view.latency_box)) for b in view.section_cards("general"))
     assert not any(view.light_menu in b.findChildren(type(view.light_menu))
-                   for b in view.section_cards("general")[:1])           # plus dans Apparence
+                   for b in view.section_cards("general")[:1])           # pas dans la première carte
     assert view.quality_box.isHidden()                                      # tableau replié
     view.quality_toggle.setChecked(True)
     assert not view.quality_box.isHidden()
@@ -261,7 +262,7 @@ def test_c165_no_card_repeats_its_section_title(demo):  # noqa: F811
 
     view = demo.views["settings"]
     for key, _icon in SECTIONS:
-        section = t(f"settings.section_{key}")
+        section = t(f"settings.page_{key}")                               # 1.4.4 (C225) : titres des pages
         for box in view.section_cards(key):
             titles = [w.text() for w in box.findChildren(type(view.no_match)) if w.property("role") == "h2"]
             assert section not in titles, (key, titles)
