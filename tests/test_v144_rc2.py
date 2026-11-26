@@ -287,9 +287,11 @@ def _open_usb(usb):  # noqa: F811
 
 
 # ------------------------------------------------------------------ C240 : disque absent
-def test_c240_missing_disk_is_a_line_not_a_full_bar(tmp_path):
+def test_c240_missing_disk_is_a_line_not_a_full_bar(tmp_path, monkeypatch):
     from djsync.core import space
 
+    real = space._disk
+    monkeypatch.setattr(space, "_disk", lambda root: (0, 0) if str(root).startswith("Q:") else real(root))
     bars = space.computer_disks({}, {"Q:\\": 5 * 1024 ** 3, str(tmp_path): 1024}, tracks_by_disk={"Q:\\": 12})
     absent = [b for b in bars if b.absent]
     assert len(absent) == 1 and absent[0].title == "Q:\\" and absent[0].tracks == 12

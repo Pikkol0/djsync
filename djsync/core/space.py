@@ -402,13 +402,8 @@ def computer_disks(where: Dict[str, Any], music_by_disk: Optional[Dict[str, int]
 
 
 def _present(disk: str) -> bool:
-    """1.4.4 (C240) : disque branché et lisible (taille non nulle)."""
-    try:
-        if not Path(disk).exists():
-            return False
-        return shutil.disk_usage(disk).total > 0
-    except OSError:
-        return False
+    """1.4.4 (C240) : disque branché et lisible (taille non nulle ; un disque absent donne 0 / 0)."""
+    return _disk(Path(disk))[0] > 0
 
 
 def usb_disks(drives: Iterable[Any], contents_dir: str = "Contents", skip: Iterable[str] = ()) -> List[DiskBar]:

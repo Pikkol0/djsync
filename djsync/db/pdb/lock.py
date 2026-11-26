@@ -57,7 +57,7 @@ def is_lock_error(exc: BaseException) -> bool:
         if isinstance(exc, OSError) and getattr(exc, "winerror", None) in (5, 32, 33):
             return True
         text = str(exc).lower()
-        if "access is denied" in text or "accès refusé" in text or "being used by another process" in text:
+        if "access is denied" in text or "being used by another process" in text:
             return True
         exc = exc.__cause__ or exc.__context__
         seen += 1

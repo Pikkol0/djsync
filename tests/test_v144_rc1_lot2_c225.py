@@ -60,7 +60,7 @@ def test_c225_search_covers_every_section_and_keeps_the_highlight(demo):  # noqa
     shown = _c225_shown(view)
     assert shown and all(view.section_of(b) != "general" for b in shown)          # trouvé hors de la page
     assert view.slsk_var.isVisibleTo(view) and view._heads["download"].isVisibleTo(view)
-    assert all(b.property("flashed") for b in shown)                                  # C220 gardé
+    assert not any(b.property("flashed") for b in shown)                              # 1.4.4 (B132) : plus en recherche
     view.search.setText("ffmpeg")                                                       # carte repliée : ouverte
     assert view.ffmpeg.isVisibleTo(view)
     view.search.setText("zzzz-nothing")
