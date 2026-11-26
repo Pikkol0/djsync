@@ -9,6 +9,7 @@ Paramètres.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -309,6 +310,10 @@ class DJSyncApp(QMainWindow):
             self._compact = None
             self._update_compact()
         QTimer.singleShot(0, relayout)
+        if not getattr(self, "_live_checked", False):           # 1.4.4 (C15) : live pas rangé
+            self._live_checked = True
+            if not os.environ.get("PYTEST_CURRENT_TEST"):
+                self.queue_startup("live", self._live_pending)
         if not getattr(self, "_light_checked", False):          # 1.4.0 (C65) : PC modeste ?
             self._light_checked = True
             from ..core.machine import light_active, machine_info, should_offer
@@ -1197,6 +1202,24 @@ class DJSyncApp(QMainWindow):
             except RuntimeError:
                 pass
         QTimer.singleShot(0, scroll)
+
+    def open_live(self) -> None:
+        """1.4.4 (C15) : mode live (pas à pas la première fois)."""
+        from .live_page import open_live
+
+        open_live(self, self.ctrl)
+
+    def _live_pending(self) -> None:
+        """1.4.4 (C15) : live d'un jour précédent pas encore rangé : « Terminer le live » proposé au lancement."""
+        live = getattr(self.ctrl, "live", None)
+        s = live.pending() if live is not None else None
+        if s is None:
+            return
+        from .dialogs import ConfirmDialog
+
+        live.session = s
+        ConfirmDialog(self, t("live.finish"), t("live.pending", date=s.date), lambda: live.finish(),
+                      confirm_text=t("live.finish"), detail=t("live.finish_detail"))
 
     def open_transfer(self, precheck: tuple = (), sync_from: Optional[str] = None) -> None:
         """1.4.2 (C23) : page « Transférer et synchroniser des playlists » (nom : 1.4.3, C203)."""

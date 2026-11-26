@@ -212,6 +212,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .pdb_lock_service import PdbLockService             # 1.4.4 (B134) : service à part (A3-10)
 
         self.pdb_lock = PdbLockService(self)
+        from .live_service import LiveService                    # 1.4.4 (C15) : mode live (service, A3-10)
+
+        self.live = LiveService(self)
         from .track_info_panel import TrackInfoService           # 1.4.4 (C138) : volet Infos (A3-10)
 
         self.track_info = TrackInfoService(self)

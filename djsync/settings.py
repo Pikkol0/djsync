@@ -138,6 +138,7 @@ class Settings:
     grid_fixed_cursor: bool = False    # 1.3.0-rc.3 (B17) : Grille et cues, curseur fixe au centre (sinon volant)
     dup_auto_verify: bool = True       # 1.4.4 (C236) : Doublons, groupes vérifiés par le son sans attendre
     grid_wave_height: int = 0          # 1.4.4 (C233) : hauteur de la forme d'onde de Grille et cues (0 = automatique)
+    live_guide_done: bool = False      # 1.4.4 (C15) : pas à pas du mode live déjà vu (« ne plus afficher »)
     grid_tab: str = "grid"             # 1.4.4 (C237) : dernier onglet ouvert de Grille et cues (grid | tempo | cues)
     grid_magnet: int = 0               # 1.4.1 (C92) : aimant de Grille et cues (0 = coupé, 1 = au temps, 4 = au quart)
     error_reports: str = "ask"         # rapports d'erreur à l'auteur : ask (demander) | always | never

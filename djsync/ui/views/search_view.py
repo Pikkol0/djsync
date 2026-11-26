@@ -51,6 +51,10 @@ class SearchView(View):
                                  tooltip=t("search.filters"))
         self.filter_btn.setMinimumHeight(self.entry.sizeHint().height())
         bar.addWidget(self.filter_btn)
+        # 1.4.4 (C15) : mode live (son demandé pendant un set, Rekordbox ouvert)
+        self.live_btn = button(t("live.button"), self._open_live, icon="play", tooltip=t("live.button_tip"))
+        self.live_btn.setMinimumHeight(self.entry.sizeHint().height())
+        bar.addWidget(self.live_btn)
         # 1.4.2 (C182) : le menu de mode (Classique / Haute qualité) est remplacé par l'onglet Haute qualité
         self.root.addLayout(bar)
         info_row = hbox(spacing=theme.px(8))
@@ -127,6 +131,11 @@ class SearchView(View):
         self.filter_btn.setProperty("kind", "primary" if active else "")
         self.filter_btn.setIcon(qicon("filter", 16, theme.ON_ACCENT if active else theme.TEXT))
         restyle(self.filter_btn)
+
+    def _open_live(self) -> None:
+        win = self.window()
+        if hasattr(win, "open_live"):
+            win.open_live()
 
     def _open_filters(self) -> None:
         s = self.ctrl.settings

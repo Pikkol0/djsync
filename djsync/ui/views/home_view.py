@@ -125,7 +125,8 @@ class HomeView(View):
         self.actions: dict = {}
         for key, icon, cmd in (("download", "download", self.act_download), ("analyse", "wave", self._analysis),
                                ("prepare", "usb", self.act_prepare), ("uniformize", "tag", self._uniformize),
-                               ("transfer", "copy", self.act_transfer)):                  # 1.4.3 (C203)
+                               ("transfer", "copy", self.act_transfer),                   # 1.4.3 (C203)
+                               ("live", "play", self.act_live)):                          # 1.4.4 (C15)
             # 1.4.2 (A2-17) : titre en gras, sous-titre en gris normal (même graisse partout avant)
             b = _ActionTile(icon, t(f"home.act_{key}"), t(f"home.act_{key}_sub"))
             b.clicked.connect(lambda _c=False, f=cmd: f())
@@ -341,6 +342,12 @@ class HomeView(View):
             mid.addLayout(actions)
         lay.addLayout(mid, 1)
         return box
+
+    def act_live(self) -> None:
+        """1.4.4 (C15) : mode live."""
+        win = self.window()
+        if hasattr(win, "open_live"):
+            win.open_live()
 
     def act_transfer(self, summary: Any = None) -> None:
         """1.4.3 (C203) : « Transférer et synchroniser des playlists ». Depuis la carte d'une bibliothèque :
