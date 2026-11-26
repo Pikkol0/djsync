@@ -102,12 +102,14 @@ def test_b57_settings_nav_follows_what_is_visible(demo):  # noqa: F811
     pump(demo, 0.5)
     bar = v.area.verticalScrollBar()
     bar.setValue(0)                                        # en haut de la page
+    # 1.4.4 (C225) : une page par section : le volet montre la page affichée, elle-même en haut
     v._set_nav("djsync")                                   # section retenue d'une visite précédente
     v._sync_nav()
-    assert v._current_section == "general"
+    assert v._current_section == "djsync"
     v._start_section = "advanced"                          # ouverture sur une section demandée
     v._sync_nav()
-    assert bar.value() > 0 and v._current_section != "general"
+    assert v._current_section == "advanced" and v.forced.isVisibleTo(v)
+    assert bar.value() == min(bar.maximum(), v._heads["advanced"].y())
 
 
 # ------------------------------------------------------------------ C139 : afficher dans l'explorateur

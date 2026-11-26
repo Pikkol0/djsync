@@ -202,8 +202,9 @@ class SettingsView(View):
         top.addWidget(self.section_menu)
         top.addStretch(1)
         self.check_all_btn = button(t("checkall.button"), self.check_all, icon="refresh",
-                                    tooltip=t("checkall.tip"))           # 1.3.1 (C89) : tout vérifier
+                                    tooltip=t("checkall.tip_short"))     # 1.3.1 (C89) ; 1.4.4 (C219) : bulle courte
         top.addWidget(self.check_all_btn)
+        top.addWidget(InfoDot(t("checkall.tip")), 0, Qt.AlignVCenter)       # 1.4.4 (C219) : le détail
         right.addLayout(top)
         self.check_panel = panel()
         self.check_panel.setObjectName("checkPanel")
@@ -1294,6 +1295,8 @@ class SettingsView(View):
         page de la section retenue est remise en haut. 1.4.4 (C225) : le volet ne suit plus le défilement."""
         start, self._start_section = getattr(self, "_start_section", None), None
         if start and not self.search.text().split():
+            self._set_nav(start)
+            self._apply_filter()
             self._scroll_to(start)
         if not self._current_section:
             self._set_nav("general")

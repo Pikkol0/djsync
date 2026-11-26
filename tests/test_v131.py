@@ -257,7 +257,7 @@ def test_settings_sections_search_and_remembered_section(tmp_path, monkeypatch):
         assert app.ctrl.settings.settings_section == "advanced"            # 1.3.1 (C89) : dernière section
         view.show_section("analysis")
         assert view.analyze_usb_var.isVisibleTo(view)
-        assert view.update_var.isVisibleTo(view)                 # C121 : toutes les sections, l'une sous l'autre
+        assert not view.update_var.isVisibleTo(view)             # 1.4.4 (C225) : une page par section
         # recherche dans toutes les sections
         view.search.setText("export.pdb")
         assert view.pdb_var.isVisibleTo(view) and not view.no_match.isVisibleTo(view)

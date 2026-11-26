@@ -2348,4 +2348,7 @@ STRINGS = {
     # ---- 1.4.4 lot 2 : C219
     "settings.show_tooltips": "Show tooltips",
     "settings.show_tooltips_tip": "Off: the explanations that appear when the pointer rests on a button are hidden everywhere in DJSync. The (i) marks stay available: hover or click them.",
+    "checkall.tip_short": "Check versions, drives and export.pdb at once",
+    "import_files.tip_short": "Add audio files from this computer (or drag them in)",
+    "lib.auto_lists_tip_short": "Lists DJSync keeps up to date by itself",
 }

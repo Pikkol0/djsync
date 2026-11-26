@@ -2348,4 +2348,7 @@ STRINGS = {
     # ---- 1.4.4 lot 2 : C219
     "settings.show_tooltips": "Afficher les infobulles",
     "settings.show_tooltips_tip": "Non : les explications qui s'affichent quand la souris reste sur un bouton sont masquées partout dans DJSync. Les (i) restent disponibles : survol ou clic.",
+    "checkall.tip_short": "Vérifier d'un coup versions, clés et export.pdb",
+    "import_files.tip_short": "Ajouter des fichiers audio de cet ordinateur (ou les glisser ici)",
+    "lib.auto_lists_tip_short": "Listes tenues à jour par DJSync",
 }

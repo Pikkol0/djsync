@@ -101,7 +101,7 @@ def test_advanced_section_and_folded_cards(tmp_path, monkeypatch):
         assert view.format_menu.isVisibleTo(view)
         view.show_section("advanced")
         assert view.ffmpeg_card.isVisibleTo(view) and view.pdb_var.isVisibleTo(view)
-        assert view.forced.isVisibleTo(view) and view.latency_box.isVisibleTo(view)
+        assert view.forced.isVisibleTo(view) and view.diag_auto_var.isVisibleTo(view)    # 1.4.4 (C225)
         # FFmpeg trouvé : carte repliée, une ligne d'état ; un clic la déplie
         folded = view._folds[view.ffmpeg_card]
         found, _txt = app.ctrl.ffmpeg_status(view.ffmpeg.text().strip())

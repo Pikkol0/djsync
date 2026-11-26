@@ -102,7 +102,7 @@ def test_space_card_measures_when_shown_and_home_link(tmp_path, monkeypatch):
         app.show_view("home")
         app.views["home"].open_space()
         assert pump(app, 8, lambda: view.space.usage is not None)
-        assert view._current_section == "libraries" and len(calls) == 1
+        assert view._current_section == "storage" and len(calls) == 1          # 1.4.4 (C225) : sa page
         assert view.space.usage.parts["music"] > 0
         assert "music" in view.space.usage.folders
         view.show_section("general")
