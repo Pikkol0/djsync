@@ -14,6 +14,8 @@ def test_color_choice_is_one_button_with_a_menu(demo):  # noqa: F811
     assert all(v in PALETTES for v in RETIRED.values())
     demo.show_view("settings")
     view = demo.views["settings"]
+    view.show_section("accessibility")                         # 1.4.4 (C225) : couleurs dans Accessibilité
+    pump(demo, 0.3)
     btn = view.theme_btn
     assert isinstance(btn, QToolButton) and len(view._swatches) == len(PALETTES)   # 1.4.2 (C205) : en colonnes
     assert btn.height() <= theme.px(48)                       # une ligne, plus une grille de 2 × 10

@@ -235,6 +235,7 @@ def test_a2_19_space_activates_focused_button_not_playback(demo, monkeypatch):  
     played = []
     monkeypatch.setattr(demo.ctrl, "toggle_play", lambda: played.append(1))
     demo.show_view("settings")
+    demo.views["settings"].show_section("download")          # 1.4.4 (C225) : une page par section
     box = demo.views["settings"].views_var
     before = box.isChecked()
     monkeypatch.setattr(demo.qapp, "focusWidget", lambda: box)
@@ -327,7 +328,7 @@ def test_c200_space_card_shows_total(demo):  # noqa: F811
 
     demo.show_view("settings")
     view = demo.views["settings"]
-    view.show_section("libraries")
+    view.show_section("storage")                             # 1.4.4 (C225) : page Sauvegardes et espace
     view.space.compute(force=True)
     assert pump(demo, 10, lambda: view.space.footprint.isVisible() and view.space.footprint.text())
     assert t("space.footprint", size="").split(":")[0] in view.space.footprint.text()
