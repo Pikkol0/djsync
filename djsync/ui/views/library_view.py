@@ -427,7 +427,8 @@ class LibraryView(View):
                              new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS + ("energy",))
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
-        self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
+        self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection(),
+                                           self._info_follow())
         self.table.on_double = self._play
         self.table.on_cell_click = self._cell_click                 # 1.3.2 (C58) : bouton Grille et cues
         self.table.on_reordered = self._mark_dirty
@@ -447,7 +448,31 @@ class LibraryView(View):
         from ..suggestions_panel import SuggestionsPanel
 
         content = hbox(spacing=theme.px(8))
-        content.addWidget(self.table, 1)
+        # 1.4.4 (C138) : volet « Infos » à droite du tableau (I ou clic droit ▸ Infos), largeur au séparateur
+        from ..track_info_panel import TrackInfoPanel
+
+        self.info_split = QSplitter(Qt.Horizontal)
+        self.info_split.setChildrenCollapsible(False)
+        self.info_split.addWidget(self.table)
+        self.info_panel = TrackInfoPanel(self, controller, on_close=lambda: self.show_info(False),
+                                         on_playlist=self._info_playlist, on_track=self.reveal,
+                                         on_stay=self._info_stay, dups_of=self._info_dups)
+        self.info_panel.hide()
+        self.info_split.addWidget(self.info_panel)
+        self.info_split.setStretchFactor(0, 1)
+        self.info_split.setStretchFactor(1, 0)
+        self.info_split.splitterMoved.connect(lambda *_a: self._info_width_timer.start())
+        from PySide6.QtCore import QTimer
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        self._info_width_timer = QTimer(self)
+        self._info_width_timer.setSingleShot(True)
+        self._info_width_timer.setInterval(600)
+        self._info_width_timer.timeout.connect(self._info_keep_width)
+        self.info_key = QShortcut(QKeySequence(Qt.Key_I), self.table)
+        self.info_key.setContext(Qt.WidgetShortcut)
+        self.info_key.activated.connect(self.toggle_info)
+        content.addWidget(self.info_split, 1)
         self.suggestions = SuggestionsPanel(self, controller)
         self.suggestions.hide()
         content.addWidget(self.suggestions)
@@ -471,6 +496,8 @@ class LibraryView(View):
         self._refresh_buttons()
         if controller.settings.suggestions_open:
             self.show_suggestions(True, remember=False)
+        if getattr(controller.settings, "track_info_open", False):               # 1.4.4 (C138)
+            self.show_info(True, remember=False)
 
     # ------------------------------------------------------------- 1.4.0 (C26) : ajouter des fichiers
     def _import_files(self) -> None:
@@ -530,6 +557,103 @@ class LibraryView(View):
         else:
             self.import_btn.setEnabled(True)
             self._show_header()
+
+    # ------------------------------------------------------------- 1.4.4 (C138) : volet « Infos »
+    def show_info(self, on: bool, remember: bool = True, track: Optional[LibraryTrack] = None) -> None:
+        panel = self.info_panel
+        was = panel.isVisible()
+        panel.setVisible(on)
+        if on:
+            if not was:
+                self._info_size()
+                from PySide6.QtCore import QTimer
+
+                QTimer.singleShot(0, self._info_size)          # largeur réelle connue après la mise en page
+            target = track or next(iter(self._selected_tracks()), None)
+            if target is not None:
+                panel.follow(target)
+        if remember and bool(getattr(self.ctrl.settings, "track_info_open", False)) != on:
+            self.ctrl.settings.track_info_open = on
+            self.ctrl.save_settings_quiet()
+
+    def toggle_info(self) -> None:
+        """Touche I : ouvre le volet sur le son sélectionné, ou le referme."""
+        if self.info_panel.isVisible():
+            self.info_panel.close_panel()
+        else:
+            self.show_info(True)
+
+    def _info_size(self) -> None:
+        from ..track_info_panel import panel_width
+
+        if not self.info_panel.isVisible():
+            return
+        total = self.info_split.width()
+        if total <= 0:
+            return
+        w = panel_width(int(getattr(self.ctrl.settings, "track_info_width", 0) or 0), total)
+        self.info_split.setSizes([max(1, total - w), w])
+
+    def resizeEvent(self, e: Any) -> None:  # noqa: N802 (API Qt)
+        super().resizeEvent(e)
+        if self.info_panel.isVisible():                 # fenêtre rétrécie : la table garde sa place
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(0, self._info_cap)
+
+    def _info_cap(self) -> None:
+        from ..track_info_panel import panel_width
+
+        if not self.winfo_exists() or not self.info_panel.isVisible():
+            return
+        total, w = self.info_split.width(), self.info_panel.width()
+        want = panel_width(int(getattr(self.ctrl.settings, "track_info_width", 0) or 0), total)
+        if total > 0 and w != want:
+            self.info_split.setSizes([max(1, total - want), want])
+
+    def _info_keep_width(self) -> None:
+        if not self.info_panel.isVisible():
+            return
+        w = self.info_panel.width()
+        if w > 0 and w != getattr(self.ctrl.settings, "track_info_width", 0):
+            self.ctrl.settings.track_info_width = w
+            self.ctrl.save_settings_quiet()
+
+    def _info_follow(self) -> None:
+        if self.info_panel.isVisible():
+            sel = self._selected_tracks()
+            if sel:
+                self.info_panel.follow(sel[0])
+
+    def _info_refresh(self) -> None:
+        """Liste relue : le son du volet à jour (ou retiré)."""
+        shown = self.info_panel.track
+        if shown is None:
+            return
+        row = self.table.row(str(shown.content_id))
+        fresh = row.data if row is not None and row.data is not None else \
+            next((x for x in self.all_tracks if x.content_id == shown.content_id), None)
+        self.info_panel.refresh(fresh)
+
+    def _info_stay(self, track: LibraryTrack) -> None:
+        """Question « modifications non enregistrées » ▸ Rester : la sélection revient sur ce son."""
+        if self.table.row(str(track.content_id)) is not None:
+            self.table.select([str(track.content_id)])
+
+    def _info_playlist(self, pid: int) -> None:
+        it = self._items.get(f"p{pid}")
+        if it is not None:
+            self.nav.setCurrentItem(it)                      # ordre non enregistré : la question habituelle
+        else:
+            self._goto(f"p{pid}")
+
+    def _info_dups(self, cid: int) -> Optional[List[LibraryTrack]]:
+        """Doublons déjà connus (colonne Doublon calculée), None sinon : rien n'est cherché pour le volet."""
+        d = (getattr(self, "_extras", None) or {}).get(cid)
+        if not d or "dup" not in d:
+            return None
+        ids = set(d.get("dup") or [])
+        return [x for x in self.all_tracks if x.content_id in ids]
 
     # ------------------------------------------------------------- 1.3.1 (C30) : suggestions
     def show_suggestions(self, on: bool, remember: bool = True) -> None:
@@ -599,6 +723,7 @@ class LibraryView(View):
             if full:
                 self.current, self._dirty = ALL, False
                 self._focus = None                                      # 1.4.3 (C213)
+                self.info_panel.refresh(None)                           # 1.4.4 (C138) : autre bibliothèque
                 self._apply_list_view()                                 # 1.4.3 (C214) : vue de cette bibliothèque
             if self.current not in SPECIAL and int(self.current[1:]) not in {p.playlist_id for p in self.playlists}:
                 self.current, self._dirty = ALL, False
@@ -1289,6 +1414,7 @@ class LibraryView(View):
         self._mark_playing()
         self._refresh_buttons()
         self._show_header()
+        self._info_refresh()                                            # 1.4.4 (C138)
 
     def _show_header(self) -> None:
         self.miss_btn.setVisible(self.current == MISS and bool(self._missing_tracks()))
@@ -1808,7 +1934,8 @@ class LibraryView(View):
         from ..track_menu import track_entries
 
         entries.append(None)
-        entries += track_entries(self, self.ctrl, tracks, where="library", harmonic=self.set_harmonic)
+        entries += track_entries(self, self.ctrl, tracks, where="library", harmonic=self.set_harmonic,
+                                 info=lambda x: self.show_info(True, track=x))         # 1.4.4 (C138)
         entries.append((t("quality.recompute_sel", n=len(tracks)), lambda: self._recompute_quality(tracks),
                         "wave"))                                            # 1.4.0-rc.6 (C180)
         if len(tracks) == 1:                                      # 1.4.0 (C103) : ouvrir une de ses playlists

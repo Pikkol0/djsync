@@ -187,6 +187,8 @@ class Settings:
     start_menu_shortcut: bool = False  # C70 : raccourci menu Démarrer / Applications / menu Linux
     # ---- 1.4.4
     show_tooltips: bool = True         # C219 : infobulles au survol (les ⓘ restent toujours disponibles)
+    track_info_open: bool = False      # C138 : volet « Infos » d'un son ouvert dans la Bibliothèque
+    track_info_width: int = 0          # C138 : largeur choisie du volet (0 : par défaut)
 
     @classmethod
     def path(cls) -> Path:

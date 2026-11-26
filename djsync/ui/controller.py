@@ -209,6 +209,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .energy_service import EnergyService                # 1.4.4 (C108) : service à part (A3-10)
 
         self.energy = EnergyService(self)
+        from .track_info_panel import TrackInfoService           # 1.4.4 (C138) : volet Infos (A3-10)
+
+        self.track_info = TrackInfoService(self)
         # 1.4.4 (B128 C, A09 A) : relevé mémoire / processeur dans le journal (pas pendant les tests)
         from ..core.memwatch import MemWatch
 
