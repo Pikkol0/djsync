@@ -206,6 +206,9 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
         from .tempo_grids import TempoGridService                # 1.4.3 (C16) : service à part (A3-10)
 
         self.tempo_grids = TempoGridService(self)
+        from .energy_service import EnergyService                # 1.4.4 (C108) : service à part (A3-10)
+
+        self.energy = EnergyService(self)
         # 1.4.4 (B128 C, A09 A) : relevé mémoire / processeur dans le journal (pas pendant les tests)
         from ..core.memwatch import MemWatch
 
@@ -734,6 +737,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
                 lib.auto_cue = self.settings.auto_cue
                 lib.native_parts = self.settings.native_parts()
                 lib.write_tags = self.settings.write_tags          # 1.4.3 (S05)
+                lib.energy_comment = self.settings.energy_comment  # 1.4.4 (C108)
                 lib.protect_foreign = self.settings.protect_foreign  # 1.4.3 (A07, C156)
                 self.service.set_library(lib)
                 if old is not None:
@@ -749,6 +753,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             lib.auto_cue = self.settings.auto_cue
             lib.native_parts = self.settings.native_parts()
             lib.write_tags = self.settings.write_tags              # 1.4.3 (S05)
+            lib.energy_comment = self.settings.energy_comment      # 1.4.4 (C108)
             lib.pdb_delay = 3.0                       # 1.4.3 (A1-2) : export.pdb réécrit une fois par rafale
             rec = getattr(lib, "recovery", None)      # 1.4.3 (A6-1) : remplacement interrompu repris à l'ouverture
             if rec is not None and rec.restored:
@@ -1218,6 +1223,7 @@ class AppController(LibraryOpsMixin, DownloadsMixin, PlaybackMixin, EngineMixin,
             self.library.auto_cue = s.auto_cue
             self.library.native_parts = s.native_parts()
             self.library.write_tags = s.write_tags                 # 1.4.3 (S05)
+            self.library.energy_comment = s.energy_comment         # 1.4.4 (C108)
             if hasattr(self.library, "protect_foreign"):           # 1.4.3 (A07, C156)
                 self.library.protect_foreign = s.protect_foreign
             if s.pdb_sync != "off" and not self.is_local:

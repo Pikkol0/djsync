@@ -15,7 +15,7 @@ class TracksMixin:
         return LibraryTrack(
             content_id=cid, title=title or "", artist=artist, album=album,
             duration_seconds=int(length), path=path or "", bpm=bpmx100 / 100.0, file_type=ftype,
-            source_url=comment if comment and (extract_video_id(comment) or comment.startswith("http")) else None,
+            source_url=source_of(comment),                                       # 1.4.4 (C108) : sans « E7 »
             date_added=added, is_analysed=bool(analysis), artwork_path=art or None,
             sequence=int(row[23]) if len(row) > 23 and row[23] is not None else 0,
             key=key or None, analysis_path=analysis or None,
@@ -78,7 +78,11 @@ class TracksMixin:
             arg = (url_or_video_id or "").strip().split("?")[0].split("#")[0]
             if not arg.startswith("http"):
                 return None
-            sql = " WHERE c.djComment = ?"
+            # 1.4.4 (C108) : aussi « E7 <adresse> » (option énergie dans le commentaire)
+            variants = energy_variants(arg)
+            rows = self._read(self._tsel() + " WHERE c.djComment IN (%s)" % ",".join("?" * len(variants))
+                              + " ORDER BY c.content_id LIMIT 1", tuple(variants))
+            return self._track(rows[0]) if rows else None
         rows = self._read(self._tsel() + sql + " ORDER BY c.content_id LIMIT 1", (arg,))
         return self._track(rows[0]) if rows else None
 
@@ -89,7 +93,7 @@ class TracksMixin:
         if not wanted:
             return {}
         vids = sorted({k for k, is_vid in wanted.values() if is_vid})
-        exact = sorted({k for k, is_vid in wanted.values() if not is_vid})
+        exact = sorted({v for k, is_vid in wanted.values() if not is_vid for v in energy_variants(k)})   # C108
         where = ["instr(c.djComment, ?) > 0"] * len(vids)
         if exact:
             where.append("c.djComment IN (%s)" % ",".join("?" * len(exact)))

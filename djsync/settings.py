@@ -72,6 +72,7 @@ class Settings:
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
     background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
     write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
+    energy_comment: bool = False       # 1.4.4 (C108) : énergie (« E7 ») devant le commentaire du son
     auto_gain: bool = True             # 1.4.3 (C109) : volume égalisé entre les sons (lecteur de DJSync)
     zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage

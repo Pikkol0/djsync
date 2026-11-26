@@ -4,7 +4,8 @@ Score sur 100 :
   * tonalité (60) : même clé 60, ±1 sur la roue ou relative 45, ±2 (option « énergie ») 20 ;
   * BPM (40) : 40 à BPM égal, 0 à la limite de tolérance (±6 % par défaut). Moitié et double
     acceptés (70 ↔ 140) : on compare au tempo le plus proche parmi ×½, ×1, ×2 ;
-  * genre identique : petit bonus (+5).
+  * genre identique : petit bonus (+5) ;
+  * 1.4.4 (C108) : énergie proche (écart de 1 au plus sur 10) : petit bonus (+4).
 Un son hors tolérance de BPM, ou de clé non compatible, n'est pas proposé. Sans tonalité connue
 (son non analysé), seul le BPM compte, sur 40.
 """
@@ -19,6 +20,7 @@ DEFAULT_TOLERANCE = 6.0          # % de BPM
 KEY_SAME, KEY_NEAR, KEY_FAR = 60, 45, 20
 BPM_MAX = 40
 GENRE_BONUS = 5
+ENERGY_BONUS = 4                 # 1.4.4 (C108)
 
 
 @dataclass
@@ -64,6 +66,18 @@ def bpm_gap(ref: float, other: float) -> Tuple[Optional[float], float]:
     return round(best[0], 1), best[1]
 
 
+def _energy(x: Any) -> int:
+    """1.4.4 (C108) : énergie gardée (1-10), 0 si inconnue."""
+    try:
+        from pathlib import Path
+
+        from ..analysis.energy import value
+
+        return value(Path(x.path).name, x.file_size) if getattr(x, "path", "") else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def score(ref: Any, other: Any, tolerance: float = DEFAULT_TOLERANCE, energy: bool = False) -> Optional[Suggestion]:
     """Suggestion pour `other` par rapport à `ref` (LibraryTrack), None si incompatible."""
     if other.content_id == ref.content_id:
@@ -79,6 +93,9 @@ def score(ref: Any, other: Any, tolerance: float = DEFAULT_TOLERANCE, energy: bo
     points += BPM_MAX * (1 - abs(gap) / tolerance) if tolerance else BPM_MAX
     if getattr(ref, "genre", "") and (getattr(other, "genre", "") or "").casefold() == ref.genre.casefold():
         points += GENRE_BONUS
+    e_ref, e_other = _energy(ref), _energy(other)
+    if e_ref and e_other and abs(e_ref - e_other) <= 1:
+        points += ENERGY_BONUS
     if ratio != 1.0:
         points -= 5                                   # moitié / double : un peu moins direct
     return Suggestion(other, round(points, 1), rel, gap, ratio)

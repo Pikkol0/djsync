@@ -40,6 +40,7 @@ class AnalysisResult:
     lufs: Optional[float] = None  # 1.4.3 (C109) : sonie intégrée
     peak_db: Optional[float] = None
     encoder: Optional[object] = None  # 1.4.3 (A04) : encoder.EncoderInfo (en-tête LAME / Xing, encodeur AAC)
+    energy: Optional[int] = None      # 1.4.4 (C108) : énergie de 1 à 10 (energy.py)
 
     @property
     def gain_db(self) -> float:
@@ -136,7 +137,15 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         enc = read_encoder(path)
     except Exception:  # noqa: BLE001
         enc = None
-    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff, lufs, peak_db, enc)
+    try:                                                  # 1.4.4 (C108) : énergie, tirée des mesures ci-dessus
+        from .energy import compute as compute_energy
+
+        energy = compute_energy(wf.band_detail, grid.bpm, lufs)
+    except Exception:  # noqa: BLE001 - simple information en plus
+        log.debug("Ignored error in analyze_file (energy)", exc_info=True)
+        energy = None
+    result = AnalysisResult(audio.duration, grid, key, wf, time.perf_counter() - started, cutoff, lufs, peak_db, enc,
+                            energy)
     if not _in_worker and enc is not None:
         from .encoder import remember as remember_encoder
 
@@ -147,6 +156,7 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         remember_gain(path, result.gain_db, peak_db)
     if not _in_worker:                                           # 1.4.4 (C221) : passages posés à la main
         _manual_grid(path, result)
+        _remember_energy(path, result)                           # 1.4.4 (C108)
     if not _in_worker and grid.profile is not None:              # 1.4.3 (C69) : tempo qui change
         try:
             from .tempo_profile import remember as remember_tempo
@@ -165,6 +175,16 @@ def _manual_grid(path: Union[str, Path], result: AnalysisResult) -> None:
         apply_manual(path, result.grid, result.duration)
     except Exception:  # noqa: BLE001
         log.debug("Ignored error in analyze_file (manual tempo marks)", exc_info=True)
+
+
+def _remember_energy(path: Union[str, Path], result: AnalysisResult) -> None:
+    """1.4.4 (C108) : énergie calculée gardée (registre energy.json, écrit par le processus principal)."""
+    try:
+        from .energy import remember
+
+        remember(path, getattr(result, "energy", None))
+    except Exception:  # noqa: BLE001
+        log.debug("Ignored error in analyze_file (energy register)", exc_info=True)
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,

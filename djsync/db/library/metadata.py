@@ -184,6 +184,30 @@ class MetadataMixin:
                          (*cols.values(), content_id))
         return True
 
+    def set_energy_comments(self, energies: Dict[int, int]) -> int:
+        """1.4.4 (C108) : « E7 » devant le commentaire (djComment) de chaque son {id: énergie} ; le reste du
+        commentaire est gardé, un ancien préfixe remplacé. export.pdb suit (réconciliation habituelle)."""
+        if self.read_only:
+            raise ReadOnlyError("Library opened read-only.")
+        from ...analysis.energy import with_prefix
+
+        n = 0
+        with self._write() as conn:
+            for cid, value in energies.items():
+                row = conn.execute("SELECT path, djComment, COALESCE(informationUpdateCount,0) FROM content "
+                                   "WHERE content_id = ?", (int(cid),)).fetchone()
+                if row is None:
+                    continue
+                new = with_prefix(row[1] or "", int(value))
+                if new == (row[1] or ""):
+                    continue
+                conn.execute("UPDATE content SET djComment = ?, informationUpdateCount = ? WHERE content_id = ?",
+                             (new, int(row[2]) + 1, int(cid)))
+                if row[0]:
+                    self._pdb_mark(TRACK_FIELDS, row[0])
+                n += 1
+        return n
+
     def update_track_metadata(self, content_id: int, title: Optional[str] = None,
                               artist: Optional[str] = None) -> LibraryTrack:
         """Change le titre et/ou l'artiste d'un son (base + export.pdb). Le fichier n'est pas renommé."""
