@@ -219,6 +219,7 @@ def test_c138_width_is_bounded_at_860(demo):  # noqa: F811
     lib = _c138_library(demo)
     lib.show_info(True)
     pump(demo, 0.5)
+    pump(demo, 3, lambda: lib.info_panel.width() <= max(theme.px(MIN_WIDTH), int(lib.info_split.width() * MAX_SHARE)) + 2)
     total = lib.info_split.width() - lib.info_split.handleWidth()     # poignée du séparateur comprise
     panel = lib.info_panel
     assert panel.width() <= max(theme.px(MIN_WIDTH), int(total * MAX_SHARE)) + 2

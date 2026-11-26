@@ -593,6 +593,9 @@ class LibraryView(View):
             return
         w = panel_width(int(getattr(self.ctrl.settings, "track_info_width", 0) or 0), total)
         self.info_split.setSizes([max(1, total - w), w])
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._info_cap)            # 1.4.4 (C138) : revoir une fois la mise en page finie (Windows)
 
     def resizeEvent(self, e: Any) -> None:  # noqa: N802 (API Qt)
         super().resizeEvent(e)
