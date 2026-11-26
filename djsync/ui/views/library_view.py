@@ -79,6 +79,9 @@ def extra_values(x: LibraryTrack) -> Dict[str, Any]:
         "created": x.created, "size": t("unit.mb", n=num(x.file_size / 1e6, ".1f")) if x.file_size else "",
         "comment": x.comment, "path": x.path,
     }
+    from ..energy_service import energy_values                     # 1.4.4 (C108)
+
+    out.update(energy_values(x))
     if color:
         out["color__dot"] = color
     # 1.4.0 (C10) : sans perte en doré, 320 kbps en argenté (colonnes Format et Débit) ; (C46) jamais
@@ -138,7 +141,9 @@ def tempo_text(p: Any) -> str:
     """« Version live détectée · grille variable » : jamais affirmé, la grille dit ce qui a été écrit."""
     if p is None or not p.kind:
         return ""
-    head = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+    from ..tempo_grids import kind_text
+
+    head = kind_text(p)                                            # 1.4.4 (C221) : type corrigé à la main
     grid = t("tempo.grid_split") if getattr(p, "split", False) and getattr(p, "choice", "") != "fixed" else \
         t("tempo.grid_variable") if p.variable else t("tempo.grid_fixed")
     return f"{head} · {grid}"
@@ -288,6 +293,9 @@ class LibraryView(View):
                    sort=lambda r: r.values.get("analysis__n", 0)),
             Column("dup", t("track.dup"), 64, "center", tip=t("track.dup_tip"),
                    sort=lambda r: 1 if r.values.get("dup") else 0),
+            # 1.4.4 (C108) : énergie de 1 à 10 (analyse, ou choisie à la main : clic droit ▸ Énergie)
+            Column("energy", t("energy.column"), 58, "center", tip=t("energy.column_tip"),
+                   sort=lambda r: r.values.get("energy__n") or None),
             Column("grid", "", 40, "center", sortable=False, min_width=34),   # 1.3.2 (C58) : bouton Grille et cues
         ]
 
@@ -414,8 +422,9 @@ class LibraryView(View):
         self.table = TrackTable(self, self.cols, reorderable=True, click_columns=("grid", "dup"))
         # 1.4.3-rc.2 (C218) : par défaut, les colonnes de la vue « Essentiel »
         self.remember_layout(self.table, "library",
-                             default_hidden=("album", "format", "source", "cues") + EXTRA_COLUMNS + C113_COLUMNS,
-                             new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS)
+                             default_hidden=("album", "format", "source", "cues") + EXTRA_COLUMNS + C113_COLUMNS
+                             + ("energy",),                                           # 1.4.4 (C108)
+                             new_keys=EXTRA_COLUMNS + ("cues",) + C113_COLUMNS + ("energy",))
         self.table.drag_out = True
         self.table.set_empty("usb", t("lib.no_drive_title"))
         self.table.on_select = lambda _i: (self._refresh_buttons(), self._suggest_from_selection())
@@ -458,6 +467,7 @@ class LibraryView(View):
         controller.on("open_playlist_named", self._goto_named)         # 1.4.0-rc.5 (C160)
         controller.on("import_progress", self._import_progress)
         controller.on("quality_changed", self._quality_changed)           # 1.4.0-rc.6 (C180)
+        controller.on("energy_changed", self._energy_changed)             # 1.4.4 (C108)
         self._refresh_buttons()
         if controller.settings.suggestions_open:
             self.show_suggestions(True, remember=False)
@@ -498,6 +508,14 @@ class LibraryView(View):
             self.ctrl.message("info", t("quality.busy"))
             return
         self.sub_lbl.setText(t("quality.measuring", i=0, n=len(tracks)))
+
+    def _energy_changed(self) -> None:
+        """1.4.4 (C108) : énergie choisie à la main : seule cette colonne est relue."""
+        if not self.winfo_exists():
+            return
+        from ..energy_service import energy_values
+
+        self.table.update_many({r.iid: energy_values(r.data) for r in self.table.all_rows() if r.data is not None})
 
     def _quality_changed(self) -> None:
         if self.winfo_exists() and not self._dirty and self.ctrl.library is not None:

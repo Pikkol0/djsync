@@ -136,6 +136,9 @@ def track_entries(host: Any, ctrl: Any, tracks: Sequence[Any], where: str = "",
     if one is not None:                                                         # 1.4.3 (A04)
         entries.append((t("spectrum.open"), lambda: open_spectrum(host, ctrl, one), "wave"))
     entries.append((t("meta.complete_sel", n=n), lambda: complete_metadata(ctrl, tracks), "tag"))
+    energy = getattr(ctrl, "energy", None)                                     # 1.4.4 (C108) : Énergie ▸
+    if energy is not None:
+        entries.append((t("energy.menu"), energy.menu_entries(tracks), "wave"))
     if one is not None:
         entries.append(None)
         if one.camelot:

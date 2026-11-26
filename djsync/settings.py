@@ -72,6 +72,7 @@ class Settings:
     theme: str = DEFAULT_THEME         # identifiant de palette (voir ui/theme.PALETTES)
     background: str = "default"        # 1.4.3 (C53) : default | high_contrast | bright | oled
     write_tags: bool = False           # 1.4.3 (S05) : BPM et tonalité écrits dans les fichiers après l'analyse
+    energy_comment: bool = False       # 1.4.4 (C108) : énergie (« E7 ») devant le commentaire du son
     auto_gain: bool = True             # 1.4.3 (C109) : volume égalisé entre les sons (lecteur de DJSync)
     zoom: int = ZOOM_DEFAULT           # 80..200 (%) : zoom choisi par l'utilisateur
     last_tab: str = "home"             # onglet rouvert au prochain démarrage
@@ -106,8 +107,9 @@ class Settings:
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
     waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
-    # 1.4.3 (C16) : grille des sons dont le tempo change : « auto » (variable ou par passage) | « never » (fixe)
-    tempo_grid: str = "auto"
+    # 1.4.3 (C16) : grille des sons dont le tempo change ; 1.4.4 (C221) : mode d'analyse « dynamic » (tempo qui
+    # change détecté, grille variable ou par passage) | « classic » (un BPM, grille fixe) ; même clé
+    tempo_grid: str = "dynamic"
     # 1.4.3 (A07, C156) : sur l'ordinateur, « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas
     # téléchargés ; coché, ces sons sont seulement retirés de Rekordbox (comme avant la 1.4.3)
     protect_foreign: bool = False
@@ -274,8 +276,10 @@ class Settings:
         self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
         if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
             self.waveform_style = "3band"
-        if self.tempo_grid not in ("auto", "never"):                                               # 1.4.3 (C16)
-            self.tempo_grid = "auto"
+        # 1.4.3 (C16) ; 1.4.4 (C221) : « Analyse : Dynamique / Classique » (« auto » -> dynamic, « never » -> classic)
+        from .analysis.tempo_profile import normalize_mode
+
+        self.tempo_grid = normalize_mode(str(self.tempo_grid or ""))
         from .db import backup_levels                                                                # 1.4.4 (C235)
 
         if self.backup_level not in backup_levels.LEVELS:

@@ -258,6 +258,7 @@ class PlayerBar(QWidget):
         self._grid_editor: Any = None
         controller.on("grid_page", self._grid_page)
         controller.on("waveform_style", self._wave_style_changed)          # 1.4.1 (C77)
+        controller.on("energy_changed", lambda: self._show_energy(getattr(self, "_shown_track", None)))  # C108
         row = hbox(spacing=theme.px(10))
         col.addLayout(row)
 
@@ -283,8 +284,10 @@ class PlayerBar(QWidget):
         meta = hbox(spacing=theme.px(6))
         self.key_pill = CamelotPill()
         self.bpm = label("", "dim")
+        self.energy_lbl = label("", "dim")                    # 1.4.4 (C108) : énergie du son (1 à 10)
         meta.addWidget(self.key_pill)
         meta.addWidget(self.bpm)
+        meta.addWidget(self.energy_lbl)
         meta.addStretch(1)
         text.addWidget(self.title)
         text.addWidget(self.artist)
@@ -535,6 +538,14 @@ class PlayerBar(QWidget):
         if self._shown_track is not None and self.winfo_exists():
             self._show_track_info(self._shown_track)
 
+    def _show_energy(self, track: Any) -> None:
+        """1.4.4 (C108) : « Énergie 7 » à côté du BPM (rien si inconnue)."""
+        from .energy_service import energy_of
+
+        value, manual = energy_of(track) if track is not None else (0, False)
+        self.energy_lbl.setText(t("energy.player", n=value) if value else "")
+        self.energy_lbl.setToolTip(t("energy.tip_manual" if manual else "energy.tip_auto", n=value) if value else "")
+
     def _show_track_info(self, track: Any) -> None:
         self._shown_track = track
         self.key_pill.set(track.camelot if track is not None else None)
@@ -542,6 +553,7 @@ class PlayerBar(QWidget):
             self.bpm.setText(f"{num(round(track.bpm, 1))} BPM")
         else:
             self.bpm.setText("")
+        self._show_energy(track)                              # 1.4.4 (C108)
         self._wave_token += 1
         token = self._wave_token
         if track is None or not track.analysis_path:

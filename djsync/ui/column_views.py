@@ -19,7 +19,7 @@ BUILTIN = ("essential", "prepare", "quality", "all")
 # pochette) puis artiste, puis ce que la vue sert à juger, le rangement, et les colonnes techniques à la fin
 ORDER: Dict[str, Tuple[str, ...]] = {
     "essential": ("pos", "title", "artist", "bpm", "key", "duration", "playlists", "added"),
-    "prepare": ("pos", "title", "artist", "bpm", "key", "duration", "analysis", "cues", "rating", "color",
+    "prepare": ("pos", "title", "artist", "bpm", "key", "energy", "duration", "analysis", "cues", "rating", "color",
                 "mytags", "last_played", "playlists"),
     "quality": ("pos", "title", "artist", "real", "format", "bitrate", "rate", "source", "dup", "size", "path"),
 }
