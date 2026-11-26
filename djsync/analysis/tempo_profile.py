@@ -30,13 +30,15 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 log = logging.getLogger(__name__)
 
 KINDS = ("switch", "ramp", "set", "live")
+USER_KINDS = ("none",) + KINDS          # 1.4.4 (C221) : type corrigé à la main ("none" : tempo stable)
+MARK_KINDS = ("", "tempo", "sound")     # 1.4.4 (C221) : repère « changement de tempo » ou « nouveau son »
 
 SET_SECONDS = 600.0          # au-delà : un mix ou un set
 SWITCH_RATIO = 0.04          # écart entre deux paliers pour un beatswitch
@@ -67,6 +69,13 @@ class TempoProfile:
     # vérifier dans Grille et cues ; instant (s) de l'entrée la plus nette, pour l'écoute (-1 : aucune)
     downbeat_check: bool = False
     downbeat_at: float = -1.0
+    # 1.4.4 (C221) : corrections faites à la main dans Grille et cues, gardées à la réanalyse.
+    # user_kind : type choisi ("" : celui de l'analyse ; "none" : tempo stable ; sinon un des KINDS) ; `kind`
+    # reste le type AFFICHÉ (anciennes versions comprises) et `detected` celui de l'analyse.
+    # marks : passages posés à la main (début s, BPM, 1er temps fort s, "" | "tempo" | "sound").
+    user_kind: str = ""
+    detected: str = ""
+    marks: List[Tuple[float, float, float, str]] = field(default_factory=list)
     # mesures de classify() pour la grille par passage (jamais enregistrées) : paliers (début s, fin s, BPM),
     # et indices des paliers suivis d'un vrai changement
     plateaus: List[Tuple[float, float, float]] = field(default_factory=list, repr=False, compare=False)
@@ -79,7 +88,9 @@ class TempoProfile:
     def to_list(self) -> list:
         return [self.kind, round(self.lo, 1), round(self.hi, 1), round(self.drift_ms), int(self.variable),
                 int(self.split), [[round(a, 3), round(b, 3), round(c, 3)] for a, b, c in self.sections], self.choice,
-                int(self.downbeat_check), round(self.downbeat_at, 3)]
+                int(self.downbeat_check), round(self.downbeat_at, 3),
+                self.user_kind, self.detected,                                                  # 1.4.4 (C221)
+                [[round(a, 3), round(b, 3), round(c, 3), str(k)] for a, b, c, k in self.marks]]
 
     @classmethod
     def from_list(cls, v: Optional[list]) -> Optional["TempoProfile"]:
@@ -87,10 +98,14 @@ class TempoProfile:
             return None
         try:
             secs = [(float(a), float(b), float(c)) for a, b, c in (v[6] if len(v) > 6 and v[6] else [])]
+            marks = [(float(a), float(b), float(c), str(k) if k in MARK_KINDS else "")
+                     for a, b, c, k in (v[12] if len(v) > 12 and v[12] else [])]            # 1.4.4 (C221)
+            user = str(v[10]) if len(v) > 10 and v[10] in USER_KINDS else ""
             return cls(str(v[0]), float(v[1]), float(v[2]), float(v[3]) if len(v) > 3 else 0.0,
                        bool(v[4]) if len(v) > 4 else False, bool(v[5]) if len(v) > 5 else False, secs,
                        str(v[7]) if len(v) > 7 and v[7] else "",
-                       bool(v[8]) if len(v) > 8 else False, float(v[9]) if len(v) > 9 else -1.0)   # B125
+                       bool(v[8]) if len(v) > 8 else False, float(v[9]) if len(v) > 9 else -1.0,   # B125
+                       user, str(v[11]) if len(v) > 11 and v[11] else (str(v[0]) if not user else ""), marks)
         except (TypeError, ValueError, IndexError):
             return None
 
@@ -299,15 +314,23 @@ def section_at(sections: List[Tuple[float, float, float]], t: float) -> int:
 
 
 # ------------------------------------------------------------------------------- réglage (Réglages ▸ Analyse)
-GRID_MODES = ("auto", "never")
-_policy = "auto"
+# 1.4.4 (C221) : « Analyse : Dynamique / Classique » remplace « Automatique / Jamais » (anciennes valeurs lues).
+GRID_MODES = ("dynamic", "classic")
+_OLD_MODES = {"auto": "dynamic", "never": "classic"}
+_policy = "dynamic"
+
+
+def normalize_mode(mode: str) -> str:
+    """Valeur du réglage : « dynamic » (défaut) ou « classic » ; « auto » et « never » (1.4.3) migrés."""
+    mode = _OLD_MODES.get(mode, mode)
+    return mode if mode in GRID_MODES else "dynamic"
 
 
 def set_policy(mode: str) -> None:
-    """« auto » : grille variable (live, accélération, set) ou par passage (beatswitch) quand l'analyse le
-    juge utile ; « never » : toujours une grille fixe (comme le mode « grille constante » de Rekordbox)."""
+    """« dynamic » : l'analyse repère les tempos qui changent (C69) et pose une grille variable (live,
+    accélération, set) ou par passage (beatswitch, C16) ; « classic » : un BPM et une grille fixe, sans détection."""
     global _policy
-    _policy = mode if mode in GRID_MODES else "auto"
+    _policy = normalize_mode(mode)
 
 
 def policy() -> str:
@@ -315,16 +338,17 @@ def policy() -> str:
 
 
 def grid_mode_for(path: Union[str, Path, None]) -> str:
-    """Mode de grille pour l'analyse de `path` : le réglage, ou « never » si l'utilisateur a choisi la grille
-    fixe pour ce son (bouton de Grille et cues)."""
-    if _policy == "never":
-        return "never"
+    """Mode de grille pour l'analyse de `path` : « classic » (réglage : ni détection ni grille qui change),
+    « never » si l'utilisateur a choisi la grille fixe pour ce son (bouton de Grille et cues) ou l'a dit stable
+    (1.4.4, C221), sinon « auto »."""
+    if _policy == "classic":
+        return "classic"
     if path is not None:
         try:
             p = known(path)
         except Exception:  # noqa: BLE001
             p = None
-        if p is not None and p.choice == "fixed":
+        if p is not None and (p.choice == "fixed" or p.user_kind == "none"):
             return "never"
     return "auto"
 
@@ -441,7 +465,102 @@ def remember(path: Union[str, Path], profile: Optional[TempoProfile]) -> None:
         old = TempoProfile.from_list(data.get(key))
         if old is not None and old.choice and not profile.choice:     # C16 : le choix de l'utilisateur reste
             profile.choice = old.choice
+        _keep_user(profile, old)                                       # 1.4.4 (C221)
         if data.get(key) == profile.to_list():
             return
         data[key] = profile.to_list()
         _save(data)
+
+
+# ------------------------------------------------------------------------------- corrections (1.4.4, C221)
+def _keep_user(profile: TempoProfile, old: Optional[TempoProfile]) -> None:
+    """Réanalyse : le type mesuré devient `detected` ; le type corrigé et les repères posés à la main restent."""
+    if not profile.user_kind:
+        profile.detected = profile.kind
+    if old is not None:
+        if old.user_kind and not profile.user_kind:
+            profile.user_kind = old.user_kind
+        if old.marks and not profile.marks:
+            profile.marks = list(old.marks)
+    _apply_kind(profile)
+
+
+def _apply_kind(p: TempoProfile) -> None:
+    """Type affiché : celui choisi à la main, sinon celui de l'analyse."""
+    if p.user_kind == "none":
+        p.kind = ""
+    elif p.user_kind:
+        p.kind = p.user_kind
+    else:
+        p.kind = p.detected
+    if p.kind and p.marks and len({round(m[1], 2) for m in p.marks}) > 1:
+        p.lo, p.hi = min(m[1] for m in p.marks), max(m[1] for m in p.marks)
+
+
+def _edit(name: str, size: int, fn: Any) -> bool:
+    if not name or not size:
+        return False
+    key = f"{name.casefold()}|{int(size)}"
+    with _lock:
+        data = _load()
+        p = TempoProfile.from_list(data.get(key))
+        if p is None:
+            return False
+        fn(p)
+        _apply_kind(p)
+        if data.get(key) != p.to_list():
+            data[key] = p.to_list()
+            _save(data)
+    return True
+
+
+def set_kind(name: str, size: int, kind: str) -> bool:
+    """Type corrigé à la main ("" : celui de l'analyse) ; False si le son n'a pas encore été analysé."""
+    kind = kind if kind in USER_KINDS else ""
+
+    def fn(p: TempoProfile) -> None:
+        if not p.user_kind:
+            p.detected = p.kind
+        p.user_kind = kind
+    return _edit(name, size, fn)
+
+
+def set_marks(name: str, size: int, marks: List[Tuple[float, float, float, str]]) -> bool:
+    """Passages posés à la main (vide : plus de repères à garder)."""
+    clean = [(float(a), float(b), float(c), k if k in MARK_KINDS else "") for a, b, c, k in marks if b > 0]
+
+    def fn(p: TempoProfile) -> None:
+        p.marks = sorted(clean, key=lambda m: m[0]) if len(clean) > 1 else []
+    return _edit(name, size, fn)
+
+
+def manual_sections(p: Optional[TempoProfile]) -> List[Tuple[float, float, float]]:
+    """Passages posés à la main qui changent de tempo (une grille à reconstruire), sinon []."""
+    if p is None or len(p.marks) < 2 or len({round(m[1], 2) for m in p.marks}) < 2:
+        return []
+    return [(a, b, c) for a, b, c, _k in sorted(p.marks, key=lambda m: m[0])]
+
+
+def apply_manual(path: Union[str, Path], grid: Any, duration: float) -> bool:
+    """Réanalyse d'un son dont les passages ont été posés à la main : la grille suit ces passages (un tempo par
+    temps, PQTZ) au lieu de celle de l'analyse. Renvoie True si la grille a été remplacée."""
+    try:
+        old = known(path)
+    except Exception:  # noqa: BLE001
+        return False
+    secs = manual_sections(old)
+    if not secs or grid is None:
+        return False
+    beats = section_beats(secs, duration)
+    if not beats:
+        return False
+    span: Dict[float, float] = {}
+    for i, (st, b, _d) in enumerate(secs):
+        end = secs[i + 1][0] if i + 1 < len(secs) else duration
+        span[round(b, 2)] = span.get(round(b, 2), 0.0) + end - st
+    grid.beats, grid.sections, grid.variable = beats, list(secs), False
+    grid.bpm, grid.first_beat, grid.downbeat_offset = max(span, key=span.get), beats[0][1], 0
+    prof = getattr(grid, "profile", None)
+    if prof is not None:
+        prof.variable = False
+    return True

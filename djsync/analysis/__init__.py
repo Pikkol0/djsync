@@ -145,6 +145,8 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         from .loudness import remember as remember_gain
 
         remember_gain(path, result.gain_db, peak_db)
+    if not _in_worker:                                           # 1.4.4 (C221) : passages posés à la main
+        _manual_grid(path, result)
     if not _in_worker and grid.profile is not None:              # 1.4.3 (C69) : tempo qui change
         try:
             from .tempo_profile import remember as remember_tempo
@@ -153,6 +155,16 @@ def analyze_file(path: Union[str, Path], ffmpeg_location: Optional[str] = None, 
         except Exception:  # noqa: BLE001
             log.debug("Ignored error in analyze_file (tempo profile)", exc_info=True)
     return result
+
+
+def _manual_grid(path: Union[str, Path], result: AnalysisResult) -> None:
+    """1.4.4 (C221) : réanalyse d'un son aux passages posés dans Grille et cues : ils sont gardés."""
+    try:
+        from .tempo_profile import apply_manual
+
+        apply_manual(path, result.grid, result.duration)
+    except Exception:  # noqa: BLE001
+        log.debug("Ignored error in analyze_file (manual tempo marks)", exc_info=True)
 
 
 def write_anlz(drive_root: Union[str, Path], track_path: str, result: AnalysisResult, file_type: int = 0,

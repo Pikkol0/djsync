@@ -219,6 +219,9 @@ def _remember(path: Any, result: Any) -> None:
             from .encoder import remember as remember_encoder
 
             remember_encoder(path, enc)
+        from . import _manual_grid                                               # 1.4.4 (C221)
+
+        _manual_grid(path, result)
         profile = getattr(getattr(result, "grid", None), "profile", None)      # 1.4.3 (C69)
         if profile is not None:
             from .tempo_profile import remember as remember_tempo

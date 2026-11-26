@@ -223,6 +223,8 @@ class GridCanvas(QWidget):
         self.setFocus()
         x = e.position().x()
         if e.button() == Qt.LeftButton:
+            if self.ed.seg_tools.grab(x, e.position().y(), self.height()):    # 1.4.4 (C221) : poignée d'un repère
+                return
             if not self.ed.grab_cue(x, e.position().y()):
                 if self.ed.fixed_cursor:              # 1.3.0-rc.3 (B17) : on fait glisser le son sous le curseur
                     self.ed.begin_scrub(x)
@@ -235,7 +237,11 @@ class GridCanvas(QWidget):
 
     def mouseMoveEvent(self, e: Any) -> None:       # noqa: N802
         x = e.position().x()
-        if e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
+        if not e.buttons():                           # 1.4.4 (C221) : BPM sous la souris
+            self.ed.seg_tools.hover(self.ed._ms(x))
+        elif e.buttons() & Qt.LeftButton and self.ed.seg_tools.dragging():
+            self.ed.seg_tools.drag(x)
+        elif e.buttons() & Qt.LeftButton and self.ed.dragging_cue():
             self.ed.drag_cue(x, bool(e.modifiers() & Qt.ShiftModifier))
         elif self.ed.scrubbing_fixed():
             self.ed.scrub_to(x)
@@ -246,7 +252,9 @@ class GridCanvas(QWidget):
             self.ed.draw()
 
     def mouseReleaseEvent(self, e: Any) -> None:    # noqa: N802
-        if self.ed.scrubbing_fixed():
+        if self.ed.seg_tools.dragging():              # 1.4.4 (C221)
+            self.ed.seg_tools.drop()
+        elif self.ed.scrubbing_fixed():
             self.ed.end_scrub(e.position().x())
         elif e.button() == Qt.LeftButton:
             if self.ed.dragging_cue():
@@ -257,6 +265,9 @@ class GridCanvas(QWidget):
 
     def contextMenuEvent(self, e: Any) -> None:     # noqa: N802
         e.accept()                                  # clic droit = défilement, pas de menu
+
+    def leaveEvent(self, _e: Any) -> None:          # noqa: N802
+        self.ed.seg_tools.hover(None)               # 1.4.4 (C221)
 
     def wheelEvent(self, e: Any) -> None:           # noqa: N802
         """1.3.2 (B53) : molette ou glissement vertical du pavé tactile = zoomer (Ctrl / ⌘ + molette aussi) ;
@@ -474,7 +485,13 @@ class GridEditor(QWidget):
         self._build_downbeat_box()
         self.canvas = GridCanvas(self)
         self.canvas.setFocusPolicy(Qt.ClickFocus)
+        self.canvas.setMouseTracking(True)                       # 1.4.4 (C221) : BPM sous la souris
         self.body.addWidget(self.canvas, 1)
+        # 1.4.4 (C221) : passages et repères (bande sous la forme d'onde, carte « Changements de tempo »)
+        from .tempo_segments import SegmentTools
+
+        self.seg_tools = SegmentTools(self)
+        self.body.addWidget(self.seg_tools.band)
         # 1.4.4 (C234) : type de forme d'onde changé d'ici (3 bandes, bleu, RGB), discret, coin haut droit
         self.style_bar = WaveStyleBar(self.canvas, self.wave_style, self.set_wave_style)
         # 1.4.4 (C219) : l'aide de la forme d'onde derrière un ⓘ (plus de bulle à chaque survol de la forme d'onde)
@@ -519,6 +536,7 @@ class GridEditor(QWidget):
         self.time_lbl = label("0:00.000", "dim")
         self.time_lbl.setMinimumWidth(theme.px(64))
         play.addWidget(self.time_lbl)
+        play.addWidget(self.seg_tools.live_lbl)                  # 1.4.4 (C221) : BPM au curseur et sous la souris
         play.addStretch(1)
         # 1.4.1 (C92) : aimant (comme le Quantize de Rekordbox) : curseur et cues calés sur la grille
         self.magnet_box = QCheckBox(t("grid.magnet"))
@@ -627,7 +645,7 @@ class GridEditor(QWidget):
         self.fixed_grid_btn.hide()
         self.split_grid_btn.hide()
 
-        self.zones = Zones([grid_card, tempo_card], spacing=theme.px(8))
+        self.zones = Zones([grid_card, tempo_card, self.seg_tools.card], spacing=theme.px(8))   # 1.4.4 (C221)
         self.body.addWidget(self.zones)
 
         # barre d'enregistrement : à gauche l'état et « Annuler les modifications », à droite Retour et Enregistrer
@@ -1091,6 +1109,7 @@ class GridEditor(QWidget):
                 p.drawPolygon(QPolygonF([QPointF(x - 6, h), QPointF(x + 6, h), QPointF(x, h - 10)]))
                 p.setBrush(Qt.NoBrush)
         self._paint_tempo_changes(p, w, h, lo, hi)
+        self.seg_tools.paint(p, w, h, self._label_bottom)       # 1.4.4 (C221) : repères et poignées
         self._paint_cues(p, w, h)
         if self._kick1 is not None:                               # 1.4.2 (C194) : 1er kick posé
             xk = self._x(self._kick1)
@@ -1350,7 +1369,9 @@ class GridEditor(QWidget):
         from .views.library_view import tempo_profile_of          # 1.4.3 (C69) : live, beatswitch… détecté
         p = tempo_profile_of(self.track)
         if p is not None and p.kind:
-            parts.insert(2, t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}"))
+            from .tempo_grids import kind_text
+
+            parts.insert(2, kind_text(p))                         # 1.4.4 (C221) : type corrigé à la main
         self._refresh_tempo(p)
         self._refresh_downbeat()                                  # 1.4.4 (B125)
         if self._native:
@@ -1359,11 +1380,15 @@ class GridEditor(QWidget):
         self.bpm_entry.setText(f"{bpm:.2f}")
         grid_changed = self.beats != self.original
         cues_changed = self.cues_dirty()
-        self.save_btn.setEnabled(grid_changed or cues_changed)
-        self._refresh_checked(grid_changed or cues_changed)
+        self.seg_tools.refresh()                                  # 1.4.4 (C221)
+        marks_changed = self.seg_tools.dirty()
+        self.save_btn.setEnabled(grid_changed or cues_changed or marks_changed)
+        self._refresh_checked(grid_changed or cues_changed or marks_changed)
         parts = [t("grid.modified", ms=f"{delta:+d}")] if grid_changed else []
         if cues_changed:
             parts.append(t("cue.modified"))
+        if marks_changed and not grid_changed:
+            parts.append(t("grid.seg_modified"))
         self.state_lbl.setText("  ·  ".join(parts))
         self.state_lbl.setVisible(bool(parts))                  # 1.4.1 (C59) : pastille seulement s'il y a à enregistrer
         self.reset_btn.setEnabled(bool(parts))
@@ -1377,7 +1402,9 @@ class GridEditor(QWidget):
             return
         changing = p is not None and bool(p.kind)
         if changing:
-            what = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+            from .tempo_grids import kind_text
+
+            what = kind_text(p)                                   # 1.4.4 (C221)
             banner.setText(t("grid.tempo_banner_ok", kind=what) if self._grid_marked
                            else t("grid.tempo_banner", kind=what))
             role = "chip_ok" if self._grid_marked else "chip_warn"
@@ -1520,6 +1547,7 @@ class GridEditor(QWidget):
         self.kick_hint.setText("")
         self.beats = list(self.original)
         self.cues = copy.deepcopy(self.original_cues)
+        self.seg_tools.reset()                                    # 1.4.4 (C221) : repères d'origine
         self.active_loop = None
         self.cue_panel.refresh()
         self.selected = min(self.selected, len(self.beats) - 1)
@@ -1679,6 +1707,7 @@ class GridEditor(QWidget):
                 length = max(1.0, self.active_loop[1] - self.active_loop[0])
                 self._player_seek(self.active_loop[0] + over % length, flush=False)
             self._show_time()
+            self.seg_tools.live(tick=True)                    # 1.4.4 (C221) : BPM à la position de lecture
             span = self.view_s * 1000.0
             if self.fixed_cursor:
                 self._center()
@@ -1736,6 +1765,7 @@ class GridEditor(QWidget):
             svc = getattr(self.ctrl, "tempo_grids", None)         # 1.4.3 (C16) : grille fixe gardée à la réanalyse
             if svc is not None and beats is not None:
                 svc.remember_choice(self.track, beats)
+            self.seg_tools.remember()                             # 1.4.4 (C221) : repères gardés à la réanalyse
             self.ctrl.save_grid_and_cues(self.track.content_id, beats, cues, ok=done, err=failed)
 
         if self._native and self.beats != self.original:
@@ -1745,7 +1775,7 @@ class GridEditor(QWidget):
             go()
 
     def is_dirty(self) -> bool:
-        return bool(self.beats) and (self.beats != self.original or self.cues_dirty())
+        return bool(self.beats) and (self.beats != self.original or self.cues_dirty() or self.seg_tools.dirty())
 
     def close(self) -> bool:                 # noqa: D401
         """Quitte la page (sans enregistrer) ; la lecture du son continue. 1.3.0 : grille ou cues

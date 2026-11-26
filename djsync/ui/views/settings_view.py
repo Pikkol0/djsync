@@ -500,10 +500,10 @@ class SettingsView(View):
 
         card = self._card(t("settings.card_grid"), "grid", key="grid")
         self.tempo_grid = ShrinkCombo()                                             # 1.4.3 (C16)
-        for key in ("auto", "never"):
-            self.tempo_grid.addItem(t(f"settings.tempo_grid_{key}"), key)
-        self.tempo_grid.setCurrentIndex(max(0, self.tempo_grid.findData(getattr(s, "tempo_grid", "auto"))))
-        self._row(card, t("settings.tempo_grid"), self.tempo_grid, info=t("settings.tempo_grid_hint"))
+        for key in ("dynamic", "classic"):                                          # 1.4.4 (C221)
+            self.tempo_grid.addItem(t(f"settings.analysis_mode_{key}"), key)
+        self.tempo_grid.setCurrentIndex(max(0, self.tempo_grid.findData(getattr(s, "tempo_grid", "dynamic"))))
+        self._row(card, t("settings.analysis_mode"), self.tempo_grid, info=t("settings.analysis_mode_hint"))
         self.cue_var = self._switch(card, t("settings.auto_cue"), s.auto_cue, info=t("settings.auto_cue_hint"))
 
         card = self._card(t("settings.card_volume"), "volume", key="volume")
@@ -1892,7 +1892,7 @@ class SettingsView(View):
                 "auto_gain": self.gain_var.isChecked(),
                 "diag_auto": self.diag_auto_var.isChecked(),
                 "waveform_style": self.wave_style.currentData() or "3band",
-                "tempo_grid": self.tempo_grid.currentData() or "auto",
+                "tempo_grid": self.tempo_grid.currentData() or "dynamic",
                 "reanalyze_rekordbox": [p for p, box in self.reanalyse_vars.items() if box.isChecked()],
                 "download_quality": self.format_menu.currentData() or "original",
                 "soundcloud_original": self.sc_original_var.isChecked(),
@@ -2011,7 +2011,7 @@ class SettingsView(View):
         s.protect_foreign = self.protect_var.isChecked()          # 1.4.3 (A07, C156)
         s.auto_gain = self.gain_var.isChecked()                   # 1.4.3 (C109)
         s.diag_auto = self.diag_auto_var.isChecked()                              # 1.4.2 (B103)
-        s.tempo_grid = self.tempo_grid.currentData() or "auto"                     # 1.4.3 (C16)
+        s.tempo_grid = self.tempo_grid.currentData() or "dynamic"                  # 1.4.3 (C16), 1.4.4 (C221)
         style = self.wave_style.currentData() or "3band"                  # 1.4.1 (C77) : appliqué tout de suite
         if style != s.waveform_style:
             s.waveform_style = style

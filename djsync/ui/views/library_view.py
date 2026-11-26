@@ -138,7 +138,9 @@ def tempo_text(p: Any) -> str:
     """« Version live détectée · grille variable » : jamais affirmé, la grille dit ce qui a été écrit."""
     if p is None or not p.kind:
         return ""
-    head = t(f"tempo.{p.kind}", lo=f"{p.lo:.0f}", hi=f"{p.hi:.0f}")
+    from ..tempo_grids import kind_text
+
+    head = kind_text(p)                                            # 1.4.4 (C221) : type corrigé à la main
     grid = t("tempo.grid_split") if getattr(p, "split", False) and getattr(p, "choice", "") != "fixed" else \
         t("tempo.grid_variable") if p.variable else t("tempo.grid_fixed")
     return f"{head} · {grid}"

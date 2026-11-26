@@ -699,7 +699,8 @@ def _split_grid(x: np.ndarray, sr: int, env: np.ndarray, benv: np.ndarray, fps: 
 
 def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None, grid_mode: str = "auto") -> BeatGrid:
     """`debug` (facultatif) reçoit les mesures intermédiaires : sert à calibrer sur une vraie bibliothèque.
-    1.4.3 (C16) : `grid_mode` « never » : toujours une grille fixe (réglage, ou choix de l'utilisateur)."""
+    1.4.3 (C16) : `grid_mode` « never » : toujours une grille fixe (choix de l'utilisateur pour ce son) ;
+    1.4.4 (C221) : « classic » (réglage) : grille fixe et aucune détection du tempo qui change."""
     duration = x.size / float(sr)
     if duration < 4.0 or peak_level(x) < 1e-3:
         return BeatGrid()
@@ -743,7 +744,8 @@ def analyze_tempo(x: np.ndarray, sr: int, debug: Optional[Dict] = None, grid_mod
     from .tempo_profile import TempoProfile, classify
 
     try:
-        profile = classify(env, fps, bpm, duration, debug)
+        # 1.4.4 (C221) : analyse « Classique » : ni détection du tempo qui change, ni grille par passage
+        profile = TempoProfile() if grid_mode == "classic" else classify(env, fps, bpm, duration, debug)
     except Exception:  # noqa: BLE001 - le profil n'est qu'une information en plus
         profile = TempoProfile()
     warped = None

@@ -106,8 +106,9 @@ class Settings:
     reanalyze_rekordbox: list = field(default_factory=lambda: ["grid"])
     waveform_style: str = "3band"      # 1.4.1 (C77) : « blue » | « rgb » | « 3band », comme Rekordbox
     reanalyze_rekordbox_asked: bool = False
-    # 1.4.3 (C16) : grille des sons dont le tempo change : « auto » (variable ou par passage) | « never » (fixe)
-    tempo_grid: str = "auto"
+    # 1.4.3 (C16) : grille des sons dont le tempo change ; 1.4.4 (C221) : mode d'analyse « dynamic » (tempo qui
+    # change détecté, grille variable ou par passage) | « classic » (un BPM, grille fixe) ; même clé
+    tempo_grid: str = "dynamic"
     # 1.4.3 (A07, C156) : sur l'ordinateur, « Supprimer » envoie aussi à la corbeille les fichiers que DJSync n'a pas
     # téléchargés ; coché, ces sons sont seulement retirés de Rekordbox (comme avant la 1.4.3)
     protect_foreign: bool = False
@@ -274,8 +275,10 @@ class Settings:
         self.reanalyze_rekordbox = [p for p in ("grid", "key", "waves") if p in parts]      # 1.4.1 (C131)
         if self.waveform_style not in ("blue", "rgb", "3band"):                                  # 1.4.1 (C77)
             self.waveform_style = "3band"
-        if self.tempo_grid not in ("auto", "never"):                                               # 1.4.3 (C16)
-            self.tempo_grid = "auto"
+        # 1.4.3 (C16) ; 1.4.4 (C221) : « Analyse : Dynamique / Classique » (« auto » -> dynamic, « never » -> classic)
+        from .analysis.tempo_profile import normalize_mode
+
+        self.tempo_grid = normalize_mode(str(self.tempo_grid or ""))
         from .db import backup_levels                                                                # 1.4.4 (C235)
 
         if self.backup_level not in backup_levels.LEVELS:

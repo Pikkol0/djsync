@@ -127,12 +127,12 @@ def test_c16_register_keeps_sections_and_the_user_choice(tmp_path):
         tempo_profile.remember(f, tempo_profile.TempoProfile("switch", 122, 140, 20.0))   # réanalyse
         assert tempo_profile.known(f).choice == "fixed"                         # le choix reste
         assert tempo_profile.TempoProfile.from_list(["live", 1, 2, 3, 1]).sections == []   # format du lot 5
-        tempo_profile.set_policy("never")
-        assert tempo_profile.grid_mode_for(tmp_path / "other.mp3") == "never"
+        tempo_profile.set_policy("never")             # 1.4.4 (C221) : « Jamais » devient « Classique »
+        assert tempo_profile.grid_mode_for(tmp_path / "other.mp3") == "classic"
         tempo_profile.set_policy("bad")
-        assert tempo_profile.policy() == "auto"
+        assert tempo_profile.policy() == "dynamic"
     finally:
-        tempo_profile.set_policy("auto")
+        tempo_profile.set_policy("dynamic")
         tempo_profile.use_store(None)
 
 
@@ -172,7 +172,7 @@ def test_c16_service_split_fixed_and_choice(tmp_path):
         tempo_profile.remember(f, tempo_profile.TempoProfile("switch", 122, 140, 0.0, False, True, secs))
         track = NS(path=str(f), file_size=50, is_analysed=True)
         svc = TG.TempoGridService(NS(settings=NS(tempo_grid="never")))
-        assert tempo_profile.policy() == "never"
+        assert tempo_profile.policy() == "classic"                  # 1.4.4 (C221) : ancienne valeur migrée
         assert svc.split_grid(track, 120000) == beats
         svc.remember_choice(track, fixed)
         assert tempo_profile.known(f).choice == "fixed"
@@ -181,7 +181,7 @@ def test_c16_service_split_fixed_and_choice(tmp_path):
         assert TG.TempoGridService.pending(track, False) and not TG.TempoGridService.pending(track, True)
         assert not TG.TempoGridService.pending(track, None)       # pas encore lu : rien d'affirmé
     finally:
-        tempo_profile.set_policy("auto")
+        tempo_profile.set_policy("dynamic")
         tempo_profile.use_store(None)
 
 
@@ -223,11 +223,11 @@ def test_c16_settings_value_is_checked(tmp_path):
     from djsync.settings import Settings
 
     s = Settings()
-    assert s.tempo_grid == "auto"
+    assert s.tempo_grid == "dynamic"                                  # 1.4.4 (C221) : « Dynamique » par défaut
     s.tempo_grid = "sometimes"
     p = tmp_path / "settings.json"
     s.save(p)
-    assert Settings.load(p).tempo_grid == "auto"
+    assert Settings.load(p).tempo_grid == "dynamic"
 
 
 # ------------------------------------------------------------------ C16 : Grille et cues
@@ -284,7 +284,7 @@ def test_c16_settings_page_has_the_grid_choice(demo):  # noqa: F811
     if view is None:
         pytest.skip("settings view not built in the demo window")
     combo = view.tempo_grid
-    assert [combo.itemData(i) for i in range(combo.count())] == ["auto", "never"]
+    assert [combo.itemData(i) for i in range(combo.count())] == ["dynamic", "classic"]     # 1.4.4 (C221)
 
 
 # ------------------------------------------------------------------ A04 : en-tête de l'encodeur
