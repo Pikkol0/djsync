@@ -664,6 +664,8 @@ class LocalRekordboxLibrary:
     def ensure_writable(self) -> None:
         if self.read_only:
             raise ReadOnlyError("Library opened read-only.")
+        if getattr(self, "kept_background", False):      # 1.4.4 (A08) : seule la bibliothèque active écrit
+            raise LibraryError("Library kept open in the background: only the active library is written.")
         if rekordbox_running():
             raise DatabaseLockedError("Close Rekordbox first: DJSync cannot change its library while it is open.")
 
