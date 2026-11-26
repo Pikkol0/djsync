@@ -786,14 +786,17 @@ class SettingsView(View):
         row = hbox()                                       # V1.2.0 : points de restauration, journal, retrait
         self.points_btn = button(t("backups.open"), self._open_backups, kind="primary", icon="back")
         row.addWidget(self.points_btn)
-        # 1.4.4 (C235) : sur la ligne des points (la ligne du niveau restait trop large, A2-1)
-        self.prune_btn = button(t("settings.backup_prune"), self._prune_backups, kind="flat", icon="trash",
-                                tooltip=t("settings.backup_prune_tip"))
-        row.addWidget(self.prune_btn)
         row.addStretch(1)
         self.uninstall_btn = button(t("uninstall.open"), self._open_uninstall, kind="flat", icon="trash")
         self.uninstall_btn.setVisible(self.ctrl.can_uninstall())
         row.addWidget(self.uninstall_btn)
+        card.addLayout(row)
+        # 1.4.4 (C235) : sur sa propre ligne (A2-1 : aucune ligne plus large que la page)
+        row = hbox()
+        self.prune_btn = button(t("settings.backup_prune"), self._prune_backups, kind="flat", icon="trash",
+                                tooltip=t("settings.backup_prune_tip"))
+        row.addWidget(self.prune_btn)
+        row.addStretch(1)
         card.addLayout(row)
         self.points_hint = label("", "faint", wrap=True)
         card.addWidget(self.points_hint)
