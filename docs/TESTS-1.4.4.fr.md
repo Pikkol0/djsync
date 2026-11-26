@@ -54,7 +54,48 @@ Tests automatiques : `tests/test_v144_rc1_ui.py`, `tests/test_v144_rc1_tools.py`
 
 - **C230** : à la fin du build d'un tag, `metrics/<tag>.json` sur la branche `metrics` (durée, tailles exe / dmg / tar.gz). Vérifié au tag `v1.4.4-rc.1` : `git fetch origin metrics && git show origin/metrics:metrics/v1.4.4-rc.1.json`.
 
-## rc.1, lot 2 (à venir, même rc)
+## rc.1, lot 2
 
-- À coder : **C219**, **C225**, **C138**, **A08**, **C221**, **B125**, **C108**, **A09** (reste de B : lecture au fil de l'eau A1-11).
-- Bloquées (sautées si toujours bloquées) : **C107** (clé passée sur platines), **B115**, **B118** (bibliothèque volumineuse d'un testeur), **C15** (essai sur la tour avec Rekordbox 7 ouvert).
+Fiches codées : C225, C219, C221, C108, C138, A08 (option A), B125, A09 (B : A1-11).
+Bloquées (non codées) : **C107** (clé passée sur platines), **B115**, **B118** (bibliothèque volumineuse d'un testeur), **C15** (essai sur la tour avec Rekordbox 7 ouvert).
+Tests automatiques : `tests/test_v144_rc1_lot2_c225.py` (C225, C219), `…_b125.py`, `…_a09.py`, `…_c221.py`, `…_c108.py`, `…_c138.py`, `…_a08.py`.
+
+### Paramètres et aide à l'écran
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| PAR-10 | Tous | Windows | (**C225**) Paramètres : cliquer chacune des 9 sections du volet, fenêtre à 1280×800 puis 860×560. | Une seule section affichée, cartes sur une colonne, contrôles alignés à droite, interrupteurs pour les oui / non, aucune barre de défilement horizontale. |
+| PAR-11 | Tous | Windows | (**C225**) Page Général : chercher « soulseek » puis « ffmpeg », puis vider la recherche. | Les cartes trouvées dans les autres sections s'affichent et sont encadrées ; en vidant, retour à Général. |
+| PAR-12 | Tous | Windows | (**C225**) Accueil ▸ Espace, pastille export.pdb, Diagnostic ▸ réglage. | Chaque lien ouvre la bonne page (Sauvegardes et espace, Bibliothèques et clés, Avancé) et met la carte en valeur. |
+| AID-1 | Tous | Windows | (**C219**) Survoler puis cliquer un ⓘ ; cliquer à nouveau ; rouvrir et cliquer ailleurs. | Texte au survol ; la bulle reste au clic, se ferme au clic suivant ou ailleurs. |
+| AID-2 | Tous | Windows, macOS | (**C219**) Accessibilité ▸ « Afficher les infobulles » à non ; survoler des boutons, puis un ⓘ ; relancer DJSync. | Plus aucune bulle ordinaire, les ⓘ marchent ; réglage gardé au redémarrage. |
+
+### Grille et cues : tempo variable, 1er temps
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| TEM-1 | Tous | Windows | (**C221**) Son à 128 : curseur à 1:00, « Changement de tempo », BPM du passage = 140, Entrée ; enregistrer, réanalyser. | La bande montre 128 \| 140, la grille change au repère, BPM au curseur et sous la souris justes ; après réanalyse, même grille. |
+| TEM-2 | Testeur platines | Windows | (**C221**) Dans un set, « Nouveau son » puis enregistrer ; ouvrir le son sur platine. | Mémoire « Nouveau son » sur platine ; la grille ne bouge pas. |
+| TEM-3 | Tous | Windows | (**C221**) Glisser la poignée d'un repère ; Type ▸ Tempo stable ; Paramètres ▸ Analyse = Classique, puis analyser un beatswitch. | Le repère se cale sur un temps ; le son sort de « Tempo qui change » ; en Classique, grille fixe et rien de détecté. |
+| PRT-1 | Auteur (tour) | Windows | (**B125**) Mesure sur les 294 sons Rekordbox du PC fixe : `python -m djsync.analysis --compare local --csv b125.csv`. | Ligne « Grid: same downbeat » ≥ 75 % ; grille à 20 ms inchangée (61,6 %). |
+| PRT-2 | Tous | Windows | (**B125**) Bibliothèque, colonne Analyse : « 1er temps : à vérifier » ; ouvrir le son dans Grille et cues, ▶ sur chaque temps, choisir, Enregistrer. | Bandeau et 4 choix « Temps n » ; seuls les numéros de temps changent ; la colonne repasse à « Analysé ». |
+| PRT-3 | Tous | Windows | (**B125**) Son à vérifier : choisir le temps proposé par l'analyse, ou « Grille juste ». | Rien à enregistrer, le marqueur disparaît. |
+
+### Bibliothèque : volet Infos, énergie, bascule rapide
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| INF-1 | Tous | Windows | (**C138**) Bibliothèque, clic droit ▸ Infos, puis ↑ / ↓ ; touche I ; relancer DJSync. | Volet à droite qui suit la sélection, rempli (pochette, Analyse, Fichier, Origine, Rekordbox, playlists) ; I ferme / rouvre ; état et largeur gardés. |
+| INF-2 | Tous | Windows | (**C138**) Cliquer l'album, le modifier, Annuler ; recommencer, Enregistrer ; modifier l'artiste puis cliquer un autre son. | Boutons seulement après modification ; Annuler rétablit ; Enregistrer met la table à jour ; changement de son : Enregistrer / Abandonner / Rester. |
+| NRG-1 | Tous | Windows | (**C108**) Analyser un son calme et un son de club ; afficher la colonne Énergie ; clic droit ▸ Énergie ▸ 9, puis Automatique. | Calme < club ; 9 aussi dans le lecteur ; Automatique rend la valeur de l'analyse. |
+| NRG-2 | Testeur platines | Windows | (**C108**) Option « Énergie dans le commentaire », analyser un son SoundCloud, le chercher de nouveau. | Commentaire « E7 <lien> » sur platine ; source et doublon toujours reconnus. |
+| BIB-1 | Tous | Windows | (**A08**) Ouvrir l'ordinateur, puis une clé, revenir à l'ordinateur, puis à la clé. | Retours presque instantanés ; journal « Open libraries: 2 (1 kept…) » avec la mémoire. |
+| BIB-2 | Tous | Windows | (**A08**) Ordinateur gardé en arrière-plan : lancer Rekordbox ; puis clé gardée : la débrancher. | Ordinateur refermé en moins de 10 s (« Rekordbox open ») ; clé refermée (« drive removed ») ; aucune erreur. |
+| BIB-3 | Tous | Windows | (**A08**) Clé gardée en arrière-plan (pas l'active) : l'éjecter depuis l'Explorateur. | À observer : refus probable « utilisé par DJSync » (risque connu). |
+
+### Lecteur et mémoire
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| LEC-1 | Tous | Windows | (**A09 B**) Lire un son de 5 min, sauter, hot cue ; puis un mix de plus de 12 min : pause, saut, boucle, fin. | Tout marche ; mémoire +≈ 55 Mo pour 5 min (au lieu de ≈ 110) ; mix : « Playback streamed: … » au journal, mémoire stable. |
+| MEM-3 | Auteur (tour) | Windows | (**A08**, **A09 A**) Vraie master.db + vraie clé : 1, 2, 3 bibliothèques ouvertes. | Mémoire notée au journal (« Open libraries… Memory: RSS … ») ; reportée dans le suivi. |
