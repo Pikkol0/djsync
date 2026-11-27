@@ -2512,7 +2512,7 @@ STRINGS = {
     "grid.passages_title_n": "Passages ({n})",
     "grid.seg_current_bpm": "BPM of passage {n}",
     "grid.col_end_bpm": "→ end",
-    "grid.analyse_passage_as": "Analyse this passage ({shape})",
+    "grid.analyse_passage_as": "Analyse ({shape})",
     "grid.analyse_more_tip": "More ways to analyse",
     "grid.analyse_auto": "This passage, free shape: DJSync chooses",
     "grid.analyse_all_auto": "All passages, free shape: DJSync chooses",

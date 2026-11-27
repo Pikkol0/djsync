@@ -58,7 +58,12 @@ def bar_label(downbeats: int) -> str:
 
 class _SegmentButton(QPushButton):
     """1.4.2 (A2-2) : bouton du décalage (−100 … +100) : au moins 40 px, mais jamais plus étroit que son texte
-    (une largeur minimale fixe laissait la mise en page l'écraser : « -10C », « +10C »), à tout zoom."""
+    (une largeur minimale fixe laissait la mise en page l'écraser : « -10C », « +10C »), à tout zoom.
+    1.4.4 (B136) : marges étroites (theme.py, propriété « shift »), flèche au-dessus de la valeur."""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        self.setProperty("shift", True)
 
     def sizeHint(self) -> Any:  # noqa: N802
         hint = super().sizeHint()

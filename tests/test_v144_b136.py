@@ -63,13 +63,13 @@ def test_b136_two_tabs_that_do_not_move(demo, tmp_path):  # noqa: F811
         demo.ctrl.settings.grid_tab = "grid"                             # ancien réglage : Tempo
         ed.show_tab("grid", remember=False)
         assert ed.current_tab == "tempo"
-        # trois panneaux côte à côte à 1280 px
+        # trois panneaux côte à côte dès ~1100 px (portable en 1536 × 864 : 1400 px pour la page)
         z = ed.tempo_zones
         from PySide6.QtCore import QSize
         from PySide6.QtGui import QResizeEvent
 
-        z.resize(1018, 400)
-        z.resizeEvent(QResizeEvent(QSize(1018, 400), QSize(1018, 400)))
+        z.resize(1400, 400)
+        z.resizeEvent(QResizeEvent(QSize(1400, 400), QSize(1400, 400)))
         mins = [c.minimumSizeHint().width() for c in z.cards]
         assert z.box.direction() == z.box.Direction.LeftToRight, mins
         # 2e kick grisé tant que le 1er n'est pas posé ; le 1er se replace
