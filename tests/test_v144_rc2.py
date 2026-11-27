@@ -133,7 +133,7 @@ def test_c237_tabs_band_and_single_back(demo, tmp_path):  # noqa: F811
     ed, _track = _c221_editor(demo, tmp_path)
     try:
         tools = ed.seg_tools
-        assert set(ed.tab_btns) == {"grid", "tempo", "cues"}
+        assert set(ed.tab_btns) == {"tempo", "cues"}                         # 1.4.4 (B136) : deux onglets
         ed.show_tab("cues")
         assert ed.zones.currentWidget() is ed._tab_pages["cues"] and demo.ctrl.settings.grid_tab == "cues"
         ed.show_tab("tempo")
@@ -148,9 +148,9 @@ def test_c237_tabs_band_and_single_back(demo, tmp_path):  # noqa: F811
         ed._move_cursor(80000.0)
         tools.bpm_entry.setText("140")
         tools.apply_bpm()
-        assert tools.multi() and tools.band.isVisibleTo(ed) and tools.band.height() <= 12
+        assert tools.multi() and tools.band.isVisibleTo(ed) and tools.band.height() <= 18
         assert tools.table.topLevelItemCount() == 2
-        tools.band.resize(1200, 10)
+        tools.band.resize(1200, 16)
         from PySide6.QtCore import QPointF, Qt
         from PySide6.QtGui import QMouseEvent
 
@@ -166,6 +166,8 @@ def test_c237_tabs_band_and_single_back(demo, tmp_path):  # noqa: F811
 
 
 def test_b131_tools_change_only_the_passage_under_the_cursor(demo, tmp_path):  # noqa: F811
+    from djsync.i18n import t as t_
+
     beats = TG.split_beats([(0.5, 122.0, 0.5), (60.5, 140.0, 60.5)], 120000)
     ed, _track = _c221_editor(demo, tmp_path, beats)
     try:
@@ -190,9 +192,8 @@ def test_b131_tools_change_only_the_passage_under_the_cursor(demo, tmp_path):  #
         tools.shape_menu.setCurrentIndex(tools.shape_menu.findData("ramp"))
         assert TS.shape_of(tools.segs[1]) == "ramp" and not tools.end_entry.isHidden()
         assert len({b[1] for b in ed.beats if b[2] > 62000}) > 3
-        # type « Tempo stable » : grille fixe
-        tools.kind_menu.setCurrentIndex(tools.kind_menu.findData("none"))
-        assert len({b[1] for b in ed.beats}) == 1
+        # 1.4.4 (C242) : type déduit des passages (rampe)
+        assert t_("grid.seg_kind_ramp") in tools.kind_lbl.text()
     finally:
         ed._closed = True
         ed.deleteLater()

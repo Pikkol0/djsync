@@ -29,11 +29,13 @@ def test_c194_two_kicks_bar_or_beat_give_the_bpm_and_a_bar_on_the_first_kick():
     assert one is not None and one[2] == 1 and one[1] == pytest.approx(128.0, abs=0.01)
     swapped = G.from_two_beats(1000.0 + bar, 1000.0, 120.0, 240000)     # ordre des clics indifférent
     assert swapped is not None and swapped[2] == 4
-    amb = 1000.0                                                       # 60 (1 temps) ou 240 (4 temps) : le plus proche
+    amb = 1000.0                                      # 1.4.4 (C242) : temps comptés sur le tempo actuel
     assert G.from_two_beats(0.0, amb, 70.0, 240000)[2] == 1
-    assert G.from_two_beats(0.0, amb, 200.0, 240000)[2] == 4
+    assert G.from_two_beats(0.0, amb, 200.0, 240000)[2] == 3
     assert G.from_two_beats(1000.0, 1100.0, 120.0, 240000) is None     # trop proches
-    assert G.from_two_beats(1000.0, 1000.0 + 7000.0, 120.0, 240000) is None   # ni une mesure ni un temps
+    far = G.from_two_beats(1000.0, 1000.0 + 32 * 60000.0 / 127.3, 126.0, 240000)   # 2e kick 8 mesures plus loin
+    assert far is not None and far[2] == 32 and far[1] == pytest.approx(127.3, abs=0.01)
+    assert G.from_two_beats(1000.0, 1000.0 + 180.0, 120.0, 240000) is None          # 300 BPM dépassé
 
 
 def test_c194_grid_editor_two_presses_rewrite_the_grid(demo):  # noqa: F811
@@ -49,11 +51,12 @@ def test_c194_grid_editor_two_presses_rewrite_the_grid(demo):  # noqa: F811
         ed.original = list(ed.beats)
         start = ed.beats[2][2]
         ed.cursor_ms = float(start)
-        ed._kick()
-        assert ed._kick1 == float(start) and not ed.kick_cancel.isHidden()
+        assert not ed.kick2_btn.isEnabled()                               # 1.4.4 (C242) : 2e grisé au départ
+        ed._kick_first()
+        assert ed._kick1 == float(start) and ed.kick2_btn.isEnabled() and ed.kick_btn.isEnabled()
         ed.cursor_ms = float(start) + 4 * 60000.0 / 125.0              # mesure suivante
-        ed._kick()
-        assert ed._kick1 is None and ed.kick_cancel.isHidden()
+        ed._kick_second()
+        assert ed._kick1 is None and not ed.kick2_btn.isEnabled()
         assert ed.bpm_entry.text().startswith("125")
         assert ed.save_btn.isEnabled()                                     # à enregistrer, annulable
         ed._reset()

@@ -284,6 +284,7 @@ QLabel[role="good"] {{ color: {GOOD}; }}
 QLabel[role="fair"] {{ color: {FAIR}; }}
 QFrame[role="panel"] {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {r10}px; }}
 QFrame[role="panel"] QLabel, QFrame[role="panel"] QCheckBox, QFrame[role="panel"] QRadioButton {{ background: transparent; }}
+QWidget[role="row"] {{ background: transparent; }}
 QFrame[role="sidebar"] {{ background: {SURFACE}; border: 0; border-right: 1px solid {BORDER}; }}
 QFrame[role="sidebar"] QWidget {{ background: {SURFACE}; }}
 QFrame[role="sidebar"] QFrame[role="panel"] {{ background: {ELEV}; border: 0; }}
