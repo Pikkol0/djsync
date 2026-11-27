@@ -86,9 +86,11 @@ def test_b135_passage_analysis_resolves_library_paths(demo, tmp_path, monkeypatc
         from djsync.i18n import t
         assert not any(text == t("grid.analyse_no_file") for _k, text in msgs)
         assert tools.proposal is not None
-        # Type ▸ Accélération : rampe analysée et appliquée, la grille change
+        # 1.4.4 (C242) : forme « Rampe » choisie, analyse selon la forme : rampe analysée et appliquée
+        tools._clear_proposal()
+        tools.shape_menu.setCurrentIndex(tools.shape_menu.findData("ramp"))
         before = list(ed.beats)
-        tools.kind_menu.setCurrentIndex(tools.kind_menu.findData("ramp"))
+        tools.analyse(False, auto_apply=True)
         assert pump(demo, 30, lambda: tools._analysing == 0 and ed.beats != before)
         assert not any(text == t("grid.analyse_no_file") for _k, text in msgs)
         assert len({b[1] for b in ed.beats}) > 3                       # tempo qui monte : grille variable

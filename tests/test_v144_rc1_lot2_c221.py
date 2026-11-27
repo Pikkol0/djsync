@@ -230,7 +230,7 @@ def test_c221_grid_editor_markers_band_and_live_bpm(demo, tmp_path, monkeypatch)
     ed, track = _c221_editor(demo, tmp_path)
     try:
         tools = ed.seg_tools
-        assert len(tools.segs) == 1 and tools.seg_lbl.text() == t("grid.seg_current", n=1, total=1)
+        assert len(tools.segs) == 1 and tools.cur_lbl.text() == t("grid.seg_current_bpm", n=1)   # 1.4.4 (C242)
         assert t("grid.seg_bpm_here", bpm="128.00") in tools.live_lbl.text()
         # repère « changement de tempo » au curseur, puis BPM du passage : grille recalculée
         ed._move_cursor(30100.0)
@@ -314,19 +314,19 @@ def test_c221_new_track_marker_is_a_named_memory_cue_and_saved(demo, tmp_path, m
 
 
 def test_c221_grid_editor_type_menu_kept_in_register(demo, tmp_path):  # noqa: F811
+    """1.4.4 (C242) : le type n'est plus choisi : il est déduit des passages et gardé au registre à l'enregistrement."""
     from djsync.i18n import t
 
     ed, track = _c221_editor(demo, tmp_path)
     try:
-        menu = ed.seg_tools.kind_menu
-        assert [menu.itemData(i) for i in range(menu.count())] == list(TS.KIND_CHOICES)
-        assert menu.currentIndex() == 0 and t("grid.seg_kind_switch") in menu.itemText(0)
-        menu.setCurrentIndex(menu.findData("ramp"))
+        tools = ed.seg_tools
+        assert t("grid.seg_kind_switch") in tools.kind_lbl.text()
+        ed._move_cursor(float(tools.segs[-1][0]) + 5000.0)
+        tools.shape_menu.setCurrentIndex(tools.shape_menu.findData("ramp"))
+        assert t("grid.seg_kind_ramp") in tools.kind_lbl.text()
+        tools.remember()
         p = TG.profile_of(track)
-        assert p.user_kind == "ramp" and p.kind == "ramp" and p.detected == "switch"
-        assert t("tempo.user_kind", kind=t("grid.seg_kind_ramp")) in ed.info.text()
-        menu.setCurrentIndex(menu.findData("none"))
-        assert not TG.profile_of(track).kind and ed.tempo_banner.isHidden()
+        assert p.user_kind == "ramp" and p.detected == "switch"
     finally:
         ed._closed = True
         ed.deleteLater()

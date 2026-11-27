@@ -476,29 +476,16 @@ def test_b111_shift_buttons_wrap_instead_of_overlapping(demo):  # noqa: F811
     ed = GridEditor(demo, demo.ctrl, track)
     try:
         pump(demo, 0.5)
-        box = ed.shift_box
-        lay = box.layout()
-        widgets = [lay.itemAt(i).widget() for i in range(lay.count())]
-        for width in (900, 380, 240):
-            h = lay.heightForWidth(width)
-            box.setFixedWidth(width)
-            box.setFixedHeight(h)
-            lay.setGeometry(box.rect())
-            widgets[1].layout().activate()
-            pump(demo, 0.05)
-            rects = [w.geometry() for w in widgets]
-            for i, a in enumerate(rects):                              # jamais l'un sur l'autre
-                for b in rects[i + 1:]:
-                    assert not a.intersects(b), (width, a, b)
-            seg = widgets[1]
-            btns = [b.geometry() for b in ed._shift_btns]
-            assert all(not a.intersects(b) for i, a in enumerate(btns) for b in btns[i + 1:])
-            assert all(b.width() >= b.fontMetrics().horizontalAdvance(b.text()) for b in ed._shift_btns)
-            if width == 900:
-                assert len({r.top() for r in rects}) == 1                 # une ligne quand la place suffit
-            if width == 240:
-                assert len({r.top() for r in rects}) >= 2                 # deux lignes ou plus sinon
-            assert seg.geometry().right() <= max(width, seg.width()) + 1
+        # 1.4.4 (B136) : « Décaler la grille » au-dessus, puis une seule rangée −100 … +100 et ½ temps
+        seg = ed.shift_box.layout().itemAt(1).widget()
+        seg.adjustSize()
+        btns = list(ed._shift_btns) + [ed.half_btn]
+        rects = [b.geometry() for b in btns]
+        assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:])
+        assert len({r.top() for r in rects}) == 1
+        assert all(b.height() >= 2 * b.fontMetrics().lineSpacing() for b in ed._shift_btns)   # flèche + valeur
+        texts = [b.text() for b in ed._shift_btns]
+        assert len(set(texts)) == 6 and texts[2] != texts[3]                  # −1 et +1 bien distincts
     finally:
         ed.close()
 

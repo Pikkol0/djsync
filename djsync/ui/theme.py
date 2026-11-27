@@ -284,6 +284,7 @@ QLabel[role="good"] {{ color: {GOOD}; }}
 QLabel[role="fair"] {{ color: {FAIR}; }}
 QFrame[role="panel"] {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {r10}px; }}
 QFrame[role="panel"] QLabel, QFrame[role="panel"] QCheckBox, QFrame[role="panel"] QRadioButton {{ background: transparent; }}
+QWidget[role="row"] {{ background: transparent; }}
 QFrame[role="sidebar"] {{ background: {SURFACE}; border: 0; border-right: 1px solid {BORDER}; }}
 QFrame[role="sidebar"] QWidget {{ background: {SURFACE}; }}
 QFrame[role="sidebar"] QFrame[role="panel"] {{ background: {ELEV}; border: 0; }}
@@ -308,6 +309,7 @@ QPushButton[kind="danger"] {{ color: {ERR}; }}
 QPushButton[segment="first"] {{ border-top-right-radius: 0; border-bottom-right-radius: 0; }}
 QPushButton[segment="middle"] {{ border-radius: 0; border-left: 0; }}
 QPushButton[segment="last"] {{ border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; }}
+QPushButton[shift="true"] {{ padding: {p(3)}px {p(6)}px; }}
 QPushButton[kind="danger"]:hover {{ background: {mix(ELEV, ERR, 0.18)}; }}
 QPushButton[kind="flat"] {{ background: transparent; border: 0; color: {DIM}; }}
 QPushButton[kind="flat"]:hover {{ color: {TEXT}; background: {ELEV}; }}

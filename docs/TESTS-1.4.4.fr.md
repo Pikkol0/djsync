@@ -153,3 +153,18 @@ Correctif : le chemin est résolu par la bibliothèque, comme le reste de Grille
 | # | Qui | Plateformes | Comment | Attendu |
 |---|---|---|---|---|
 | GRI-9 | Auteur | Windows | (**B135**, **B131**) GRI-7 refait sur la stable : un son qui accélère, sur la clé puis dans la bibliothèque de l'ordinateur (dont un son importé par Rekordbox) : Tempo ▸ « Analyser ce passage », Appliquer, Annuler ; « Analyser tous les passages » ; Type ▸ Accélération sur un autre son. | Plus de message « fichier introuvable » ; rampe proposée (début → fin), appliquée en un clic, annulable ; Type ▸ Accélération change vraiment la grille. |
+
+## 1.4.4 stable (bis) — Grille et cues en deux onglets
+
+Fiches : **B136** (onglets qui bougent, lignes au fond sombre, Tempo trop long), **C241** (BPM dans la bande des
+passages), **C242** (passages d'abord : forme choisie par passage, type déduit, analyse selon la forme, deux kicks).
+Décision de l'auteur (27/11) : release 1.4.4 retirée, republiée avec ces fiches (vidéos faites sur la 1.4.4).
+Tests automatiques : `tests/test_v144_b136.py`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GRI-10 | Auteur | Windows | (**B136**) Grille et cues, un son à plusieurs passages : passer de Tempo à Cues et revenir ; fenêtre en 1920×1080 puis en 1280×800. | Deux onglets à gauche qui ne bougent jamais ; « Appliquer à » à droite, caché dans Cues sans rien décaler ; trois panneaux côte à côte (1er temps, Tempo, Passages), tout visible sans défiler en 1080 (côte à côte dès ~1100 px de large, l’un sous l’autre en dessous) ; aucune ligne au fond plus sombre que le panneau. |
+| GRI-11 | Auteur | Windows | (**C241**) Même son : regarder la bande sous la forme d'onde d'ensemble. | BPM écrit dans chaque passage (« 135.00 »), rampe « 135.0 → 159.9 », raccourci ou absent si le passage est étroit ; bulle au survol inchangée. |
+| GRI-12 | Auteur | Windows | (**C242**) Beatswitch : dans le tableau, passer un passage en Rampe ; « Analyser ce passage (rampe) » ; menu ▾ « forme libre » ; Enregistrer. | Forme changée dans la ligne, grille recalculée ; l'analyse cherche une rampe ; ligne « Type : … (déduit des passages) » à jour ; bandeau et bibliothèque suivent après Enregistrer. |
+| GRI-13 | Auteur | Windows | (**C242**) Tempo : « 1er kick ici », le replacer, puis « 2e kick ici » 8 mesures plus loin. | 2e grisé avant le 1er ; grille réécrite, message « 32 temps / 8 mesures entre les deux kicks » et BPM exact. Plus de × 2/3 ni × 3/2. |
+| GRI-14 | Auteur | Windows | (**B136**) Décaler la grille : −100 … +100 et ½ temps. | Une seule rangée, flèche double / simple / fine au-dessus de la valeur signée ; −1 et +1 bien distincts. |

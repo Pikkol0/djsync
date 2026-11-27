@@ -40,6 +40,22 @@ def seg(st: float, bpm: float, n: int, kind: str = "", shape: str = "step", end:
     return (int(st), float(bpm), int(n), kind, shape, float(bpm if end is None else end), origin)
 
 
+def deduced_kind(segs: Sequence[Seg]) -> str:
+    """1.4.4 (C242) : type du son déduit des passages (affiché, plus choisi) : une rampe = accélération ;
+    plusieurs paliers à des BPM différents = beatswitch ; un seul palier = tempo stable ; sinon rien d'imposé."""
+    if not segs:
+        return ""
+    shapes = [shape_of(s) for s in segs]
+    if "ramp" in shapes:
+        return "ramp"
+    steps = {round(float(s[1]), 2) for s in segs if shape_of(s) == "step"}
+    if len(steps) > 1:
+        return "switch"
+    if len(segs) == 1 and shapes[0] == "step":
+        return "none"
+    return ""
+
+
 def shape_of(s: Sequence[Any]) -> str:
     return s[4] if len(s) > 4 else "step"
 
@@ -328,8 +344,22 @@ def _qt() -> Any:
     return QtCore, QtGui, QtWidgets
 
 
+def band_text(sg: Sequence[Any], width: float, fm: Any) -> str:
+    """1.4.4 (C241) : BPM écrit dans un passage de la bande : « 135.00 », rampe « 135.0 → 159.9 » ; raccourci si
+    la place manque (« 135 », « 135→160 »), rien sous ~30 px ou pour un passage libre."""
+    shape = shape_of(sg)
+    if shape == "free" or width < 30:
+        return ""
+    a, b = float(sg[1]), end_of(sg)
+    cands = ([f"{a:.1f} → {b:.1f}", f"{a:.0f}→{b:.0f}"] if shape == "ramp" else [f"{a:.2f}", f"{a:.0f}"])
+    for c in cands:
+        if fm.horizontalAdvance(c) + 6 <= width:
+            return c
+    return ""
+
+
 def make_band(tools: "SegmentTools") -> Any:
-    """Bande des passages, sur toute la longueur du son, sous la forme d'onde d'ensemble. 1.4.4 (B131) : 10 px,
+    """Bande des passages, sur toute la longueur du son, sous la forme d'onde d'ensemble. 1.4.4 (B131) : 10 px (C241 : 16),
     affichée seulement s'il y a plus d'un passage ; clic = curseur à l'endroit cliqué ; survol = passage et BPM."""
     QtCore, QtGui, QtWidgets = _qt()
     from . import theme
@@ -338,7 +368,7 @@ def make_band(tools: "SegmentTools") -> Any:
         def __init__(self) -> None:
             super().__init__()
             self.tools = tools
-            self.setFixedHeight(theme.px(10))
+            self.setFixedHeight(theme.px(16))           # 1.4.4 (C241) : 16 px, BPM écrit dans chaque passage
             self.setMouseTracking(True)
             self.setCursor(QtCore.Qt.PointingHandCursor)
 
@@ -353,6 +383,10 @@ def make_band(tools: "SegmentTools") -> Any:
             p = QtGui.QPainter(self)
             w, h = self.width(), self.height()
             p.fillRect(self.rect(), QtGui.QColor(theme.SURFACE))
+            font = p.font()
+            font.setPixelSize(max(9, theme.px(11)))
+            p.setFont(font)
+            fm = QtGui.QFontMetrics(font)
             cur = segment_at(segs, ed.cursor_ms) if segs else -1
             for k, sg in enumerate(segs):
                 x0 = 0.0 if k == 0 else self._x(sg[0])
@@ -363,6 +397,10 @@ def make_band(tools: "SegmentTools") -> Any:
                 if k:
                     p.setPen(QtGui.QPen(QtGui.QColor(SegmentTools.colour(sg[3])), theme.px(2)))
                     p.drawLine(QtCore.QPointF(x0, 0), QtCore.QPointF(x0, h))
+                text = band_text(sg, x1 - x0, fm)
+                if text:
+                    p.setPen(QtGui.QColor(theme.TEXT if k == cur else theme.DIM))
+                    p.drawText(QtCore.QRectF(x0, 0, x1 - x0, h), int(QtCore.Qt.AlignCenter), text)
             from .cursor import draw_cursor
 
             draw_cursor(p, self._x(ed.cursor_ms), 0, h, glow=False)
@@ -455,18 +493,19 @@ class SegmentTools:
         return {"ramp": theme.WARN, "free": theme.FAINT}.get(shape, theme.ACCENT)
 
     def _build(self) -> None:
-        _c, _g, QtWidgets = _qt()
+        QtCore, _g, QtWidgets = _qt()
         from ..i18n import t
         from . import theme
-        from .widgets import FlowLayout, ShrinkCombo, button, label, panel, vbox
+        from .widgets import FlowLayout, button, hbox, icon_button, label, panel, vbox
 
         self.band = make_band(self)
         self.band.hide()
         self.live_lbl = label("", "dim")
         self.live_lbl.setToolTip(t("grid.seg_live_tip"))
-        # 1.4.4 (B131) : portée des outils de grille quand le son a plusieurs passages
+        # 1.4.4 (B131, B136) : portée des outils quand le son a plusieurs passages ; une ligne fixe à droite des onglets
         self.scope_box = QtWidgets.QWidget()
-        sr = FlowLayout(self.scope_box, spacing=theme.px(6))
+        self.scope_box.setProperty("role", "row")            # 1.4.4 (B136) : fond du panneau
+        sr = hbox(self.scope_box, spacing=theme.px(6))
         sr.addWidget(label(t("grid.scope"), "dim"))
         self.scope_passage = button(t("grid.scope_passage"), lambda: self.set_scope("passage"),
                                     tooltip=t("grid.scope_passage_tip"))
@@ -476,77 +515,96 @@ class SegmentTools:
             sr.addWidget(b)
         self.scope_passage.setChecked(True)
         self.scope_box.hide()
-        # tableau des passages (son au tempo variable)
+        # 1.4.4 (C242) : panneau « Passages » : tableau (forme choisie dans la ligne), repères, BPM du passage, analyse
+        card = panel()
+        v = vbox(card, margins=theme.px(10), spacing=theme.px(6))
+        self.seg_lbl = label(t("grid.passages_title"), "section")
+        v.addWidget(self.seg_lbl)
         self.table = QtWidgets.QTreeWidget()
         self.table.setObjectName("passages")
         self.table.setRootIsDecorated(False)
-        self.table.setUniformRowHeights(True)
-        self.table.setHeaderLabels([t("grid.col_n"), t("grid.col_start"), t("grid.col_end"), t("grid.col_shape"),
-                                    t("grid.col_bpm"), t("grid.col_origin")])
-        self.table.setMinimumHeight(theme.px(110))
+        self.table.setUniformRowHeights(False)
+        self.table.setHeaderLabels([t("grid.col_n"), t("grid.col_start"), t("grid.col_shape"), t("grid.col_bpm"),
+                                    t("grid.col_end_bpm"), t("grid.col_origin")])
         self.table.itemClicked.connect(self._row_clicked)
-        card = panel()
-        v = vbox(card, margins=theme.px(10), spacing=theme.px(6))
-        self.seg_lbl = label("", "section")
-        v.addWidget(self.seg_lbl)
+        head = self.table.header()
+        head.setStretchLastSection(True)
+        head.setMinimumSectionSize(theme.px(28))
+        for col, w in ((0, 30), (1, 76), (2, 92), (3, 60), (4, 60)):
+            self.table.setColumnWidth(col, theme.px(w))
+        self.table.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        v.addWidget(self.table)
+        self._shape_combos: List[Any] = []
         box = QtWidgets.QWidget()
+        box.setProperty("role", "row")            # 1.4.4 (B136) : fond du panneau
         row = FlowLayout(box, spacing=theme.px(6))
-        self.add_tempo_btn = button(t("grid.seg_add_tempo"), lambda: self.add("tempo"), icon="plus",
+        self.add_tempo_btn = button(t("grid.seg_add_tempo_short"), lambda: self.add("tempo"), icon="plus",
                                     tooltip=t("grid.seg_add_tempo_tip"))
         self.add_sound_btn = button(t("grid.seg_add_sound"), lambda: self.add("sound"), icon="plus",
                                     tooltip=t("grid.seg_add_sound_tip"))
-        self.remove_btn = button(t("grid.seg_remove"), self.remove, kind="danger", icon="trash",
+        self.remove_btn = button(t("grid.seg_remove_short"), self.remove, kind="danger", icon="trash",
                                  tooltip=t("grid.seg_remove_tip"))
         for b in (self.add_tempo_btn, self.add_sound_btn, self.remove_btn):
             row.addWidget(b)
         v.addWidget(box)
         box2 = QtWidgets.QWidget()
+        box2.setProperty("role", "row")            # 1.4.4 (B136) : fond du panneau
         row2 = FlowLayout(box2, spacing=theme.px(6))
-        row2.addWidget(label(t("grid.col_shape"), "dim"))
-        self.shape_menu = ShrinkCombo()
-        for key in SHAPES:
-            self.shape_menu.addItem(t(f"grid.shape_{key}"), key)
-        self.shape_menu.setToolTip(t("grid.shape_tip"))
-        self.shape_menu.currentIndexChanged.connect(self._shape_picked)
-        row2.addWidget(self.shape_menu)
+        self.cur_lbl = label("", "dim")
+        row2.addWidget(self.cur_lbl)
         self.bpm_entry = QtWidgets.QLineEdit()
-        self.bpm_entry.setFixedWidth(theme.px(78))
+        self.bpm_entry.setFixedWidth(theme.px(70))
         self.bpm_entry.setToolTip(t("grid.seg_bpm_tip"))
         self.bpm_entry.returnPressed.connect(self.apply_bpm)
         self.end_lbl = label("→", "dim")
         self.end_entry = QtWidgets.QLineEdit()
-        self.end_entry.setFixedWidth(theme.px(78))
+        self.end_entry.setFixedWidth(theme.px(70))
         self.end_entry.setToolTip(t("grid.seg_end_tip"))
         self.end_entry.returnPressed.connect(self.apply_bpm)
-        self.bpm_btn = button(t("grid.seg_apply"), self.apply_bpm, icon="check", tooltip=t("grid.seg_bpm_tip"))
+        self.bpm_btn = icon_button("check", self.apply_bpm, t("grid.seg_bpm_tip"))
         for wdg in (self.bpm_entry, self.end_lbl, self.end_entry, self.bpm_btn):
             row2.addWidget(wdg)
         v.addWidget(box2)
+        # 1.4.4 (C242) : « Analyser ce passage » suit la forme choisie ; le menu ▾ laisse DJSync choisir, ou tous
         box3 = QtWidgets.QWidget()
-        row3 = FlowLayout(box3, spacing=theme.px(6))
+        box3.setProperty("role", "row")            # 1.4.4 (B136) : fond du panneau
+        row3 = hbox(box3, spacing=0)
         self.analyse_btn = button(t("grid.analyse_passage"), lambda: self.analyse(False), icon="wave",
                                   tooltip=t("grid.analyse_passage_tip"))
-        self.analyse_all_btn = button(t("grid.analyse_all"), lambda: self.analyse(True), icon="wave",
-                                      tooltip=t("grid.analyse_all_tip"))
+        self.analyse_btn.setProperty("segment", "first")
+        self.analyse_all_btn = button("", None, tooltip=t("grid.analyse_more_tip"))
+        self.analyse_all_btn.setProperty("segment", "last")
+        menu = QtWidgets.QMenu(self.analyse_all_btn)
+        for key, every, mode in (("grid.analyse_auto", False, "auto"), ("grid.analyse_all", True, "shape"),
+                                 ("grid.analyse_all_auto", True, "auto")):
+            act = menu.addAction(t(key))
+            act.triggered.connect(lambda _c=False, e=every, m=mode: self.analyse(e, mode=m))
+        self.analyse_menu = menu
+        self.analyse_all_btn.setMenu(menu)
+        row3.addWidget(self.analyse_btn)
+        row3.addWidget(self.analyse_all_btn)
+        row3.addSpacing(theme.px(6))
         self.apply_btn = button(t("grid.analyse_apply"), self.apply_proposal, kind="primary", icon="check")
         self.apply_btn.hide()
-        for b in (self.analyse_btn, self.analyse_all_btn, self.apply_btn):
-            row3.addWidget(b)
+        row3.addWidget(self.apply_btn)
+        row3.addStretch(1)
         v.addWidget(box3)
         self.proposal_lbl = label("", "dim", wrap=True)
         self.proposal_lbl.hide()
         v.addWidget(self.proposal_lbl)
-        box4 = QtWidgets.QWidget()
-        row4 = FlowLayout(box4, spacing=theme.px(6))
-        row4.addWidget(label(t("grid.seg_kind"), "dim"))
-        self.kind_menu = ShrinkCombo()
-        self.kind_menu.setToolTip(t("grid.seg_kind_tip"))
-        for key in KIND_CHOICES:
-            self.kind_menu.addItem(t(f"grid.seg_kind_{key or 'auto'}"), key)
-        self.kind_menu.currentIndexChanged.connect(self._kind_picked)
-        row4.addWidget(self.kind_menu)
-        v.addWidget(box4)
+        self.kind_lbl = label("", "dim", wrap=True)
+        self.kind_lbl.setToolTip(t("grid.seg_kind_tip"))
+        v.addWidget(self.kind_lbl)
+        v.addStretch(1)
         self.card = card
+
+    @property
+    def shape_menu(self) -> Any:
+        """Liste « Forme » de la ligne du passage sous le curseur (tableau)."""
+        self.sync()
+        k = segment_at(self.segs, self.ed.cursor_ms) if self.segs else 0
+        self._fill_table()
+        return self._shape_combos[k] if 0 <= k < len(self._shape_combos) else None
 
     def set_scope(self, scope: str) -> None:
         self.scope = scope if scope in ("passage", "all") else "passage"
@@ -718,16 +776,15 @@ class SegmentTools:
         sel = ed.beats[ed.selected]
         self._commit(set_segment_bpm(self.segs, k, bpm, (float(sel[2]), int(sel[0]))))
 
-    def _shape_picked(self, _i: int) -> None:
-        """Forme du passage choisie à la main : palier, rampe (du BPM du passage à celui du suivant), libre."""
+    def _shape_picked(self, k: int, shape: str) -> None:
+        """Forme d'un passage choisie dans le tableau : palier, rampe (du BPM du passage à celui du suivant), libre."""
         if getattr(self, "_filling", False):
             return
         ed = self.ed
         self.sync()
-        if not self.segs or not ed.beats:
+        if not self.segs or not ed.beats or not 0 <= k < len(self.segs):
             return
-        k = segment_at(self.segs, ed.cursor_ms)
-        shape = self.shape_menu.currentData() or "step"
+        shape = shape or "step"
         cur = self.segs[k]
         if shape == shape_of(cur):
             return
@@ -735,46 +792,12 @@ class SegmentTools:
         end = (nxt if abs(nxt - cur[1]) > 0.01 else cur[1] * 1.03) if shape == "ramp" else cur[1]
         self._commit(set_shape(self.segs, k, shape, cur[1], end), force=True)
 
-    def _kind_picked(self, _i: int) -> None:
-        """Type du son corrigé à la main (gardé à la réanalyse) ; 1.4.4 (B131) : il change vraiment la grille.
-        Accélération / ralentissement : le passage sous le curseur devient une rampe analysée ; tempo stable :
-        grille fixe ; beatswitch : paliers ; live / set : grille variable de l'analyse."""
-        if getattr(self, "_filling", False):
-            return
-        from .tempo_grids import TempoGridService
-
-        kind = self.kind_menu.currentData() or ""
-        if TempoGridService.set_kind(self.ed.track, kind):
-            self.ed._refresh_info()
-        ed = self.ed
-        if not ed.beats:
-            return
-        self.sync()
-        if kind == "none":
-            fixed = getattr(ed, "_fixed_grid", None)
-            if fixed is not None and len({b[1] for b in ed.beats}) > 1:
-                fixed()
-        elif kind == "ramp":
-            self.analyse(False, ramp=True, auto_apply=True)
-        elif kind == "switch":
-            if any(shape_of(s) != "step" for s in self.segs):
-                segs = [replace(s, shape="step", end=s[1], origin="main") if shape_of(s) != "step" else s
-                        for s in self.segs]
-                self._commit(segs, force=True)
-        elif kind in ("live", "set"):
-            orig = getattr(ed, "original", None)
-            if orig and len({b[1] for b in orig}) > 1 and ed.beats != orig:
-                ed.beats = list(orig)
-                self._of = None
-                self.edited = True
-                ed._refresh_info()
-                ed.draw()
-
     # ------------------------------------------------------------------ 1.4.4 (B131) : analyse par passage
-    def analyse(self, every: bool, ramp: bool = False, auto_apply: bool = False) -> None:
+    def analyse(self, every: bool, ramp: bool = False, auto_apply: bool = False, mode: str = "shape") -> None:
         """« Analyser ce passage / tous les passages » : décodage de la plage en fond (pool d'analyse), résultat
         proposé (« Appliquer », annulable) ; un passage trop court, sans temps nets ou à un rapport ×2 / ×3/2 de son
-        voisin n'est pas changé (message)."""
+        voisin n'est pas changé (message). 1.4.4 (C242) : `mode` « shape » : chaque passage analysé selon sa forme
+        (palier : palier ; rampe : rampe ; libre : DJSync choisit) ; « auto » : DJSync choisit la forme."""
         from pathlib import Path
 
         from ..analysis import segment_tempo as ST
@@ -797,9 +820,10 @@ class SegmentTools:
             for k in ks:
                 lo, hi = bounds(segs0, k, dur)
                 nb = [segs0[j][1] for j in (k - 1, k + 1) if 0 <= j < len(segs0)]
+                want = "ramp" if ramp else (shape_of(segs0[k]) if mode == "shape" else "free")
                 res = ST.analyze_file(path, lo / 1000.0, hi / 1000.0, float(segs0[k][1]), nb, ffmpeg,
-                                      allow_ramp=True)
-                if ramp and res.shape == "step" and res.ok:
+                                      allow_ramp=want != "step")
+                if want == "ramp" and res.shape == "step" and res.ok:
                     res.shape, res.bpm_end = "ramp", res.bpm
                 out.append((k, res))
             return out
@@ -1011,8 +1035,10 @@ class SegmentTools:
             self.band.update()
 
     def _fill_table(self) -> None:
+        """1.4.4 (C242) : une ligne par passage ; la forme se choisit dans la ligne (palier, rampe, libre)."""
         from ..i18n import t
         _c, QtGui, QtWidgets = _qt()
+        from .widgets import ShrinkCombo
 
         def clock(ms: float) -> str:
             s_ = max(0.0, ms) / 1000.0
@@ -1020,19 +1046,41 @@ class SegmentTools:
 
         rows = []
         for k, sg in enumerate(self.segs):
-            lo, hi = bounds(self.segs, k, self.ed.duration_ms)
-            bpm = f"{sg[1]:.2f}" if shape_of(sg) != "ramp" else f"{sg[1]:.2f} → {end_of(sg):.2f}"
-            rows.append((str(k + 1), clock(lo), clock(hi), t(f"grid.shape_{shape_of(sg)}"), bpm,
-                         t(f"grid.origin_{origin_of(sg)}")))
-        if rows == getattr(self, "_rows", None):
+            lo, _hi = bounds(self.segs, k, self.ed.duration_ms)
+            end = f"{end_of(sg):.2f}" if shape_of(sg) == "ramp" else ""
+            rows.append((str(k + 1), clock(lo), shape_of(sg), f"{sg[1]:.2f}", end, t(f"grid.origin_{origin_of(sg)}")))
+        if rows == getattr(self, "_rows", None) and len(self._shape_combos) == len(rows):
             return
         self._rows = rows
         self.table.clear()
-        for k, r in enumerate(rows):
-            it = QtWidgets.QTreeWidgetItem(list(r))
-            it.setData(0, 256, k)
-            it.setForeground(0, QtGui.QBrush(QtGui.QColor(self.shape_colour(shape_of(self.segs[k])))))
-            self.table.addTopLevelItem(it)
+        self._shape_combos = []
+        self._filling = True
+        try:
+            for k, r in enumerate(rows):
+                it = QtWidgets.QTreeWidgetItem([r[0], r[1], "", r[3], r[4], r[5]])
+                it.setData(0, 256, k)
+                it.setForeground(0, QtGui.QBrush(QtGui.QColor(self.shape_colour(r[2]))))
+                self.table.addTopLevelItem(it)
+                combo = ShrinkCombo()
+                for key in SHAPES:
+                    combo.addItem(t(f"grid.shape_{key}"), key)
+                combo.setToolTip(t("grid.shape_tip"))
+                combo.setCurrentIndex(max(0, combo.findData(r[2])))
+                combo.currentIndexChanged.connect(
+                    lambda _i, q=k, c=combo: self._shape_picked(q, c.currentData() or "step"))
+                self.table.setItemWidget(it, 2, combo)
+                self._shape_combos.append(combo)
+        finally:
+            self._filling = False
+        # hauteur ajustée au nombre de passages (6 lignes au plus, défilement au-delà)
+        from . import theme
+
+        combo_h = self._shape_combos[0].sizeHint().height() + theme.px(4) if self._shape_combos else 0
+        row_h = max(self.table.sizeHintForRow(0) if rows else 0, combo_h, theme.px(28))
+        for k in range(self.table.topLevelItemCount()):
+            self.table.topLevelItem(k).setSizeHint(0, _c.QSize(0, row_h))
+        head_h = self.table.header().sizeHint().height()
+        self.table.setFixedHeight(head_h + row_h * min(6, max(2, len(rows))) + theme.px(10))
 
     def _row_clicked(self, item: Any, _col: int = 0) -> None:
         k = item.data(0, 256)
@@ -1053,11 +1101,11 @@ class SegmentTools:
             return
         multi = self.multi()
         self.band.setVisible(multi)
-        self.scope_box.setVisible(multi)
-        self.table.setVisible(multi)
+        self.scope_box.setVisible(multi and getattr(ed, "current_tab", "tempo") != "cues")
         k = segment_at(self.segs, ed.cursor_ms)
         cur = self.segs[k]
-        self.seg_lbl.setText(t("grid.seg_current", n=k + 1, total=len(self.segs)))
+        self.seg_lbl.setText(t("grid.passages_title_n", n=len(self.segs)) if multi else t("grid.passages_title"))
+        self.cur_lbl.setText(t("grid.seg_current_bpm", n=k + 1))
         ramp = shape_of(cur) == "ramp"
         if not self.bpm_entry.hasFocus():
             self.bpm_entry.setText(f"{cur[1]:.2f}")
@@ -1066,23 +1114,21 @@ class SegmentTools:
         self.end_lbl.setVisible(ramp)
         self.end_entry.setVisible(ramp)
         self.remove_btn.setEnabled(multi)
-        if multi:
-            self._fill_table()
-            sel = self.table.topLevelItem(k)
-            if sel is not None and self.table.currentItem() is not sel:
-                self.table.setCurrentItem(sel)
+        self._fill_table()
+        sel = self.table.topLevelItem(k)
+        if sel is not None and self.table.currentItem() is not sel:
+            self.table.setCurrentItem(sel)
+        shape = shape_of(cur)
+        self.analyse_btn.setText(t("grid.analyse_passage_as", shape=t(f"grid.shape_{shape}").lower())
+                                 if shape != "free" else t("grid.analyse_passage"))
         p = self._profile()
-        user = getattr(p, "user_kind", "") if p is not None else ""
         detected = getattr(p, "detected", "") if p is not None else ""
-        self._filling = True
-        try:
-            auto = t("grid.seg_kind_auto_is", kind=t(f"grid.seg_kind_{detected or 'none'}"))
-            self.kind_menu.setItemText(0, auto)
-            self.kind_menu.setCurrentIndex(max(0, self.kind_menu.findData(user)))
-            self.kind_menu.setEnabled(p is not None)
-            self.shape_menu.setCurrentIndex(max(0, self.shape_menu.findData(shape_of(cur))))
-        finally:
-            self._filling = False
+        kind = deduced_kind(self.segs) if (self.edited or len(self.segs) > 1 or shape != "step") else ""
+        kind = kind or detected or "none"
+        text = t("grid.seg_kind_deduced", kind=t(f"grid.seg_kind_{kind}"))
+        if detected and detected != kind:
+            text += " · " + t("grid.seg_kind_detected", kind=t(f"grid.seg_kind_{detected}"))
+        self.kind_lbl.setText(text)
         self.live()
 
     def remember(self) -> None:
@@ -1092,6 +1138,10 @@ class SegmentTools:
         from .tempo_grids import TempoGridService
 
         self.sync(cues=False)
+        if self.edited:                                   # 1.4.4 (C242) : type déduit des passages retouchés
+            kind = deduced_kind(self.segs)
+            if kind:
+                TempoGridService.set_kind(self.ed.track, kind)
         keep = len(self.segs) > 1 or any(shape_of(s) != "step" for s in self.segs)
         marks = to_marks(self.segs) if keep else []
         if TempoGridService.remember_marks(self.ed.track, marks):
