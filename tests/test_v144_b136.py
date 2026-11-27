@@ -70,7 +70,8 @@ def test_b136_two_tabs_that_do_not_move(demo, tmp_path):  # noqa: F811
 
         z.resize(1018, 400)
         z.resizeEvent(QResizeEvent(QSize(1018, 400), QSize(1018, 400)))
-        assert z.box.direction() == z.box.Direction.LeftToRight
+        mins = [c.minimumSizeHint().width() for c in z.cards]
+        assert z.box.direction() == z.box.Direction.LeftToRight, mins
         # 2e kick grisé tant que le 1er n'est pas posé ; le 1er se replace
         assert not ed.kick2_btn.isEnabled() and ed.kick_btn.isEnabled()
         ed._move_cursor(1000.0)
