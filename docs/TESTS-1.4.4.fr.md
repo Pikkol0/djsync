@@ -141,3 +141,15 @@ Tests automatiques : `tests/test_v144_rc2.py`, `tests/test_v144_rc2_c15.py`.
 | PAR-2 | Tous | Windows | (**B132**) Paramètres : taper vite « export », effacer, retaper. | Les cartes sont filtrées, plus de surlignage pendant la recherche ; aucun cadre qui reste. |
 | ESP-2 | Tous | Windows | (**B133**, **C240**) Paramètres ▸ Espace, clé ouverte, avec des sons de la collection sur un disque débranché. | « sauvegardes de l'ordinateur » dans la ligne DJSync, « Sauvegardes de la clé » dans la liste (bulle avec le dossier) ; mêmes tailles que la fenêtre Sauvegardes ; disque absent : ligne « G:\ absent : N sons (x Go) » qui ouvre les fichiers introuvables. |
 | CLE-13 | Auteur (tour) | Windows | (**B134**) Rekordbox ouvert avec la clé D: affichée ; ouvrir la clé dans DJSync ; Continuer, ajouter un son ; fermer Rekordbox. | Question « Rekordbox a ouvert cette clé » ; exportLibrary.db écrite ; export.pdb réécrit tout seul dans les 30 s après la fermeture (journal « export.pdb caught up »). Annuler : clé en lecture seule. |
+
+## 1.4.4 stable — analyse par passage sur clé et sons Rekordbox
+
+Fiche : **B135** (GRI-7 KO en rc.2 : « fichier introuvable » à l'analyse d'un passage). Cause : l'analyse par passage
+testait le chemin enregistré du son (`/Contents/…` sur une clé, `/PIONEER/…` dans Rekordbox) au lieu du chemin réel.
+Correctif : le chemin est résolu par la bibliothèque, comme le reste de Grille et cues ; « Analyser ce passage »,
+« Analyser tous les passages » et Type ▸ Accélération marchent sur clé et sur l'ordinateur. Décision de l'auteur
+(27/11) : stable directe, sans rc.3. Tests automatiques : `tests/test_v144_b135.py`.
+
+| # | Qui | Plateformes | Comment | Attendu |
+|---|---|---|---|---|
+| GRI-9 | Auteur | Windows | (**B135**, **B131**) GRI-7 refait sur la stable : un son qui accélère, sur la clé puis dans la bibliothèque de l'ordinateur (dont un son importé par Rekordbox) : Tempo ▸ « Analyser ce passage », Appliquer, Annuler ; « Analyser tous les passages » ; Type ▸ Accélération sur un autre son. | Plus de message « fichier introuvable » ; rampe proposée (début → fin), appliquée en un clic, annulable ; Type ▸ Accélération change vraiment la grille. |

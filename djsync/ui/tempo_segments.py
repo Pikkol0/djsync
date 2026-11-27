@@ -783,7 +783,7 @@ class SegmentTools:
         self.sync()
         if not self.segs or not ed.beats:
             return
-        path = getattr(ed.track, "path", "")
+        path = self._audio_path()
         if not path or not Path(path).is_file():
             ed.ctrl.message("warn", self._t("grid.analyse_no_file"))
             return
@@ -825,6 +825,22 @@ class SegmentTools:
         self.proposal_lbl.setText(self._t("grid.analysing"))
         self.proposal_lbl.show()
         ed.ctrl.dispatcher.submit(work, done, failed, pool="analysis")
+
+    def _audio_path(self) -> str:
+        """1.4.4 (B135) : chemin réel du son, résolu par la bibliothèque comme le reste de Grille et cues (clé :
+        « /Contents/… » sous la racine de la clé ; Rekordbox : « /PIONEER/… » sous « share »)."""
+        ed = self.ed
+        track = getattr(ed, "track", None)
+        raw = getattr(track, "path", "") or ""
+        if not raw:
+            return ""
+        lib = getattr(ed.ctrl, "library", None)
+        if lib is not None:
+            try:
+                return str(lib.absolute_path(track))
+            except Exception:  # noqa: BLE001 - bibliothèque sans résolution : chemin enregistré
+                log.debug("absolute_path failed for passage analysis", exc_info=True)
+        return raw
 
     def _propose(self, segs0: List[Seg], results: list, auto_apply: bool) -> None:
         from ..i18n import t
